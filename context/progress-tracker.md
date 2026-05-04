@@ -5,14 +5,30 @@ change.
 
 ## Current Phase
 
-- Feature 6 Complete
+- Feature 07 Complete
 
 ## Current Goal
 
-- Implement the next feature spec.
-
+- Calendar page UI completed.
+    
 ## Completed
 
+- Feature 07: Calendar Page UI (`context/feature-specs/07-calendar-page-ui.md`):
+  - FullCalendar packages installed:
+    - `@fullcalendar/react`
+    - `@fullcalendar/daygrid`
+    - `@fullcalendar/timegrid`
+    - `@fullcalendar/interaction`
+  - `src/components/calendar/calendar-mock-data.ts` — centralized mock booking data with session-type color mapping
+  - `src/components/calendar/calendar-header.tsx` — custom Calendar header with Month / Week / Day toggle, previous/next/today controls, current period label, and New Booking button
+  - `src/components/calendar/calendar-filters.tsx` — department and status filter placeholders
+  - `src/components/calendar/calendar-event-content.tsx` — compact custom event chip rendering
+  - `src/components/calendar/calendar-event-popover.tsx` — booking detail dialog using shadcn Dialog
+  - `src/components/calendar/calendar-grid.tsx` — FullCalendar wrapper with view switching, date navigation, event click handling, and mock event rendering
+  - `app/calendar/page.tsx` + `app/calendar/layout.tsx` — Calendar route with AppShell and PageContainer
+  - Sidebar Calendar link confirmed active
+  - Manual dev check passes; Calendar renders with sidebar/topbar and booking detail dialog
+  
 - Feature 06: Customers Page UI (`context/feature-specs/06-customers-page-ui.md`):
   - `src/components/customers/customer-status-badge.tsx` — badge for Active/Inactive
   - `src/components/customers/customers-filters.tsx` — client component: search input + status select
