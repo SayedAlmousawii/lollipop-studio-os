@@ -82,6 +82,13 @@
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-xl: 18px;
+
+  /* Sidebar tokens */
+  --color-sidebar:            #1C1917;
+  --color-sidebar-foreground: #D4C5A9;
+  --color-sidebar-muted:      #7A6E63;
+  --color-sidebar-border:     #2D2823;
+  --color-sidebar-active-bg:  #2D2418;
 }
 
 /* ─── Base styles ─────────────────────────────────────────────── */
