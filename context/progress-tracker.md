@@ -5,13 +5,21 @@ change.
 
 ## Current Phase
 
-- Feature 4 Complete
+- Feature 5 Complete
 
 ## Current Goal
 
 - Implement the next feature spec.
 
 ## Completed
+
+- Feature 05: Bookings Page UI (`context/feature-specs/05-booking-page-ui.md`):
+  - `src/components/bookings/booking-status-badge.tsx` — badge for Pending/Confirmed/Completed/Cancelled
+  - `src/components/bookings/payment-status-badge.tsx` — badge for Unpaid/Partial/Paid/Refunded
+  - `src/components/bookings/bookings-filters.tsx` — client component: search input + status/date/package selects
+  - `src/components/bookings/bookings-table.tsx` — table with all columns, actions dropdown, accepts `Booking[]` prop
+  - `app/bookings/layout.tsx` + `app/bookings/page.tsx` — bookings route with AppShell, header, filters, 8-row mock table
+  - Lint, TypeScript, and build all pass
 
 - Feature 04: Dashboard Page UI (`context/feature-specs/04-dashboard-page-ui.md`):
   - `src/components/dashboard/stat-card.tsx` — KPI card (title, value, subtext, optional icon)
