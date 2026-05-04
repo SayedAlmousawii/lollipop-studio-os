@@ -16,18 +16,10 @@ import {
 } from "@/components/ui/table";
 import {
   CustomerStatusBadge,
-  type CustomerStatus,
 } from "./customer-status-badge";
+import type { Customer } from "@/modules/customers/customer.types";
 
-export interface Customer {
-  id: string;
-  fullName: string;
-  phone: string;
-  childrenCount: number;
-  totalBookings: number;
-  lastSessionDate: string;
-  status: CustomerStatus;
-}
+export type { Customer };
 
 interface CustomersTableProps {
   customers: Customer[];
@@ -39,7 +31,6 @@ export function CustomersTable({ customers }: CustomersTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
-            <TableHead className="text-text-secondary">Customer ID</TableHead>
             <TableHead className="text-text-secondary">Full Name</TableHead>
             <TableHead className="text-text-secondary">Phone</TableHead>
             <TableHead className="text-text-secondary">Children</TableHead>
@@ -57,9 +48,6 @@ export function CustomersTable({ customers }: CustomersTableProps) {
               key={customer.id}
               className="border-border hover:bg-surface-soft"
             >
-              <TableCell className="font-mono text-sm text-text-muted">
-                {customer.id}
-              </TableCell>
               <TableCell className="font-medium text-text-primary">
                 {customer.fullName}
               </TableCell>

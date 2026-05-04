@@ -43,7 +43,6 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
-            <TableHead className="text-text-secondary">Booking ID</TableHead>
             <TableHead className="text-text-secondary">Customer</TableHead>
             <TableHead className="text-text-secondary">Session Date</TableHead>
             <TableHead className="text-text-secondary">Package</TableHead>
@@ -61,9 +60,6 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
               key={booking.id}
               className="border-border hover:bg-surface-soft"
             >
-              <TableCell className="font-mono text-sm text-text-muted">
-                {booking.id}
-              </TableCell>
               <TableCell className="font-medium text-text-primary">
                 {booking.customerName}
               </TableCell>

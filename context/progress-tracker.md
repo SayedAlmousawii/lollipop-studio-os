@@ -5,13 +5,25 @@ change.
 
 ## Current Phase
 
-- Feature 08 Complete
+- Feature 10 Complete
 
 ## Current Goal
 
-- Database foundation set up.
-    
+- Bookings page connected to real database data.
+
 ## Completed
+
+- Feature 10: Bookings Page Database Connection (`context/feature-specs/10-bookings-page-database-connection.md`):
+  - `src/modules/bookings/booking.service.ts` — `getBookings()` fetches all bookings via Prisma with related `customer`, `package`, and `order.invoice`; maps DB enums to UI `Booking` shape; `assignedStaff` defaults to `"—"` (no DB column yet)
+  - `app/bookings/page.tsx` — now async server component; `MOCK_BOOKINGS` array removed; calls `getBookings()` from service
+  - `src/components/bookings/bookings-table.tsx` — Booking ID column removed (consistent with customers page)
+  - No changes to Prisma schema, shadcn components, or bookings-filters
+
+- Feature 09: Customer Page Database Connection (`context/feature-specs/09-customer-page-database-connection.md`):
+  - `src/modules/customers/customer.service.ts` — `getCustomers()` fetches all customers via Prisma with `_count` for children and bookings, latest booking date, and maps DB types to UI `Customer` shape
+  - `app/customers/page.tsx` — now async server component; MOCK_CUSTOMERS array removed; calls `getCustomers()` from service
+  - `src/components/customers/customers-table.tsx` — Customer ID column removed from the table header and rows
+  - TypeScript clean; `npm run build` passes
 
 - Feature 08: Database Foundation (`context/feature-specs/08-database-foundation.md`):
   - Prisma 7 + `@prisma/client` installed
@@ -91,7 +103,8 @@ change.
 
 ## Next Up
 
-- Implement the next feature spec (check `context/feature-specs/` for the next unit).
+- Feature 11: Dashboard Database Connection (`context/feature-specs/11-dashboard-database-connection.md`)
+- Feature 12: Calendar Database Connection (`context/feature-specs/12-calendar-database-connection.md`)
 
 ## Open Questions
 
