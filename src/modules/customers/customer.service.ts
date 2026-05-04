@@ -1,18 +1,23 @@
 import { db } from "@/lib/db";
-import type { Customer } from "@/components/customers/customers-table";
+import { withRetry } from "@/lib/retry";
+import type { Customer } from "./customer.types";
 
 export async function getCustomers(): Promise<Customer[]> {
-  const rows = await db.customer.findMany({
-    include: {
-      _count: { select: { children: true, bookings: true } },
-      bookings: {
-        orderBy: { sessionDate: "desc" },
-        take: 1,
-        select: { sessionDate: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const rows = await withRetry(
+    () =>
+      db.customer.findMany({
+        include: {
+          _count: { select: { children: true, bookings: true } },
+          bookings: {
+            orderBy: { sessionDate: "desc" },
+            take: 1,
+            select: { sessionDate: true },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      }),
+    "Failed to fetch customers"
+  );
 
   return rows.map((row) => ({
     id: row.id,

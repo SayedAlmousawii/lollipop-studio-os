@@ -22,7 +22,7 @@ change.
 - Feature 09: Customer Page Database Connection (`context/feature-specs/09-customer-page-database-connection.md`):
   - `src/modules/customers/customer.service.ts` — `getCustomers()` fetches all customers via Prisma with `_count` for children and bookings, latest booking date, and maps DB types to UI `Customer` shape
   - `app/customers/page.tsx` — now async server component; MOCK_CUSTOMERS array removed; calls `getCustomers()` from service
-  - No changes to `customers-table.tsx`, shadcn components, or Prisma schema
+  - `src/components/customers/customers-table.tsx` — Customer ID column removed from the table header and rows
   - TypeScript clean; `npm run build` passes
 
 - Feature 08: Database Foundation (`context/feature-specs/08-database-foundation.md`):
@@ -103,7 +103,8 @@ change.
 
 ## Next Up
 
-- Implement the next feature spec (check `context/feature-specs/` for the next unit).
+- Feature 11: Dashboard Database Connection (`context/feature-specs/11-dashboard-database-connection.md`)
+- Feature 12: Calendar Database Connection (`context/feature-specs/12-calendar-database-connection.md`)
 
 ## Open Questions
 

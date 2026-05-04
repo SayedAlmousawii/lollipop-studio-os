@@ -2,7 +2,7 @@
 Connect the existing Customers page UI to real database data using Prisma.
 
 ## Rules
-- Read `agents.md` first.
+- Read `AGENTS.md` first.
 - Use existing project architecture and code standards.
 - Do not modify shadcn/ui generated files.
 - Do not redesign the Customers page.

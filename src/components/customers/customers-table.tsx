@@ -16,18 +16,10 @@ import {
 } from "@/components/ui/table";
 import {
   CustomerStatusBadge,
-  type CustomerStatus,
 } from "./customer-status-badge";
+import type { Customer } from "@/modules/customers/customer.types";
 
-export interface Customer {
-  id: string;
-  fullName: string;
-  phone: string;
-  childrenCount: number;
-  totalBookings: number;
-  lastSessionDate: string;
-  status: CustomerStatus;
-}
+export type { Customer };
 
 interface CustomersTableProps {
   customers: Customer[];

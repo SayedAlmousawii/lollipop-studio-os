@@ -1,17 +1,22 @@
 import { db } from "@/lib/db";
+import { withRetry } from "@/lib/retry";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
 
 export async function getBookings(): Promise<Booking[]> {
-  const rows = await db.booking.findMany({
-    include: {
-      customer: { select: { name: true } },
-      package: { select: { name: true } },
-      order: { include: { invoice: { select: { status: true } } } },
-    },
-    orderBy: { sessionDate: "desc" },
-  });
+  const rows = await withRetry(
+    () =>
+      db.booking.findMany({
+        include: {
+          customer: { select: { name: true } },
+          package: { select: { name: true } },
+          order: { include: { invoice: { select: { status: true } } } },
+        },
+        orderBy: { sessionDate: "desc" },
+      }),
+    "Failed to fetch bookings"
+  );
 
   return rows.map((row) => ({
     id: row.id,
