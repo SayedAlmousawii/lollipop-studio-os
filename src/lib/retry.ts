@@ -5,6 +5,9 @@ export async function withRetry<T>(
   label: string,
   attempts = 3
 ): Promise<T> {
+  if (!Number.isFinite(attempts) || !Number.isInteger(attempts) || attempts < 1) {
+    throw new RangeError(`withRetry: attempts must be a finite positive integer, got ${attempts}`);
+  }
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {

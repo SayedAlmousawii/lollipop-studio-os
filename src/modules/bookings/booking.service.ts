@@ -30,11 +30,15 @@ export async function getBookings(): Promise<Booking[]> {
 }
 
 function formatSessionDate(date: Date): string {
-  return date.toLocaleDateString("en-GB", {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    return "—";
+  }
+  return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  });
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function mapBookingStatus(
