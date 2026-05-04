@@ -1,0 +1,119 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  Aperture,
+  BarChart2,
+  Calendar,
+  CalendarCheck,
+  Camera,
+  DollarSign,
+  FileText,
+  Image,
+  LayoutDashboard,
+  Package,
+  PenLine,
+  Printer,
+  Settings,
+  Truck,
+  User,
+  Users,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const NAV_SECTIONS = [
+  {
+    items: [{ label: "Dashboard", href: "/", icon: LayoutDashboard }],
+  },
+  {
+    items: [
+      { label: "Bookings", href: "/bookings", icon: CalendarCheck },
+      { label: "Calendar", href: "/calendar", icon: Calendar },
+      { label: "Customers", href: "/customers", icon: Users },
+      { label: "Packages", href: "/packages", icon: Package },
+      { label: "Invoices", href: "/invoices", icon: FileText },
+    ],
+  },
+  {
+    items: [
+      { label: "Sessions", href: "/sessions", icon: Camera },
+      { label: "Selection", href: "/selection", icon: Image },
+      { label: "Editing", href: "/editing", icon: PenLine },
+      { label: "Production", href: "/production", icon: Printer },
+      { label: "Delivery", href: "/delivery", icon: Truck },
+    ],
+  },
+  {
+    items: [
+      { label: "Commissions", href: "/commissions", icon: DollarSign },
+      { label: "Reports", href: "/reports", icon: BarChart2 },
+    ],
+  },
+  {
+    items: [{ label: "Settings", href: "/settings", icon: Settings }],
+  },
+];
+
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
+export function Sidebar() {
+  const pathname = usePathname();
+
+  return (
+    <aside className="flex h-full w-60 flex-shrink-0 flex-col bg-sidebar">
+      {/* Logo */}
+      <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
+          <Aperture className="h-4 w-4 text-white" />
+        </div>
+        <span className="text-sm font-semibold text-sidebar-foreground tracking-wide">
+          Studio OS
+        </span>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
+        {NAV_SECTIONS.map((section, si) => (
+          <div key={si} className={cn("space-y-0.5", si > 0 && "mt-1 pt-1 border-t border-sidebar-border")}>
+            {section.items.map((item) => {
+              const active = isActive(pathname, item.href);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
+                    active
+                      ? "bg-sidebar-active-bg text-primary font-medium"
+                      : "text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
+                  )}
+                >
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+
+      {/* User block */}
+      <div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-3">
+        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
+          <User className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-sidebar-foreground">
+            Studio Admin
+          </p>
+          <p className="truncate text-xs text-sidebar-muted">Manager</p>
+        </div>
+      </div>
+    </aside>
+  );
+}
