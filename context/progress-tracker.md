@@ -5,13 +5,21 @@ change.
 
 ## Current Phase
 
-- Feature 4 TBD
+- Feature 4 Complete
 
 ## Current Goal
 
 - Implement the next feature spec.
 
 ## Completed
+
+- Feature 04: Dashboard Page UI (`context/feature-specs/04-dashboard-page-ui.md`):
+  - `src/components/dashboard/stat-card.tsx` — KPI card (title, value, subtext, optional icon)
+  - `src/components/dashboard/section-header.tsx` — section title + optional description
+  - `src/components/dashboard/schedule-item.tsx` — time · customer name · status badge row; exports `ScheduleStatus` union type
+  - `src/components/dashboard/activity-item.tsx` — timestamp + description row
+  - `app/(dashboard)/page.tsx` — full dashboard page: 4-column KPI grid, Today's Schedule panel, Recent Activity panel; all mock/static data
+  - Lint, TypeScript, and build all pass
 
 - Feature 03: Base Chrome Components (`context/feature-specs/03-base-chrome-components.md`):
   - `src/components/layout/sidebar.tsx` — dark sidebar with 5 grouped nav sections, Lucide icons, active state via `usePathname`, logo (top), user block (bottom)
