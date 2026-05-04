@@ -5,13 +5,20 @@ change.
 
 ## Current Phase
 
-- Feature 5 Complete
+- Feature 6 Complete
 
 ## Current Goal
 
 - Implement the next feature spec.
 
 ## Completed
+
+- Feature 06: Customers Page UI (`context/feature-specs/06-customers-page-ui.md`):
+  - `src/components/customers/customer-status-badge.tsx` — badge for Active/Inactive
+  - `src/components/customers/customers-filters.tsx` — client component: search input + status select
+  - `src/components/customers/customers-table.tsx` — table with all columns, actions dropdown, accepts `Customer[]` prop
+  - `app/customers/layout.tsx` + `app/customers/page.tsx` — customers route with AppShell, header, filters, 10-row mock table
+  - Lint, TypeScript, and build all pass
 
 - Feature 05: Bookings Page UI (`context/feature-specs/05-booking-page-ui.md`):
   - `src/components/bookings/booking-status-badge.tsx` — badge for Pending/Confirmed/Completed/Cancelled
