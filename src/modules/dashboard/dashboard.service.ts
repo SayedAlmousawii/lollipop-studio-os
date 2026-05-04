@@ -1,0 +1,151 @@
+import { db } from "@/lib/db";
+import { withRetry } from "@/lib/retry";
+import type { ScheduleStatus } from "@/components/dashboard/schedule-item";
+
+function todayRange() {
+  const now = new Date();
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0)
+  );
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)
+  );
+  return { start, end };
+}
+
+function startOfWeekUTC(): Date {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const diff = day === 0 ? 6 : day - 1;
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff, 0, 0, 0)
+  );
+}
+
+function formatTime(date: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function relativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHrs < 24) return `${diffHrs} hrs ago`;
+  return "Yesterday";
+}
+
+function mapScheduleStatus(
+  status: "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"
+): ScheduleStatus {
+  switch (status) {
+    case "PENDING":
+      return "Pending";
+    case "CONFIRMED":
+    case "COMPLETED":
+      return "Confirmed";
+    case "CANCELLED":
+    case "NO_SHOW":
+      return "Cancelled";
+  }
+}
+
+export async function getDashboardData() {
+  const { start: todayStart, end: todayEnd } = todayRange();
+  const weekStart = startOfWeekUTC();
+
+  const [
+    todaySessionCount,
+    todayConfirmed,
+    todayPending,
+    revenueAgg,
+    pendingTasks,
+    newCustomersThisWeek,
+    todayBookings,
+    recentPayments,
+    recentBookings,
+  ] = await withRetry(
+    () =>
+      Promise.all([
+        db.booking.count({
+          where: { sessionDate: { gte: todayStart, lte: todayEnd } },
+        }),
+        db.booking.count({
+          where: { sessionDate: { gte: todayStart, lte: todayEnd }, status: "CONFIRMED" },
+        }),
+        db.booking.count({
+          where: { sessionDate: { gte: todayStart, lte: todayEnd }, status: "PENDING" },
+        }),
+        db.payment.aggregate({
+          _sum: { amount: true },
+          where: { createdAt: { gte: todayStart, lte: todayEnd } },
+        }),
+        db.order.count({
+          where: { status: { in: ["WAITING_SELECTION", "EDITING", "READY"] } },
+        }),
+        db.customer.count({
+          where: { createdAt: { gte: weekStart } },
+        }),
+        db.booking.findMany({
+          where: { sessionDate: { gte: todayStart, lte: todayEnd } },
+          orderBy: { sessionDate: "asc" },
+          include: { customer: { select: { name: true } } },
+        }),
+        db.payment.findMany({
+          take: 3,
+          orderBy: { createdAt: "desc" },
+          include: {
+            order: { include: { booking: { include: { customer: true } } } },
+          },
+        }),
+        db.booking.findMany({
+          take: 3,
+          orderBy: { createdAt: "desc" },
+          include: { customer: true },
+        }),
+      ]),
+    "Failed to fetch dashboard data"
+  );
+
+  const stats = {
+    todaySessionCount,
+    todayConfirmed,
+    todayPending,
+    revenueToday: revenueAgg._sum.amount?.toNumber() ?? 0,
+    pendingTasks,
+    newCustomersThisWeek,
+  };
+
+  const todaySchedule = todayBookings.map((b) => ({
+    time: formatTime(b.sessionDate),
+    customerName: b.customer.name,
+    status: mapScheduleStatus(b.status),
+  }));
+
+  type ActivityEntry = { createdAt: Date; timestamp: string; description: string };
+
+  const paymentEntries: ActivityEntry[] = recentPayments.map((p) => ({
+    createdAt: p.createdAt,
+    timestamp: relativeTime(p.createdAt),
+    description: `Deposit received from ${p.order?.booking?.customer?.name ?? "Unknown"} — SAR ${p.amount.toNumber()}`,
+  }));
+
+  const bookingEntries: ActivityEntry[] = recentBookings.map((b) => ({
+    createdAt: b.createdAt,
+    timestamp: relativeTime(b.createdAt),
+    description: `New booking created for ${b.customer.name}`,
+  }));
+
+  const recentActivity = [...paymentEntries, ...bookingEntries]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 6)
+    .map(({ timestamp, description }) => ({ timestamp, description }));
+
+  return { stats, todaySchedule, recentActivity };
+}

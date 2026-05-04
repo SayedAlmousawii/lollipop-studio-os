@@ -5,13 +5,22 @@ change.
 
 ## Current Phase
 
-- Feature 10 Complete
+- Feature 12 Complete
 
 ## Current Goal
 
-- Bookings page connected to real database data.
+- Calendar page connected to real database data.
 
 ## Completed
+
+- Feature 12: Calendar Database Connection (`context/feature-specs/12-calendar-database-connection.md`):
+  - `src/modules/calendar/calendar.service.ts` — `getCalendarEvents()` fetches all bookings via Prisma with related `customer` and `package`; maps `SessionType` enum to `"Newborn" | "Kids" | "Family" | "Other"`; maps `BookingStatus` enum to `"Pending" | "Confirmed" | "Cancelled"`; derives colors from `SESSION_TYPE_COLORS`; `photographerName` defaults to `"—"` (no DB column yet); wrapped with `withRetry`
+  - `src/components/calendar/calendar-grid.tsx` — added `events: CalendarBooking[]` prop; removed `mockBookings` import; `handleEventClick` and FullCalendar `events` prop now use the passed `events` array
+  - `app/calendar/page.tsx` — converted to async server component; calls `getCalendarEvents()` and passes result as `events` prop to `<CalendarGrid />`
+
+- Feature 11: Dashboard Database Connection (`context/feature-specs/11-dashboard-database-connection.md`):
+  - `src/modules/dashboard/dashboard.service.ts` — `getDashboardData()` returns `{ stats, todaySchedule, recentActivity }`; `stats` computed from 6 individual Prisma queries (today/week ranges pinned to UTC); `todaySchedule` maps today's bookings to `{ time, customerName, status }` with `"HH:MM"` formatting via `en-GB` locale; `recentActivity` merges last 3 payments and last 3 bookings, sorted by `createdAt` desc, top 6; relative timestamps computed at call time; wrapped with `withRetry`
+  - `app/(dashboard)/page.tsx` — converted to async server component; all three mock arrays removed; calls `getDashboardData()`; KPI values formatted as strings; empty-state paragraphs render gracefully when schedule or activity lists are empty
 
 - Feature 10: Bookings Page Database Connection (`context/feature-specs/10-bookings-page-database-connection.md`):
   - `src/modules/bookings/booking.service.ts` — `getBookings()` fetches all bookings via Prisma with related `customer`, `package`, and `order.invoice`; maps DB enums to UI `Booking` shape; `assignedStaff` defaults to `"—"` (no DB column yet); Prisma read wrapped with `withRetry`; `formatSessionDate` pinned to UTC via `Intl.DateTimeFormat` with invalid-Date guard
@@ -105,8 +114,7 @@ change.
 
 ## Next Up
 
-- Feature 11: Dashboard Database Connection (`context/feature-specs/11-dashboard-database-connection.md`)
-- Feature 12: Calendar Database Connection (`context/feature-specs/12-calendar-database-connection.md`)
+- Feature 13 and beyond (not yet specified)
 
 ## Open Questions
 

@@ -11,13 +11,17 @@ import type { EventClickArg } from "@fullcalendar/core";
 import { CalendarHeader } from "./calendar-header";
 import { CalendarFilters } from "./calendar-filters";
 import { CalendarEventContent } from "./calendar-event-content";
-import { mockBookings, type CalendarBooking } from "./calendar-mock-data";
+import { type CalendarBooking } from "./calendar-mock-data";
 import { CalendarEventPopover } from "./calendar-event-popover";
 
 
 type CalendarView = "dayGridMonth" | "timeGridWeek" | "timeGridDay";
 
-export function CalendarGrid() {
+interface CalendarGridProps {
+  events: CalendarBooking[];
+}
+
+export function CalendarGrid({ events }: CalendarGridProps) {
   const calendarRef = useRef<FullCalendar | null>(null);
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -66,8 +70,8 @@ export function CalendarGrid() {
   }
 
   function handleEventClick(eventInfo: EventClickArg) {
-    const booking = mockBookings.find(
-      (item) => item.id === eventInfo.event.id,
+    const booking = events.find(
+      (item: CalendarBooking) => item.id === eventInfo.event.id,
     );
 
     setSelectedBooking(booking ?? null);
@@ -94,7 +98,7 @@ export function CalendarGrid() {
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
             headerToolbar={false}
-            events={mockBookings}
+            events={events}
             height="auto"
             slotMinTime="08:00:00"
             slotMaxTime="20:00:00"
