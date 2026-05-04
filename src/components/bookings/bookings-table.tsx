@@ -50,7 +50,9 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
             <TableHead className="text-text-secondary">Status</TableHead>
             <TableHead className="text-text-secondary">Payment</TableHead>
             <TableHead className="text-text-secondary">Assigned Staff</TableHead>
-            <TableHead className="w-12" />
+            <TableHead className="w-12">
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

@@ -81,7 +81,7 @@ Use simple badge styles for:
 
 Components
 
-components/bookings/
+src/components/bookings/
   bookings-table.tsx
   booking-status-badge.tsx
   payment-status-badge.tsx

@@ -14,12 +14,13 @@ export function BookingsFilters() {
   return (
     <div className="flex flex-wrap gap-3">
       <div className="relative min-w-48 flex-1">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-        <Input placeholder="Search bookings..." className="pl-9" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
+        <label htmlFor="bookings-search" className="sr-only">Search bookings</label>
+        <Input id="bookings-search" placeholder="Search bookings..." className="pl-9" />
       </div>
 
       <Select>
-        <SelectTrigger className="w-40">
+        <SelectTrigger className="w-40" aria-label="Filter by status">
           <SelectValue placeholder="Status" />
         </SelectTrigger>
         <SelectContent>
@@ -32,7 +33,7 @@ export function BookingsFilters() {
       </Select>
 
       <Select>
-        <SelectTrigger className="w-40">
+        <SelectTrigger className="w-40" aria-label="Filter by date">
           <SelectValue placeholder="Date" />
         </SelectTrigger>
         <SelectContent>
@@ -44,7 +45,7 @@ export function BookingsFilters() {
       </Select>
 
       <Select>
-        <SelectTrigger className="w-40">
+        <SelectTrigger className="w-40" aria-label="Filter by package">
           <SelectValue placeholder="Package" />
         </SelectTrigger>
         <SelectContent>
