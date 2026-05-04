@@ -10,7 +10,7 @@ change.
 ## Current Goal
 
 - Calendar page UI completed.
-- 
+    
 ## Completed
 
 - Feature 07: Calendar Page UI (`context/feature-specs/07-calendar-page-ui.md`):

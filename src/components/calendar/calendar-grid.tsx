@@ -23,40 +23,46 @@ export function CalendarGrid() {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   const [activeView, setActiveView] = useState<CalendarView>("dayGridMonth");
-  const [currentPeriod, setCurrentPeriod] = useState("May 2026");
+  const [currentPeriod, setCurrentPeriod] = useState(() =>
+    new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date()),
+  );
   const [selectedBooking, setSelectedBooking] =
     useState<CalendarBooking | null>(null);
     
 
-  const calendarApi = calendarRef.current?.getApi();
-
-    function updateCurrentPeriod() {
+  function updateCurrentPeriod() {
     const api = calendarRef.current?.getApi();
-
     if (!api) return;
-
     setCurrentPeriod(api.view.title);
   }
 
   function handlePrevious() {
-    calendarApi?.prev();
-    updateCurrentPeriod();
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+    api.prev();
+    setCurrentPeriod(api.view.title);
   }
 
   function handleNext() {
-    calendarApi?.next();
-    updateCurrentPeriod();
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+    api.next();
+    setCurrentPeriod(api.view.title);
   }
 
   function handleToday() {
-    calendarApi?.today();
-    updateCurrentPeriod();
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+    api.today();
+    setCurrentPeriod(api.view.title);
   }
 
   function handleViewChange(view: CalendarView) {
-    calendarApi?.changeView(view);
+    const api = calendarRef.current?.getApi();
+    if (!api) return;
+    api.changeView(view);
     setActiveView(view);
-    updateCurrentPeriod();
+    setCurrentPeriod(api.view.title);
   }
 
   function handleEventClick(eventInfo: EventClickArg) {

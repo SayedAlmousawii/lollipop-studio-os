@@ -63,7 +63,7 @@ return (
       </div>
 
       <div className="flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1">
-        <Button type="button" size="icon" variant="ghost" onClick={onPrevious}>
+        <Button type="button" size="icon" variant="ghost" aria-label="Previous month" onClick={onPrevious}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
 
@@ -71,7 +71,7 @@ return (
           Today
         </Button>
 
-        <Button type="button" size="icon" variant="ghost" onClick={onNext}>
+        <Button type="button" size="icon" variant="ghost" aria-label="Next month" onClick={onNext}>
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>

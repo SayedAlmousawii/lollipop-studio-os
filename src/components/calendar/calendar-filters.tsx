@@ -11,7 +11,7 @@ export function CalendarFilters() {
     <div className="flex flex-col gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:flex-row md:items-center">
       <div className="w-full md:w-56">
         <Select defaultValue="all-departments">
-          <SelectTrigger>
+          <SelectTrigger aria-label="Department">
             <SelectValue placeholder="Department" />
           </SelectTrigger>
           <SelectContent>
@@ -25,7 +25,7 @@ export function CalendarFilters() {
 
       <div className="w-full md:w-56">
         <Select defaultValue="all-statuses">
-          <SelectTrigger>
+          <SelectTrigger aria-label="Status">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
