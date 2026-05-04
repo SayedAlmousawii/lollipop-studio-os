@@ -153,6 +153,8 @@ model Booking {
 model Order {
   id                String      @id @default(cuid())
   bookingId         String      @unique
+  // Intentional denormalization: duplicates Booking.customerId to allow direct
+  // customer-scoped queries on orders without joining through bookings.
   customerId        String
   originalPackageId String?
   finalPackageId    String?
