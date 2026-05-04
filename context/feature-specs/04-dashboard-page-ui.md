@@ -63,8 +63,8 @@ Keep them simple and reusable.
 
 Structure
 
-app/dashboard/page.tsx
-components/dashboard/
+app/(dashboard)/page.tsx
+src/components/dashboard/
   stat-card.tsx
   section-header.tsx
   schedule-item.tsx
