@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  RECEPTIONIST
+  RESERVATION
+  PHOTOGRAPHER
+  EDITOR
+  ACCOUNTANT
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SessionType {
+  NEWBORN
+  KIDS
+  FAMILY
+  MATERNITY
+  OTHER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum OrderStatus {
+  ACTIVE
+  WAITING_SELECTION
+  EDITING
+  PRODUCTION
+  READY
+  DELIVERED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  KNET
+  LINK
+}
+
+enum PaymentType {
+  DEPOSIT
+  BASE
+  UPGRADE
+  ADDON
+  OTHER
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      UserRole @default(RECEPTIONIST)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Customer {
+  id        String         @id @default(cuid())
+  name      String
+  phone     String         @unique
+  status    CustomerStatus @default(ACTIVE)
+  notes     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  children  Child[]
+  bookings  Booking[]
+  orders    Order[]
+  invoices  Invoice[]
+
+  @@map("customers")
+}
+
+model Child {
+  id          String    @id @default(cuid())
+  name        String
+  dateOfBirth DateTime?
+  customerId  String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@map("children")
+}
+
+model Package {
+  id          String  @id @default(cuid())
+  name        String
+  price       Decimal @db.Decimal(10, 3)
+  photoCount  Int
+  description String?
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings       Booking[] @relation("BookingPackage")
+  originalOrders Order[]   @relation("OriginalPackage")
+  finalOrders    Order[]   @relation("FinalPackage")
+
+  @@map("packages")
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  customerId  String
+  packageId   String?
+  sessionDate DateTime
+  sessionType SessionType
+  status      BookingStatus @default(PENDING)
+  depositPaid Boolean       @default(false)
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  package  Package? @relation("BookingPackage", fields: [packageId], references: [id])
+  order    Order?
+
+  @@map("bookings")
+}
+
+model Order {
+  id                String      @id @default(cuid())
+  bookingId         String      @unique
+  // Intentional denormalization: duplicates Booking.customerId to allow direct
+  // customer-scoped queries on orders without joining through bookings.
+  customerId        String
+  originalPackageId String?
+  finalPackageId    String?
+  selectedPhotoCount Int?
+  status            OrderStatus @default(ACTIVE)
+  nasFolderPath     String?
+  notes             String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  booking         Booking  @relation(fields: [bookingId], references: [id])
+  customer        Customer @relation(fields: [customerId], references: [id])
+  originalPackage Package? @relation("OriginalPackage", fields: [originalPackageId], references: [id])
+  finalPackage    Package? @relation("FinalPackage", fields: [finalPackageId], references: [id])
+  invoice         Invoice?
+  payments        Payment[]
+
+  @@map("orders")
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  orderId     String        @unique
+  customerId  String
+  totalAmount Decimal       @db.Decimal(10, 3)
+  paidAmount  Decimal       @default(0) @db.Decimal(10, 3)
+  status      InvoiceStatus @default(UNPAID)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  order    Order     @relation(fields: [orderId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  payments Payment[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  invoiceId String
+  orderId   String?
+  amount    Decimal       @db.Decimal(10, 3)
+  method    PaymentMethod
+  type      PaymentType
+  notes     String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id])
+  order   Order?   @relation(fields: [orderId], references: [id])
+
+  @@map("payments")
+}
