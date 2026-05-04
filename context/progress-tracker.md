@@ -5,13 +5,26 @@ change.
 
 ## Current Phase
 
-- Feature 07 Complete
+- Feature 08 Complete
 
 ## Current Goal
 
-- Calendar page UI completed.
+- Database foundation set up.
     
 ## Completed
+
+- Feature 08: Database Foundation (`context/feature-specs/08-database-foundation.md`):
+  - Prisma 7 + `@prisma/client` installed
+  - `@prisma/adapter-pg` + `pg` installed (required by Prisma 7 — URL-based datasource removed from schema.prisma)
+  - `.env` with default `DATABASE_URL`, `.env.example` for reference
+  - `prisma.config.ts` — `defineConfig` with `datasource.url` for CLI/migrate commands (Prisma 7 breaking change)
+  - `prisma/schema.prisma` — 8 enums (UserRole, CustomerStatus, SessionType, BookingStatus, OrderStatus, InvoiceStatus, PaymentMethod, PaymentType) + 8 models (User, Customer, Child, Package, Booking, Order, Invoice, Payment)
+  - `src/lib/db/index.ts` — singleton PrismaClient with `PrismaPg` adapter, dev-safe global caching
+  - `prisma/seed.ts` — 5 users, 3 packages, 3 customers, 3 children, 3 bookings, 2 orders, 2 invoices, 4 payments
+  - `package.json` — `db:generate`, `db:migrate`, `db:seed`, `db:studio` scripts + `prisma.seed` field
+  - `prisma/migrations/20260505000000_init/migration.sql` — generated via `prisma migrate diff`
+  - `prisma generate` passes; TypeScript compiles clean; Next.js build passes; all existing pages intact
+  - **Note:** Run `prisma migrate dev` and `npm run db:seed` once PostgreSQL is configured
 
 - Feature 07: Calendar Page UI (`context/feature-specs/07-calendar-page-ui.md`):
   - FullCalendar packages installed:
@@ -86,6 +99,7 @@ change.
 
 ## Architecture Decisions
 
+- **Prisma 7 adapter pattern**: Prisma 7 removed URL-based datasource from `schema.prisma`. The connection URL now lives in `prisma.config.ts` (for CLI/migrations) and is passed via `@prisma/adapter-pg` to `PrismaClient` directly. All db access goes through `src/lib/db/index.ts`.
 - tsconfig `@/*` alias set to `["./src/*", "./*"]` so shadcn imports (`@/lib/utils`, `@/components/ui/*`) resolve to `src/` without requiring `app/` to move inside `src/`.
 - `@theme inline` used in `globals.css` so Tailwind color utility classes get values baked in, avoiding CSS custom property shadowing of the `:root` design token declarations.
 - shadcn `--color-accent` maps to `#EFE3CF` (soft hover background) per shadcn convention; the gold accent is exposed as `--color-primary` / `bg-primary`. Raw gold is still available as `var(--color-accent)` from `:root`.
