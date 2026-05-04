@@ -14,15 +14,17 @@ change.
 ## Completed
 
 - Feature 10: Bookings Page Database Connection (`context/feature-specs/10-bookings-page-database-connection.md`):
-  - `src/modules/bookings/booking.service.ts` — `getBookings()` fetches all bookings via Prisma with related `customer`, `package`, and `order.invoice`; maps DB enums to UI `Booking` shape; `assignedStaff` defaults to `"—"` (no DB column yet)
+  - `src/modules/bookings/booking.service.ts` — `getBookings()` fetches all bookings via Prisma with related `customer`, `package`, and `order.invoice`; maps DB enums to UI `Booking` shape; `assignedStaff` defaults to `"—"` (no DB column yet); Prisma read wrapped with `withRetry`; `formatSessionDate` pinned to UTC via `Intl.DateTimeFormat` with invalid-Date guard
   - `app/bookings/page.tsx` — now async server component; `MOCK_BOOKINGS` array removed; calls `getBookings()` from service
   - `src/components/bookings/bookings-table.tsx` — Booking ID column removed (consistent with customers page)
   - No changes to Prisma schema, shadcn components, or bookings-filters
 
 - Feature 09: Customer Page Database Connection (`context/feature-specs/09-customer-page-database-connection.md`):
-  - `src/modules/customers/customer.service.ts` — `getCustomers()` fetches all customers via Prisma with `_count` for children and bookings, latest booking date, and maps DB types to UI `Customer` shape
+  - `src/modules/customers/customer.types.ts` — new domain type module; `Customer` interface extracted here from `customers-table.tsx` to decouple domain type from UI component
+  - `src/modules/customers/customer.service.ts` — `getCustomers()` fetches all customers via Prisma with `_count` for children and bookings, latest booking date, and maps DB types to UI `Customer` shape; Prisma read wrapped with `withRetry`; `formatSessionDate` pinned to UTC via `Intl.DateTimeFormat` with invalid-Date guard; imports `Customer` from `customer.types` (not from UI component)
+  - `src/components/customers/customers-table.tsx` — Customer ID column removed from the table header and rows; `Customer` interface now re-exported from `customer.types`
   - `app/customers/page.tsx` — now async server component; MOCK_CUSTOMERS array removed; calls `getCustomers()` from service
-  - `src/components/customers/customers-table.tsx` — Customer ID column removed from the table header and rows
+  - `src/lib/retry.ts` — shared `withRetry<T>` helper: 3 attempts, 150 ms × attempt backoff, `RangeError` guard on invalid `attempts` param, rethrows with contextual label
   - TypeScript clean; `npm run build` passes
 
 - Feature 08: Database Foundation (`context/feature-specs/08-database-foundation.md`):
