@@ -161,15 +161,15 @@ Back link text: "← Back to Bookings" linking to `/bookings`
 | `app/bookings/page.tsx` | Wrap "New Booking" button in `<Link href="/bookings/new" asChild>` |
 
 ## Done Checks
-- [ ] `/bookings/new` loads with all customer and package options populated from the DB
-- [ ] Submitting a valid form creates a booking row (`status=PENDING`, `depositPaid=0`) and redirects to `/bookings`
-- [ ] New booking appears in the bookings table immediately after redirect
-- [ ] Submitting with missing required fields shows inline field-level error messages
-- [ ] "New Booking" button on `/bookings` navigates to `/bookings/new`
-- [ ] Cancel button on the form returns to `/bookings`
-- [ ] No TypeScript errors
-- [ ] `npm run build` passes
-- [ ] `context/progress-tracker.md` updated
+- [x] `/bookings/new` loads with all customer and package options populated from the DB
+- [x] Submitting a valid form creates a booking row (`status=PENDING`, `depositPaid=false`) and redirects to `/bookings`
+- [x] New booking appears in the bookings table immediately after redirect
+- [x] Submitting with missing required fields shows inline field-level error messages
+- [x] "New Booking" button on `/bookings` navigates to `/bookings/new`
+- [x] Cancel button on the form returns to `/bookings`
+- [x] No TypeScript errors
+- [x] `npm run build` passes
+- [x] `context/progress-tracker.md` updated
 
 ## Out of Scope
 - Deposit recording or payment tracking

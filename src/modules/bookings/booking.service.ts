@@ -33,18 +33,36 @@ export async function getBookings(): Promise<Booking[]> {
 export async function createBookingInDb(
   data: CreateBookingInput
 ): Promise<{ id: string }> {
-  return db.booking.create({
-    data: {
-      customerId: data.customerId,
-      packageId: data.packageId,
-      sessionDate: data.sessionDate,
-      sessionType: data.sessionType,
-      notes: data.notes ?? null,
-      status: "PENDING",
-      depositPaid: false,
-    },
+  const customer = await db.customer.findUnique({
+    where: { id: data.customerId },
     select: { id: true },
   });
+  if (!customer) throw new Error("Customer not found");
+
+  const pkg = await db.package.findUnique({
+    where: { id: data.packageId },
+    select: { id: true, isActive: true },
+  });
+  if (!pkg) throw new Error("Package not found");
+  if (!pkg.isActive) throw new Error("Package is not active");
+
+  return withRetry(
+    () =>
+      db.booking.create({
+        data: {
+          customerId: data.customerId,
+          packageId: data.packageId,
+          sessionDate: data.sessionDate,
+          sessionType: data.sessionType,
+          notes: data.notes ?? null,
+          status: "PENDING",
+          depositPaid: false,
+        },
+        select: { id: true },
+      }),
+    "Failed to create booking",
+    2
+  );
 }
 
 function formatSessionDate(date: Date): string {

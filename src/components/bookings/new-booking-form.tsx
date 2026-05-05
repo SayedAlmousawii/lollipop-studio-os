@@ -1,8 +1,10 @@
 "use client";
 
+import { useState, useRef, useId, useCallback } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { createBooking, type ActionState } from "@/app/bookings/new/actions";
 
 const SESSION_TYPES = [
@@ -24,8 +27,13 @@ const SESSION_TYPES = [
   { value: "OTHER", label: "Other" },
 ] as const;
 
+interface Customer {
+  id: string;
+  name: string;
+}
+
 interface NewBookingFormProps {
-  customers: { id: string; name: string }[];
+  customers: Customer[];
   packages: { id: string; name: string; price: string }[];
 }
 
@@ -40,7 +48,133 @@ function SubmitButton() {
 
 function FieldError({ messages }: { messages?: string[] }) {
   if (!messages?.length) return null;
-  return <p className="mt-1 text-xs text-(--color-destructive)">{messages[0]}</p>;
+  return (
+    <p className="mt-1 text-xs text-(--color-destructive)">{messages[0]}</p>
+  );
+}
+
+interface CustomerComboboxProps {
+  customers: Customer[];
+  error?: string[];
+}
+
+function CustomerCombobox({ customers, error }: CustomerComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Customer | null>(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const listboxId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = query
+    ? customers.filter((c) =>
+        c.name.toLowerCase().includes(query.toLowerCase())
+      )
+    : customers;
+
+  const handleSelect = useCallback(
+    (customer: Customer) => {
+      setSelected(customer);
+      setQuery(customer.name);
+      setOpen(false);
+      setActiveIndex(-1);
+      inputRef.current?.focus();
+    },
+    []
+  );
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter" && open && activeIndex >= 0) {
+      e.preventDefault();
+      const customer = filtered[activeIndex];
+      if (customer) handleSelect(customer);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div className="relative">
+      <input type="hidden" name="customerId" value={selected?.id ?? ""} />
+      <div className="relative">
+        <input
+          ref={inputRef}
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          aria-controls={open ? listboxId : undefined}
+          aria-activedescendant={
+            open && activeIndex >= 0
+              ? `${listboxId}-opt-${activeIndex}`
+              : undefined
+          }
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            setActiveIndex(-1);
+            if (selected && e.target.value !== selected.name) setSelected(null);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search customers…"
+          autoComplete="off"
+          className="flex h-10 w-full rounded-sm border border-(--color-border) bg-(--color-surface) px-3 py-2 pr-8 text-sm text-(--color-text-primary) focus:outline-none focus:ring-2 focus:ring-(--color-accent) focus:ring-offset-0"
+        />
+        <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-(--color-text-secondary)" />
+      </div>
+
+      {open && (
+        <ul
+          id={listboxId}
+          role="listbox"
+          aria-label="Customers"
+          className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border border-(--color-border) bg-(--color-surface) py-1 shadow-md"
+        >
+          {filtered.length === 0 ? (
+            <li
+              role="option"
+              aria-selected={false}
+              className="px-3 py-2 text-sm text-(--color-text-secondary)"
+            >
+              No customers found.
+            </li>
+          ) : (
+            filtered.map((c, i) => (
+              <li
+                key={c.id}
+                id={`${listboxId}-opt-${i}`}
+                role="option"
+                aria-selected={selected?.id === c.id}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  handleSelect(c);
+                }}
+                className={cn(
+                  "cursor-pointer px-3 py-2 text-sm",
+                  i === activeIndex
+                    ? "bg-(--color-surface-soft) text-(--color-text-primary)"
+                    : "text-(--color-text-secondary) hover:bg-(--color-surface-soft) hover:text-(--color-text-primary)"
+                )}
+              >
+                {c.name}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+
+      <FieldError messages={error} />
+    </div>
+  );
 }
 
 export function NewBookingForm({ customers, packages }: NewBookingFormProps) {
@@ -51,25 +185,20 @@ export function NewBookingForm({ customers, packages }: NewBookingFormProps) {
 
   return (
     <form action={formAction} className="space-y-6">
+      {/* Global error */}
+      {state.errors?._global && (
+        <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-(--color-destructive)">
+          {state.errors._global[0]}
+        </p>
+      )}
+
       {/* Customer */}
       <div className="space-y-1.5">
-        <Label htmlFor="customerId">Customer</Label>
-        <select
-          id="customerId"
-          name="customerId"
-          defaultValue=""
-          className="flex h-10 w-full rounded-sm border border-(--color-border) bg-(--color-surface) px-3 py-2 text-sm text-(--color-text-primary) focus:outline-none focus:ring-2 focus:ring-(--color-accent) focus:ring-offset-0 disabled:opacity-50"
-        >
-          <option value="" disabled>
-            Select a customer…
-          </option>
-          {customers.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <FieldError messages={state.errors?.customerId} />
+        <Label htmlFor="customerId-input">Customer</Label>
+        <CustomerCombobox
+          customers={customers}
+          error={state.errors?.customerId}
+        />
       </div>
 
       {/* Package */}
