@@ -3,6 +3,7 @@ import { withRetry } from "@/lib/retry";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
+import type { CreateBookingInput } from "./booking.schema";
 
 export async function getBookings(): Promise<Booking[]> {
   const rows = await withRetry(
@@ -27,6 +28,23 @@ export async function getBookings(): Promise<Booking[]> {
     paymentStatus: mapPaymentStatus(row.order?.invoice?.status),
     assignedStaff: "—",
   }));
+}
+
+export async function createBookingInDb(
+  data: CreateBookingInput
+): Promise<{ id: string }> {
+  return db.booking.create({
+    data: {
+      customerId: data.customerId,
+      packageId: data.packageId,
+      sessionDate: data.sessionDate,
+      sessionType: data.sessionType,
+      notes: data.notes ?? null,
+      status: "PENDING",
+      depositPaid: false,
+    },
+    select: { id: true },
+  });
 }
 
 function formatSessionDate(date: Date): string {
