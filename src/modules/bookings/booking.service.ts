@@ -54,14 +54,11 @@ export async function getBookings(): Promise<Booking[]> {
           order: {
             include: {
               invoices: {
-                orderBy: { createdAt: "desc" },
-                select: {
-                  payments: {
-                    where: { paymentType: PaymentType.DEPOSIT },
-                    select: { id: true },
-                    take: 1,
-                  },
+                where: {
+                  payments: { some: { paymentType: PaymentType.DEPOSIT } },
                 },
+                take: 1,
+                select: { id: true },
               },
             },
           },
@@ -208,13 +205,11 @@ export async function updateBookingStatus(
             order: {
               select: {
                 invoices: {
-                  select: {
-                    payments: {
-                      where: { paymentType: PaymentType.DEPOSIT },
-                      select: { id: true },
-                      take: 1,
-                    },
+                  where: {
+                    payments: { some: { paymentType: PaymentType.DEPOSIT } },
                   },
+                  take: 1,
+                  select: { id: true },
                 },
               },
             },
@@ -351,13 +346,11 @@ const editableBookingInclude = {
   order: {
     select: {
       invoices: {
-        select: {
-          payments: {
-            where: { paymentType: PaymentType.DEPOSIT },
-            select: { id: true },
-            take: 1,
-          },
+        where: {
+          payments: { some: { paymentType: PaymentType.DEPOSIT } },
         },
+        take: 1,
+        select: { id: true },
       },
     },
   },
@@ -423,7 +416,7 @@ function mapEditableBooking(
 
 function mapDepositStatus(
   invoices:
-    | Array<{ payments: Array<{ id: string }> }>
+    | Array<{ id: string; payments?: Array<{ id: string }> }>
     | null
     | undefined
 ): PaymentStatus {
@@ -432,11 +425,14 @@ function mapDepositStatus(
 
 function hasDepositPayment(
   invoices:
-    | Array<{ payments: Array<{ id: string }> }>
+    | Array<{ id: string; payments?: Array<{ id: string }> }>
     | null
     | undefined
 ): boolean {
-  return invoices?.some((invoice) => invoice.payments.length > 0) ?? false;
+  return (
+    invoices?.some((invoice) => !invoice.payments || invoice.payments.length > 0) ??
+    false
+  );
 }
 
 function mapEditableSessionType(

@@ -33,6 +33,9 @@ change.
     - `src/modules/invoices/invoice.service.ts` — added transaction-aware invoice issuing and returns invoice status from transaction-aware invoice creation; booking deposits issue draft invoices before recording payment so paid/remaining totals update
     - Validation: `npm run build` and `npm run lint` pass
     - Decision: used row locking instead of a partial unique index to keep the fix minimal and avoid a schema/migration change while still preventing concurrent duplicate deposits for the same booking flow
+  - Post-review query optimization:
+    - `src/modules/bookings/booking.service.ts` — `getBookings()`, `updateBookingStatus()`, and `editableBookingInclude` now fetch only one invoice row that has a `DEPOSIT` payment instead of loading every invoice and filtering nested payments
+    - Validation: `npm run build` and `npm run lint` pass
 
 - Feature 20: Booking Status Workflow (`context/feature-specs/20-booking-status-workflow.md`):
   - `src/modules/bookings/booking.schema.ts` — added `updateBookingStatusSchema` and inferred input type for booking ID + Prisma booking status validation
