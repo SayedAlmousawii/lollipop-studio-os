@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BookingStatus } from "@prisma/client";
+import { BookingStatus, PaymentMethod } from "@prisma/client";
 
 export const createBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
@@ -33,3 +33,16 @@ export const updateBookingStatusSchema = z.object({
 });
 
 export type UpdateBookingStatusInput = z.infer<typeof updateBookingStatusSchema>;
+
+export const recordBookingDepositSchema = z.object({
+  bookingId: z.string().min(1, "Booking is required"),
+  amount: z.coerce.number().positive("Deposit amount must be greater than 0"),
+  method: z.nativeEnum(PaymentMethod, {
+    error: "Payment method is required",
+  }),
+  reference: z.string().trim().max(120).optional(),
+});
+
+export type RecordBookingDepositInput = z.infer<
+  typeof recordBookingDepositSchema
+>;

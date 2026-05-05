@@ -10,10 +10,12 @@ import {
 } from "@/app/bookings/actions";
 import { cn } from "@/lib/utils";
 import type { BookingStatus } from "./booking-status-badge";
+import type { PaymentStatus } from "./payment-status-badge";
 
 interface BookingStatusActionsProps {
   bookingId: string;
   status: BookingStatus;
+  depositStatus: PaymentStatus;
 }
 
 const STATUS_ACTIONS: Partial<
@@ -32,6 +34,7 @@ const STATUS_ACTIONS: Partial<
 export function BookingStatusActions({
   bookingId,
   status,
+  depositStatus,
 }: BookingStatusActionsProps) {
   const [state, formAction] = useActionState<
     UpdateBookingStatusActionState,
@@ -43,15 +46,23 @@ export function BookingStatusActions({
 
   return (
     <div className="space-y-1">
-      {actions.map((action) => (
-        <form action={formAction} key={action.nextStatus}>
-          <input type="hidden" name="bookingId" value={bookingId} />
-          <input type="hidden" name="nextStatus" value={action.nextStatus} />
-          <StatusSubmitButton isDestructive={action.nextStatus === "CANCELLED"}>
-            {action.label}
-          </StatusSubmitButton>
-        </form>
-      ))}
+      {actions.map((action) => {
+        const depositRequired =
+          action.nextStatus === "CONFIRMED" && depositStatus !== "Paid";
+
+        return (
+          <form action={formAction} key={action.nextStatus}>
+            <input type="hidden" name="bookingId" value={bookingId} />
+            <input type="hidden" name="nextStatus" value={action.nextStatus} />
+            <StatusSubmitButton
+              disabled={depositRequired}
+              isDestructive={action.nextStatus === "CANCELLED"}
+            >
+              {action.label}
+            </StatusSubmitButton>
+          </form>
+        );
+      })}
       {state.errors?._global ? (
         <p className="max-w-64 px-2 py-1 text-xs leading-5 text-danger">
           {state.errors._global[0]}
@@ -63,9 +74,11 @@ export function BookingStatusActions({
 
 function StatusSubmitButton({
   children,
+  disabled,
   isDestructive,
 }: {
   children: ReactNode;
+  disabled: boolean;
   isDestructive: boolean;
 }) {
   const { pending } = useFormStatus();
@@ -73,7 +86,7 @@ function StatusSubmitButton({
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       onClick={(event) => {
         if (isDestructive && !window.confirm("Cancel this booking?")) {
           event.preventDefault();

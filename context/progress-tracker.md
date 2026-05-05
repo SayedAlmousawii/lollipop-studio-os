@@ -5,13 +5,37 @@ change.
 
 ## Current Phase
 
-- Feature 20 Complete
+- Feature 21 Complete
 
 ## Current Goal
 
-- Booking status workflow implemented; spec at `context/feature-specs/20-booking-status-workflow.md`.
+- Booking deposit recording implemented; spec at `context/feature-specs/21-booking-deposit-recording.md`.
 
 ## Completed
+
+- Feature 21: Booking Deposit Recording (`context/feature-specs/21-booking-deposit-recording.md`):
+  - `src/modules/bookings/booking.schema.ts` — added `recordBookingDepositSchema` and inferred input type for booking ID, amount, payment method, and optional reference
+  - `src/modules/bookings/booking.service.ts` — added transactional `recordBookingDeposit()` that verifies pending booking, prevents duplicate deposit payments, creates/reuses the order, creates/reuses the invoice, and records a `DEPOSIT` payment through the payments module; booking list/edit deposit status and confirmation guard now read invoice payments instead of `Booking.depositPaid`
+  - `src/modules/invoices/invoice.service.ts` — extracted `createInvoiceForOrderWithClient()` so booking deposit recording can create invoices inside the same transaction while preserving the existing `createInvoiceForOrder()` API
+  - `src/modules/payments/payment.service.ts` — extracted `recordPaymentWithClient()` so booking deposit recording reuses the existing payment creation/status recalculation logic inside the same transaction while preserving `recordPayment()`
+  - `app/bookings/actions.ts` — added `recordDepositAction` with FormData parsing, Zod validation, service call, structured errors, success state, and `/bookings` + `/calendar` revalidation
+  - `src/components/bookings/record-deposit-form.tsx` — added deposit form with default `20.000` KD amount, payment method, optional reference, inline errors, success feedback, and disabled saving state
+  - `src/components/bookings/bookings-table.tsx` — added row-level `Record Deposit` dialog for pending unpaid bookings and changed the status column label from Payment to Deposit
+  - `src/components/bookings/booking-status-actions.tsx` — disables `Confirm Booking` until deposit status is paid while preserving the service-layer guard
+  - `npm run build` and `npm run lint` pass
+  - Decision: deposit status is derived from `Payment.paymentType = DEPOSIT` on invoices linked through the booking order; no booking deposit field is written
+  - Decision: the deposit workflow runs in one Prisma transaction so invoice/payment creation cannot leave the booking UI falsely updated if payment recording fails
+  - Decision: the form lives in a dialog on the bookings table because the spec allows a modal and keeps staff on the booking page
+  - Assumption: default payment method is `KNET`; staff can switch to `CASH` or `LINK`
+  - Post-review fixes:
+    - `src/components/bookings/bookings-table.tsx` — removed the dead `View Details` dropdown item because no booking detail route exists yet
+    - `src/modules/bookings/booking.service.ts` — serializes deposit recording per booking with `SELECT ... FOR UPDATE` before duplicate checks and invoice/payment writes
+    - `src/modules/invoices/invoice.service.ts` — added transaction-aware invoice issuing and returns invoice status from transaction-aware invoice creation; booking deposits issue draft invoices before recording payment so paid/remaining totals update
+    - Validation: `npm run build` and `npm run lint` pass
+    - Decision: used row locking instead of a partial unique index to keep the fix minimal and avoid a schema/migration change while still preventing concurrent duplicate deposits for the same booking flow
+  - Post-review query optimization:
+    - `src/modules/bookings/booking.service.ts` — `getBookings()`, `updateBookingStatus()`, and `editableBookingInclude` now fetch only one invoice row that has a `DEPOSIT` payment instead of loading every invoice and filtering nested payments
+    - Validation: `npm run build` and `npm run lint` pass
 
 - Feature 20: Booking Status Workflow (`context/feature-specs/20-booking-status-workflow.md`):
   - `src/modules/bookings/booking.schema.ts` — added `updateBookingStatusSchema` and inferred input type for booking ID + Prisma booking status validation
