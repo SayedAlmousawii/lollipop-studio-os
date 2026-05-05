@@ -5,15 +5,30 @@ change.
 
 ## Current Phase
 
-- Feature 17 Complete
+- Feature 18 Complete
 
 ## Current Goal
 
-- Orders Page DB Improvements implemented; spec at `context/feature-specs/17-orders-page-db-improvments`.
+- Edit Order page implemented; spec at `context/feature-specs/18-add-edit-order-page.md`.
 
 ## Completed
 
-- Feature 17: Orders Page DB Improvements (`context/feature-specs/17-orders-page-db-improvments`):
+- Feature 18: Add/Edit Order Page (`context/feature-specs/18-add-edit-order-page.md`):
+  - `prisma/schema.prisma` + `prisma/migrations/20260505030000_order_add_ons/migration.sql` — added order-owned `addOns` JSON storage for the spec's replaceable add-ons V1
+  - `src/modules/orders/order.schema.ts` — added Zod validation for package, selected photos, add-ons, and notes
+  - `src/modules/orders/order.types.ts` — added editable order, package, and add-on types
+  - `src/modules/orders/order.service.ts` — added `getEditableOrderById()` and `updateOrder()`; validates input, blocks delivered orders, verifies the selected package exists, replaces `finalPackageId`, selected photo count, add-ons, and notes without invoice changes
+  - `src/modules/packages/package.types.ts` + `src/modules/packages/package.service.ts` — added active package options with numeric prices/photo counts for the edit UI
+  - `app/orders/[orderId]/edit/actions.ts` — added `updateOrderAction` with FormData parsing, Zod validation, service call, revalidation, and redirect to order detail
+  - `app/orders/[orderId]/edit/page.tsx` — replaced placeholder with order/package fetching, 404 handling, and form render
+  - `src/components/orders/edit-order-form.tsx` — added client form using `useActionState` and `useFormStatus` with summary, package adjustment, photo selection, add-ons, notes, disabled save edge cases, and upgrade highlighting
+  - `npm run db:generate`, `npx prisma migrate deploy`, `npx prisma migrate status`, `npm run build`, and `npm run lint` pass
+  - Decision: add-ons persist as order-owned JSON because the current schema had no add-on model/field while the feature requires DB persistence and simple V1 replacement
+  - Decision: invoice totals are not recalculated or edited from this page; package price difference is UI-only
+  - Assumption: active packages are offered for selection, while the order's current/original package is also shown if it is no longer active so existing orders remain editable
+  - Follow-up fix: `updateOrder()` now connects `finalPackage` through Prisma's relation update API instead of writing `finalPackageId` directly; `npm run build` and `npm run lint` pass
+
+- Feature 17: Orders Page DB Improvements (`context/feature-specs/17-orders-page-db-improvements`):
   - `src/modules/orders/order.types.ts` — replaced mock-list shape with order list/detail display types plus URL filter types
   - `src/modules/orders/order.service.ts` — added `getOrders(filters)`, `getOrderById(orderId)`, URL filter parsing, Prisma-backed order/customer/booking/package/invoice mapping, invoice totals, and workflow display labels
   - `app/orders/page.tsx` — removed `MOCK_ORDERS`; now awaits Next 16 `searchParams`, parses filters, and renders real database orders
@@ -185,7 +200,7 @@ change.
 
 ## Next Up
 
-- Feature 18 and beyond (not yet specified)
+- Feature 19 and beyond (not yet specified)
 
 ## Open Questions
 

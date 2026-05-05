@@ -9,3 +9,11 @@ export interface Package {
   bookingCount: number;
   status: PackageStatus;
 }
+
+export interface PackageOption {
+  id: string;
+  name: string;
+  price: number;
+  priceLabel: string;
+  photoCount: number;
+}
