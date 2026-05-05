@@ -5,13 +5,27 @@ change.
 
 ## Current Phase
 
-- Feature 16 Complete
+- Feature 17 Complete
 
 ## Current Goal
 
-- Invoice & Payment Foundation System implemented; spec at `context/feature-specs/16-invoice-payment-foundation-system.md`.
+- Orders Page DB Improvements implemented; spec at `context/feature-specs/17-orders-page-db-improvments`.
 
 ## Completed
+
+- Feature 17: Orders Page DB Improvements (`context/feature-specs/17-orders-page-db-improvments`):
+  - `src/modules/orders/order.types.ts` — replaced mock-list shape with order list/detail display types plus URL filter types
+  - `src/modules/orders/order.service.ts` — added `getOrders(filters)`, `getOrderById(orderId)`, URL filter parsing, Prisma-backed order/customer/booking/package/invoice mapping, invoice totals, and workflow display labels
+  - `app/orders/page.tsx` — removed `MOCK_ORDERS`; now awaits Next 16 `searchParams`, parses filters, and renders real database orders
+  - `app/orders/[orderId]/page.tsx` — new order detail route with order summary, financial summary, deliverables, workflow status, notes, edit placeholder link, and invoice link/placeholder
+  - `app/orders/[orderId]/edit/page.tsx` — placeholder edit route for the required edit action without building full edit logic
+  - `src/components/orders/orders-filters.tsx` — existing search/status/invoice controls now update URL params (`search`, `orderStatus`, `invoiceStatus`)
+  - `src/components/orders/orders-table.tsx` — updated to required columns and actions: View Details, Edit Order, Create/View Invoice
+  - `src/components/orders/order-status-badge.tsx`, `src/components/orders/invoice-status-badge.tsx` — aligned badge labels with current Prisma order and invoice statuses
+  - `npm run build` passes
+  - Decision: order list financial values are summed from all invoices linked to the order; displayed invoice status uses the newest invoice, or `No Invoice` when none exists
+  - Decision: create invoice remains a disabled placeholder when no invoice exists, because this feature explicitly excludes invoice/payment logic
+  - Assumption: deliverables beyond selected/included/extra photo counts are not yet modeled, so albums / prints / add-ons displays `—`
 
 - Feature 16: Invoice & Payment Foundation System (`context/feature-specs/16-invoice-payment-foundation-system.md`):
   - `prisma/schema.prisma` — updated invoice/payment foundation: `DRAFT → ISSUED → PARTIAL → PAID → CLOSED`, invoice numbers, paid/remaining amounts, lock fields, parent adjustment invoices, payment `paidAt`, `paymentType`, `reference`, and append-only payment records
@@ -171,7 +185,7 @@ change.
 
 ## Next Up
 
-- Feature 17 and beyond (not yet specified)
+- Feature 18 and beyond (not yet specified)
 
 ## Open Questions
 

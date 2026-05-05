@@ -1,14 +1,16 @@
-import type { InvoiceStatus } from "@/modules/orders/order.types";
+import type { InvoiceStatusLabel } from "@/modules/orders/order.types";
 
-const styles: Record<InvoiceStatus, string> = {
-  Unpaid:   "bg-danger-soft text-danger",
+const styles: Record<InvoiceStatusLabel, string> = {
+  Draft:    "bg-text-muted/10 text-text-secondary",
+  Issued:   "bg-info-soft text-info",
   Partial:  "bg-warning-soft text-warning",
   Paid:     "bg-success-soft text-success",
-  Refunded: "bg-info-soft text-info",
+  Closed:   "bg-success-soft text-success",
+  "No Invoice": "bg-danger-soft text-danger",
 };
 
 interface InvoiceStatusBadgeProps {
-  status: InvoiceStatus;
+  status: InvoiceStatusLabel;
 }
 
 export function InvoiceStatusBadge({ status }: InvoiceStatusBadgeProps) {
