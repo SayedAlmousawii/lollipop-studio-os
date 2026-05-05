@@ -17,7 +17,7 @@ export async function getPackages(): Promise<Package[]> {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
-    price: formatPrice(Number(row.price)),
+    price: formatPrice(row.price),
     photoCount: row.photoCount,
     description: row.description ?? "—",
     bookingCount: row._count.bookings,
@@ -25,11 +25,6 @@ export async function getPackages(): Promise<Package[]> {
   }));
 }
 
-function formatPrice(value: number): string {
-  return (
-    new Intl.NumberFormat("en-US", {
-      minimumFractionDigits: 3,
-      maximumFractionDigits: 3,
-    }).format(value) + " KD"
-  );
+function formatPrice(value: { toFixed(dp: number): string }): string {
+  return value.toFixed(3) + " KD";
 }

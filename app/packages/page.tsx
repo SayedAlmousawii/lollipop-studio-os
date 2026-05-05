@@ -4,7 +4,14 @@ import { PackagesTable } from "@/components/packages/packages-table";
 import { getPackages } from "@/modules/packages/package.service";
 
 export default async function PackagesPage() {
-  const packages = await getPackages();
+  let packages: Awaited<ReturnType<typeof getPackages>> = [];
+  let fetchError = false;
+
+  try {
+    packages = await getPackages();
+  } catch {
+    fetchError = true;
+  }
 
   return (
     <PageContainer>
@@ -21,11 +28,19 @@ export default async function PackagesPage() {
           </div>
         </div>
 
-        {/* Filters */}
-        <PackagesFilters />
+        {fetchError ? (
+          <p className="text-sm text-danger">
+            Failed to load packages. Please try refreshing the page.
+          </p>
+        ) : (
+          <>
+            {/* Filters */}
+            <PackagesFilters />
 
-        {/* Table */}
-        <PackagesTable packages={packages} />
+            {/* Table */}
+            <PackagesTable packages={packages} />
+          </>
+        )}
       </div>
     </PageContainer>
   );

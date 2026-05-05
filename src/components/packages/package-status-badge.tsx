@@ -1,4 +1,6 @@
-export type PackageStatus = "Active" | "Inactive";
+import type { PackageStatus } from "@/modules/packages/package.types";
+
+export type { PackageStatus };
 
 const styles: Record<PackageStatus, string> = {
   Active:   "bg-success-soft text-success",

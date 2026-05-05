@@ -1,4 +1,4 @@
-import type { PackageStatus } from "@/components/packages/package-status-badge";
+export type PackageStatus = "Active" | "Inactive";
 
 export interface Package {
   id: string;
