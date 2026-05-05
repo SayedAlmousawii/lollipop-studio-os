@@ -2,6 +2,21 @@ import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import type { ScheduleStatus } from "@/components/dashboard/schedule-item";
 
+type ActivityEntry = { id: string; createdAt: Date; timestamp: string; description: string };
+
+export type DashboardData = {
+  stats: {
+    todaySessionCount: number;
+    todayConfirmed: number;
+    todayPending: number;
+    revenueToday: number;
+    pendingTasks: number;
+    newCustomersThisWeek: number;
+  };
+  todaySchedule: Array<{ id: string; time: string; customerName: string; status: ScheduleStatus }>;
+  recentActivity: Array<{ id: string; timestamp: string; description: string }>;
+};
+
 function todayRange() {
   const now = new Date();
   const start = new Date(
@@ -56,7 +71,7 @@ function mapScheduleStatus(
   }
 }
 
-export async function getDashboardData() {
+export async function getDashboardData(): Promise<DashboardData> {
   const { start: todayStart, end: todayEnd } = todayRange();
   const weekStart = startOfWeekUTC();
 
@@ -101,13 +116,13 @@ export async function getDashboardData() {
           take: 3,
           orderBy: { createdAt: "desc" },
           include: {
-            order: { include: { booking: { include: { customer: true } } } },
+            order: { include: { booking: { include: { customer: { select: { name: true } } } } } },
           },
         }),
         db.booking.findMany({
           take: 3,
           orderBy: { createdAt: "desc" },
-          include: { customer: true },
+          include: { customer: { select: { name: true } } },
         }),
       ]),
     "Failed to fetch dashboard data"
@@ -123,20 +138,21 @@ export async function getDashboardData() {
   };
 
   const todaySchedule = todayBookings.map((b) => ({
+    id: b.id,
     time: formatTime(b.sessionDate),
     customerName: b.customer.name,
     status: mapScheduleStatus(b.status),
   }));
 
-  type ActivityEntry = { createdAt: Date; timestamp: string; description: string };
-
   const paymentEntries: ActivityEntry[] = recentPayments.map((p) => ({
+    id: `payment-${p.id}`,
     createdAt: p.createdAt,
     timestamp: relativeTime(p.createdAt),
     description: `Deposit received from ${p.order?.booking?.customer?.name ?? "Unknown"} — SAR ${p.amount.toNumber()}`,
   }));
 
   const bookingEntries: ActivityEntry[] = recentBookings.map((b) => ({
+    id: `booking-${b.id}`,
     createdAt: b.createdAt,
     timestamp: relativeTime(b.createdAt),
     description: `New booking created for ${b.customer.name}`,
@@ -145,7 +161,7 @@ export async function getDashboardData() {
   const recentActivity = [...paymentEntries, ...bookingEntries]
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     .slice(0, 6)
-    .map(({ timestamp, description }) => ({ timestamp, description }));
+    .map(({ id, timestamp, description }) => ({ id, timestamp, description }));
 
   return { stats, todaySchedule, recentActivity };
 }

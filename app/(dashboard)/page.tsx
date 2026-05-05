@@ -49,8 +49,8 @@ export default async function DashboardPage() {
               {todaySchedule.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No sessions scheduled for today.</p>
               ) : (
-                todaySchedule.map((item, i) => (
-                  <ScheduleItem key={i} {...item} />
+                todaySchedule.map(({ id, ...item }) => (
+                  <ScheduleItem key={id} {...item} />
                 ))
               )}
             </div>
@@ -62,8 +62,8 @@ export default async function DashboardPage() {
               {recentActivity.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No recent activity.</p>
               ) : (
-                recentActivity.map((item, i) => (
-                  <ActivityItem key={i} {...item} />
+                recentActivity.map(({ id, ...item }) => (
+                  <ActivityItem key={id} {...item} />
                 ))
               )}
             </div>
