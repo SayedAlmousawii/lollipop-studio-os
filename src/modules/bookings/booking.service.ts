@@ -12,7 +12,15 @@ export async function getBookings(): Promise<Booking[]> {
         include: {
           customer: { select: { name: true } },
           package: { select: { name: true } },
-          order: { include: { invoice: { select: { status: true } } } },
+          order: {
+            include: {
+              invoices: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { status: true },
+              },
+            },
+          },
         },
         orderBy: { sessionDate: "desc" },
       }),
@@ -25,7 +33,7 @@ export async function getBookings(): Promise<Booking[]> {
     sessionDate: formatSessionDate(row.sessionDate),
     package: row.package?.name ?? "—",
     status: mapBookingStatus(row.status),
-    paymentStatus: mapPaymentStatus(row.order?.invoice?.status),
+    paymentStatus: mapPaymentStatus(row.order?.invoices[0]?.status),
     assignedStaff: "—",
   }));
 }
@@ -94,15 +102,14 @@ function mapBookingStatus(
 }
 
 function mapPaymentStatus(
-  status: "UNPAID" | "PARTIAL" | "PAID" | "REFUNDED" | null | undefined
+  status: "DRAFT" | "ISSUED" | "PARTIAL" | "PAID" | "CLOSED" | null | undefined
 ): PaymentStatus {
   switch (status) {
     case "PARTIAL":
       return "Partial";
     case "PAID":
+    case "CLOSED":
       return "Paid";
-    case "REFUNDED":
-      return "Refunded";
     default:
       return "Unpaid";
   }

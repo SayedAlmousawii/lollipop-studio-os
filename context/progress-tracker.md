@@ -5,13 +5,31 @@ change.
 
 ## Current Phase
 
-- Feature 15 Complete
+- Feature 16 Complete
 
 ## Current Goal
 
-- Add New Booking page implemented; spec at `context/feature-specs/15-add-new-booking.md`.
+- Invoice & Payment Foundation System implemented; spec at `context/feature-specs/16-invoice-payment-foundation-system.md`.
 
 ## Completed
+
+- Feature 16: Invoice & Payment Foundation System (`context/feature-specs/16-invoice-payment-foundation-system.md`):
+  - `prisma/schema.prisma` — updated invoice/payment foundation: `DRAFT → ISSUED → PARTIAL → PAID → CLOSED`, invoice numbers, paid/remaining amounts, lock fields, parent adjustment invoices, payment `paidAt`, `paymentType`, `reference`, and append-only payment records
+  - `prisma/migrations/20260505010000_invoice_payment_foundation/migration.sql` — migration for invoice status flow, locked invoice fields, adjustment relation, payment field changes, and removal of one-invoice-per-order uniqueness
+  - `prisma/seed.ts` — updated seed invoices/payments for invoice numbers, remaining amounts, new payment fields, and new invoice status enum
+  - `src/modules/invoices/invoice.schema.ts` — Zod schema for adjustment invoices
+  - `src/modules/payments/payment.schema.ts` — Zod schema for payment recording
+  - `src/modules/invoices/invoice.types.ts` — invoice list/detail UI types
+  - `src/modules/invoices/invoice.service.ts` — invoice creation, listing, detail fetch, issue, close, status recalculation, and adjustment invoice creation
+  - `src/modules/payments/payment.service.ts` — append-only payment recording, invoice payment history, and revenue-by-date-range helper based on `Payment.amount` + `paidAt`
+  - `app/invoices/actions.ts` — server actions for issuing, closing, recording payment, and creating adjustment invoices
+  - `app/invoices/layout.tsx`, `app/invoices/page.tsx`, `app/invoices/[id]/page.tsx` — invoices list and detail pages with locked invoice handling, payment history, payment form, and adjustment form
+  - `src/components/invoices/invoice-status-badge.tsx`, `src/components/invoices/invoices-table.tsx`, `src/components/invoices/payment-history-table.tsx` — minimal invoice UI components
+  - `src/modules/bookings/booking.service.ts` — adjusted booking payment status lookup for `Order.invoices[]`
+  - `src/modules/dashboard/dashboard.service.ts` — revenue and recent activity now read payment `paidAt`/invoice customer data
+  - Prisma client regenerated; local migration applied and marked as applied; `npm run build` passes
+  - Decision: adjustment invoices are only allowed for locked parent invoices and never mutate the locked parent
+  - Decision: payments cannot be recorded directly against locked invoices; staff must use an adjustment invoice for new post-lock money
 
 - Feature 15: Add New Booking Page (`context/feature-specs/15-add-new-booking.md`):
   - `src/modules/bookings/booking.schema.ts` — Zod `createBookingSchema` + `CreateBookingInput` type for the 5 form fields
@@ -146,7 +164,7 @@ change.
 
 ## Next Up
 
-- Feature 16 and beyond (not yet specified)
+- Feature 17 and beyond (not yet specified)
 
 ## Open Questions
 

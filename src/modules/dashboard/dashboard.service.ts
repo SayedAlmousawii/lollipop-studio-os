@@ -99,7 +99,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         }),
         db.payment.aggregate({
           _sum: { amount: true },
-          where: { createdAt: { gte: todayStart, lte: todayEnd } },
+          where: { paidAt: { gte: todayStart, lte: todayEnd } },
         }),
         db.order.count({
           where: { status: { in: ["WAITING_SELECTION", "EDITING", "READY"] } },
@@ -114,9 +114,9 @@ export async function getDashboardData(): Promise<DashboardData> {
         }),
         db.payment.findMany({
           take: 3,
-          orderBy: { createdAt: "desc" },
+          orderBy: { paidAt: "desc" },
           include: {
-            order: { include: { booking: { include: { customer: { select: { name: true } } } } } },
+            invoice: { include: { customer: { select: { name: true } } } },
           },
         }),
         db.booking.findMany({
@@ -146,9 +146,9 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   const paymentEntries: ActivityEntry[] = recentPayments.map((p) => ({
     id: `payment-${p.id}`,
-    createdAt: p.createdAt,
-    timestamp: relativeTime(p.createdAt),
-    description: `Deposit received from ${p.order?.booking?.customer?.name ?? "Unknown"} — SAR ${p.amount.toNumber()}`,
+    createdAt: p.paidAt,
+    timestamp: relativeTime(p.paidAt),
+    description: `Payment received from ${p.invoice.customer.name} — KD ${p.amount.toNumber()}`,
   }));
 
   const bookingEntries: ActivityEntry[] = recentBookings.map((b) => ({

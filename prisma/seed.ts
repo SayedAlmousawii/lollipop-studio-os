@@ -180,9 +180,12 @@ async function main() {
       id: "inv-001",
       orderId: order1.id,
       customerId: customerFatima.id,
+      invoiceNumber: "INV-00001",
       totalAmount: 250,
       paidAmount: 20,
+      remainingAmount: 230,
       status: InvoiceStatus.PARTIAL,
+      issuedAt: new Date("2026-05-10T10:00:00Z"),
     },
   });
 
@@ -193,10 +196,9 @@ async function main() {
     create: {
       id: "pay-001",
       invoiceId: invoice1.id,
-      orderId: order1.id,
       amount: 20,
       method: PaymentMethod.KNET,
-      type: PaymentType.DEPOSIT,
+      paymentType: PaymentType.DEPOSIT,
       notes: "Deposit paid via KNET",
     },
   });
@@ -255,9 +257,12 @@ async function main() {
       id: "inv-003",
       orderId: order3.id,
       customerId: customerMaryam.id,
+      invoiceNumber: "INV-00003",
       totalAmount: 400,
       paidAmount: 400,
+      remainingAmount: 0,
       status: InvoiceStatus.PAID,
+      issuedAt: new Date("2026-04-15T11:00:00Z"),
     },
   });
 
@@ -269,10 +274,9 @@ async function main() {
       create: {
         id: "pay-003a",
         invoiceId: invoice3.id,
-        orderId: order3.id,
         amount: 20,
         method: PaymentMethod.CASH,
-        type: PaymentType.DEPOSIT,
+        paymentType: PaymentType.DEPOSIT,
       },
     }),
     prisma.payment.upsert({
@@ -281,10 +285,9 @@ async function main() {
       create: {
         id: "pay-003b",
         invoiceId: invoice3.id,
-        orderId: order3.id,
         amount: 380,
         method: PaymentMethod.KNET,
-        type: PaymentType.BASE,
+        paymentType: PaymentType.BASE,
         notes: "Full session payment",
       },
     }),
