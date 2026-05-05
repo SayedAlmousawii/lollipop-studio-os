@@ -4,10 +4,18 @@ import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
 import { BookingsFilters } from "@/components/bookings/bookings-filters";
 import { BookingsTable } from "@/components/bookings/bookings-table";
-import { getBookings } from "@/modules/bookings/booking.service";
+import {
+  getBookingFilterOptions,
+  getBookings,
+  parseBookingFilters,
+} from "@/modules/bookings/booking.service";
 
-export default async function BookingsPage() {
-  const bookings = await getBookings();
+export default async function BookingsPage(props: PageProps<"/bookings">) {
+  const filters = parseBookingFilters(await props.searchParams);
+  const [bookings, packageOptions] = await Promise.all([
+    getBookings(filters),
+    getBookingFilterOptions(),
+  ]);
 
   return (
     <PageContainer>
@@ -31,7 +39,7 @@ export default async function BookingsPage() {
         </div>
 
         {/* Filters */}
-        <BookingsFilters />
+        <BookingsFilters packageOptions={packageOptions} />
 
         {/* Table */}
         <BookingsTable bookings={bookings} />

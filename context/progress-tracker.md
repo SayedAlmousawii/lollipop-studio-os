@@ -5,13 +5,41 @@ change.
 
 ## Current Phase
 
-- Feature 22 Completed
+- Feature 23 Completed
 
 ## Current Goal
 
-- Awaiting review for Feature 22 booking lifecycle alignment implementation.
+- Awaiting review for bookings page filter wiring and topbar cleanup.
 
 ## Completed
+
+- Maintenance: Bookings page filters and topbar cleanup
+  - `app/bookings/page.tsx` — now reads `searchParams`, parses booking filters on the server, and fetches both filtered bookings and package filter options
+  - `src/components/bookings/bookings-filters.tsx` — wired search, status, date, and package controls to URL query params so the bookings list updates from real data instead of static UI state
+  - `src/modules/bookings/booking.service.ts` — added booking filter parsing, Prisma-backed filter query construction, package filter option loading, and aligned deposit invoice selects with existing deposit-status helpers
+  - `src/components/layout/topbar.tsx` — removed the top-nav booking search field and new-booking button, leaving the shared page title plus utility icons intact
+  - Validation: `npm run build` and `npm run lint` pass
+  - Assumption: `This Week` uses a Monday-start local calendar week for server-side booking date filtering
+
+- Feature 23: Booking Details Page (`context/feature-specs/23-booking-details-page.md`):
+  - `app/bookings/[bookingId]/page.tsx` — added a read-only booking details route with booking summary, notes, themes, back navigation, and quick actions for edit plus eligible deposit recording
+  - `src/modules/bookings/booking.service.ts` — added `BookingDetail` plus `getBookingById()` to map booking data into a page-safe detail view model without changing workflow logic
+  - `src/components/bookings/bookings-table.tsx` — added `View Details` to the bookings row actions and kept existing edit, deposit, and status actions intact
+  - `src/components/bookings/record-deposit-dialog.tsx` — extracted the deposit dialog wrapper so the same deposit form can be reused from both the bookings table and booking details page
+  - `app/bookings/actions.ts` — booking status and deposit actions now also revalidate the booking details route
+  - Validation: `npm run build` and `npm run lint` pass
+  - Decision: kept the page read-only and intentionally limited it to summary data, notes, and themes instead of folding in payment history or workflow redesign
+  - Assumption: a disabled `Edit Booking` button is acceptable on non-editable bookings so staff can still view details consistently even when editing is blocked
+  - Follow-up fixes:
+    - `src/modules/bookings/booking.service.ts` — `hasDepositPayment()` now only treats invoices with actual deposit payment rows as paid, and successful deposit recording now auto-transitions the booking from `PENDING` to `CONFIRMED` inside the same transaction
+    - `src/components/bookings/edit-booking-form.tsx` — replaced the native assigned-photographer dropdown with the shared shadcn `Select` pattern while preserving an unassigned option via a hidden form value
+    - Validation: `npm run build` and `npm run lint` pass
+
+- Documentation: Feature 23 booking details page spec
+  - `context/feature-specs/23-booking-details-page.md` — short unit spec for adding a read-only booking details route and a `View Details` action on the bookings table
+  - Decision: kept the unit intentionally small and aligned with the existing Orders details pattern
+  - Decision: excluded schema, workflow, invoice, and payment-history changes from this unit
+  - Assumption: V1 booking details can reuse existing booking/deposit labels without adding a dedicated payment history section
 
 - Feature 22: Booking Model and Flow Alignment (`context/feature-specs/22-booking-model-and-flow-alignment.md`):
   - `prisma/schema.prisma` — added `Booking.department`, nullable `Booking.assignedPhotographerId`, `BookingTheme`, and nullable `Invoice.bookingId` / `Invoice.orderId`; removed `Booking.depositPaid` from the schema

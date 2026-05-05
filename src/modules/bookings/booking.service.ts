@@ -31,6 +31,26 @@ export interface BookingPhotographerOption {
   name: string;
 }
 
+export type BookingStatusFilter =
+  | "PENDING"
+  | "CONFIRMED"
+  | "COMPLETED"
+  | "CANCELLED";
+
+export type BookingDateFilter = "today" | "week" | "month";
+
+export interface BookingFilters {
+  search?: string;
+  status?: BookingStatusFilter;
+  date?: BookingDateFilter;
+  packageId?: string;
+}
+
+export interface BookingFilterOption {
+  id: string;
+  name: string;
+}
+
 export interface EditableBooking {
   id: string;
   customerId: string;
@@ -54,6 +74,26 @@ export interface EditableBooking {
   canEdit: boolean;
 }
 
+export interface BookingDetail {
+  id: string;
+  customerName: string;
+  sessionDate: string;
+  sessionType: string;
+  packageName: string;
+  packagePriceLabel: string;
+  department: string;
+  assignedPhotographerName: string;
+  bookingStatus: BookingStatusLabel;
+  depositStatus: PaymentStatus;
+  notes: string;
+  themes: Array<{
+    themeName: string;
+    notes: string;
+  }>;
+  canEdit: boolean;
+  canRecordDeposit: boolean;
+}
+
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
   [BookingStatus.CONFIRMED]: [BookingStatus.COMPLETED, BookingStatus.CANCELLED],
@@ -62,10 +102,51 @@ const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.NO_SHOW]: [],
 };
 
-export async function getBookings(): Promise<Booking[]> {
+const BOOKING_STATUS_FILTERS = new Set<BookingStatusFilter>([
+  "PENDING",
+  "CONFIRMED",
+  "COMPLETED",
+  "CANCELLED",
+]);
+
+const BOOKING_DATE_FILTERS = new Set<BookingDateFilter>([
+  "today",
+  "week",
+  "month",
+]);
+
+export function parseBookingFilters(filters: {
+  search?: string | string[];
+  status?: string | string[];
+  date?: string | string[];
+  packageId?: string | string[];
+}): BookingFilters {
+  const search = singleValue(filters.search)?.trim();
+  const status = singleValue(filters.status);
+  const date = singleValue(filters.date);
+  const packageId = singleValue(filters.packageId)?.trim();
+
+  return {
+    search: search ? search : undefined,
+    status:
+      status && BOOKING_STATUS_FILTERS.has(status as BookingStatusFilter)
+        ? (status as BookingStatusFilter)
+        : undefined,
+    date:
+      date && BOOKING_DATE_FILTERS.has(date as BookingDateFilter)
+        ? (date as BookingDateFilter)
+        : undefined,
+    packageId: packageId ? packageId : undefined,
+  };
+}
+
+export async function getBookings(filters: BookingFilters = {}): Promise<Booking[]> {
   const rows = await withRetry(
-    () =>
-      db.booking.findMany({
+    () => {
+      const where = buildBookingsWhere(filters);
+
+      return db.booking.findMany({
+        where,
         include: {
           customer: { select: { name: true } },
           package: { select: { name: true } },
@@ -75,11 +156,19 @@ export async function getBookings(): Promise<Booking[]> {
               payments: { some: { paymentType: PaymentType.DEPOSIT } },
             },
             take: 1,
-            select: { id: true },
+            select: {
+              id: true,
+              payments: {
+                where: { paymentType: PaymentType.DEPOSIT },
+                select: { id: true },
+                take: 1,
+              },
+            },
           },
         },
         orderBy: { sessionDate: "desc" },
-      }),
+      });
+    },
     "Failed to fetch bookings"
   );
 
@@ -93,6 +182,17 @@ export async function getBookings(): Promise<Booking[]> {
     paymentStatus: mapDepositStatus(row.invoices),
     assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
   }));
+}
+
+export async function getBookingFilterOptions(): Promise<BookingFilterOption[]> {
+  return withRetry(
+    () =>
+      db.package.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+    "Failed to fetch booking filter options"
+  );
 }
 
 export async function getAssignablePhotographers(): Promise<
@@ -157,6 +257,18 @@ export async function getEditableBookingById(
 
   if (!row) return null;
   return mapEditableBooking(row);
+}
+
+export async function getBookingById(
+  bookingId: string
+): Promise<BookingDetail | null> {
+  const row = await withRetry(
+    () => fetchEditableBookingById(bookingId),
+    "Failed to fetch booking"
+  );
+
+  if (!row) return null;
+  return mapBookingDetail(row);
 }
 
 export async function updateBooking(
@@ -254,7 +366,14 @@ export async function updateBookingStatus(
                 payments: { some: { paymentType: PaymentType.DEPOSIT } },
               },
               take: 1,
-              select: { id: true },
+              select: {
+                id: true,
+                payments: {
+                  where: { paymentType: PaymentType.DEPOSIT },
+                  select: { id: true },
+                  take: 1,
+                },
+              },
             },
           },
         });
@@ -337,12 +456,19 @@ export async function recordBookingDeposit(
           await issueInvoiceWithClient(tx, invoice.id);
         }
 
-        return recordPaymentWithClient(tx, invoice.id, {
+        const payment = await recordPaymentWithClient(tx, invoice.id, {
           amount: data.amount,
           method: data.method,
           paymentType: PaymentType.DEPOSIT,
           reference: data.reference,
         });
+
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.CONFIRMED },
+        });
+
+        return payment;
       }),
     "Failed to record booking deposit",
     2
@@ -436,7 +562,14 @@ const editableBookingInclude = {
       payments: { some: { paymentType: PaymentType.DEPOSIT } },
     },
     take: 1,
-    select: { id: true },
+    select: {
+      id: true,
+      payments: {
+        where: { paymentType: PaymentType.DEPOSIT },
+        select: { id: true },
+        take: 1,
+      },
+    },
   },
 } satisfies Prisma.BookingInclude;
 
@@ -445,6 +578,99 @@ async function fetchEditableBookingById(bookingId: string) {
     where: { id: bookingId },
     include: editableBookingInclude,
   });
+}
+
+function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
+  const search = filters.search;
+  const searchClause = search
+    ? (() => {
+        const containsFilter = {
+          contains: search,
+          mode: Prisma.QueryMode.insensitive,
+        };
+
+        return {
+        OR: [
+          {
+            customer: {
+              is: { name: containsFilter },
+            },
+          },
+          {
+            package: {
+              is: { name: containsFilter },
+            },
+          },
+          { department: containsFilter },
+          {
+            assignedPhotographer: {
+              is: { name: containsFilter },
+            },
+          },
+        ],
+      };
+      })()
+    : undefined;
+
+  return {
+    ...(searchClause ?? {}),
+    ...(filters.packageId ? { packageId: filters.packageId } : {}),
+    ...(filters.status
+      ? {
+          status:
+            filters.status === "CANCELLED"
+              ? { in: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW] }
+              : filters.status,
+        }
+      : {}),
+    ...(filters.date ? buildSessionDateRange(filters.date) : {}),
+  };
+}
+
+function buildSessionDateRange(
+  filter: BookingDateFilter
+): Pick<Prisma.BookingWhereInput, "sessionDate"> {
+  const todayStart = startOfLocalDay(new Date());
+
+  if (filter === "today") {
+    return {
+      sessionDate: {
+        gte: todayStart,
+        lt: addDays(todayStart, 1),
+      },
+    };
+  }
+
+  if (filter === "week") {
+    const dayOfWeek = todayStart.getDay();
+    const offsetToMonday = (dayOfWeek + 6) % 7;
+    const weekStart = addDays(todayStart, -offsetToMonday);
+
+    return {
+      sessionDate: {
+        gte: weekStart,
+        lt: addDays(weekStart, 7),
+      },
+    };
+  }
+
+  const monthStart = new Date(
+    todayStart.getFullYear(),
+    todayStart.getMonth(),
+    1
+  );
+  const nextMonthStart = new Date(
+    todayStart.getFullYear(),
+    todayStart.getMonth() + 1,
+    1
+  );
+
+  return {
+    sessionDate: {
+      gte: monthStart,
+      lt: nextMonthStart,
+    },
+  };
 }
 
 function formatSessionDate(date: Date): string {
@@ -505,6 +731,35 @@ function mapEditableBooking(
   };
 }
 
+function mapBookingDetail(
+  row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
+): BookingDetail {
+  const hasDeposit = hasDepositPayment(row.invoices);
+
+  return {
+    id: row.id,
+    customerName: row.customer.name,
+    sessionDate: formatSessionDate(row.sessionDate),
+    sessionType: formatEnum(row.sessionType),
+    packageName: row.package?.name ?? "—",
+    packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
+    department: row.department,
+    assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
+    bookingStatus: mapBookingStatus(row.status),
+    depositStatus: hasDeposit ? "Paid" : "Unpaid",
+    notes: row.notes ?? "",
+    themes: row.themes.map((theme) => ({
+      themeName: theme.themeName,
+      notes: theme.notes ?? "",
+    })),
+    canEdit:
+      row.status !== BookingStatus.COMPLETED &&
+      row.status !== BookingStatus.CANCELLED &&
+      row.status !== BookingStatus.NO_SHOW,
+    canRecordDeposit: row.status === BookingStatus.PENDING && !hasDeposit,
+  };
+}
+
 function mapDepositStatus(
   invoices:
     | Array<{ id: string; payments?: Array<{ id: string }> }>
@@ -520,10 +775,7 @@ function hasDepositPayment(
     | null
     | undefined
 ): boolean {
-  return (
-    invoices?.some((invoice) => !invoice.payments || invoice.payments.length > 0) ??
-    false
-  );
+  return invoices?.some((invoice) => (invoice.payments?.length ?? 0) > 0) ?? false;
 }
 
 function formatInputDate(date: Date): string {
@@ -549,4 +801,18 @@ function formatEnum(value: string): string {
 function emptyToNull(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function singleValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
 }

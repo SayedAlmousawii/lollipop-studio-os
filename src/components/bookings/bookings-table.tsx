@@ -4,13 +4,6 @@ import { MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -34,7 +27,7 @@ import {
   type PaymentStatus,
 } from "./payment-status-badge";
 import { BookingStatusActions } from "./booking-status-actions";
-import { RecordDepositForm } from "./record-deposit-form";
+import { RecordDepositDialog } from "./record-deposit-dialog";
 
 export interface Booking {
   id: string;
@@ -109,47 +102,42 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
         {booking.assignedPhotographerName}
       </TableCell>
       <TableCell>
-        <Dialog>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-                <span className="sr-only">Open actions</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link href={`/bookings/${booking.id}/edit`}>
-                  Edit Booking
-                </Link>
-              </DropdownMenuItem>
-              {canRecordDeposit ? (
-                <DialogTrigger asChild>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="h-4 w-4" />
+              <span className="sr-only">Open actions</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`/bookings/${booking.id}`}>View Details</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/bookings/${booking.id}/edit`}>Edit Booking</Link>
+            </DropdownMenuItem>
+            {canRecordDeposit ? (
+              <RecordDepositDialog
+                bookingId={booking.id}
+                trigger={
                   <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
                     Record Deposit
                   </DropdownMenuItem>
-                </DialogTrigger>
-              ) : null}
-              {booking.status === "Pending" ||
-              booking.status === "Confirmed" ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <BookingStatusActions
-                    bookingId={booking.id}
-                    status={booking.status}
-                    depositStatus={booking.paymentStatus}
-                  />
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Record Deposit</DialogTitle>
-            </DialogHeader>
-            <RecordDepositForm bookingId={booking.id} />
-          </DialogContent>
-        </Dialog>
+                }
+              />
+            ) : null}
+            {booking.status === "Pending" || booking.status === "Confirmed" ? (
+              <>
+                <DropdownMenuSeparator />
+                <BookingStatusActions
+                  bookingId={booking.id}
+                  status={booking.status}
+                  depositStatus={booking.paymentStatus}
+                />
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </TableCell>
     </TableRow>
   );
