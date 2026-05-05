@@ -5,13 +5,22 @@ change.
 
 ## Current Phase
 
-- Feature 14 Complete
+- Feature 15 Complete
 
 ## Current Goal
 
-- Orders page UI built with mock data; ready for Feature 15 database connection.
+- Add New Booking page implemented; spec at `context/feature-specs/15-add-new-booking.md`.
 
 ## Completed
+
+- Feature 15: Add New Booking Page (`context/feature-specs/15-add-new-booking.md`):
+  - `src/modules/bookings/booking.schema.ts` — Zod `createBookingSchema` + `CreateBookingInput` type for the 5 form fields
+  - `src/modules/bookings/booking.service.ts` — added `createBookingInDb()` which creates a booking with `status=PENDING` and `depositPaid=0`
+  - `app/bookings/new/actions.ts` — `createBooking` server action: parses FormData, validates with Zod, calls service, redirects to `/bookings` on success or returns field errors
+  - `src/components/bookings/new-booking-form.tsx` — client component using `useActionState` + `useFormStatus`; 5 fields (customer select, package select, date input, session type select, notes textarea); inline field-level errors; loading state on submit
+  - `app/bookings/new/page.tsx` — async server component; fetches customers + active packages in parallel; renders page header with back link + form card
+  - `app/bookings/page.tsx` — "New Booking" button now links to `/bookings/new` via `<Link>` + `asChild`
+  - TypeScript clean; `npm run build` passes; `/bookings/new` route live
 
 - Feature 14: Orders Page UI (`context/feature-specs/14-orders-payments-page-ui.md`):
   - `src/modules/orders/order.types.ts` — `OrderStatus` (7 values), `InvoiceStatus` (4 values), `Order` interface
@@ -137,7 +146,7 @@ change.
 
 ## Next Up
 
-- Feature 15 and beyond (not yet specified)
+- Feature 16 and beyond (not yet specified)
 
 ## Open Questions
 

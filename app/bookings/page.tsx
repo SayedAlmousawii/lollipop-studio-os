@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
@@ -21,9 +22,11 @@ export default async function BookingsPage() {
               Manage and track all studio session bookings
             </p>
           </div>
-          <Button className="shrink-0">
-            <Plus className="mr-2 h-4 w-4" />
-            New Booking
+          <Button className="shrink-0" asChild>
+            <Link href="/bookings/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New Booking
+            </Link>
           </Button>
         </div>
 
