@@ -29,6 +29,7 @@ Create the Packages page route, connect it to PostgreSQL via Prisma, and display
 - Filters (search by name, status select) are rendered but non-functional placeholders.
 
 ## Table Columns
+
 | Column | Value |
 |---|---|
 | Name | `package.name` |
