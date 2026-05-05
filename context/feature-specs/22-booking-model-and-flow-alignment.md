@@ -307,15 +307,14 @@ Assumption for this unit:
 
 ## Completion Checklist
 
-- [ ] Booking schema aligned with this unit's target fields
-- [ ] `Booking.depositPaid` removed from runtime logic
-- [ ] Booking deposit state derived from `Payment.paymentType = DEPOSIT`
-- [ ] Deposit flow creates/reuses invoice without creating order
-- [ ] Order creation happens only on booking completion
-- [ ] Simple `BookingTheme` support added
-- [ ] Create Booking UI updated
-- [ ] Edit Booking UI updated
-- [ ] Booking confirmation guard uses payment-derived deposit state
-- [ ] Progress tracker updated
-- [ ] No unrelated workflow systems added
-
+- [x] Booking schema aligned with this unit's target fields
+- [x] `Booking.depositPaid` removed from runtime logic
+- [x] Booking deposit state derived from `Payment.paymentType = DEPOSIT`
+- [x] Deposit flow creates/reuses invoice without creating order
+- [x] Order creation happens only on booking completion
+- [x] Simple `BookingTheme` support added
+- [x] Create Booking UI updated
+- [x] Edit Booking UI updated
+- [x] Booking confirmation guard uses payment-derived deposit state
+- [x] Progress tracker updated
+- [x] No unrelated workflow systems added

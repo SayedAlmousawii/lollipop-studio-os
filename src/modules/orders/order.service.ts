@@ -182,7 +182,7 @@ export async function createOrderFromBooking(
   bookingId: string
 ): Promise<{ id: string }> {
   return withRetry(
-    () => createOrderFromBookingWithClient(db, bookingId),
+    () => db.$transaction((tx) => createOrderFromBookingWithClient(tx, bookingId)),
     "Failed to create order from booking",
     2
   );

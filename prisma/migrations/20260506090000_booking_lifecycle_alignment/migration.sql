@@ -34,7 +34,9 @@ CREATE TABLE "booking_themes" (
 ALTER TABLE "booking_themes"
 ADD CONSTRAINT "booking_themes_bookingId_fkey"
 FOREIGN KEY ("bookingId") REFERENCES "bookings"("id")
-ON DELETE RESTRICT ON UPDATE CASCADE;
+ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE INDEX "booking_themes_bookingId_idx" ON "booking_themes"("bookingId");
 
 ALTER TABLE "invoices"
 ALTER COLUMN "orderId" DROP NOT NULL,
@@ -44,4 +46,3 @@ ALTER TABLE "invoices"
 ADD CONSTRAINT "invoices_bookingId_fkey"
 FOREIGN KEY ("bookingId") REFERENCES "bookings"("id")
 ON DELETE SET NULL ON UPDATE CASCADE;
-

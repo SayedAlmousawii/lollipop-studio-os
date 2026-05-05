@@ -33,6 +33,18 @@ change.
   - Decision: linked booking-created invoices to orders during completion/reuse so deposit/payment history survives the lifecycle transition without duplication
   - Assumption: because the current `User` schema has no `isActive` field, photographer validation checks for an existing user with role `PHOTOGRAPHER`
   - Assumption: existing bookings are migrated to department `"General"` so the required field can be introduced without expanding scope into a department catalog or bulk backfill workflow
+  - Follow-up review fixes:
+    - `context/current-data-model-review.md`, `context/target-data-model.md`, and `context/current-data-model.md` — replaced machine-specific absolute links with repository-relative paths and added a `text` fence for the relationship diagram
+    - `context/feature-specs/22-booking-model-and-flow-alignment.md` — marked the completion checklist according to the current implementation state
+    - `src/modules/bookings/booking.service.ts` — preserved existing `BookingTheme.notes` when edit submissions only rename/reorder theme names, and expanded `EditableBooking` to expose theme objects instead of only names
+    - `src/modules/bookings/booking.utils.ts`, `app/bookings/new/actions.ts`, and `app/bookings/[bookingId]/edit/actions.ts` — extracted shared `parseThemeInput()` utility to remove duplicated parsing logic
+    - `src/modules/bookings/booking.schema.ts` — normalizes empty optional `assignedPhotographerId` values to `undefined` at the schema layer
+    - `src/modules/orders/order.service.ts` — `createOrderFromBooking()` now wraps order creation and booking-invoice linking inside one transaction when called outside an existing transaction
+    - `src/modules/invoices/invoice.service.ts` — added public `createInvoiceForBooking()` wrapper and shortened booking/order reference labels for invoice UI
+    - `prisma/schema.prisma`, `prisma/migrations/20260506090000_booking_lifecycle_alignment/migration.sql`, and `prisma/migrations/20260506103000_booking_theme_index_and_cascade/migration.sql` — added `BookingTheme.bookingId` indexing and switched booking-theme foreign keys to `ON DELETE CASCADE`
+    - `prisma/seed.ts` — booking and invoice upserts now backfill new fields on reruns instead of leaving existing rows unchanged
+    - Validation: `npx prisma generate`, `npx prisma migrate deploy`, `npm run build`, and `npm run lint` pass
+    - Decision: kept the simple newline/comma theme UI and preserved existing `BookingTheme.notes` on edit instead of widening the form into a theme-notes editor in this review pass
 
 - Documentation: Feature 22 booking model and flow alignment spec
   - `context/feature-specs/22-booking-model-and-flow-alignment.md` — implementation spec for aligning booking creation, deposit recording, invoice timing, order creation timing, payment-derived deposit state, new booking fields, and simple booking themes

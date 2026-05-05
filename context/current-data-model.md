@@ -45,7 +45,7 @@
 
 ## Relationships
 
-```
+```text
 Customer (1)
  ├── (1:N) Children
  ├── (1:N) Bookings

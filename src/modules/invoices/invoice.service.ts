@@ -14,6 +14,16 @@ export async function createInvoiceForOrder(orderId: string): Promise<{ id: stri
   );
 }
 
+export async function createInvoiceForBooking(
+  bookingId: string
+): Promise<{ id: string; status: InvoiceStatus }> {
+  return withRetry(
+    () =>
+      db.$transaction((tx) => createInvoiceForBookingWithClient(tx, bookingId)),
+    "Failed to create invoice for booking"
+  );
+}
+
 export async function createInvoiceForOrderWithClient(
   client: DbClient,
   orderId: string
@@ -325,10 +335,14 @@ function formatInvoiceReference(
   bookingId: string | null
 ): string {
   if (orderId) {
-    return `Order ${orderId}`;
+    return `Order ${formatShortId(orderId)}`;
   }
   if (bookingId) {
-    return `Booking ${bookingId} · Order pending`;
+    return `Booking ${formatShortId(bookingId)} · Order pending`;
   }
   return "Order pending";
+}
+
+function formatShortId(id: string): string {
+  return id.length <= 8 ? id : `${id.slice(0, 8)}...`;
 }

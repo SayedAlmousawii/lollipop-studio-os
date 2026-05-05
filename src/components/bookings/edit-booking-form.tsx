@@ -305,7 +305,7 @@ export function EditBookingForm({
           <Textarea
             id="themes"
             name="themes"
-            defaultValue={booking.themeNames.join("\n")}
+            defaultValue={booking.themes.map((theme) => theme.themeName).join("\n")}
             rows={4}
             disabled={!booking.canEdit}
             className="resize-none"

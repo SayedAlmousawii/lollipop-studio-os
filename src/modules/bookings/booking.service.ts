@@ -47,7 +47,10 @@ export interface EditableBooking {
   bookingStatus: BookingStatusLabel;
   depositStatus: "Paid" | "Unpaid";
   notes: string;
-  themeNames: string[];
+  themes: Array<{
+    themeName: string;
+    notes: string;
+  }>;
   canEdit: boolean;
 }
 
@@ -189,6 +192,23 @@ export async function updateBooking(
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
         });
 
+        const existingThemes = await tx.bookingTheme.findMany({
+          where: { bookingId },
+          select: { themeName: true, notes: true },
+        });
+
+        const themesWithPreservedNotes = data.themes.map((theme) => {
+          const normalizedName = theme.themeName.trim().toLowerCase();
+          const existingTheme = existingThemes.find(
+            (item) => item.themeName.trim().toLowerCase() === normalizedName
+          );
+
+          return {
+            themeName: theme.themeName.trim(),
+            notes: emptyToNull(theme.notes) ?? existingTheme?.notes ?? null,
+          };
+        });
+
         return tx.booking.update({
           where: { id: bookingId },
           data: {
@@ -202,10 +222,7 @@ export async function updateBooking(
             notes: emptyToNull(data.notes) ?? null,
             themes: {
               deleteMany: {},
-              create: data.themes.map((theme) => ({
-                themeName: theme.themeName.trim(),
-                notes: emptyToNull(theme.notes) ?? null,
-              })),
+              create: themesWithPreservedNotes,
             },
           },
           include: editableBookingInclude,
@@ -477,7 +494,10 @@ function mapEditableBooking(
     bookingStatus: mapBookingStatus(row.status),
     depositStatus: hasDepositPayment(row.invoices) ? "Paid" : "Unpaid",
     notes: row.notes ?? "",
-    themeNames: row.themes.map((theme) => theme.themeName),
+    themes: row.themes.map((theme) => ({
+      themeName: theme.themeName,
+      notes: theme.notes ?? "",
+    })),
     canEdit:
       row.status !== BookingStatus.COMPLETED &&
       row.status !== BookingStatus.CANCELLED &&

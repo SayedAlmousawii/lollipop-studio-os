@@ -2,10 +2,10 @@
 
 ## Purpose
 
-This document reviews [current-data-model.md](/Users/bo3li/Desktop/lollipop-studio-os/context/current-data-model.md) against:
+This document reviews [current-data-model.md](context/current-data-model.md) against:
 
-- [architecture-context.md](/Users/bo3li/Desktop/lollipop-studio-os/context/architecture-context.md)
-- [project-overview.md](/Users/bo3li/Desktop/lollipop-studio-os/context/project-overview.md)
+- [architecture-context.md](context/architecture-context.md)
+- [project-overview.md](context/project-overview.md)
 
 It does not change implementation. It only captures the findings and the gaps that should guide a future schema revision.
 
@@ -246,4 +246,4 @@ The current model should be treated as:
 
 The next step should be a target V1 schema that keeps the strong parts of the current model, while adding the missing workflow entities and clarifying ownership boundaries.
 
-That target is described in [target-data-model.md](/Users/bo3li/Desktop/lollipop-studio-os/context/target-data-model.md).
+That target is described in [target-data-model.md](context/target-data-model.md).

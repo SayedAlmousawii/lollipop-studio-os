@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { updateBookingSchema } from "@/modules/bookings/booking.schema";
 import { updateBooking } from "@/modules/bookings/booking.service";
+import { parseThemeInput } from "@/modules/bookings/booking.utils";
 
 export type UpdateBookingActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -57,16 +58,4 @@ function buildSessionDate(date: FormDataEntryValue | null, time: FormDataEntryVa
 
   const value = new Date(`${date}T${time}:00.000Z`);
   return Number.isNaN(value.getTime()) ? null : value;
-}
-
-function parseThemeInput(value: FormDataEntryValue | null) {
-  if (typeof value !== "string") {
-    return [];
-  }
-
-  return value
-    .split(/[\n,]/)
-    .map((themeName) => themeName.trim())
-    .filter(Boolean)
-    .map((themeName) => ({ themeName }));
 }

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createBookingSchema } from "@/modules/bookings/booking.schema";
 import { createBookingInDb } from "@/modules/bookings/booking.service";
+import { parseThemeInput } from "@/modules/bookings/booking.utils";
 
 export type ActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -35,16 +36,4 @@ export async function createBooking(
     return { errors: { _global: ["Unable to save booking, please try again."] } };
   }
   redirect("/bookings");
-}
-
-function parseThemeInput(value: FormDataEntryValue | null) {
-  if (typeof value !== "string") {
-    return [];
-  }
-
-  return value
-    .split(/[\n,]/)
-    .map((themeName) => themeName.trim())
-    .filter(Boolean)
-    .map((themeName) => ({ themeName }));
 }

@@ -4,10 +4,10 @@
 
 This document describes the ideal V1 schema direction for Studio OS based on:
 
-- the current implementation shape in [current-data-model.md](/Users/bo3li/Desktop/lollipop-studio-os/context/current-data-model.md)
-- the findings in [current-data-model-review.md](/Users/bo3li/Desktop/lollipop-studio-os/context/current-data-model-review.md)
-- the intended system behavior in [architecture-context.md](/Users/bo3li/Desktop/lollipop-studio-os/context/architecture-context.md)
-- the business workflow in [project-overview.md](/Users/bo3li/Desktop/lollipop-studio-os/context/project-overview.md)
+- the current implementation shape in [current-data-model.md](context/current-data-model.md)
+- the findings in [current-data-model-review.md](context/current-data-model-review.md)
+- the intended system behavior in [architecture-context.md](context/architecture-context.md)
+- the business workflow in [project-overview.md](context/project-overview.md)
 
 This is a design target only. It is not an implementation plan and does not imply schema changes have been made.
 

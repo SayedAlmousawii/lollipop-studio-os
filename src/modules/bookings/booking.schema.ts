@@ -23,7 +23,10 @@ export const createBookingSchema = z.object({
     .trim()
     .min(1, "Department is required")
     .max(80, "Department must be 80 characters or fewer"),
-  assignedPhotographerId: z.string().trim().optional(),
+  assignedPhotographerId: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().trim().optional()
+  ),
   sessionType: z.enum(["NEWBORN", "KIDS", "FAMILY", "MATERNITY", "OTHER"], {
     error: "Session type is required",
   }),
@@ -46,7 +49,10 @@ export const updateBookingSchema = z.object({
     .trim()
     .min(1, "Department is required")
     .max(80, "Department must be 80 characters or fewer"),
-  assignedPhotographerId: z.string().trim().optional(),
+  assignedPhotographerId: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().trim().optional()
+  ),
   sessionType: z.enum(["NEWBORN", "KIDS", "FAMILY", "MATERNITY", "OTHER"], {
     error: "Session type is required",
   }),
