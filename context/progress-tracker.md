@@ -5,13 +5,39 @@ change.
 
 ## Current Phase
 
-- Feature 18 Complete
+- Feature 20 Complete
 
 ## Current Goal
 
-- Edit Order page implemented; spec at `context/feature-specs/18-add-edit-order-page.md`.
+- Booking status workflow implemented; spec at `context/feature-specs/20-booking-status-workflow.md`.
 
 ## Completed
+
+- Feature 20: Booking Status Workflow (`context/feature-specs/20-booking-status-workflow.md`):
+  - `src/modules/bookings/booking.schema.ts` — added `updateBookingStatusSchema` and inferred input type for booking ID + Prisma booking status validation
+  - `src/modules/bookings/booking.service.ts` — added explicit status transition rules, deposit guard for confirmation, and transactional `updateBookingStatus()` that creates an order when moving to `COMPLETED`
+  - `src/modules/orders/order.service.ts` — added `createOrderFromBooking()` plus a transaction-aware helper that reuses existing orders, creates no duplicates, links customer/booking/package, sets original and final package from the booking package, initializes selected photos to `0`, and starts orders as `ACTIVE`
+  - `app/bookings/actions.ts` — added `updateBookingStatusAction` with FormData parsing, Zod validation, service call, and revalidation for `/bookings` and `/calendar`
+  - `src/components/bookings/booking-status-actions.tsx` — added valid status action controls for pending/confirmed bookings with inline action errors, pending state, and cancel confirmation
+  - `src/components/bookings/bookings-table.tsx` — renders only valid status actions: pending can confirm/cancel, confirmed can complete/cancel, completed/cancelled show none
+  - `npm run build` and `npm run lint` pass
+  - Decision: the confirmation guard uses the existing `Booking.depositPaid` field because deposit tracking exists directly on booking in the current schema
+  - Decision: completing a booking and creating/reusing its order run inside the same Prisma transaction to avoid status/order mismatch
+  - Decision: completing a booking without a package is blocked because the feature requires the booking package to become both original and final order package
+
+- Feature 19: Add/Edit Booking Page (`context/feature-specs/19-add-edit-booking-page.md`):
+  - `src/modules/bookings/booking.schema.ts` — added `updateBookingSchema` and `UpdateBookingInput` for editable booking fields
+  - `src/modules/bookings/booking.service.ts` — added `getEditableBookingById()` and `updateBooking()` with input validation, customer/package existence checks, completed/cancelled edit blocking, and deposit-preserving updates
+  - `app/bookings/[bookingId]/edit/actions.ts` — added `updateBookingAction` with FormData parsing, date/time validation, service call, booking revalidation, and redirect to `/bookings`
+  - `app/bookings/[bookingId]/edit/page.tsx` — added edit route with booking/customer/package fetching and 404 handling
+  - `src/components/bookings/edit-booking-form.tsx` — added client form using `useActionState` and `useFormStatus`, read-only summary, customer/package/date/time/session type/notes sections, disabled save states, and inline field errors
+  - `src/components/bookings/bookings-table.tsx` — linked the existing Edit Booking action to `/bookings/[bookingId]/edit`
+  - `npm run build` and `npm run lint` pass
+  - Decision: date and time are submitted as separate fields and combined into a UTC `Date` in the server action, matching existing seeded booking timestamps and calendar usage
+  - Decision: deposit status is displayed read-only and is never updated by this page
+  - Assumption: the edit package dropdown lists existing packages from the packages page fetch; package price changes remain booking-only and do not touch orders, invoices, or payments
+  - Follow-up field audit: `project-overview.md` and `architecture-context.md` also identify booking-owned department, assigned photographer, selected themes, booking status, and deposit status. Current Prisma `Booking` only has `status` and `depositPaid` for that set; department/photographer/themes need schema decisions, deposit remains payment-owned in this UI, and editable booking status needs workflow/audit requirements before implementation.
+  - Follow-up fix: Edit Booking now preserves and allows the existing Prisma `MATERNITY` session type instead of mapping it to `OTHER`; `npm run build` and `npm run lint` pass
 
 - Feature 18: Add/Edit Order Page (`context/feature-specs/18-add-edit-order-page.md`):
   - `prisma/schema.prisma` + `prisma/migrations/20260505030000_order_add_ons/migration.sql` — added order-owned `addOns` JSON storage for the spec's replaceable add-ons V1

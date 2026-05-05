@@ -1,9 +1,11 @@
 import { MoreHorizontal } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -22,6 +24,7 @@ import {
   PaymentStatusBadge,
   type PaymentStatus,
 } from "./payment-status-badge";
+import { BookingStatusActions } from "./booking-status-actions";
 
 export interface Booking {
   id: string;
@@ -88,8 +91,21 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem>View Details</DropdownMenuItem>
-                    <DropdownMenuItem>Edit Booking</DropdownMenuItem>
-                    <DropdownMenuItem>Cancel Booking</DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/bookings/${booking.id}/edit`}>
+                        Edit Booking
+                      </Link>
+                    </DropdownMenuItem>
+                    {booking.status === "Pending" ||
+                    booking.status === "Confirmed" ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <BookingStatusActions
+                          bookingId={booking.id}
+                          status={booking.status}
+                        />
+                      </>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
