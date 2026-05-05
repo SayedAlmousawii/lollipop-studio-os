@@ -137,7 +137,7 @@ change.
 
 ## Next Up
 
-- Feature 14 and beyond (not yet specified)
+- Feature 15 and beyond (not yet specified)
 
 ## Open Questions
 

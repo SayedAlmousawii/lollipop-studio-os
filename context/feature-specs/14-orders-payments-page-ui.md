@@ -173,7 +173,7 @@ Mock data must cover at least: one of each `InvoiceStatus` value, and at least t
 
 ## Expected Files
 
-```
+```text
 src/modules/orders/order.types.ts
 src/components/orders/order-status-badge.tsx
 src/components/orders/invoice-status-badge.tsx
@@ -214,7 +214,7 @@ The sidebar (`src/components/layout/sidebar.tsx`) must include an **Orders** lin
 - [ ] Orders sidebar link is active when on `/orders`
 - [ ] `npx tsc --noEmit` passes
 - [ ] `npm run build` passes
-- [ ] - Update `context/progress-tracker.md`.
+- [ ] Update `context/progress-tracker.md`.
 
 ⸻
 

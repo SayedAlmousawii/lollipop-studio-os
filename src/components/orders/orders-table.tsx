@@ -65,7 +65,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               </TableCell>
               <TableCell
                 className={`text-sm ${
-                  order.remainingAmount !== "0.000 KD"
+                  parseFloat(order.remainingAmount.replace(/[^\d.-]/g, "")) > 0
                     ? "text-danger"
                     : "text-text-secondary"
                 }`}
