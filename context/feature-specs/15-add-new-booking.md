@@ -16,7 +16,7 @@ A form page at `/bookings/new` that:
 - Fetches customers and active packages from the DB (async server component)
 - Renders a styled form with 5 fields
 - Submits via a `"use server"` action
-- Creates a `booking` row with `status = PENDING` and `depositPaid = 0`
+- Creates a `booking` row with `status = PENDING` and `depositPaid = false`
 - Redirects to `/bookings` on success
 - Returns inline validation errors on failure (no page reload / no thrown error)
 

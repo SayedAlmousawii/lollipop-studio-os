@@ -50,10 +50,11 @@ enum OrderStatus {
 }
 
 enum InvoiceStatus {
-  UNPAID
+  DRAFT
+  ISSUED
   PARTIAL
   PAID
-  REFUNDED
+  CLOSED
 }
 
 enum PaymentMethod {
@@ -169,42 +170,50 @@ model Order {
   customer        Customer @relation(fields: [customerId], references: [id])
   originalPackage Package? @relation("OriginalPackage", fields: [originalPackageId], references: [id])
   finalPackage    Package? @relation("FinalPackage", fields: [finalPackageId], references: [id])
-  invoice         Invoice?
-  payments        Payment[]
+  invoices        Invoice[]
 
   @@map("orders")
 }
 
 model Invoice {
-  id          String        @id @default(cuid())
-  orderId     String        @unique
-  customerId  String
-  totalAmount Decimal       @db.Decimal(10, 3)
-  paidAmount  Decimal       @default(0) @db.Decimal(10, 3)
-  status      InvoiceStatus @default(UNPAID)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id              String        @id @default(cuid())
+  orderId         String
+  customerId      String
+  invoiceSeq      Int           @unique @default(dbgenerated("nextval('\"invoice_number_seq\"'::regclass)"))
+  invoiceNumber   String        @unique
+  totalAmount     Decimal       @db.Decimal(10, 3)
+  paidAmount      Decimal       @default(0) @db.Decimal(10, 3)
+  remainingAmount Decimal       @default(0) @db.Decimal(10, 3)
+  status          InvoiceStatus @default(DRAFT)
+  isLocked        Boolean       @default(false)
+  parentInvoiceId String?
+  notes           String?
+  issuedAt        DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  order    Order     @relation(fields: [orderId], references: [id])
-  customer Customer  @relation(fields: [customerId], references: [id])
-  payments Payment[]
+  order         Order     @relation(fields: [orderId], references: [id])
+  customer      Customer  @relation(fields: [customerId], references: [id])
+  parentInvoice Invoice?  @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
+  adjustments   Invoice[] @relation("InvoiceAdjustments")
+  payments      Payment[]
 
   @@map("invoices")
 }
 
 model Payment {
-  id        String        @id @default(cuid())
-  invoiceId String
-  orderId   String?
-  amount    Decimal       @db.Decimal(10, 3)
-  method    PaymentMethod
-  type      PaymentType
-  notes     String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id          String        @id @default(cuid())
+  invoiceId   String
+  amount      Decimal       @db.Decimal(10, 3)
+  method      PaymentMethod
+  paymentType PaymentType
+  paidAt      DateTime      @default(now())
+  reference   String?
+  notes       String?
+  createdAt   DateTime      @default(now())
 
-  invoice Invoice  @relation(fields: [invoiceId], references: [id])
-  order   Order?   @relation(fields: [orderId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
 
   @@map("payments")
 }
