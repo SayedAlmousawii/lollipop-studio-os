@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BookingStatus } from "@prisma/client";
 
 export const createBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
@@ -11,3 +12,24 @@ export const createBookingSchema = z.object({
 });
 
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
+
+export const updateBookingSchema = z.object({
+  customerId: z.string().min(1, "Customer is required"),
+  packageId: z.string().min(1, "Package is required"),
+  date: z.date({ error: "Session date is required" }),
+  sessionType: z.enum(["NEWBORN", "KIDS", "FAMILY", "MATERNITY", "OTHER"], {
+    error: "Session type is required",
+  }),
+  notes: z.string().trim().max(1000, "Notes must be 1000 characters or fewer").optional(),
+});
+
+export type UpdateBookingInput = z.infer<typeof updateBookingSchema>;
+
+export const updateBookingStatusSchema = z.object({
+  bookingId: z.string().min(1, "Booking is required"),
+  nextStatus: z.nativeEnum(BookingStatus, {
+    error: "Booking status is required",
+  }),
+});
+
+export type UpdateBookingStatusInput = z.infer<typeof updateBookingStatusSchema>;

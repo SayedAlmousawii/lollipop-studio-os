@@ -35,6 +35,7 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
+type OrderWriteClient = Pick<Prisma.TransactionClient, "booking" | "order">;
 
 export function parseOrderFilters(filters: {
   search?: string | string[];
@@ -175,6 +176,53 @@ export async function updateOrder(
     orderStatus: mapOrderStatus(row.status),
     notes: row.notes ?? "",
   };
+}
+
+export async function createOrderFromBooking(
+  bookingId: string
+): Promise<{ id: string }> {
+  return withRetry(
+    () => createOrderFromBookingWithClient(db, bookingId),
+    "Failed to create order from booking",
+    2
+  );
+}
+
+export async function createOrderFromBookingWithClient(
+  client: OrderWriteClient,
+  bookingId: string
+): Promise<{ id: string }> {
+  const booking = await client.booking.findUnique({
+    where: { id: bookingId },
+    select: {
+      id: true,
+      customer: { select: { id: true } },
+      package: { select: { id: true } },
+      order: { select: { id: true } },
+    },
+  });
+
+  if (!booking) {
+    throw new Error("Booking not found");
+  }
+  if (!booking.package) {
+    throw new Error("Booking package is required to create an order");
+  }
+  if (booking.order) {
+    return booking.order;
+  }
+
+  return client.order.create({
+    data: {
+      booking: { connect: { id: booking.id } },
+      customer: { connect: { id: booking.customer.id } },
+      originalPackage: { connect: { id: booking.package.id } },
+      finalPackage: { connect: { id: booking.package.id } },
+      selectedPhotoCount: 0,
+      status: OrderStatus.ACTIVE,
+    },
+    select: { id: true },
+  });
 }
 
 async function fetchOrders(filters: OrderFilters) {
