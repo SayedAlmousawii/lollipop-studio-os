@@ -1,33 +1,23 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { notFound } from "next/navigation";
 import { PageContainer } from "@/components/layout/page-container";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EditOrderForm } from "@/components/orders/edit-order-form";
+import { getEditableOrderById } from "@/modules/orders/order.service";
+import { getActivePackageOptions } from "@/modules/packages/package.service";
 
-export default async function EditOrderPlaceholderPage(
+export default async function EditOrderPage(
   props: PageProps<"/orders/[orderId]/edit">
 ) {
   const { orderId } = await props.params;
+  const [order, packages] = await Promise.all([
+    getEditableOrderById(orderId),
+    getActivePackageOptions(),
+  ]);
+
+  if (!order) notFound();
 
   return (
     <PageContainer>
-      <div className="space-y-6">
-        <Button variant="ghost" asChild className="px-0">
-          <Link href={`/orders/${orderId}`}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to order
-          </Link>
-        </Button>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Edit Order</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-text-secondary">
-            Edit order workflow is coming soon.
-          </CardContent>
-        </Card>
-      </div>
+      <EditOrderForm order={order} packages={packages} />
     </PageContainer>
   );
 }

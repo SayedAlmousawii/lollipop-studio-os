@@ -53,3 +53,28 @@ export interface OrderDetail extends Order {
   deliveryStatus: string;
   notes: string;
 }
+
+export interface OrderAddOn {
+  name: string;
+  price: number;
+}
+
+export interface OrderEditPackage {
+  id: string;
+  name: string;
+  price: number;
+  priceLabel: string;
+  photoCount: number;
+}
+
+export interface EditableOrder {
+  id: string;
+  customerName: string;
+  bookingDate: string;
+  originalPackage: OrderEditPackage | null;
+  finalPackage: OrderEditPackage | null;
+  selectedPhotos: number;
+  addOns: OrderAddOn[];
+  orderStatus: OrderStatusLabel;
+  notes: string;
+}

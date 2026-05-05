@@ -160,6 +160,7 @@ model Order {
   originalPackageId String?
   finalPackageId    String?
   selectedPhotoCount Int?
+  addOns            Json        @default("[]")
   status            OrderStatus @default(ACTIVE)
   nasFolderPath     String?
   notes             String?

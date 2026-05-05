@@ -1,11 +1,15 @@
 import { InvoiceStatus, OrderStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { updateOrderSchema, type UpdateOrderInput } from "./order.schema";
 import type {
+  EditableOrder,
   InvoiceStatusFilter,
   InvoiceStatusLabel,
   Order,
+  OrderAddOn,
   OrderDetail,
+  OrderEditPackage,
   OrderFilters,
   OrderStatusFilter,
   OrderStatusLabel,
@@ -83,9 +87,93 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
       selectedPhotoCount !== null && includedPhotoCount !== null
         ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
         : "—",
-    addonsSummary: "—",
+    addonsSummary: formatAddOnsSummary(parseAddOns(row.addOns)),
     ...mapWorkflowStatus(row.status),
     notes: row.notes?.trim() ? row.notes : "—",
+  };
+}
+
+export async function getEditableOrderById(
+  orderId: string
+): Promise<EditableOrder | null> {
+  const row = await withRetry(
+    () => fetchEditableOrderById(orderId),
+    "Failed to fetch editable order"
+  );
+
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    customerName: row.customer.name,
+    bookingDate: formatDate(row.booking.sessionDate),
+    originalPackage: row.originalPackage ? mapEditPackage(row.originalPackage) : null,
+    finalPackage: row.finalPackage ? mapEditPackage(row.finalPackage) : null,
+    selectedPhotos:
+      row.selectedPhotoCount ??
+      row.finalPackage?.photoCount ??
+      row.originalPackage?.photoCount ??
+      0,
+    addOns: parseAddOns(row.addOns),
+    orderStatus: mapOrderStatus(row.status),
+    notes: row.notes ?? "",
+  };
+}
+
+export async function updateOrder(
+  orderId: string,
+  input: UpdateOrderInput
+): Promise<EditableOrder> {
+  const data = updateOrderSchema.parse(input);
+
+  const row = await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const [order, selectedPackage] = await Promise.all([
+          tx.order.findUnique({
+            where: { id: orderId },
+            select: { id: true, status: true },
+          }),
+          tx.package.findUnique({
+            where: { id: data.finalPackageId },
+            select: { id: true },
+          }),
+        ]);
+
+        if (!order) {
+          throw new Error("Order not found");
+        }
+        if (order.status === OrderStatus.DELIVERED) {
+          throw new Error("Delivered orders cannot be edited");
+        }
+        if (!selectedPackage) {
+          throw new Error("Selected package does not exist");
+        }
+
+        return tx.order.update({
+          where: { id: orderId },
+          data: {
+            finalPackage: { connect: { id: data.finalPackageId } },
+            selectedPhotoCount: data.selectedPhotos,
+            addOns: data.addOns,
+            notes: data.notes?.trim() ? data.notes.trim() : null,
+          },
+          include: editableOrderInclude,
+        });
+      }),
+    "Failed to update order"
+  );
+
+  return {
+    id: row.id,
+    customerName: row.customer.name,
+    bookingDate: formatDate(row.booking.sessionDate),
+    originalPackage: row.originalPackage ? mapEditPackage(row.originalPackage) : null,
+    finalPackage: row.finalPackage ? mapEditPackage(row.finalPackage) : null,
+    selectedPhotos: row.selectedPhotoCount ?? 0,
+    addOns: parseAddOns(row.addOns),
+    orderStatus: mapOrderStatus(row.status),
+    notes: row.notes ?? "",
   };
 }
 
@@ -180,6 +268,34 @@ async function fetchOrderById(orderId: string) {
         orderBy: { createdAt: "desc" },
       },
     },
+  });
+}
+
+const editableOrderInclude = {
+  customer: { select: { name: true } },
+  booking: { select: { sessionDate: true } },
+  originalPackage: {
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      photoCount: true,
+    },
+  },
+  finalPackage: {
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      photoCount: true,
+    },
+  },
+} satisfies Prisma.OrderInclude;
+
+async function fetchEditableOrderById(orderId: string) {
+  return db.order.findUnique({
+    where: { id: orderId },
+    include: editableOrderInclude,
   });
 }
 
@@ -351,4 +467,43 @@ function singleValue(value: string | string[] | undefined): string | undefined {
 
 function zeroMoney(): Prisma.Decimal {
   return new Prisma.Decimal(0);
+}
+
+function mapEditPackage(packageRow: {
+  id: string;
+  name: string;
+  price: { toNumber(): number; toFixed(dp: number): string };
+  photoCount: number;
+}): OrderEditPackage {
+  return {
+    id: packageRow.id,
+    name: packageRow.name,
+    price: packageRow.price.toNumber(),
+    priceLabel: formatMoney(packageRow.price),
+    photoCount: packageRow.photoCount,
+  };
+}
+
+function parseAddOns(value: Prisma.JsonValue): OrderAddOn[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!isJsonObject(item)) return [];
+    const { name, price } = item;
+    if (typeof name !== "string") return [];
+    if (typeof price !== "number") return [];
+    return [{ name, price }];
+  });
+}
+
+function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatAddOnsSummary(addOns: OrderAddOn[]): string {
+  if (addOns.length === 0) return "—";
+
+  return addOns
+    .map((addOn) => `${addOn.name} (${formatMoney(new Prisma.Decimal(addOn.price))})`)
+    .join(", ");
 }
