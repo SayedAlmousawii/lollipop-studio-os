@@ -179,6 +179,7 @@ model Invoice {
   id              String        @id @default(cuid())
   orderId         String
   customerId      String
+  invoiceSeq      Int           @unique @default(dbgenerated("nextval('\"invoice_number_seq\"'::regclass)"))
   invoiceNumber   String        @unique
   totalAmount     Decimal       @db.Decimal(10, 3)
   paidAmount      Decimal       @default(0) @db.Decimal(10, 3)

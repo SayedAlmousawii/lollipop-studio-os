@@ -30,6 +30,13 @@ change.
   - Prisma client regenerated; local migration applied and marked as applied; `npm run build` passes
   - Decision: adjustment invoices are only allowed for locked parent invoices and never mutate the locked parent
   - Decision: payments cannot be recorded directly against locked invoices; staff must use an adjustment invoice for new post-lock money
+  - Post-review fixes:
+    - `prisma/schema.prisma` + `prisma/migrations/20260505020000_invoice_number_sequence/migration.sql` — added DB-backed `invoiceSeq` sequence for atomic invoice number generation
+    - `src/modules/invoices/invoice.service.ts` — paginated `getInvoices()` defaults, clear locked/missing issue errors, draft-preserving status recalculation, and sequence-based invoice number generation
+    - `app/invoices/actions.ts` + `src/components/invoices/record-payment-form.tsx` — structured payment validation errors, pending submit state, disabled fields while saving, and shared Select usage
+    - `app/invoices/[id]/page.tsx` — local route props type replaces ambiguous global `PageProps`; payment form delegated to the client component
+    - `prisma/seed.ts` — kept seeded invoice numbers aligned with generated invoice sequences
+    - Validation: `npm run db:generate`, `npx prisma migrate deploy`, `npx prisma migrate status`, and `npm run build` pass
 
 - Feature 15: Add New Booking Page (`context/feature-specs/15-add-new-booking.md`):
   - `src/modules/bookings/booking.schema.ts` — Zod `createBookingSchema` + `CreateBookingInput` type for the 5 form fields

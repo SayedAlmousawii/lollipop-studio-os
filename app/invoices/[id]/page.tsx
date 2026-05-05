@@ -9,20 +9,23 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { PaymentHistoryTable } from "@/components/invoices/payment-history-table";
+import { RecordPaymentForm } from "@/components/invoices/record-payment-form";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
 import {
   closeInvoiceAction,
   createAdjustmentInvoiceAction,
   issueInvoiceAction,
-  recordPaymentAction,
 } from "../actions";
 
-export default async function InvoiceDetailPage(props: PageProps<"/invoices/[id]">) {
+type InvoiceDetailPageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
   const { id } = await props.params;
   const invoice = await getInvoiceById(id);
   if (!invoice) notFound();
 
-  const recordPayment = recordPaymentAction.bind(null, invoice.id);
   const createAdjustment = createAdjustmentInvoiceAction.bind(null, invoice.id);
   const issue = issueInvoiceAction.bind(null, invoice.id);
   const close = closeInvoiceAction.bind(null, invoice.id);
@@ -87,28 +90,7 @@ export default async function InvoiceDetailPage(props: PageProps<"/invoices/[id]
                   <CardTitle className="text-base">Record Payment</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form action={recordPayment} className="space-y-4">
-                    <Field label="Amount" name="amount" type="number" step="0.001" min="0.001" />
-                    <SelectField
-                      label="Method"
-                      name="method"
-                      options={["CASH", "KNET", "LINK"]}
-                    />
-                    <SelectField
-                      label="Payment Type"
-                      name="paymentType"
-                      options={["DEPOSIT", "BASE", "UPGRADE", "ADDON", "OTHER"]}
-                    />
-                    <Field label="Paid At" name="paidAt" type="date" />
-                    <Field label="Reference" name="reference" required={false} />
-                    <div className="space-y-2">
-                      <Label htmlFor="notes">Notes</Label>
-                      <Textarea id="notes" name="notes" />
-                    </div>
-                    <Button type="submit" className="w-full">
-                      Record Payment
-                    </Button>
-                  </form>
+                  <RecordPaymentForm invoiceId={invoice.id} />
                 </CardContent>
               </Card>
             ) : (
@@ -199,34 +181,6 @@ function Field({
     <div className="space-y-2">
       <Label htmlFor={name}>{label}</Label>
       <Input id={name} name={name} type={type} required={required} step={step} min={min} />
-    </div>
-  );
-}
-
-function SelectField({
-  label,
-  name,
-  options,
-}: {
-  label: string;
-  name: string;
-  options: string[];
-}) {
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={name}>{label}</Label>
-      <select
-        id={name}
-        name={name}
-        required
-        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary"
-      >
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
     </div>
   );
 }

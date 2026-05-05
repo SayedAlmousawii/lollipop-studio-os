@@ -5,6 +5,7 @@ import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
 import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoice.types";
 
 type DbClient = typeof db | Prisma.TransactionClient;
+type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
 
 export async function createInvoiceForOrder(orderId: string): Promise<{ id: string }> {
   return withRetry(
@@ -23,11 +24,12 @@ export async function createInvoiceForOrder(orderId: string): Promise<{ id: stri
         const totalAmount = order.finalPackage?.price ?? order.originalPackage?.price;
         if (!totalAmount) throw new Error("Order has no package price");
 
+        const invoiceNumberData = await generateInvoiceNumber(tx);
         const invoice = await tx.invoice.create({
           data: {
             orderId: order.id,
             customerId: order.customer.id,
-            invoiceNumber: await generateInvoiceNumber(tx),
+            ...invoiceNumberData,
             totalAmount,
             remainingAmount: totalAmount,
             status: InvoiceStatus.DRAFT,
@@ -41,10 +43,20 @@ export async function createInvoiceForOrder(orderId: string): Promise<{ id: stri
   );
 }
 
-export async function getInvoices(): Promise<InvoiceListItem[]> {
+export async function getInvoices({
+  page = 1,
+  pageSize = 50,
+}: {
+  page?: number;
+  pageSize?: number;
+} = {}): Promise<InvoiceListItem[]> {
+  const safePage = Math.max(1, page);
+  const safePageSize = Math.min(Math.max(1, pageSize), 100);
   const rows = await withRetry(
     () =>
       db.invoice.findMany({
+        skip: (safePage - 1) * safePageSize,
+        take: safePageSize,
         include: {
           customer: { select: { name: true } },
         },
@@ -121,11 +133,15 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
 
 export async function issueInvoice(id: string): Promise<void> {
   await withRetry(
-    () =>
-      db.invoice.update({
+    async () => {
+      const result = await db.invoice.updateMany({
         where: { id, isLocked: false },
         data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
-      }),
+      });
+      if (result.count === 0) {
+        throw new Error("Invoice is locked or not found");
+      }
+    },
     "Failed to issue invoice"
   );
 }
@@ -148,6 +164,7 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
   });
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.isLocked) return;
+  if (invoice.status === InvoiceStatus.DRAFT) return;
 
   const paidAmount = invoice.payments.reduce(
     (sum, payment) => sum.plus(payment.amount),
@@ -184,12 +201,13 @@ export async function createAdjustmentInvoice(
           throw new Error("Adjustment invoices can only be created for locked invoices");
         }
 
+        const invoiceNumberData = await generateInvoiceNumber(tx);
         return tx.invoice.create({
           data: {
             orderId: parent.orderId,
             customerId: parent.customerId,
             parentInvoiceId: parent.id,
-            invoiceNumber: await generateInvoiceNumber(tx),
+            ...invoiceNumberData,
             totalAmount: new Prisma.Decimal(data.totalAmount),
             remainingAmount: new Prisma.Decimal(data.totalAmount),
             status: InvoiceStatus.DRAFT,
@@ -202,9 +220,19 @@ export async function createAdjustmentInvoice(
   );
 }
 
-async function generateInvoiceNumber(client: DbClient): Promise<string> {
-  const count = await client.invoice.count();
-  return `INV-${String(count + 1).padStart(5, "0")}`;
+async function generateInvoiceNumber(client: DbClient): Promise<InvoiceNumberData> {
+  const rows = await client.$queryRaw<Array<{ invoice_seq: number | bigint }>>`
+    SELECT nextval('"invoice_number_seq"') AS invoice_seq
+  `;
+  const nextValue = rows[0]?.invoice_seq;
+  if (nextValue === undefined) {
+    throw new Error("Unable to generate invoice number");
+  }
+  const invoiceSeq = Number(nextValue);
+  return {
+    invoiceSeq,
+    invoiceNumber: `INV-${String(invoiceSeq).padStart(5, "0")}`,
+  };
 }
 
 function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {

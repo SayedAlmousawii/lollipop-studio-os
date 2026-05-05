@@ -257,7 +257,7 @@ async function main() {
       id: "inv-003",
       orderId: order3.id,
       customerId: customerMaryam.id,
-      invoiceNumber: "INV-00003",
+      invoiceNumber: "INV-00002",
       totalAmount: 400,
       paidAmount: 400,
       remainingAmount: 0,
