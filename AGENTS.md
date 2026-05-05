@@ -7,16 +7,27 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Application Building Context
 
-Read the following files in order before implementing
-or making any architectural decision:
+## Rule 1: Minimal Context
+Do NOT read all project docs.
+Only read what is needed for the current task.
 
-1. `context/project-overview.md` - product definition, goals, features, and scope
-2. `context/architecture-context.md` - system structure, boundaries, storage model, and invariants
-3. `context/ui-context.md` - theme, colors, typography, and component conventions
-4. `context/code-standards.md` - implementation rules and conventions
-5. `context/ai-workflow-rules.md` - development workflow, scoping rules, and delivery approach
-6. `context/progress-tracker.md` - current phase, completed work, open questions, and next steps
+## Default Reads
+- context/ai-workflow-summary.md
+- context/code-standards-summary.md
 
-Update `context/progress-tracker.md` after each meaningful implementation change.
+## Read If Needed
+- ui-context-summary.md → UI work
+- architecture-summary.md → data / structure
+- project-overview-summary.md → feature intent
 
-If implementation changes the architecture, scope, or standards documented in the context files, update the relevant file before continuing.
+## Task Rules
+- Follow the unit spec strictly
+- Keep scope small
+- Prefer simple solutions
+
+## Data Rule
+- Do NOT modify database or backend unless approved
+- Use mock data by default
+
+## Progress
+- update progress-tracker automatically
