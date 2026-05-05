@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,14 +30,15 @@ export function OrdersTable({ orders }: OrdersTableProps) {
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Customer</TableHead>
-            <TableHead className="text-text-secondary">Package</TableHead>
+            <TableHead className="text-text-secondary">Booking Date</TableHead>
+            <TableHead className="text-text-secondary">Original Package</TableHead>
+            <TableHead className="text-text-secondary">Final Package</TableHead>
             <TableHead className="text-text-secondary">Order Status</TableHead>
+            <TableHead className="text-text-secondary">Invoice Status</TableHead>
             <TableHead className="text-text-secondary">Total</TableHead>
             <TableHead className="text-text-secondary">Paid</TableHead>
             <TableHead className="text-text-secondary">Remaining</TableHead>
-            <TableHead className="text-text-secondary">Invoice Status</TableHead>
-            <TableHead className="text-text-secondary">Method</TableHead>
-            <TableHead className="text-text-secondary">Created</TableHead>
+            <TableHead className="text-text-secondary">Created Date</TableHead>
             <TableHead className="w-12">
               <span className="sr-only">Actions</span>
             </TableHead>
@@ -52,13 +54,22 @@ export function OrdersTable({ orders }: OrdersTableProps) {
                 {order.customerName}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
-                {order.packageName}
+                {order.bookingDate}
+              </TableCell>
+              <TableCell className="text-sm text-text-secondary">
+                {order.originalPackageName}
+              </TableCell>
+              <TableCell className="text-sm text-text-secondary">
+                {order.finalPackageName}
               </TableCell>
               <TableCell>
                 <OrderStatusBadge status={order.orderStatus} />
               </TableCell>
+              <TableCell>
+                <InvoiceStatusBadge status={order.invoiceStatus} />
+              </TableCell>
               <TableCell className="text-sm text-text-primary">
-                {order.invoiceTotal}
+                {order.totalAmount}
               </TableCell>
               <TableCell className="text-sm text-success">
                 {order.paidAmount}
@@ -72,12 +83,6 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               >
                 {order.remainingAmount}
               </TableCell>
-              <TableCell>
-                <InvoiceStatusBadge status={order.invoiceStatus} />
-              </TableCell>
-              <TableCell className="text-sm text-text-secondary">
-                {order.paymentMethod}
-              </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {order.createdAt}
               </TableCell>
@@ -90,13 +95,36 @@ export function OrdersTable({ orders }: OrdersTableProps) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem>View</DropdownMenuItem>
-                    <DropdownMenuItem>Edit</DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/orders/${order.id}`}>View Details</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/orders/${order.id}/edit`}>Edit Order</Link>
+                    </DropdownMenuItem>
+                    {order.primaryInvoiceId ? (
+                      <DropdownMenuItem asChild>
+                        <Link href={`/invoices/${order.primaryInvoiceId}`}>
+                          View Invoice
+                        </Link>
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem disabled>Create Invoice</DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
             </TableRow>
           ))}
+          {orders.length === 0 ? (
+            <TableRow>
+              <TableCell
+                colSpan={11}
+                className="h-24 text-center text-sm text-text-secondary"
+              >
+                No orders match these filters.
+              </TableCell>
+            </TableRow>
+          ) : null}
         </TableBody>
       </Table>
     </div>

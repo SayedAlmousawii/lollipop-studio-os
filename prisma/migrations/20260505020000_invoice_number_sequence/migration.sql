@@ -18,7 +18,7 @@ SET "invoiceNumber" = 'INV-' || lpad("invoiceSeq"::text, 5, '0');
 
 SELECT setval(
   '"invoice_number_seq"',
-  GREATEST((SELECT COALESCE(MAX("invoiceSeq"), 0) FROM "invoices"), 1),
+  GREATEST((SELECT COALESCE(MAX("invoiceSeq"), 0) FROM "invoices"), 0),
   true
 );
 

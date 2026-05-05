@@ -1,17 +1,17 @@
-import type { OrderStatus } from "@/modules/orders/order.types";
+import type { OrderStatusLabel } from "@/modules/orders/order.types";
 
-const styles: Record<OrderStatus, string> = {
+const styles: Record<OrderStatusLabel, string> = {
   "Active":             "bg-info-soft text-info",
-  "Awaiting Selection": "bg-warning-soft text-warning",
+  "Waiting Selection":  "bg-warning-soft text-warning",
   "Editing":            "bg-warning-soft text-warning",
-  "In Production":      "bg-info-soft text-info",
+  "Production":         "bg-info-soft text-info",
   "Ready":              "bg-success-soft text-success",
   "Delivered":          "bg-success-soft text-success",
   "Cancelled":          "bg-danger-soft text-danger",
 };
 
 interface OrderStatusBadgeProps {
-  status: OrderStatus;
+  status: OrderStatusLabel;
 }
 
 export function OrderStatusBadge({ status }: OrderStatusBadgeProps) {
