@@ -5,13 +5,26 @@ change.
 
 ## Current Phase
 
-- Feature 13 Complete
+- Feature 14 Complete
 
 ## Current Goal
 
-- Packages page built and connected to real database data.
+- Orders page UI built with mock data; ready for Feature 15 database connection.
 
 ## Completed
+
+- Feature 14: Orders Page UI (`context/feature-specs/14-orders-payments-page-ui.md`):
+  - `src/modules/orders/order.types.ts` — `OrderStatus` (7 values), `InvoiceStatus` (4 values), `Order` interface
+  - `src/components/orders/order-status-badge.tsx` — pill badge; 7 statuses with correct color mapping (info/warning/success/danger)
+  - `src/components/orders/invoice-status-badge.tsx` — pill badge; 4 statuses mirroring `payment-status-badge.tsx` colors
+  - `src/components/orders/orders-filters.tsx` — client component: search input + Order Status select + Invoice Status select (non-functional placeholders)
+  - `src/components/orders/orders-table.tsx` — 10-column table (Customer, Package, Order Status, Total, Paid, Remaining, Invoice Status, Method, Created, Actions); Remaining shown in red when > `"0.000 KD"`, muted otherwise
+  - `app/orders/layout.tsx` — `AppShell` with `pageTitle="Orders"`
+  - `app/orders/page.tsx` — async server component; 6-row `MOCK_ORDERS` array covering all 4 `InvoiceStatus` values and 5+ distinct `OrderStatus` values
+  - `src/components/layout/sidebar.tsx` — Orders link added under Bookings/Customers group with `ReceiptText` icon pointing to `/orders`
+  - TypeScript clean; `npm run build` passes; `/orders` route live
+
+
 
 - Feature 13: Packages Page (`context/feature-specs/13-packages-page.md`):
   - `src/modules/packages/package.types.ts` — `Package` interface with `id`, `name`, `price` (formatted string), `photoCount`, `description`, `bookingCount`, `status`
