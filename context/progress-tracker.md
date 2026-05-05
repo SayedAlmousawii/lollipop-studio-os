@@ -5,13 +5,23 @@ change.
 
 ## Current Phase
 
-- Feature 12 Complete
+- Feature 13 Complete
 
 ## Current Goal
 
-- Calendar page connected to real database data.
+- Packages page built and connected to real database data.
 
 ## Completed
+
+- Feature 13: Packages Page (`context/feature-specs/13-packages-page.md`):
+  - `src/modules/packages/package.types.ts` — `Package` interface with `id`, `name`, `price` (formatted string), `photoCount`, `description`, `bookingCount`, `status`
+  - `src/modules/packages/package.service.ts` — `getPackages()` fetches all packages via Prisma with `_count.bookings`, ordered by `price ASC`; price formatted as `"150.000 KD"` via `Intl.NumberFormat`; wrapped with `withRetry`
+  - `src/components/packages/package-status-badge.tsx` — `Active` (green) / `Inactive` (red) badge matching customer badge pattern
+  - `src/components/packages/packages-filters.tsx` — client component: search by name input + status select (non-functional placeholders)
+  - `src/components/packages/packages-table.tsx` — table with Name, Price, Photos Included, Description, Bookings, Status, Actions columns
+  - `app/packages/layout.tsx` — `AppShell` with `pageTitle="Packages"`
+  - `app/packages/page.tsx` — async server component; calls `getPackages()`, renders header, filters, table
+  - TypeScript clean; `npm run build` passes; `/packages` route live
 
 - Feature 12: Calendar Database Connection (`context/feature-specs/12-calendar-database-connection.md`):
   - `src/modules/calendar/calendar.service.ts` — `getCalendarEvents()` fetches all bookings via Prisma with related `customer` and `package`; maps `SessionType` enum to `"Newborn" | "Kids" | "Family" | "Other"`; maps `BookingStatus` enum to `"Pending" | "Confirmed" | "Cancelled"`; derives colors from `SESSION_TYPE_COLORS`; `photographerName` defaults to `"—"` (no DB column yet); wrapped with `withRetry`
@@ -114,7 +124,7 @@ change.
 
 ## Next Up
 
-- Feature 13 and beyond (not yet specified)
+- Feature 14 and beyond (not yet specified)
 
 ## Open Questions
 

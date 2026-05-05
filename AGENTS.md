@@ -26,7 +26,7 @@ Only read what is needed for the current task.
 - Prefer simple solutions
 
 ## Data Rule
-- Do NOT modify database or backend unless approved
+- Do NOT modify database or backend unless specified.
 - Use mock data by default
 
 ## Progress
