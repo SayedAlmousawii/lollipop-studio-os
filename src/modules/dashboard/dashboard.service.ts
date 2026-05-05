@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
-import type { ScheduleStatus } from "@/components/dashboard/schedule-item";
+import { BookingStatus } from "@prisma/client";
+import type { ScheduleStatus } from "./dashboard.types";
 
 type ActivityEntry = { id: string; createdAt: Date; timestamp: string; description: string };
 
@@ -51,22 +52,21 @@ function relativeTime(date: Date): string {
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   const diffHrs = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffMs / 86400000);
   if (diffMins < 60) return `${diffMins} min ago`;
   if (diffHrs < 24) return `${diffHrs} hrs ago`;
-  return "Yesterday";
+  return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
 }
 
-function mapScheduleStatus(
-  status: "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"
-): ScheduleStatus {
+function mapScheduleStatus(status: BookingStatus): ScheduleStatus {
   switch (status) {
-    case "PENDING":
+    case BookingStatus.PENDING:
       return "Pending";
-    case "CONFIRMED":
-    case "COMPLETED":
+    case BookingStatus.CONFIRMED:
+    case BookingStatus.COMPLETED:
       return "Confirmed";
-    case "CANCELLED":
-    case "NO_SHOW":
+    case BookingStatus.CANCELLED:
+    case BookingStatus.NO_SHOW:
       return "Cancelled";
   }
 }

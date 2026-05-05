@@ -8,7 +8,7 @@ Implementation rules for how code must be structured, named, validated, and prot
 ## 2. Key Rules / Principles
 
 **Layer rule (never skip):**
-```
+```text
 UI → API route / server action → service layer → database
 ```
 
@@ -25,7 +25,7 @@ UI → API route / server action → service layer → database
 | Statuses | TypeScript enums or `as const` unions — never raw strings |
 
 **Module file pattern** (each domain gets its own folder):
-```
+```text
 modules/bookings/
 ├── booking.service.ts    # Business logic + DB ops
 ├── booking.schema.ts     # Zod schemas
@@ -77,7 +77,7 @@ requirePermission(user, "payment:update");
 ```
 
 **Audit log fields required for sensitive actions:**
-```
+```text
 userId | action | entityType | entityId | oldValue | newValue | timestamp | note
 ```
 

@@ -28,7 +28,7 @@ Database is the single source of truth. Google Calendar, WhatsApp, Synology are 
 ## 3. Required Patterns / Constraints
 
 **Folder structure:**
-```
+```text
 src/
 ├── app/              # Pages/routes
 ├── components/       # ui/, forms/, tables/, calendar/, layout/
