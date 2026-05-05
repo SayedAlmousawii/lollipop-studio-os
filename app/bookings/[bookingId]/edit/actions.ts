@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { updateBookingSchema } from "@/modules/bookings/booking.schema";
 import { updateBooking } from "@/modules/bookings/booking.service";
+import { parseThemeInput } from "@/modules/bookings/booking.utils";
 
 export type UpdateBookingActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -26,8 +27,12 @@ export async function updateBookingAction(
     customerId: formData.get("customerId"),
     packageId: formData.get("packageId"),
     date: sessionDate,
+    department: formData.get("department"),
+    assignedPhotographerId:
+      formData.get("assignedPhotographerId") || undefined,
     sessionType: formData.get("sessionType"),
     notes: formData.get("notes") || undefined,
+    themes: parseThemeInput(formData.get("themes")),
   });
 
   if (!parsed.success) {
@@ -43,6 +48,7 @@ export async function updateBookingAction(
   }
 
   revalidatePath("/bookings");
+  revalidatePath("/calendar");
   redirect("/bookings");
 }
 

@@ -4,7 +4,9 @@ export interface InvoiceListItem {
   id: string;
   invoiceNumber: string;
   customerName: string;
-  orderId: string;
+  orderId: string | null;
+  bookingId: string | null;
+  referenceLabel: string;
   totalAmount: string;
   paidAmount: string;
   remainingAmount: string;

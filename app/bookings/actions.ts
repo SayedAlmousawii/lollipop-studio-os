@@ -42,6 +42,7 @@ export async function updateBookingStatusAction(
 
   revalidatePath("/bookings");
   revalidatePath("/calendar");
+  revalidatePath("/orders");
 
   return {};
 }
@@ -71,6 +72,7 @@ export async function recordDepositAction(
 
   revalidatePath("/bookings");
   revalidatePath("/calendar");
+  revalidatePath("/invoices");
 
   return { success: "Deposit recorded." };
 }

@@ -14,6 +14,16 @@ export async function createInvoiceForOrder(orderId: string): Promise<{ id: stri
   );
 }
 
+export async function createInvoiceForBooking(
+  bookingId: string
+): Promise<{ id: string; status: InvoiceStatus }> {
+  return withRetry(
+    () =>
+      db.$transaction((tx) => createInvoiceForBookingWithClient(tx, bookingId)),
+    "Failed to create invoice for booking"
+  );
+}
+
 export async function createInvoiceForOrderWithClient(
   client: DbClient,
   orderId: string
@@ -35,7 +45,38 @@ export async function createInvoiceForOrderWithClient(
   return client.invoice.create({
     data: {
       orderId: order.id,
+      bookingId: order.bookingId,
       customerId: order.customer.id,
+      ...invoiceNumberData,
+      totalAmount,
+      remainingAmount: totalAmount,
+      status: InvoiceStatus.DRAFT,
+    },
+    select: { id: true, status: true },
+  });
+}
+
+export async function createInvoiceForBookingWithClient(
+  client: DbClient,
+  bookingId: string
+): Promise<{ id: string; status: InvoiceStatus }> {
+  const booking = await client.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      customer: { select: { id: true } },
+      package: { select: { price: true } },
+    },
+  });
+  if (!booking) throw new Error("Booking not found");
+
+  const totalAmount = booking.package?.price;
+  if (!totalAmount) throw new Error("Booking has no package price");
+
+  const invoiceNumberData = await generateInvoiceNumber(client);
+  return client.invoice.create({
+    data: {
+      bookingId: booking.id,
+      customerId: booking.customer.id,
       ...invoiceNumberData,
       totalAmount,
       remainingAmount: totalAmount,
@@ -72,6 +113,8 @@ export async function getInvoices({
     invoiceNumber: row.invoiceNumber,
     customerName: row.customer.name,
     orderId: row.orderId,
+    bookingId: row.bookingId,
+    referenceLabel: formatInvoiceReference(row.orderId, row.bookingId),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -106,6 +149,8 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
     invoiceNumber: row.invoiceNumber,
     customerName: row.customer.name,
     orderId: row.orderId,
+    bookingId: row.bookingId,
+    referenceLabel: formatInvoiceReference(row.orderId, row.bookingId),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -201,7 +246,13 @@ export async function createAdjustmentInvoice(
       db.$transaction(async (tx) => {
         const parent = await tx.invoice.findUnique({
           where: { id: parentInvoiceId },
-          select: { id: true, orderId: true, customerId: true, isLocked: true },
+          select: {
+            id: true,
+            orderId: true,
+            bookingId: true,
+            customerId: true,
+            isLocked: true,
+          },
         });
         if (!parent) throw new Error("Parent invoice not found");
         if (!parent.isLocked) {
@@ -212,6 +263,7 @@ export async function createAdjustmentInvoice(
         return tx.invoice.create({
           data: {
             orderId: parent.orderId,
+            bookingId: parent.bookingId,
             customerId: parent.customerId,
             parentInvoiceId: parent.id,
             ...invoiceNumberData,
@@ -276,4 +328,21 @@ function formatEnum(value: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatInvoiceReference(
+  orderId: string | null,
+  bookingId: string | null
+): string {
+  if (orderId) {
+    return `Order ${formatShortId(orderId)}`;
+  }
+  if (bookingId) {
+    return `Booking ${formatShortId(bookingId)} · Order pending`;
+  }
+  return "Order pending";
+}
+
+function formatShortId(id: string): string {
+  return id.length <= 8 ? id : `${id.slice(0, 8)}...`;
 }

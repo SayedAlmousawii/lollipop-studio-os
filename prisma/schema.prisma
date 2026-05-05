@@ -81,6 +81,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  assignedBookings Booking[] @relation("AssignedPhotographer")
+
   @@map("users")
 }
 
@@ -133,22 +135,41 @@ model Package {
 }
 
 model Booking {
-  id          String        @id @default(cuid())
-  customerId  String
-  packageId   String?
-  sessionDate DateTime
-  sessionType SessionType
-  status      BookingStatus @default(PENDING)
-  depositPaid Boolean       @default(false)
-  notes       String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id                     String        @id @default(cuid())
+  customerId             String
+  packageId              String?
+  sessionDate            DateTime
+  sessionType            SessionType
+  department             String
+  status                 BookingStatus @default(PENDING)
+  assignedPhotographerId String?
+  notes                  String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
-  customer Customer @relation(fields: [customerId], references: [id])
-  package  Package? @relation("BookingPackage", fields: [packageId], references: [id])
-  order    Order?
+  customer             Customer     @relation(fields: [customerId], references: [id])
+  package              Package?     @relation("BookingPackage", fields: [packageId], references: [id])
+  assignedPhotographer User?        @relation("AssignedPhotographer", fields: [assignedPhotographerId], references: [id])
+  order                Order?
+  themes               BookingTheme[]
+  invoices             Invoice[]
 
   @@map("bookings")
+}
+
+model BookingTheme {
+  id        String   @id @default(cuid())
+  bookingId String
+  themeName String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+
+  @@map("booking_themes")
 }
 
 model Order {
@@ -178,7 +199,8 @@ model Order {
 
 model Invoice {
   id              String        @id @default(cuid())
-  orderId         String
+  orderId         String?
+  bookingId       String?
   customerId      String
   invoiceSeq      Int           @unique @default(dbgenerated("nextval('\"invoice_number_seq\"'::regclass)"))
   invoiceNumber   String        @unique
@@ -194,7 +216,8 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  order         Order     @relation(fields: [orderId], references: [id])
+  order         Order?    @relation(fields: [orderId], references: [id])
+  booking       Booking?  @relation(fields: [bookingId], references: [id])
   customer      Customer  @relation(fields: [customerId], references: [id])
   parentInvoice Invoice?  @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
   adjustments   Invoice[] @relation("InvoiceAdjustments")

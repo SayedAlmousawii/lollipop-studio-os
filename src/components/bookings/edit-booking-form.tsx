@@ -46,12 +46,14 @@ interface EditBookingFormProps {
   booking: EditableBooking;
   customers: BookingOption[];
   packages: PackageOption[];
+  photographers: BookingOption[];
 }
 
 export function EditBookingForm({
   booking,
   customers,
   packages,
+  photographers,
 }: EditBookingFormProps) {
   const packageOptions = useMemo(
     () => mergePackageOptions(packages, booking),
@@ -123,6 +125,8 @@ export function EditBookingForm({
                   : ""
               }`,
             ],
+            ["Department", booking.department],
+            ["Photographer", booking.assignedPhotographerName],
           ]}
         />
         <div className="mt-4 flex flex-wrap gap-6">
@@ -231,6 +235,40 @@ export function EditBookingForm({
         </div>
       </Section>
 
+      <Section title="Assignment">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="department">Department</Label>
+            <Input
+              id="department"
+              name="department"
+              defaultValue={booking.department}
+              disabled={!booking.canEdit}
+              aria-invalid={state.errors?.department?.length ? true : undefined}
+            />
+            <FieldError messages={state.errors?.department} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="assignedPhotographerId">Assigned photographer</Label>
+            <select
+              id="assignedPhotographerId"
+              name="assignedPhotographerId"
+              defaultValue={booking.assignedPhotographerId}
+              disabled={!booking.canEdit}
+              className="flex h-10 w-full rounded-sm border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-0 disabled:opacity-50"
+            >
+              <option value="">Unassigned</option>
+              {photographers.map((photographer) => (
+                <option key={photographer.id} value={photographer.id}>
+                  {photographer.name}
+                </option>
+              ))}
+            </select>
+            <FieldError messages={state.errors?.assignedPhotographerId} />
+          </div>
+        </div>
+      </Section>
+
       <Section title="Session Type">
         <div className="space-y-2">
           <Label htmlFor="sessionType">Session type</Label>
@@ -258,6 +296,24 @@ export function EditBookingForm({
             </SelectContent>
           </Select>
           <FieldError messages={state.errors?.sessionType} />
+        </div>
+      </Section>
+
+      <Section title="Themes">
+        <div className="space-y-2">
+          <Label htmlFor="themes">Themes</Label>
+          <Textarea
+            id="themes"
+            name="themes"
+            defaultValue={booking.themes.map((theme) => theme.themeName).join("\n")}
+            rows={4}
+            disabled={!booking.canEdit}
+            className="resize-none"
+          />
+          <p className="text-xs text-text-muted">
+            Enter one theme per line or separate them with commas.
+          </p>
+          <FieldError messages={state.errors?.themes} />
         </div>
       </Section>
 

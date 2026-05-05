@@ -10,6 +10,7 @@ export type CalendarBooking = {
     customerName: string;
     sessionType: "Newborn" | "Kids" | "Family" | "Other";
     status: "Pending" | "Confirmed" | "Cancelled";
+    department?: string;
     packageName: string;
     photographerName: string;
   };

@@ -145,40 +145,53 @@ async function main() {
   // Booking 1: Confirmed newborn session for Fatima
   const booking1 = await prisma.booking.upsert({
     where: { id: "booking-001" },
-    update: {},
+    update: {
+      customerId: customerFatima.id,
+      packageId: pkgStandard.id,
+      sessionDate: new Date("2026-05-10T10:00:00Z"),
+      sessionType: SessionType.NEWBORN,
+      department: "Photography",
+      status: BookingStatus.CONFIRMED,
+      assignedPhotographerId: photographer.id,
+      notes: "Newborn session — baby is 3 weeks old",
+      themes: {
+        deleteMany: {},
+        create: [{ themeName: "Minimal White" }],
+      },
+    },
     create: {
       id: "booking-001",
       customerId: customerFatima.id,
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionType: SessionType.NEWBORN,
+      department: "Photography",
       status: BookingStatus.CONFIRMED,
-      depositPaid: true,
+      assignedPhotographerId: photographer.id,
       notes: "Newborn session — baby is 3 weeks old",
+      themes: {
+        create: [{ themeName: "Minimal White" }],
+      },
     },
   });
 
-  // Order 1 linked to Booking 1
-  const order1 = await prisma.order.upsert({
-    where: { id: "order-001" },
-    update: {},
-    create: {
-      id: "order-001",
-      bookingId: booking1.id,
-      customerId: customerFatima.id,
-      originalPackageId: pkgStandard.id,
-      finalPackageId: pkgStandard.id,
-      status: OrderStatus.ACTIVE,
-    },
-  });
-
-  // Invoice 1 linked to Order 1
+  // Invoice 1 linked directly to Booking 1 before completion
   const invoice1 = await prisma.invoice.upsert({
     where: { id: "inv-001" },
-    update: {},
+    update: {
+      bookingId: booking1.id,
+      orderId: null,
+      customerId: customerFatima.id,
+      invoiceNumber: "INV-00001",
+      totalAmount: 250,
+      paidAmount: 20,
+      remainingAmount: 230,
+      status: InvoiceStatus.PARTIAL,
+      issuedAt: new Date("2026-05-10T10:00:00Z"),
+    },
     create: {
       id: "inv-001",
-      orderId: order1.id,
+      bookingId: booking1.id,
       customerId: customerFatima.id,
       invoiceNumber: "INV-00001",
       totalAmount: 250,
@@ -206,30 +219,60 @@ async function main() {
   // Booking 2: Pending kids session for Ahmed
   const booking2 = await prisma.booking.upsert({
     where: { id: "booking-002" },
-    update: {},
+    update: {
+      customerId: customerAhmed.id,
+      packageId: pkgBasic.id,
+      sessionDate: new Date("2026-05-20T14:00:00Z"),
+      sessionType: SessionType.KIDS,
+      department: "Photography",
+      status: BookingStatus.PENDING,
+      assignedPhotographerId: null,
+      notes: "Waiting for deposit confirmation",
+      themes: {
+        deleteMany: {},
+      },
+    },
     create: {
       id: "booking-002",
       customerId: customerAhmed.id,
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionType: SessionType.KIDS,
+      department: "Photography",
       status: BookingStatus.PENDING,
-      depositPaid: false,
+      notes: "Waiting for deposit confirmation",
     },
   });
 
   // Booking 3: Completed session for Maryam (paid in full, editing)
   const booking3 = await prisma.booking.upsert({
     where: { id: "booking-003" },
-    update: {},
+    update: {
+      customerId: customerMaryam.id,
+      packageId: pkgPremium.id,
+      sessionDate: new Date("2026-04-15T11:00:00Z"),
+      sessionType: SessionType.FAMILY,
+      department: "Photography",
+      status: BookingStatus.COMPLETED,
+      assignedPhotographerId: photographer.id,
+      notes: null,
+      themes: {
+        deleteMany: {},
+        create: [{ themeName: "Classic Family" }],
+      },
+    },
     create: {
       id: "booking-003",
       customerId: customerMaryam.id,
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionType: SessionType.FAMILY,
+      department: "Photography",
       status: BookingStatus.COMPLETED,
-      depositPaid: true,
+      assignedPhotographerId: photographer.id,
+      themes: {
+        create: [{ themeName: "Classic Family" }],
+      },
     },
   });
 
@@ -252,10 +295,21 @@ async function main() {
   // Invoice 3
   const invoice3 = await prisma.invoice.upsert({
     where: { id: "inv-003" },
-    update: {},
+    update: {
+      orderId: order3.id,
+      bookingId: booking3.id,
+      customerId: customerMaryam.id,
+      invoiceNumber: "INV-00002",
+      totalAmount: 400,
+      paidAmount: 400,
+      remainingAmount: 0,
+      status: InvoiceStatus.PAID,
+      issuedAt: new Date("2026-04-15T11:00:00Z"),
+    },
     create: {
       id: "inv-003",
       orderId: order3.id,
+      bookingId: booking3.id,
       customerId: customerMaryam.id,
       invoiceNumber: "INV-00002",
       totalAmount: 400,

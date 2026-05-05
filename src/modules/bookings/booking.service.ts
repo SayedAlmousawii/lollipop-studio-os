@@ -1,8 +1,14 @@
-import { BookingStatus, InvoiceStatus, PaymentType, Prisma } from "@prisma/client";
+import {
+  BookingStatus,
+  InvoiceStatus,
+  PaymentType,
+  Prisma,
+  UserRole,
+} from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import {
-  createInvoiceForOrderWithClient,
+  createInvoiceForBookingWithClient,
   issueInvoiceWithClient,
 } from "@/modules/invoices/invoice.service";
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
@@ -20,6 +26,11 @@ import {
   type UpdateBookingInput,
 } from "./booking.schema";
 
+export interface BookingPhotographerOption {
+  id: string;
+  name: string;
+}
+
 export interface EditableBooking {
   id: string;
   customerId: string;
@@ -30,9 +41,16 @@ export interface EditableBooking {
   sessionDate: string;
   sessionTime: string;
   sessionType: UpdateBookingInput["sessionType"];
+  department: string;
+  assignedPhotographerId: string;
+  assignedPhotographerName: string;
   bookingStatus: BookingStatusLabel;
   depositStatus: "Paid" | "Unpaid";
   notes: string;
+  themes: Array<{
+    themeName: string;
+    notes: string;
+  }>;
   canEdit: boolean;
 }
 
@@ -51,16 +69,13 @@ export async function getBookings(): Promise<Booking[]> {
         include: {
           customer: { select: { name: true } },
           package: { select: { name: true } },
-          order: {
-            include: {
-              invoices: {
-                where: {
-                  payments: { some: { paymentType: PaymentType.DEPOSIT } },
-                },
-                take: 1,
-                select: { id: true },
-              },
+          assignedPhotographer: { select: { name: true } },
+          invoices: {
+            where: {
+              payments: { some: { paymentType: PaymentType.DEPOSIT } },
             },
+            take: 1,
+            select: { id: true },
           },
         },
         orderBy: { sessionDate: "desc" },
@@ -72,42 +87,60 @@ export async function getBookings(): Promise<Booking[]> {
     id: row.id,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),
+    department: row.department,
     package: row.package?.name ?? "—",
     status: mapBookingStatus(row.status),
-    paymentStatus: mapDepositStatus(row.order?.invoices),
-    assignedStaff: "—",
+    paymentStatus: mapDepositStatus(row.invoices),
+    assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
   }));
+}
+
+export async function getAssignablePhotographers(): Promise<
+  BookingPhotographerOption[]
+> {
+  return withRetry(
+    () =>
+      db.user.findMany({
+        where: { role: UserRole.PHOTOGRAPHER },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+    "Failed to fetch photographers"
+  );
 }
 
 export async function createBookingInDb(
   data: CreateBookingInput
 ): Promise<{ id: string }> {
-  const customer = await db.customer.findUnique({
-    where: { id: data.customerId },
-    select: { id: true },
-  });
-  if (!customer) throw new Error("Customer not found");
-
-  const pkg = await db.package.findUnique({
-    where: { id: data.packageId },
-    select: { id: true, isActive: true },
-  });
-  if (!pkg) throw new Error("Package not found");
-  if (!pkg.isActive) throw new Error("Package is not active");
-
   return withRetry(
     () =>
-      db.booking.create({
-        data: {
+      db.$transaction(async (tx) => {
+        await validateBookingReferences(tx, {
           customerId: data.customerId,
           packageId: data.packageId,
-          sessionDate: data.sessionDate,
-          sessionType: data.sessionType,
-          notes: data.notes ?? null,
-          status: "PENDING",
-          depositPaid: false,
-        },
-        select: { id: true },
+          assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
+        });
+
+        return tx.booking.create({
+          data: {
+            customerId: data.customerId,
+            packageId: data.packageId,
+            sessionDate: data.sessionDate,
+            sessionType: data.sessionType,
+            department: data.department.trim(),
+            assignedPhotographerId:
+              emptyToNull(data.assignedPhotographerId) ?? null,
+            notes: emptyToNull(data.notes) ?? null,
+            status: BookingStatus.PENDING,
+            themes: {
+              create: data.themes.map((theme) => ({
+                themeName: theme.themeName.trim(),
+                notes: emptyToNull(theme.notes) ?? null,
+              })),
+            },
+          },
+          select: { id: true },
+        });
       }),
     "Failed to create booking",
     2
@@ -135,20 +168,10 @@ export async function updateBooking(
   const row = await withRetry(
     () =>
       db.$transaction(async (tx) => {
-        const [booking, customer, selectedPackage] = await Promise.all([
-          tx.booking.findUnique({
-            where: { id: bookingId },
-            select: { id: true, status: true },
-          }),
-          tx.customer.findUnique({
-            where: { id: data.customerId },
-            select: { id: true },
-          }),
-          tx.package.findUnique({
-            where: { id: data.packageId },
-            select: { id: true },
-          }),
-        ]);
+        const booking = await tx.booking.findUnique({
+          where: { id: bookingId },
+          select: { id: true, status: true },
+        });
 
         if (!booking) {
           throw new Error("Booking not found");
@@ -162,21 +185,45 @@ export async function updateBooking(
         ) {
           throw new Error("Cancelled bookings cannot be edited");
         }
-        if (!customer) {
-          throw new Error("Customer not found");
-        }
-        if (!selectedPackage) {
-          throw new Error("Package not found");
-        }
+
+        await validateBookingReferences(tx, {
+          customerId: data.customerId,
+          packageId: data.packageId,
+          assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
+        });
+
+        const existingThemes = await tx.bookingTheme.findMany({
+          where: { bookingId },
+          select: { themeName: true, notes: true },
+        });
+
+        const themesWithPreservedNotes = data.themes.map((theme) => {
+          const normalizedName = theme.themeName.trim().toLowerCase();
+          const existingTheme = existingThemes.find(
+            (item) => item.themeName.trim().toLowerCase() === normalizedName
+          );
+
+          return {
+            themeName: theme.themeName.trim(),
+            notes: emptyToNull(theme.notes) ?? existingTheme?.notes ?? null,
+          };
+        });
 
         return tx.booking.update({
           where: { id: bookingId },
           data: {
-            customer: { connect: { id: data.customerId } },
-            package: { connect: { id: data.packageId } },
+            customerId: data.customerId,
+            packageId: data.packageId,
             sessionDate: data.date,
             sessionType: data.sessionType,
-            notes: data.notes?.trim() ? data.notes.trim() : null,
+            department: data.department.trim(),
+            assignedPhotographerId:
+              emptyToNull(data.assignedPhotographerId) ?? null,
+            notes: emptyToNull(data.notes) ?? null,
+            themes: {
+              deleteMany: {},
+              create: themesWithPreservedNotes,
+            },
           },
           include: editableBookingInclude,
         });
@@ -202,16 +249,12 @@ export async function updateBookingStatus(
           select: {
             id: true,
             status: true,
-            order: {
-              select: {
-                invoices: {
-                  where: {
-                    payments: { some: { paymentType: PaymentType.DEPOSIT } },
-                  },
-                  take: 1,
-                  select: { id: true },
-                },
+            invoices: {
+              where: {
+                payments: { some: { paymentType: PaymentType.DEPOSIT } },
               },
+              take: 1,
+              select: { id: true },
             },
           },
         });
@@ -224,7 +267,7 @@ export async function updateBookingStatus(
 
         if (
           data.nextStatus === BookingStatus.CONFIRMED &&
-          !hasDepositPayment(booking.order?.invoices)
+          !hasDepositPayment(booking.invoices)
         ) {
           throw new Error(
             "Booking cannot be confirmed until the deposit is recorded."
@@ -262,20 +305,15 @@ export async function recordBookingDeposit(
           select: {
             id: true,
             status: true,
-            order: {
+            invoices: {
+              orderBy: { createdAt: "asc" },
               select: {
                 id: true,
-                invoices: {
-                  orderBy: { createdAt: "asc" },
-                  select: {
-                    id: true,
-                    status: true,
-                    payments: {
-                      where: { paymentType: PaymentType.DEPOSIT },
-                      select: { id: true },
-                      take: 1,
-                    },
-                  },
+                status: true,
+                payments: {
+                  where: { paymentType: PaymentType.DEPOSIT },
+                  select: { id: true },
+                  take: 1,
                 },
               },
             },
@@ -288,16 +326,13 @@ export async function recordBookingDeposit(
         if (booking.status !== BookingStatus.PENDING) {
           throw new Error("Deposit can only be recorded for pending bookings");
         }
-        if (hasDepositPayment(booking.order?.invoices)) {
+        if (hasDepositPayment(booking.invoices)) {
           throw new Error("Deposit already recorded");
         }
 
-        const order =
-          booking.order ??
-          (await createOrderFromBookingWithClient(tx, booking.id));
         const invoice =
-          booking.order?.invoices[0] ??
-          (await createInvoiceForOrderWithClient(tx, order.id));
+          booking.invoices[0] ??
+          (await createInvoiceForBookingWithClient(tx, booking.id));
         if (invoice.status === InvoiceStatus.DRAFT) {
           await issueInvoiceWithClient(tx, invoice.id);
         }
@@ -312,6 +347,48 @@ export async function recordBookingDeposit(
     "Failed to record booking deposit",
     2
   );
+}
+
+async function validateBookingReferences(
+  client: Prisma.TransactionClient,
+  input: {
+    customerId: string;
+    packageId: string;
+    assignedPhotographerId: string | null;
+  }
+): Promise<void> {
+  const [customer, pkg, photographer] = await Promise.all([
+    client.customer.findUnique({
+      where: { id: input.customerId },
+      select: { id: true },
+    }),
+    client.package.findUnique({
+      where: { id: input.packageId },
+      select: { id: true, isActive: true },
+    }),
+    input.assignedPhotographerId
+      ? client.user.findFirst({
+          where: {
+            id: input.assignedPhotographerId,
+            role: UserRole.PHOTOGRAPHER,
+          },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (!customer) {
+    throw new Error("Customer not found");
+  }
+  if (!pkg) {
+    throw new Error("Package not found");
+  }
+  if (!pkg.isActive) {
+    throw new Error("Package is not active");
+  }
+  if (input.assignedPhotographerId && !photographer) {
+    throw new Error("Assigned photographer not found");
+  }
 }
 
 async function lockBookingForDeposit(
@@ -343,16 +420,23 @@ const editableBookingInclude = {
       price: true,
     },
   },
-  order: {
+  assignedPhotographer: {
+    select: { id: true, name: true },
+  },
+  themes: {
+    orderBy: { createdAt: "asc" },
     select: {
-      invoices: {
-        where: {
-          payments: { some: { paymentType: PaymentType.DEPOSIT } },
-        },
-        take: 1,
-        select: { id: true },
-      },
+      id: true,
+      themeName: true,
+      notes: true,
     },
+  },
+  invoices: {
+    where: {
+      payments: { some: { paymentType: PaymentType.DEPOSIT } },
+    },
+    take: 1,
+    select: { id: true },
   },
 } satisfies Prisma.BookingInclude;
 
@@ -403,10 +487,17 @@ function mapEditableBooking(
     packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
     sessionDate: formatInputDate(row.sessionDate),
     sessionTime: formatInputTime(row.sessionDate),
-    sessionType: mapEditableSessionType(row.sessionType),
+    sessionType: row.sessionType,
+    department: row.department,
+    assignedPhotographerId: row.assignedPhotographer?.id ?? "",
+    assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
     bookingStatus: mapBookingStatus(row.status),
-    depositStatus: hasDepositPayment(row.order?.invoices) ? "Paid" : "Unpaid",
+    depositStatus: hasDepositPayment(row.invoices) ? "Paid" : "Unpaid",
     notes: row.notes ?? "",
+    themes: row.themes.map((theme) => ({
+      themeName: theme.themeName,
+      notes: theme.notes ?? "",
+    })),
     canEdit:
       row.status !== BookingStatus.COMPLETED &&
       row.status !== BookingStatus.CANCELLED &&
@@ -435,12 +526,6 @@ function hasDepositPayment(
   );
 }
 
-function mapEditableSessionType(
-  sessionType: "NEWBORN" | "KIDS" | "FAMILY" | "MATERNITY" | "OTHER"
-): UpdateBookingInput["sessionType"] {
-  return sessionType;
-}
-
 function formatInputDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -459,4 +544,9 @@ function formatEnum(value: string): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function emptyToNull(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
 }
