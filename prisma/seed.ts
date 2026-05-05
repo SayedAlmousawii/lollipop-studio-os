@@ -152,33 +152,23 @@ async function main() {
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionType: SessionType.NEWBORN,
+      department: "Photography",
       status: BookingStatus.CONFIRMED,
-      depositPaid: true,
+      assignedPhotographerId: photographer.id,
       notes: "Newborn session — baby is 3 weeks old",
+      themes: {
+        create: [{ themeName: "Minimal White" }],
+      },
     },
   });
 
-  // Order 1 linked to Booking 1
-  const order1 = await prisma.order.upsert({
-    where: { id: "order-001" },
-    update: {},
-    create: {
-      id: "order-001",
-      bookingId: booking1.id,
-      customerId: customerFatima.id,
-      originalPackageId: pkgStandard.id,
-      finalPackageId: pkgStandard.id,
-      status: OrderStatus.ACTIVE,
-    },
-  });
-
-  // Invoice 1 linked to Order 1
+  // Invoice 1 linked directly to Booking 1 before completion
   const invoice1 = await prisma.invoice.upsert({
     where: { id: "inv-001" },
     update: {},
     create: {
       id: "inv-001",
-      orderId: order1.id,
+      bookingId: booking1.id,
       customerId: customerFatima.id,
       invoiceNumber: "INV-00001",
       totalAmount: 250,
@@ -213,8 +203,9 @@ async function main() {
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionType: SessionType.KIDS,
+      department: "Photography",
       status: BookingStatus.PENDING,
-      depositPaid: false,
+      notes: "Waiting for deposit confirmation",
     },
   });
 
@@ -228,8 +219,12 @@ async function main() {
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionType: SessionType.FAMILY,
+      department: "Photography",
       status: BookingStatus.COMPLETED,
-      depositPaid: true,
+      assignedPhotographerId: photographer.id,
+      themes: {
+        create: [{ themeName: "Classic Family" }],
+      },
     },
   });
 
@@ -256,6 +251,7 @@ async function main() {
     create: {
       id: "inv-003",
       orderId: order3.id,
+      bookingId: booking3.id,
       customerId: customerMaryam.id,
       invoiceNumber: "INV-00002",
       totalAmount: 400,

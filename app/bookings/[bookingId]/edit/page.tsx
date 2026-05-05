@@ -2,17 +2,21 @@ import { notFound } from "next/navigation";
 import { PageContainer } from "@/components/layout/page-container";
 import { EditBookingForm } from "@/components/bookings/edit-booking-form";
 import { getCustomers } from "@/modules/customers/customer.service";
-import { getEditableBookingById } from "@/modules/bookings/booking.service";
+import {
+  getAssignablePhotographers,
+  getEditableBookingById,
+} from "@/modules/bookings/booking.service";
 import { getPackages } from "@/modules/packages/package.service";
 
 export default async function EditBookingPage(
   props: PageProps<"/bookings/[bookingId]/edit">
 ) {
   const { bookingId } = await props.params;
-  const [booking, allCustomers, allPackages] = await Promise.all([
+  const [booking, allCustomers, allPackages, photographers] = await Promise.all([
     getEditableBookingById(bookingId),
     getCustomers(),
     getPackages(),
+    getAssignablePhotographers(),
   ]);
 
   if (!booking) notFound();
@@ -33,6 +37,7 @@ export default async function EditBookingPage(
         booking={booking}
         customers={customers}
         packages={packages}
+        photographers={photographers}
       />
     </PageContainer>
   );

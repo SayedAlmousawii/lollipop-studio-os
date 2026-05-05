@@ -35,7 +35,7 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
-type OrderWriteClient = Pick<Prisma.TransactionClient, "booking" | "order">;
+type OrderWriteClient = Pick<Prisma.TransactionClient, "booking" | "order" | "invoice">;
 
 export function parseOrderFilters(filters: {
   search?: string | string[];
@@ -209,10 +209,17 @@ export async function createOrderFromBookingWithClient(
     throw new Error("Booking package is required to create an order");
   }
   if (booking.order) {
+    await client.invoice.updateMany({
+      where: {
+        bookingId: booking.id,
+        orderId: null,
+      },
+      data: { orderId: booking.order.id },
+    });
     return booking.order;
   }
 
-  return client.order.create({
+  const order = await client.order.create({
     data: {
       booking: { connect: { id: booking.id } },
       customer: { connect: { id: booking.customer.id } },
@@ -223,6 +230,16 @@ export async function createOrderFromBookingWithClient(
     },
     select: { id: true },
   });
+
+  await client.invoice.updateMany({
+    where: {
+      bookingId: booking.id,
+      orderId: null,
+    },
+    data: { orderId: order.id },
+  });
+
+  return order;
 }
 
 async function fetchOrders(filters: OrderFilters) {

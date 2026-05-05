@@ -35,6 +35,7 @@ interface Customer {
 interface NewBookingFormProps {
   customers: Customer[];
   packages: { id: string; name: string; price: string }[];
+  photographers: { id: string; name: string }[];
 }
 
 function SubmitButton() {
@@ -177,7 +178,11 @@ function CustomerCombobox({ customers, error }: CustomerComboboxProps) {
   );
 }
 
-export function NewBookingForm({ customers, packages }: NewBookingFormProps) {
+export function NewBookingForm({
+  customers,
+  packages,
+  photographers,
+}: NewBookingFormProps) {
   const [state, formAction] = useActionState<ActionState, FormData>(
     createBooking,
     {}
@@ -234,6 +239,35 @@ export function NewBookingForm({ customers, packages }: NewBookingFormProps) {
         <FieldError messages={state.errors?.sessionDate} />
       </div>
 
+      <div className="space-y-1.5">
+        <Label htmlFor="department">Department</Label>
+        <Input
+          id="department"
+          name="department"
+          placeholder="Photography"
+          className="w-full"
+        />
+        <FieldError messages={state.errors?.department} />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="assignedPhotographerId">Assigned Photographer</Label>
+        <select
+          id="assignedPhotographerId"
+          name="assignedPhotographerId"
+          defaultValue=""
+          className="flex h-10 w-full rounded-sm border border-(--color-border) bg-(--color-surface) px-3 py-2 text-sm text-(--color-text-primary) focus:outline-none focus:ring-2 focus:ring-(--color-accent) focus:ring-offset-0 disabled:opacity-50"
+        >
+          <option value="">Unassigned</option>
+          {photographers.map((photographer) => (
+            <option key={photographer.id} value={photographer.id}>
+              {photographer.name}
+            </option>
+          ))}
+        </select>
+        <FieldError messages={state.errors?.assignedPhotographerId} />
+      </div>
+
       {/* Session Type */}
       <div className="space-y-1.5">
         <Label htmlFor="sessionType">Session Type</Label>
@@ -250,6 +284,18 @@ export function NewBookingForm({ customers, packages }: NewBookingFormProps) {
           </SelectContent>
         </Select>
         <FieldError messages={state.errors?.sessionType} />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="themes">Themes</Label>
+        <Textarea
+          id="themes"
+          name="themes"
+          rows={3}
+          placeholder="One theme per line or comma separated"
+          className="resize-none"
+        />
+        <FieldError messages={state.errors?.themes} />
       </div>
 
       {/* Notes */}

@@ -50,6 +50,11 @@ export function CalendarEventPopover({
           </div>
 
           <div className="flex justify-between">
+            <span className="text-[var(--color-text-muted)]">Department</span>
+            <span>{details.department ?? "—"}</span>
+          </div>
+
+          <div className="flex justify-between">
             <span className="text-[var(--color-text-muted)]">
               Photographer
             </span>

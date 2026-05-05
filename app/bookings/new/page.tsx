@@ -2,13 +2,15 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { NewBookingForm } from "@/components/bookings/new-booking-form";
+import { getAssignablePhotographers } from "@/modules/bookings/booking.service";
 import { getCustomers } from "@/modules/customers/customer.service";
 import { getPackages } from "@/modules/packages/package.service";
 
 export default async function NewBookingPage() {
-  const [allCustomers, allPackages] = await Promise.all([
+  const [allCustomers, allPackages, photographers] = await Promise.all([
     getCustomers(),
     getPackages(),
+    getAssignablePhotographers(),
   ]);
 
   const customers = allCustomers.map((c) => ({ id: c.id, name: c.fullName }));
@@ -40,7 +42,11 @@ export default async function NewBookingPage() {
 
         {/* Form card */}
         <div className="rounded-lg border border-(--color-border) bg-(--color-surface) p-8">
-          <NewBookingForm customers={customers} packages={packages} />
+          <NewBookingForm
+            customers={customers}
+            packages={packages}
+            photographers={photographers}
+          />
         </div>
       </div>
     </PageContainer>

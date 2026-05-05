@@ -26,8 +26,12 @@ export async function updateBookingAction(
     customerId: formData.get("customerId"),
     packageId: formData.get("packageId"),
     date: sessionDate,
+    department: formData.get("department"),
+    assignedPhotographerId:
+      formData.get("assignedPhotographerId") || undefined,
     sessionType: formData.get("sessionType"),
     notes: formData.get("notes") || undefined,
+    themes: parseThemeInput(formData.get("themes")),
   });
 
   if (!parsed.success) {
@@ -43,6 +47,7 @@ export async function updateBookingAction(
   }
 
   revalidatePath("/bookings");
+  revalidatePath("/calendar");
   redirect("/bookings");
 }
 
@@ -52,4 +57,16 @@ function buildSessionDate(date: FormDataEntryValue | null, time: FormDataEntryVa
 
   const value = new Date(`${date}T${time}:00.000Z`);
   return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function parseThemeInput(value: FormDataEntryValue | null) {
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .split(/[\n,]/)
+    .map((themeName) => themeName.trim())
+    .filter(Boolean)
+    .map((themeName) => ({ themeName }));
 }

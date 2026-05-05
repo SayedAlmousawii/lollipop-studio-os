@@ -40,10 +40,11 @@ export interface Booking {
   id: string;
   customerName: string;
   sessionDate: string;
+  department: string;
   package: string;
   status: BookingStatus;
   paymentStatus: PaymentStatus;
-  assignedStaff: string;
+  assignedPhotographerName: string;
 }
 
 interface BookingsTableProps {
@@ -58,10 +59,13 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Customer</TableHead>
             <TableHead className="text-text-secondary">Session Date</TableHead>
+            <TableHead className="text-text-secondary">Department</TableHead>
             <TableHead className="text-text-secondary">Package</TableHead>
             <TableHead className="text-text-secondary">Status</TableHead>
             <TableHead className="text-text-secondary">Deposit</TableHead>
-            <TableHead className="text-text-secondary">Assigned Staff</TableHead>
+            <TableHead className="text-text-secondary">
+              Assigned Photographer
+            </TableHead>
             <TableHead className="w-12">
               <span className="sr-only">Actions</span>
             </TableHead>
@@ -90,6 +94,9 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
         {booking.sessionDate}
       </TableCell>
       <TableCell className="text-sm text-text-secondary">
+        {booking.department}
+      </TableCell>
+      <TableCell className="text-sm text-text-secondary">
         {booking.package}
       </TableCell>
       <TableCell>
@@ -99,7 +106,7 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
         <PaymentStatusBadge status={booking.paymentStatus} />
       </TableCell>
       <TableCell className="text-sm text-text-secondary">
-        {booking.assignedStaff}
+        {booking.assignedPhotographerName}
       </TableCell>
       <TableCell>
         <Dialog>

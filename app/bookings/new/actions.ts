@@ -16,8 +16,12 @@ export async function createBooking(
     customerId: formData.get("customerId"),
     packageId: formData.get("packageId"),
     sessionDate: formData.get("sessionDate"),
+    department: formData.get("department"),
+    assignedPhotographerId:
+      formData.get("assignedPhotographerId") || undefined,
     sessionType: formData.get("sessionType"),
     notes: formData.get("notes") || undefined,
+    themes: parseThemeInput(formData.get("themes")),
   };
 
   const parsed = createBookingSchema.safeParse(raw);
@@ -31,4 +35,16 @@ export async function createBooking(
     return { errors: { _global: ["Unable to save booking, please try again."] } };
   }
   redirect("/bookings");
+}
+
+function parseThemeInput(value: FormDataEntryValue | null) {
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  return value
+    .split(/[\n,]/)
+    .map((themeName) => themeName.trim())
+    .filter(Boolean)
+    .map((themeName) => ({ themeName }));
 }

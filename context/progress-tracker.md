@@ -5,13 +5,47 @@ change.
 
 ## Current Phase
 
-- Feature 21 Complete
+- Feature 22 Completed
 
 ## Current Goal
 
-- Booking deposit recording implemented; spec at `context/feature-specs/21-booking-deposit-recording.md`.
+- Awaiting review for Feature 22 booking lifecycle alignment implementation.
 
 ## Completed
+
+- Feature 22: Booking Model and Flow Alignment (`context/feature-specs/22-booking-model-and-flow-alignment.md`):
+  - `prisma/schema.prisma` — added `Booking.department`, nullable `Booking.assignedPhotographerId`, `BookingTheme`, and nullable `Invoice.bookingId` / `Invoice.orderId`; removed `Booking.depositPaid` from the schema
+  - `prisma/migrations/20260506090000_booking_lifecycle_alignment/migration.sql` — migrates existing bookings to a required department, drops `depositPaid`, creates `booking_themes`, and allows invoices to exist before orders
+  - `prisma/seed.ts` — updated seed lifecycle so confirmed bookings can have booking-linked invoices without early orders; added booking department, photographer assignment, and themes to sample data
+  - `src/modules/bookings/booking.schema.ts` — extended create/edit validation for department, optional photographer assignment, and simple theme rows
+  - `src/modules/bookings/booking.service.ts` — booking creation/edit now write booking-owned fields and themes only; deposit status is derived from booking-linked deposit payments; deposit recording creates/reuses a booking invoice and never creates an order; completion creates/reuses the order; booking reads now expose department, photographer, and themes
+  - `src/modules/orders/order.service.ts` — order creation now back-links any existing booking invoice to the newly created or reused order
+  - `src/modules/invoices/invoice.service.ts` + `src/modules/invoices/invoice.types.ts` — added booking-first invoice creation, preserved recalculation/locking behavior, and updated invoice list/detail view models for invoices whose order is still pending
+  - `src/modules/calendar/calendar.service.ts` + `src/components/calendar/calendar-event-popover.tsx` + `src/components/calendar/calendar-mock-data.ts` — calendar reads now include booking department and assigned photographer
+  - `app/bookings/new/page.tsx`, `app/bookings/new/actions.ts`, `src/components/bookings/new-booking-form.tsx` — create booking flow now captures department, optional photographer, notes, and simple theme input
+  - `app/bookings/[bookingId]/edit/page.tsx`, `app/bookings/[bookingId]/edit/actions.ts`, `src/components/bookings/edit-booking-form.tsx` — edit booking flow now persists the same booking-owned fields and replaces themes transactionally
+  - `src/components/bookings/bookings-table.tsx` — bookings list now shows department, assigned photographer, and payment-derived deposit state
+  - `app/bookings/actions.ts` — booking status/deposit actions now revalidate invoices/orders alongside bookings and calendar
+  - `src/components/invoices/invoices-table.tsx` + `app/invoices/[id]/page.tsx` — invoice UI now shows booking/order reference labels instead of assuming every invoice already has an order
+  - Validation: `npx prisma generate`, `npx prisma migrate deploy`, `npm run build`, and `npm run lint` pass
+  - Decision: used a required free-text `department` field instead of inventing a new department enum that the spec does not define
+  - Decision: kept theme entry intentionally simple as comma/newline text input mapped into `BookingTheme` rows with empty per-theme notes
+  - Decision: linked booking-created invoices to orders during completion/reuse so deposit/payment history survives the lifecycle transition without duplication
+  - Assumption: because the current `User` schema has no `isActive` field, photographer validation checks for an existing user with role `PHOTOGRAPHER`
+  - Assumption: existing bookings are migrated to department `"General"` so the required field can be introduced without expanding scope into a department catalog or bulk backfill workflow
+
+- Documentation: Feature 22 booking model and flow alignment spec
+  - `context/feature-specs/22-booking-model-and-flow-alignment.md` — implementation spec for aligning booking creation, deposit recording, invoice timing, order creation timing, payment-derived deposit state, new booking fields, and simple booking themes
+  - Decision: the unit keeps scope focused on booking + deposit/invoice lifecycle alignment and explicitly excludes editing jobs, production jobs, commissions, and audit logs
+  - Decision: invoice creation is specified for the first financial transaction, while order creation is delayed until booking completion
+  - Decision: `Booking.depositPaid` is treated as deprecated runtime state; deposit truth must come from `Payment` records with `paymentType = DEPOSIT`
+  - Assumption: simple theme entry is sufficient for V1; no separate theme catalog or advanced theme workflow is needed yet
+
+- Documentation: Data model review and target schema draft
+  - `context/current-data-model-review.md` — review of the current data model against architecture and project overview, including matches, strengths, gaps, and priority fixes
+  - `context/target-data-model.md` — target V1 schema proposal describing ideal entities, ownership boundaries, and lifecycle expectations without implementing schema changes
+  - Decision: this was kept documentation-only; no code, Prisma schema, or database behavior was changed
+  - Assumption: architecture and project overview represent the intended V1 target state, not optional future stretch ideas
 
 - Feature 21: Booking Deposit Recording (`context/feature-specs/21-booking-deposit-recording.md`):
   - `src/modules/bookings/booking.schema.ts` — added `recordBookingDepositSchema` and inferred input type for booking ID, amount, payment method, and optional reference
