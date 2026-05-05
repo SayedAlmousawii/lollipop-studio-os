@@ -27,6 +27,12 @@ change.
   - Decision: the deposit workflow runs in one Prisma transaction so invoice/payment creation cannot leave the booking UI falsely updated if payment recording fails
   - Decision: the form lives in a dialog on the bookings table because the spec allows a modal and keeps staff on the booking page
   - Assumption: default payment method is `KNET`; staff can switch to `CASH` or `LINK`
+  - Post-review fixes:
+    - `src/components/bookings/bookings-table.tsx` — removed the dead `View Details` dropdown item because no booking detail route exists yet
+    - `src/modules/bookings/booking.service.ts` — serializes deposit recording per booking with `SELECT ... FOR UPDATE` before duplicate checks and invoice/payment writes
+    - `src/modules/invoices/invoice.service.ts` — added transaction-aware invoice issuing and returns invoice status from transaction-aware invoice creation; booking deposits issue draft invoices before recording payment so paid/remaining totals update
+    - Validation: `npm run build` and `npm run lint` pass
+    - Decision: used row locking instead of a partial unique index to keep the fix minimal and avoid a schema/migration change while still preventing concurrent duplicate deposits for the same booking flow
 
 - Feature 20: Booking Status Workflow (`context/feature-specs/20-booking-status-workflow.md`):
   - `src/modules/bookings/booking.schema.ts` — added `updateBookingStatusSchema` and inferred input type for booking ID + Prisma booking status validation

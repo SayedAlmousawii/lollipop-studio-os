@@ -1,7 +1,10 @@
-import { BookingStatus, PaymentType, Prisma } from "@prisma/client";
+import { BookingStatus, InvoiceStatus, PaymentType, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
-import { createInvoiceForOrderWithClient } from "@/modules/invoices/invoice.service";
+import {
+  createInvoiceForOrderWithClient,
+  issueInvoiceWithClient,
+} from "@/modules/invoices/invoice.service";
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { Booking } from "@/components/bookings/bookings-table";
@@ -257,6 +260,8 @@ export async function recordBookingDeposit(
   return withRetry(
     () =>
       db.$transaction(async (tx) => {
+        await lockBookingForDeposit(tx, data.bookingId);
+
         const booking = await tx.booking.findUnique({
           where: { id: data.bookingId },
           select: {
@@ -269,6 +274,7 @@ export async function recordBookingDeposit(
                   orderBy: { createdAt: "asc" },
                   select: {
                     id: true,
+                    status: true,
                     payments: {
                       where: { paymentType: PaymentType.DEPOSIT },
                       select: { id: true },
@@ -297,6 +303,9 @@ export async function recordBookingDeposit(
         const invoice =
           booking.order?.invoices[0] ??
           (await createInvoiceForOrderWithClient(tx, order.id));
+        if (invoice.status === InvoiceStatus.DRAFT) {
+          await issueInvoiceWithClient(tx, invoice.id);
+        }
 
         return recordPaymentWithClient(tx, invoice.id, {
           amount: data.amount,
@@ -308,6 +317,15 @@ export async function recordBookingDeposit(
     "Failed to record booking deposit",
     2
   );
+}
+
+async function lockBookingForDeposit(
+  client: Prisma.TransactionClient,
+  bookingId: string
+): Promise<void> {
+  await client.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "bookings" WHERE id = ${bookingId} FOR UPDATE
+  `;
 }
 
 function validateStatusTransition(

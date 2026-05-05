@@ -111,7 +111,6 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem>View Details</DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href={`/bookings/${booking.id}/edit`}>
                   Edit Booking

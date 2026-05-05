@@ -17,7 +17,7 @@ export async function createInvoiceForOrder(orderId: string): Promise<{ id: stri
 export async function createInvoiceForOrderWithClient(
   client: DbClient,
   orderId: string
-): Promise<{ id: string }> {
+): Promise<{ id: string; status: InvoiceStatus }> {
   const order = await client.order.findUnique({
     where: { id: orderId },
     include: {
@@ -41,7 +41,7 @@ export async function createInvoiceForOrderWithClient(
       remainingAmount: totalAmount,
       status: InvoiceStatus.DRAFT,
     },
-    select: { id: true },
+    select: { id: true, status: true },
   });
 }
 
@@ -135,17 +135,22 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
 
 export async function issueInvoice(id: string): Promise<void> {
   await withRetry(
-    async () => {
-      const result = await db.invoice.updateMany({
-        where: { id, isLocked: false },
-        data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
-      });
-      if (result.count === 0) {
-        throw new Error("Invoice is locked or not found");
-      }
-    },
+    () => issueInvoiceWithClient(db, id),
     "Failed to issue invoice"
   );
+}
+
+export async function issueInvoiceWithClient(
+  client: DbClient,
+  id: string
+): Promise<void> {
+  const result = await client.invoice.updateMany({
+    where: { id, isLocked: false },
+    data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
+  });
+  if (result.count === 0) {
+    throw new Error("Invoice is locked or not found");
+  }
 }
 
 export async function closeInvoice(id: string): Promise<void> {
