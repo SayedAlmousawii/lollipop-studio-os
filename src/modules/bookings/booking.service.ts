@@ -1,14 +1,18 @@
-import { BookingStatus, Prisma } from "@prisma/client";
+import { BookingStatus, PaymentType, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { createInvoiceForOrderWithClient } from "@/modules/invoices/invoice.service";
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
+import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
 import {
+  recordBookingDepositSchema,
   updateBookingStatusSchema,
   updateBookingSchema,
   type CreateBookingInput,
+  type RecordBookingDepositInput,
   type UpdateBookingStatusInput,
   type UpdateBookingInput,
 } from "./booking.schema";
@@ -48,8 +52,13 @@ export async function getBookings(): Promise<Booking[]> {
             include: {
               invoices: {
                 orderBy: { createdAt: "desc" },
-                take: 1,
-                select: { status: true },
+                select: {
+                  payments: {
+                    where: { paymentType: PaymentType.DEPOSIT },
+                    select: { id: true },
+                    take: 1,
+                  },
+                },
               },
             },
           },
@@ -65,7 +74,7 @@ export async function getBookings(): Promise<Booking[]> {
     sessionDate: formatSessionDate(row.sessionDate),
     package: row.package?.name ?? "—",
     status: mapBookingStatus(row.status),
-    paymentStatus: mapPaymentStatus(row.order?.invoices[0]?.status),
+    paymentStatus: mapDepositStatus(row.order?.invoices),
     assignedStaff: "—",
   }));
 }
@@ -193,7 +202,19 @@ export async function updateBookingStatus(
           select: {
             id: true,
             status: true,
-            depositPaid: true,
+            order: {
+              select: {
+                invoices: {
+                  select: {
+                    payments: {
+                      where: { paymentType: PaymentType.DEPOSIT },
+                      select: { id: true },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
           },
         });
 
@@ -203,9 +224,12 @@ export async function updateBookingStatus(
 
         validateStatusTransition(booking.status, data.nextStatus);
 
-        if (data.nextStatus === BookingStatus.CONFIRMED && !booking.depositPaid) {
+        if (
+          data.nextStatus === BookingStatus.CONFIRMED &&
+          !hasDepositPayment(booking.order?.invoices)
+        ) {
           throw new Error(
-            "Booking cannot be confirmed until the deposit is recorded. TODO: connect this guard to invoice/payment deposit tracking when it becomes the reliable source."
+            "Booking cannot be confirmed until the deposit is recorded."
           );
         }
 
@@ -221,6 +245,67 @@ export async function updateBookingStatus(
         return updatedBooking;
       }),
     "Failed to update booking status",
+    2
+  );
+}
+
+export async function recordBookingDeposit(
+  input: RecordBookingDepositInput
+): Promise<{ id: string }> {
+  const data = recordBookingDepositSchema.parse(input);
+
+  return withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const booking = await tx.booking.findUnique({
+          where: { id: data.bookingId },
+          select: {
+            id: true,
+            status: true,
+            order: {
+              select: {
+                id: true,
+                invoices: {
+                  orderBy: { createdAt: "asc" },
+                  select: {
+                    id: true,
+                    payments: {
+                      where: { paymentType: PaymentType.DEPOSIT },
+                      select: { id: true },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (!booking) {
+          throw new Error("Booking not found");
+        }
+        if (booking.status !== BookingStatus.PENDING) {
+          throw new Error("Deposit can only be recorded for pending bookings");
+        }
+        if (hasDepositPayment(booking.order?.invoices)) {
+          throw new Error("Deposit already recorded");
+        }
+
+        const order =
+          booking.order ??
+          (await createOrderFromBookingWithClient(tx, booking.id));
+        const invoice =
+          booking.order?.invoices[0] ??
+          (await createInvoiceForOrderWithClient(tx, order.id));
+
+        return recordPaymentWithClient(tx, invoice.id, {
+          amount: data.amount,
+          method: data.method,
+          paymentType: PaymentType.DEPOSIT,
+          reference: data.reference,
+        });
+      }),
+    "Failed to record booking deposit",
     2
   );
 }
@@ -243,6 +328,19 @@ const editableBookingInclude = {
       id: true,
       name: true,
       price: true,
+    },
+  },
+  order: {
+    select: {
+      invoices: {
+        select: {
+          payments: {
+            where: { paymentType: PaymentType.DEPOSIT },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
     },
   },
 } satisfies Prisma.BookingInclude;
@@ -296,7 +394,7 @@ function mapEditableBooking(
     sessionTime: formatInputTime(row.sessionDate),
     sessionType: mapEditableSessionType(row.sessionType),
     bookingStatus: mapBookingStatus(row.status),
-    depositStatus: row.depositPaid ? "Paid" : "Unpaid",
+    depositStatus: hasDepositPayment(row.order?.invoices) ? "Paid" : "Unpaid",
     notes: row.notes ?? "",
     canEdit:
       row.status !== BookingStatus.COMPLETED &&
@@ -305,18 +403,22 @@ function mapEditableBooking(
   };
 }
 
-function mapPaymentStatus(
-  status: "DRAFT" | "ISSUED" | "PARTIAL" | "PAID" | "CLOSED" | null | undefined
+function mapDepositStatus(
+  invoices:
+    | Array<{ payments: Array<{ id: string }> }>
+    | null
+    | undefined
 ): PaymentStatus {
-  switch (status) {
-    case "PARTIAL":
-      return "Partial";
-    case "PAID":
-    case "CLOSED":
-      return "Paid";
-    default:
-      return "Unpaid";
-  }
+  return hasDepositPayment(invoices) ? "Paid" : "Unpaid";
+}
+
+function hasDepositPayment(
+  invoices:
+    | Array<{ payments: Array<{ id: string }> }>
+    | null
+    | undefined
+): boolean {
+  return invoices?.some((invoice) => invoice.payments.length > 0) ?? false;
 }
 
 function mapEditableSessionType(

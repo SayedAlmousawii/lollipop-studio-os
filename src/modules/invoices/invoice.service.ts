@@ -9,38 +9,40 @@ type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
 
 export async function createInvoiceForOrder(orderId: string): Promise<{ id: string }> {
   return withRetry(
-    () =>
-      db.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({
-          where: { id: orderId },
-          include: {
-            customer: { select: { id: true } },
-            finalPackage: { select: { price: true } },
-            originalPackage: { select: { price: true } },
-          },
-        });
-        if (!order) throw new Error("Order not found");
-
-        const totalAmount = order.finalPackage?.price ?? order.originalPackage?.price;
-        if (!totalAmount) throw new Error("Order has no package price");
-
-        const invoiceNumberData = await generateInvoiceNumber(tx);
-        const invoice = await tx.invoice.create({
-          data: {
-            orderId: order.id,
-            customerId: order.customer.id,
-            ...invoiceNumberData,
-            totalAmount,
-            remainingAmount: totalAmount,
-            status: InvoiceStatus.DRAFT,
-          },
-          select: { id: true },
-        });
-
-        return invoice;
-      }),
+    () => db.$transaction((tx) => createInvoiceForOrderWithClient(tx, orderId)),
     "Failed to create invoice"
   );
+}
+
+export async function createInvoiceForOrderWithClient(
+  client: DbClient,
+  orderId: string
+): Promise<{ id: string }> {
+  const order = await client.order.findUnique({
+    where: { id: orderId },
+    include: {
+      customer: { select: { id: true } },
+      finalPackage: { select: { price: true } },
+      originalPackage: { select: { price: true } },
+    },
+  });
+  if (!order) throw new Error("Order not found");
+
+  const totalAmount = order.finalPackage?.price ?? order.originalPackage?.price;
+  if (!totalAmount) throw new Error("Order has no package price");
+
+  const invoiceNumberData = await generateInvoiceNumber(client);
+  return client.invoice.create({
+    data: {
+      orderId: order.id,
+      customerId: order.customer.id,
+      ...invoiceNumberData,
+      totalAmount,
+      remainingAmount: totalAmount,
+      status: InvoiceStatus.DRAFT,
+    },
+    select: { id: true },
+  });
 }
 
 export async function getInvoices({
