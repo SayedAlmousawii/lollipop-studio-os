@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -21,18 +21,44 @@ interface CalendarGridProps {
   events: CalendarBooking[];
 }
 
+function getInitialPeriod(events: CalendarBooking[]): string {
+  const firstEvent = events[0];
+
+  if (!firstEvent) {
+    return "Calendar";
+  }
+
+  const [datePart] = firstEvent.start.split("T");
+  const [year, month] = datePart.split("-").map(Number);
+
+  if (!year || !month) {
+    return "Calendar";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
 export function CalendarGrid({ events }: CalendarGridProps) {
   const calendarRef = useRef<FullCalendar | null>(null);
 
+  const [isMounted, setIsMounted] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   const [activeView, setActiveView] = useState<CalendarView>("dayGridMonth");
   const [currentPeriod, setCurrentPeriod] = useState(() =>
-    new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(new Date()),
+    getInitialPeriod(events),
   );
   const [selectedBooking, setSelectedBooking] =
     useState<CalendarBooking | null>(null);
-    
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setIsMounted(true), 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   function updateCurrentPeriod() {
     const api = calendarRef.current?.getApi();
@@ -78,7 +104,7 @@ export function CalendarGrid({ events }: CalendarGridProps) {
     setIsDetailsOpen(Boolean(booking));
   }
 
-    return (
+  return (
     <div className="space-y-4">
       <CalendarHeader
         currentPeriod={currentPeriod}
@@ -93,28 +119,33 @@ export function CalendarGrid({ events }: CalendarGridProps) {
 
       <div className="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
         <div className="min-w-[900px]">
-          <FullCalendar
-            ref={calendarRef}
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-            initialView="dayGridMonth"
-            headerToolbar={false}
-            events={events}
-            height="auto"
-            slotMinTime="08:00:00"
-            slotMaxTime="20:00:00"
-            nowIndicator
-            eventContent={CalendarEventContent}
-            eventClick={handleEventClick}
-            datesSet={updateCurrentPeriod}
-          />
+          {isMounted ? (
+            <FullCalendar
+              ref={calendarRef}
+              plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+              initialView="dayGridMonth"
+              headerToolbar={false}
+              events={events}
+              height="auto"
+              slotMinTime="08:00:00"
+              slotMaxTime="20:00:00"
+              nowIndicator
+              eventContent={CalendarEventContent}
+              eventClick={handleEventClick}
+              datesSet={updateCurrentPeriod}
+            />
+          ) : (
+            <div className="flex min-h-[720px] items-center justify-center rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-surface-soft)] text-sm text-[var(--color-text-secondary)]">
+              Loading calendar...
+            </div>
+          )}
         </div>
       </div>
-<CalendarEventPopover
-  booking={selectedBooking}
-  open={isDetailsOpen}
-  onOpenChange={setIsDetailsOpen}
-/>
+      <CalendarEventPopover
+        booking={selectedBooking}
+        open={isDetailsOpen}
+        onOpenChange={setIsDetailsOpen}
+      />
     </div>
   );
 }
-

@@ -1,8 +1,10 @@
 import { InvoiceStatus, OrderStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
+import { syncOrderInvoiceForFinancialEdit } from "@/modules/invoices/invoice.service";
 import { updateOrderSchema, type UpdateOrderInput } from "./order.schema";
 import type {
   EditableOrder,
@@ -106,21 +108,7 @@ export async function getEditableOrderById(
 
   if (!row) return null;
 
-  return {
-    id: row.id,
-    customerName: row.customer.name,
-    bookingDate: formatDate(row.booking.sessionDate),
-    originalPackage: row.originalPackage ? mapEditPackage(row.originalPackage) : null,
-    finalPackage: row.finalPackage ? mapEditPackage(row.finalPackage) : null,
-    selectedPhotos:
-      row.selectedPhotoCount ??
-      row.finalPackage?.photoCount ??
-      row.originalPackage?.photoCount ??
-      0,
-    addOns: parseAddOns(row.addOns),
-    orderStatus: mapOrderStatus(row.status),
-    notes: row.notes ?? "",
-  };
+  return mapEditableOrderRow(row);
 }
 
 export async function updateOrder(
@@ -135,7 +123,10 @@ export async function updateOrder(
         const [order, selectedPackage] = await Promise.all([
           tx.order.findUnique({
             where: { id: orderId },
-            select: { id: true, status: true },
+            include: {
+              finalPackage: { select: { price: true } },
+              originalPackage: { select: { price: true } },
+            },
           }),
           tx.package.findUnique({
             where: { id: data.finalPackageId },
@@ -152,8 +143,14 @@ export async function updateOrder(
         if (!selectedPackage) {
           throw new Error("Selected package does not exist");
         }
+        const previousPackagePrice =
+          order.finalPackage?.price ?? order.originalPackage?.price;
+        if (!previousPackagePrice) {
+          throw new Error("Order has no package price");
+        }
+        const previousAddOns = parseAddOns(order.addOns);
 
-        return tx.order.update({
+        await tx.order.update({
           where: { id: orderId },
           data: {
             finalPackage: { connect: { id: data.finalPackageId } },
@@ -161,23 +158,27 @@ export async function updateOrder(
             addOns: data.addOns,
             notes: data.notes?.trim() ? data.notes.trim() : null,
           },
+        });
+        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
+          orderId,
+          previousPackagePrice,
+          previousAddOns,
+        });
+
+        await syncUpgradeCommissionForOrder(tx, {
+          orderId,
+          upgradeAmount: invoiceSummary.packageAdjustmentAmount,
+        });
+
+        return tx.order.findUniqueOrThrow({
+          where: { id: orderId },
           include: editableOrderInclude,
         });
       }),
     "Failed to update order"
   );
 
-  return {
-    id: row.id,
-    customerName: row.customer.name,
-    bookingDate: formatDate(row.booking.sessionDate),
-    originalPackage: row.originalPackage ? mapEditPackage(row.originalPackage) : null,
-    finalPackage: row.finalPackage ? mapEditPackage(row.finalPackage) : null,
-    selectedPhotos: row.selectedPhotoCount ?? 0,
-    addOns: parseAddOns(row.addOns),
-    orderStatus: mapOrderStatus(row.status),
-    notes: row.notes ?? "",
-  };
+  return mapEditableOrderRow(row);
 }
 
 export async function createOrderFromBooking(
@@ -378,6 +379,21 @@ const editableOrderInclude = {
       photoCount: true,
     },
   },
+  invoices: {
+    where: { parentInvoiceId: null },
+    select: {
+      id: true,
+      publicId: true,
+      invoiceNumber: true,
+      totalAmount: true,
+      paidAmount: true,
+      remainingAmount: true,
+      status: true,
+      isLocked: true,
+    },
+    orderBy: { createdAt: "asc" },
+    take: 1,
+  },
 } satisfies Prisma.OrderInclude;
 
 async function fetchEditableOrderById(orderId: string) {
@@ -560,6 +576,42 @@ function zeroMoney(): Prisma.Decimal {
   return new Prisma.Decimal(0);
 }
 
+type EditableOrderRow = NonNullable<Awaited<ReturnType<typeof fetchEditableOrderById>>>;
+
+function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
+  const addOns = parseAddOns(order.addOns);
+  const invoice = order.invoices[0] ?? null;
+
+  return {
+    id: order.id,
+    customerName: order.customer.name,
+    bookingDate: formatDate(order.booking.sessionDate),
+    originalPackage: order.originalPackage ? mapEditPackage(order.originalPackage) : null,
+    finalPackage: order.finalPackage ? mapEditPackage(order.finalPackage) : null,
+    selectedPhotos:
+      order.selectedPhotoCount ??
+      order.finalPackage?.photoCount ??
+      order.originalPackage?.photoCount ??
+      0,
+    addOns,
+    orderStatus: mapOrderStatus(order.status),
+    notes: order.notes ?? "",
+    invoiceSummary: invoice
+      ? {
+          id: invoice.id,
+          publicId: invoice.publicId,
+          invoiceNumber: invoice.invoiceNumber,
+          totalAmount: invoice.totalAmount.toNumber(),
+          paidAmount: invoice.paidAmount.toNumber(),
+          remainingAmount: invoice.remainingAmount.toNumber(),
+          status: mapInvoiceStatus(invoice.status),
+          isLocked: invoice.isLocked,
+          recognizedPackageBaseline: invoice.totalAmount.minus(sumAddOnsDecimal(addOns)).toNumber(),
+        }
+      : null,
+  };
+}
+
 function mapEditPackage(packageRow: {
   id: string;
   name: string;
@@ -573,6 +625,13 @@ function mapEditPackage(packageRow: {
     priceLabel: formatMoney(packageRow.price),
     photoCount: packageRow.photoCount,
   };
+}
+
+function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
+  return addOns.reduce(
+    (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
+    zeroMoney()
+  );
 }
 
 function parseAddOns(value: Prisma.JsonValue): OrderAddOn[] {

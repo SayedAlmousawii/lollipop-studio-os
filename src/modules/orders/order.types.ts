@@ -80,4 +80,17 @@ export interface EditableOrder {
   addOns: OrderAddOn[];
   orderStatus: OrderStatusLabel;
   notes: string;
+  invoiceSummary: EditableOrderInvoiceSummary | null;
+}
+
+export interface EditableOrderInvoiceSummary {
+  id: string;
+  publicId: string;
+  invoiceNumber: string;
+  totalAmount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  status: InvoiceStatusLabel;
+  isLocked: boolean;
+  recognizedPackageBaseline: number;
 }

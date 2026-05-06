@@ -7,6 +7,7 @@ import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getOrderById } from "@/modules/orders/order.service";
+import { createOrderInvoiceAction } from "./actions";
 
 export default async function OrderDetailPage(
   props: PageProps<"/orders/[orderId]">
@@ -49,9 +50,11 @@ export default async function OrderDetailPage(
               <Link href={`/invoices/${order.primaryInvoiceId}`}>View Invoice</Link>
             </Button>
           ) : (
-            <Button variant="outline" disabled>
-              Create Invoice
-            </Button>
+            <form action={createOrderInvoiceAction.bind(null, order.id)}>
+              <Button type="submit" variant="outline">
+                Create Invoice
+              </Button>
+            </form>
           )}
         </div>
 
