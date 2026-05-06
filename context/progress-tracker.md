@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 34 implemented.
-- Current goal: review Financials and Activity tabs in-app and decide the next unit.
+- Current phase: Feature 35 implemented and review fixes applied.
+- Current goal: verify the base payment gate no longer has a completion bypass and that base-payment completion writes the expected order activity trail.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -37,6 +37,10 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order completion is service-guarded by pickup recording, finished production sections, and settled payment or an explicit admin override reason.
 
 ## Recent Milestones
+- Feature 35 follow-up: base payment amount is now read-only in the booking detail and bookings list modals so staff records the service-computed remaining balance without editing it.
+- Feature 35 follow-up: added `Record Base Payment` to the bookings list row menu for confirmed bookings only, reusing the same prefilled remaining-balance modal path as the booking detail page.
+- Feature 35 review fix: sealed the old `updateBookingStatus()` completion path so `CONFIRMED` bookings can no longer bypass base-payment recording to become `COMPLETED`, and `recordBasePaymentAndComplete()` now writes an explicit order activity trail for base payment recorded, booking completed, and order created using the existing order activity system. No schema changes required.
+- Feature 35: base payment gate implemented. `recordBasePaymentAndComplete()` service method runs a single transaction: creates a `BASE` payment against the booking invoice, transitions booking to `COMPLETED`, and creates the order with `WAITING_SELECTION` status. "Mark Completed" removed from `BookingStatusActions` for Confirmed bookings; "Record Base Payment" modal added to the booking detail page (amount pre-filled to `packagePrice − depositPaid`). Selection tab shows a locked panel for `ACTIVE` orders. `updateOrderSelectionWorkflow` rejects `ACTIVE` orders with a clear error. `resolveNextOrderAction` surfaces the base-payment hint as the second priority step. `orderStatus` added to `OrderSelectionWorkflow`. No schema changes required.
 - Feature 34: Financials tab enriched with invoice number, full price breakdown (base package, upgrade charge, add-on total, extra photos, invoice total, paid, balance due), payment records list, and invoice link. Activity tab replaced with full chronological timeline with event-type filtering (All / Financial / Workflow / Package). `getOrderFinancialSummary` service function added; `OrderFinancialSummary` and `OrderPaymentStage` types added; `ActivityTabContent` client component created.
 - Feature 33: operational Delivery workflow tab added with pickup readiness, notification, pickup notes, completion metadata, completion guards, payment override capture, and delivery activity records.
 - Feature 32: operational Production workflow tab added with production section actions, early-start warnings, pickup readiness tracking, and production activity records.

@@ -26,7 +26,6 @@ const STATUS_ACTIONS: Partial<
     { label: "Cancel Booking", nextStatus: "CANCELLED" },
   ],
   Confirmed: [
-    { label: "Mark Completed", nextStatus: "COMPLETED" },
     { label: "Cancel Booking", nextStatus: "CANCELLED" },
   ],
 };

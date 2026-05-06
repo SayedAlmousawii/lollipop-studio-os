@@ -158,6 +158,7 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
     nextAction: resolveNextOrderAction({
       invoiceStatus: summary.invoiceStatus,
       paymentStatus: summary.paymentStatus,
+      orderStatus: summary.orderStatus,
       selectionStatus: workflowStatus.selectionStatus,
       editingStatus: workflowStatus.editingStatus,
       productionStatus: workflowStatus.productionStatus,
@@ -276,6 +277,7 @@ export async function getOrderSelectionWorkflowById(
 
   return {
     orderId: order.id,
+    orderStatus: mapOrderStatus(order.status),
     finalPackageId: currentPackage.id,
     originalPackageName: order.originalPackage?.name ?? "—",
     finalPackageName: currentPackage.name,
@@ -395,6 +397,17 @@ export async function updateOrderSelectionWorkflow(
   orderId: string,
   input: UpdateOrderSelectionWorkflowInput
 ): Promise<OrderSelectionWorkflow> {
+  const orderForGuard = await db.order.findUnique({
+    where: { id: orderId },
+    select: { status: true },
+  });
+  if (!orderForGuard) throw new Error("Order not found");
+  if (orderForGuard.status === OrderStatus.ACTIVE) {
+    throw new Error(
+      "Base payment has not been recorded. Record base payment on the booking to begin selection."
+    );
+  }
+
   const data = updateOrderSelectionWorkflowSchema.parse(input);
   const [pricedAddOns, selectedPackage] = await Promise.all([
     priceSelectionAddOns(data.addOns),
@@ -1078,7 +1091,8 @@ export async function createOrderFromBooking(
 
 export async function createOrderFromBookingWithClient(
   client: OrderWriteClient,
-  bookingId: string
+  bookingId: string,
+  initialStatus: OrderStatus = OrderStatus.ACTIVE
 ): Promise<{ id: string }> {
   const booking = await client.booking.findUnique({
     where: { id: bookingId },
@@ -1117,7 +1131,7 @@ export async function createOrderFromBookingWithClient(
       originalPackage: { connect: { id: booking.package.id } },
       finalPackage: { connect: { id: booking.package.id } },
       selectedPhotoCount: 0,
-      status: OrderStatus.ACTIVE,
+      status: initialStatus,
     },
     select: { id: true },
   });
@@ -1471,6 +1485,7 @@ function resolveWorkflowTone(status: string): OrderWorkflowStep["tone"] {
 function resolveNextOrderAction(input: {
   invoiceStatus: InvoiceStatusLabel;
   paymentStatus: OrderPaymentStatusLabel;
+  orderStatus: OrderStatusLabel;
   selectionStatus: string;
   editingStatus: string;
   productionStatus: string;
@@ -1478,6 +1493,9 @@ function resolveNextOrderAction(input: {
 }): string {
   if (input.invoiceStatus === "No Invoice") {
     return "Create the order invoice";
+  }
+  if (input.orderStatus === "Active") {
+    return "Record base payment on booking to begin selection";
   }
   if (input.paymentStatus !== "Paid" && input.paymentStatus !== "Overridden") {
     return "Review invoice payment";

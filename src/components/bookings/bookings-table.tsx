@@ -27,6 +27,7 @@ import {
   type PaymentStatus,
 } from "./payment-status-badge";
 import { BookingStatusActions } from "./booking-status-actions";
+import { RecordBasePaymentDialog } from "./record-base-payment-dialog";
 import { RecordDepositDialog } from "./record-deposit-dialog";
 
 export interface Booking {
@@ -40,6 +41,8 @@ export interface Booking {
   status: BookingStatus;
   paymentStatus: PaymentStatus;
   assignedPhotographerName: string;
+  packagePriceAmount: number;
+  depositPaidAmount: number;
 }
 
 interface BookingsTableProps {
@@ -81,6 +84,7 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
 function TableRowWithActions({ booking }: { booking: Booking }) {
   const canRecordDeposit =
     booking.status === "Pending" && booking.paymentStatus !== "Paid";
+  const canRecordBasePayment = booking.status === "Confirmed";
 
   return (
     <TableRow className="border-border hover:bg-surface-soft">
@@ -132,6 +136,20 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
                 trigger={
                   <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
                     Record Deposit
+                  </DropdownMenuItem>
+                }
+              />
+            ) : null}
+            {canRecordBasePayment ? (
+              <RecordBasePaymentDialog
+                bookingId={booking.id}
+                defaultAmount={Math.max(
+                  booking.packagePriceAmount - booking.depositPaidAmount,
+                  0
+                )}
+                trigger={
+                  <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
+                    Record Base Payment
                   </DropdownMenuItem>
                 }
               />

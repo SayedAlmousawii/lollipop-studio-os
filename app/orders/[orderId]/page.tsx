@@ -354,6 +354,27 @@ function OverviewTab({ order }: { order: OrderDetail }) {
 }
 
 function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
+  if (selection.orderStatus === "Active") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="text-accent">
+              <ClipboardList className="h-4 w-4" />
+            </span>
+            Selection
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-text-secondary">
+            Base payment not yet recorded. Use &ldquo;Record Base Payment&rdquo; on
+            the booking to unlock selection.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <Card>
