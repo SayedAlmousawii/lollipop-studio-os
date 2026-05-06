@@ -11,6 +11,11 @@ import {
   createInvoiceForBookingWithClient,
   issueInvoiceWithClient,
 } from "@/modules/invoices/invoice.service";
+import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
+import {
+  generateJobNumber,
+  generatePublicId,
+} from "@/modules/identifiers/identifier.service";
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { Booking } from "@/components/bookings/bookings-table";
@@ -53,6 +58,8 @@ export interface BookingFilterOption {
 
 export interface EditableBooking {
   id: string;
+  publicId: string;
+  jobNumber: string;
   customerId: string;
   customerName: string;
   packageId: string;
@@ -76,6 +83,8 @@ export interface EditableBooking {
 
 export interface BookingDetail {
   id: string;
+  publicId: string;
+  jobNumber: string;
   customerName: string;
   sessionDate: string;
   sessionType: string;
@@ -175,6 +184,8 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
 
   return rows.map((row) => ({
     id: row.id,
+    publicId: row.publicId,
+    jobNumber: row.jobNumber,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),
     department: row.department,
@@ -221,9 +232,18 @@ export async function createBookingInDb(
           packageId: data.packageId,
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
         });
+        const [publicId, jobNumber] = await Promise.all([
+          generatePublicId(tx, PUBLIC_ID_KIND.BOOKING),
+          generateJobNumber(tx, {
+            department: data.department,
+            sessionDate: data.sessionDate,
+          }),
+        ]);
 
         return tx.booking.create({
           data: {
+            publicId,
+            jobNumber,
             customerId: data.customerId,
             packageId: data.packageId,
             sessionDate: data.sessionDate,
@@ -591,25 +611,27 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
         };
 
         return {
-        OR: [
-          {
-            customer: {
-              is: { name: containsFilter },
+          OR: [
+            {
+              customer: {
+                is: { name: containsFilter },
+              },
             },
-          },
-          {
-            package: {
-              is: { name: containsFilter },
+            { publicId: containsFilter },
+            { jobNumber: containsFilter },
+            {
+              package: {
+                is: { name: containsFilter },
+              },
             },
-          },
-          { department: containsFilter },
-          {
-            assignedPhotographer: {
-              is: { name: containsFilter },
+            { department: containsFilter },
+            {
+              assignedPhotographer: {
+                is: { name: containsFilter },
+              },
             },
-          },
-        ],
-      };
+          ],
+        };
       })()
     : undefined;
 
@@ -707,6 +729,8 @@ function mapEditableBooking(
 ): EditableBooking {
   return {
     id: row.id,
+    publicId: row.publicId,
+    jobNumber: row.jobNumber,
     customerId: row.customerId,
     customerName: row.customer.name,
     packageId: row.package?.id ?? "",
@@ -739,6 +763,8 @@ function mapBookingDetail(
 
   return {
     id: row.id,
+    publicId: row.publicId,
+    jobNumber: row.jobNumber,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),
     sessionType: formatEnum(row.sessionType),

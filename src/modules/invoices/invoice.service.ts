@@ -1,6 +1,8 @@
 import { InvoiceStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
+import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
 import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoice.types";
 
@@ -44,6 +46,8 @@ export async function createInvoiceForOrderWithClient(
   const invoiceNumberData = await generateInvoiceNumber(client);
   return client.invoice.create({
     data: {
+      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      jobNumber: order.jobNumber,
       orderId: order.id,
       bookingId: order.bookingId,
       customerId: order.customer.id,
@@ -75,6 +79,8 @@ export async function createInvoiceForBookingWithClient(
   const invoiceNumberData = await generateInvoiceNumber(client);
   return client.invoice.create({
     data: {
+      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      jobNumber: booking.jobNumber,
       bookingId: booking.id,
       customerId: booking.customer.id,
       ...invoiceNumberData,
@@ -89,19 +95,24 @@ export async function createInvoiceForBookingWithClient(
 export async function getInvoices({
   page = 1,
   pageSize = 50,
+  search,
 }: {
   page?: number;
   pageSize?: number;
+  search?: string;
 } = {}): Promise<InvoiceListItem[]> {
   const safePage = Math.max(1, page);
   const safePageSize = Math.min(Math.max(1, pageSize), 100);
   const rows = await withRetry(
     () =>
       db.invoice.findMany({
+        where: buildInvoiceWhere(search),
         skip: (safePage - 1) * safePageSize,
         take: safePageSize,
         include: {
           customer: { select: { name: true } },
+          order: { select: { publicId: true } },
+          booking: { select: { publicId: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -110,11 +121,13 @@ export async function getInvoices({
 
   return rows.map((row) => ({
     id: row.id,
+    publicId: row.publicId,
+    jobNumber: row.jobNumber,
     invoiceNumber: row.invoiceNumber,
     customerName: row.customer.name,
     orderId: row.orderId,
     bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.orderId, row.bookingId),
+    referenceLabel: formatInvoiceReference(row.order?.publicId, row.booking?.publicId),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -131,6 +144,8 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
         where: { id },
         include: {
           customer: { select: { name: true } },
+          order: { select: { publicId: true } },
+          booking: { select: { publicId: true } },
           parentInvoice: { select: { id: true, invoiceNumber: true } },
           payments: { orderBy: { paidAt: "desc" } },
           adjustments: {
@@ -146,11 +161,13 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
 
   return {
     id: row.id,
+    publicId: row.publicId,
+    jobNumber: row.jobNumber,
     invoiceNumber: row.invoiceNumber,
     customerName: row.customer.name,
     orderId: row.orderId,
     bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.orderId, row.bookingId),
+    referenceLabel: formatInvoiceReference(row.order?.publicId, row.booking?.publicId),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -162,6 +179,8 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
     parentInvoiceNumber: row.parentInvoice?.invoiceNumber ?? null,
     payments: row.payments.map((payment) => ({
       id: payment.id,
+      publicId: payment.publicId,
+      jobNumber: payment.jobNumber,
       amount: formatMoney(payment.amount),
       method: formatEnum(payment.method),
       paymentType: formatEnum(payment.paymentType),
@@ -251,6 +270,7 @@ export async function createAdjustmentInvoice(
             orderId: true,
             bookingId: true,
             customerId: true,
+            jobNumber: true,
             isLocked: true,
           },
         });
@@ -262,6 +282,8 @@ export async function createAdjustmentInvoice(
         const invoiceNumberData = await generateInvoiceNumber(tx);
         return tx.invoice.create({
           data: {
+            publicId: await generatePublicId(tx, PUBLIC_ID_KIND.INVOICE),
+            jobNumber: parent.jobNumber,
             orderId: parent.orderId,
             bookingId: parent.bookingId,
             customerId: parent.customerId,
@@ -277,6 +299,26 @@ export async function createAdjustmentInvoice(
       }),
     "Failed to create adjustment invoice"
   );
+}
+
+function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput | undefined {
+  const trimmed = search?.trim();
+  if (!trimmed) return undefined;
+  const containsFilter = {
+    contains: trimmed,
+    mode: Prisma.QueryMode.insensitive,
+  };
+
+  return {
+    OR: [
+      { publicId: containsFilter },
+      { jobNumber: containsFilter },
+      { invoiceNumber: containsFilter },
+      { customer: { is: { name: containsFilter } } },
+      { order: { is: { publicId: containsFilter } } },
+      { booking: { is: { publicId: containsFilter } } },
+    ],
+  };
 }
 
 async function generateInvoiceNumber(client: DbClient): Promise<InvoiceNumberData> {
@@ -331,18 +373,14 @@ function formatEnum(value: string): string {
 }
 
 function formatInvoiceReference(
-  orderId: string | null,
-  bookingId: string | null
+  orderPublicId: string | null | undefined,
+  bookingPublicId: string | null | undefined
 ): string {
-  if (orderId) {
-    return `Order ${formatShortId(orderId)}`;
+  if (orderPublicId) {
+    return `Order ${orderPublicId}`;
   }
-  if (bookingId) {
-    return `Booking ${formatShortId(bookingId)} · Order pending`;
+  if (bookingPublicId) {
+    return `Booking ${bookingPublicId} · Order pending`;
   }
   return "Order pending";
-}
-
-function formatShortId(id: string): string {
-  return id.length <= 8 ? id : `${id.slice(0, 8)}...`;
 }

@@ -28,6 +28,8 @@ export interface OrderFilters {
 
 export interface Order {
   id: string;
+  publicId: string;
+  jobNumber: string;
   customerName: string;
   bookingDate: string;
   originalPackageName: string;
@@ -39,6 +41,7 @@ export interface Order {
   remainingAmount: string;
   createdAt: string;
   primaryInvoiceId: string | null;
+  primaryInvoicePublicId: string | null;
 }
 
 export interface OrderDetail extends Order {

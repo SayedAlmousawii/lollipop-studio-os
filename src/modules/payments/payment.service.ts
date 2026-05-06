@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
+import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recalculateInvoiceStatus } from "@/modules/invoices/invoice.service";
 import type { RecordPaymentInput } from "./payment.schema";
 
@@ -23,7 +25,7 @@ export async function recordPaymentWithClient(
 ): Promise<{ id: string }> {
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true, isLocked: true },
+    select: { id: true, isLocked: true, jobNumber: true },
   });
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.isLocked) {
@@ -32,6 +34,8 @@ export async function recordPaymentWithClient(
 
   const payment = await client.payment.create({
     data: {
+      publicId: await generatePublicId(client, PUBLIC_ID_KIND.PAYMENT),
+      jobNumber: invoice.jobNumber,
       invoiceId,
       amount: new Prisma.Decimal(data.amount),
       method: data.method,

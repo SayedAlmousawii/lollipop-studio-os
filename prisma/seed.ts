@@ -146,6 +146,8 @@ async function main() {
   const booking1 = await prisma.booking.upsert({
     where: { id: "booking-001" },
     update: {
+      publicId: "BKG-00001",
+      jobNumber: "PH-2026-00001",
       customerId: customerFatima.id,
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
@@ -161,6 +163,8 @@ async function main() {
     },
     create: {
       id: "booking-001",
+      publicId: "BKG-00001",
+      jobNumber: "PH-2026-00001",
       customerId: customerFatima.id,
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
@@ -179,6 +183,8 @@ async function main() {
   const invoice1 = await prisma.invoice.upsert({
     where: { id: "inv-001" },
     update: {
+      publicId: "INV-PUB-00001",
+      jobNumber: booking1.jobNumber,
       bookingId: booking1.id,
       orderId: null,
       customerId: customerFatima.id,
@@ -191,6 +197,8 @@ async function main() {
     },
     create: {
       id: "inv-001",
+      publicId: "INV-PUB-00001",
+      jobNumber: booking1.jobNumber,
       bookingId: booking1.id,
       customerId: customerFatima.id,
       invoiceNumber: "INV-00001",
@@ -208,6 +216,8 @@ async function main() {
     update: {},
     create: {
       id: "pay-001",
+      publicId: "PAY-00001",
+      jobNumber: booking1.jobNumber,
       invoiceId: invoice1.id,
       amount: 20,
       method: PaymentMethod.KNET,
@@ -220,6 +230,8 @@ async function main() {
   const booking2 = await prisma.booking.upsert({
     where: { id: "booking-002" },
     update: {
+      publicId: "BKG-00002",
+      jobNumber: "PH-2026-00002",
       customerId: customerAhmed.id,
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
@@ -234,6 +246,8 @@ async function main() {
     },
     create: {
       id: "booking-002",
+      publicId: "BKG-00002",
+      jobNumber: "PH-2026-00002",
       customerId: customerAhmed.id,
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
@@ -248,6 +262,8 @@ async function main() {
   const booking3 = await prisma.booking.upsert({
     where: { id: "booking-003" },
     update: {
+      publicId: "BKG-00003",
+      jobNumber: "PH-2026-00003",
       customerId: customerMaryam.id,
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
@@ -263,6 +279,8 @@ async function main() {
     },
     create: {
       id: "booking-003",
+      publicId: "BKG-00003",
+      jobNumber: "PH-2026-00003",
       customerId: customerMaryam.id,
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
@@ -282,6 +300,8 @@ async function main() {
     update: {},
     create: {
       id: "order-003",
+      publicId: "ORD-00001",
+      jobNumber: booking3.jobNumber,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
       originalPackageId: pkgPremium.id,
@@ -296,6 +316,8 @@ async function main() {
   const invoice3 = await prisma.invoice.upsert({
     where: { id: "inv-003" },
     update: {
+      publicId: "INV-PUB-00002",
+      jobNumber: booking3.jobNumber,
       orderId: order3.id,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
@@ -308,6 +330,8 @@ async function main() {
     },
     create: {
       id: "inv-003",
+      publicId: "INV-PUB-00002",
+      jobNumber: booking3.jobNumber,
       orderId: order3.id,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
@@ -327,6 +351,8 @@ async function main() {
       update: {},
       create: {
         id: "pay-003a",
+        publicId: "PAY-00002",
+        jobNumber: booking3.jobNumber,
         invoiceId: invoice3.id,
         amount: 20,
         method: PaymentMethod.CASH,
@@ -338,6 +364,8 @@ async function main() {
       update: {},
       create: {
         id: "pay-003b",
+        publicId: "PAY-00003",
+        jobNumber: booking3.jobNumber,
         invoiceId: invoice3.id,
         amount: 380,
         method: PaymentMethod.KNET,
@@ -346,6 +374,49 @@ async function main() {
       },
     }),
   ]);
+
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"booking_public_id_seq"',
+      GREATEST((SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) FROM "bookings"), 1),
+      (SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) > 0 FROM "bookings")
+    )
+  `;
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"order_public_id_seq"',
+      GREATEST((SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) FROM "orders"), 1),
+      (SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) > 0 FROM "orders")
+    )
+  `;
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"invoice_public_id_seq"',
+      GREATEST((SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) FROM "invoices"), 1),
+      (SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) > 0 FROM "invoices")
+    )
+  `;
+  await prisma.$queryRaw`
+    SELECT setval(
+      '"payment_public_id_seq"',
+      GREATEST((SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) FROM "payments"), 1),
+      (SELECT COALESCE(MAX(substring("publicId" FROM '[0-9]+$')::INTEGER), 0) > 0 FROM "payments")
+    )
+  `;
+  await prisma.$executeRaw`
+    INSERT INTO "identifier_sequences" ("scope", "year", "lastValue", "createdAt", "updatedAt")
+    SELECT
+      split_part("jobNumber", '-', 1),
+      split_part("jobNumber", '-', 2)::INTEGER,
+      MAX(split_part("jobNumber", '-', 3)::INTEGER),
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    FROM "bookings"
+    GROUP BY split_part("jobNumber", '-', 1), split_part("jobNumber", '-', 2)::INTEGER
+    ON CONFLICT ("scope", "year") DO UPDATE SET
+      "lastValue" = GREATEST("identifier_sequences"."lastValue", EXCLUDED."lastValue"),
+      "updatedAt" = CURRENT_TIMESTAMP
+  `;
 
   console.log("✓ Seed completed");
   console.log(`  Users:     ${[admin, manager, receptionist, photographer, editor].length}`);

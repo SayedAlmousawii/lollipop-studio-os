@@ -30,6 +30,7 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Invoice Number</TableHead>
+            <TableHead className="text-text-secondary">Job Number</TableHead>
             <TableHead className="text-text-secondary">Customer</TableHead>
             <TableHead className="text-text-secondary">Reference</TableHead>
             <TableHead className="text-text-secondary">Total</TableHead>
@@ -53,6 +54,9 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
               >
                 <TableCell className="font-medium text-text-primary">
                   {invoice.invoiceNumber}
+                </TableCell>
+                <TableCell className="text-sm font-medium text-text-primary">
+                  {invoice.jobNumber}
                 </TableCell>
                 <TableCell className="text-sm text-text-primary">
                   {invoice.customerName}
@@ -114,7 +118,7 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
           })}
           {invoices.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={10} className="h-24 text-center text-sm text-text-secondary">
+              <TableCell colSpan={11} className="h-24 text-center text-sm text-text-secondary">
                 No invoices yet.
               </TableCell>
             </TableRow>

@@ -136,6 +136,8 @@ model Package {
 
 model Booking {
   id                     String        @id @default(cuid())
+  publicId               String        @unique
+  jobNumber              String
   customerId             String
   packageId              String?
   sessionDate            DateTime
@@ -154,6 +156,7 @@ model Booking {
   themes               BookingTheme[]
   invoices             Invoice[]
 
+  @@index([jobNumber])
   @@map("bookings")
 }
 
@@ -174,6 +177,8 @@ model BookingTheme {
 
 model Order {
   id                String      @id @default(cuid())
+  publicId          String      @unique
+  jobNumber         String
   bookingId         String      @unique
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
@@ -194,11 +199,14 @@ model Order {
   finalPackage    Package? @relation("FinalPackage", fields: [finalPackageId], references: [id])
   invoices        Invoice[]
 
+  @@index([jobNumber])
   @@map("orders")
 }
 
 model Invoice {
   id              String        @id @default(cuid())
+  publicId        String        @unique
+  jobNumber       String
   orderId         String?
   bookingId       String?
   customerId      String
@@ -223,11 +231,14 @@ model Invoice {
   adjustments   Invoice[] @relation("InvoiceAdjustments")
   payments      Payment[]
 
+  @@index([jobNumber])
   @@map("invoices")
 }
 
 model Payment {
   id          String        @id @default(cuid())
+  publicId    String        @unique
+  jobNumber   String
   invoiceId   String
   amount      Decimal       @db.Decimal(10, 3)
   method      PaymentMethod
@@ -239,5 +250,17 @@ model Payment {
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
+  @@index([jobNumber])
   @@map("payments")
+}
+
+model IdentifierSequence {
+  scope     String
+  year      Int
+  lastValue Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([scope, year])
+  @@map("identifier_sequences")
 }
