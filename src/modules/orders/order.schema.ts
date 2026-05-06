@@ -47,7 +47,26 @@ export const updateOrderSelectionWorkflowSchema = z.object({
   completeSelection: z.coerce.boolean().optional(),
 });
 
+export const updateOrderEditingWorkflowSchema = z.object({
+  action: z.enum([
+    "assignEditor",
+    "markStarted",
+    "requestRevision",
+    "markComplete",
+    "markApproved",
+    "sendToProduction",
+  ]),
+  assignedEditorId: z.string().trim().min(1, "Editor is required").optional(),
+  editedPhotoCount: z.coerce
+    .number()
+    .int("Edited photo count must be a whole number")
+    .min(0, "Edited photo count cannot be negative")
+    .optional(),
+  estimatedEditingCompletionAt: z.coerce.date().optional(),
+});
+
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type UpdateOrderWorkflowInput = z.infer<typeof updateOrderWorkflowSchema>;
 export type UpdateOrderSelectionWorkflowInput = z.infer<typeof updateOrderSelectionWorkflowSchema>;
+export type UpdateOrderEditingWorkflowInput = z.infer<typeof updateOrderEditingWorkflowSchema>;
 export type OrderAddOnInput = z.infer<typeof orderAddOnSchema>;

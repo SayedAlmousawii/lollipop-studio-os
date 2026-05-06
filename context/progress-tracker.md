@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 30 implemented.
-- Current goal: review the operational Selection tab in-app and decide whether to proceed to Feature 31.
+- Current phase: Feature 31 implemented.
+- Current goal: review the operational Editing tab in-app and decide whether to proceed to Feature 32.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -26,6 +26,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Extra selected photos are treated as a per-photo service-computed add-on charge using the database-backed extra-photo add-on option.
 - Selection add-ons are now chosen from database-backed add-on options while order selections continue to store the priced snapshot on the order.
 - Selection photo entry now captures extra photos only; total selected photos are computed from the package limit plus extras.
+- Editing tab now supports editor assignment/reassignment, start, revision request, completion for approval, customer approval, and explicit production handoff.
+- Editing workflow state stores assignment date, progress counts, revision count, approval/handoff timestamps, and estimated completion date on the order.
+- Editing start is blocked unless selection is completed, an editor is assigned, and an order-linked invoice has a recorded `PaymentType.BASE` payment.
 
 ## Recent Milestones
 - Feature 30: operational Selection workflow tab added with service-computed limits, overage context, package upgrade guidance, add-on management, notes, and completion actions.
@@ -44,10 +47,16 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
-- Implement the Editing workflow tab once Feature 31 is selected.
+- Review the Editing workflow tab in-app, including base-payment blocked and approved-to-production paths.
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 31 Implementation Notes
+- Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/orders/order.constants.ts`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.
+- Files created: `prisma/migrations/20260506200000_order_editing_workflow_fields/migration.sql`, `src/components/orders/editing-workflow-form.tsx`.
+- Assumptions: V1 stores editing assignment/progress metadata directly on `Order`; “base package payment verified” means at least one order-linked invoice payment with `paymentType = BASE`; “mark editing complete” moves work to customer approval, while “send to production” completes editing and starts production.
+- Validation: `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npx prisma migrate deploy`, and `npx prisma migrate status` completed successfully.
 
 ## Feature 30 Implementation Notes
 - Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `prisma/schema.prisma`, `prisma/seed.ts`, `src/components/orders/selection-workflow-form.tsx`, `src/modules/invoices/invoice.service.ts`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.

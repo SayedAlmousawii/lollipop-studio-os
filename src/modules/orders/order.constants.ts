@@ -101,6 +101,7 @@ export const ORDER_WORKFLOW_TRANSITIONS = {
     [OrderEditingStatus.REVISION_REQUESTED]: [
       OrderEditingStatus.REVISION_REQUESTED,
       OrderEditingStatus.IN_PROGRESS,
+      OrderEditingStatus.AWAITING_APPROVAL,
     ],
     [OrderEditingStatus.AWAITING_APPROVAL]: [
       OrderEditingStatus.AWAITING_APPROVAL,

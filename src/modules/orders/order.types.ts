@@ -94,6 +94,40 @@ export interface OrderSelectionWorkflow {
   addOnOptions: OrderAddOnOption[];
 }
 
+export interface OrderEditingWorkflow {
+  orderId: string;
+  assignedEditorId: string | null;
+  assignedEditorName: string;
+  assignedAt: string | null;
+  editingStatus: string;
+  productionStatus: string;
+  progressPercent: number;
+  editedPhotoCount: number;
+  targetPhotoCount: number;
+  revisionCount: number;
+  revisionState: string;
+  approvalState: string;
+  estimatedCompletionDate: string | null;
+  estimatedCompletionDateInput: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  customerApprovedAt: string | null;
+  sentToProductionAt: string | null;
+  basePaymentVerified: boolean;
+  canAssignEditor: boolean;
+  canMarkStarted: boolean;
+  canRequestRevision: boolean;
+  canMarkComplete: boolean;
+  canMarkApproved: boolean;
+  canSendToProduction: boolean;
+  editorOptions: OrderEditorOption[];
+}
+
+export interface OrderEditorOption {
+  id: string;
+  name: string;
+}
+
 export interface OrderSelectionPackageOption extends OrderEditPackage {
   upgradeDifference: number;
   upgradeDifferenceLabel: string;

@@ -3,10 +3,20 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
-import { updateOrderSelectionWorkflowSchema } from "@/modules/orders/order.schema";
-import { updateOrderSelectionWorkflow } from "@/modules/orders/order.service";
+import {
+  updateOrderEditingWorkflowSchema,
+  updateOrderSelectionWorkflowSchema,
+} from "@/modules/orders/order.schema";
+import {
+  updateOrderEditingWorkflow,
+  updateOrderSelectionWorkflow,
+} from "@/modules/orders/order.service";
 
 export type UpdateSelectionActionState = {
+  errors?: Partial<Record<string, string[]>>;
+};
+
+export type UpdateEditingActionState = {
   errors?: Partial<Record<string, string[]>>;
 };
 
@@ -54,5 +64,38 @@ export async function updateSelectionWorkflowAction(
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/invoices");
+  return {};
+}
+
+export async function updateEditingWorkflowAction(
+  orderId: string,
+  _prev: UpdateEditingActionState,
+  formData: FormData
+): Promise<UpdateEditingActionState> {
+  const estimatedCompletionValue = formData.get("estimatedEditingCompletionAt");
+  const parsed = updateOrderEditingWorkflowSchema.safeParse({
+    action: formData.get("action"),
+    assignedEditorId: formData.get("assignedEditorId") || undefined,
+    editedPhotoCount: formData.get("editedPhotoCount") || undefined,
+    estimatedEditingCompletionAt:
+      typeof estimatedCompletionValue === "string" && estimatedCompletionValue
+        ? estimatedCompletionValue
+        : undefined,
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    await updateOrderEditingWorkflow(orderId, parsed.data);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to update editing workflow";
+    return { errors: { _global: [message] } };
+  }
+
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${orderId}`);
   return {};
 }

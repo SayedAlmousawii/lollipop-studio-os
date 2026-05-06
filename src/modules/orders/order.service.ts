@@ -6,7 +6,9 @@ import {
   OrderProductionStatus,
   OrderSelectionStatus,
   OrderStatus,
+  PaymentType,
   Prisma,
+  UserRole,
 } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -27,9 +29,11 @@ import {
 } from "./order-activity.service";
 import {
   updateOrderSchema,
+  updateOrderEditingWorkflowSchema,
   updateOrderSelectionWorkflowSchema,
   updateOrderWorkflowSchema,
   type UpdateOrderInput,
+  type UpdateOrderEditingWorkflowInput,
   type UpdateOrderSelectionWorkflowInput,
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
@@ -43,6 +47,8 @@ import type {
   OrderActivityPreviewItem,
   OrderDetail,
   OrderEditPackage,
+  OrderEditingWorkflow,
+  OrderEditorOption,
   OrderFilters,
   OrderPaymentStatusLabel,
   OrderSelectionPackageOption,
@@ -291,6 +297,43 @@ export async function getOrderSelectionWorkflowById(
   };
 }
 
+export async function getOrderEditingWorkflowById(
+  orderId: string
+): Promise<OrderEditingWorkflow | null> {
+  const [order, editorRows] = await withRetry(
+    () =>
+      Promise.all([
+        db.order.findUnique({
+          where: { id: orderId },
+          include: {
+            assignedEditor: { select: { id: true, name: true } },
+            originalPackage: { select: { photoCount: true } },
+            finalPackage: { select: { photoCount: true } },
+            invoices: {
+              select: {
+                payments: {
+                  where: { paymentType: PaymentType.BASE },
+                  select: { id: true },
+                  take: 1,
+                },
+              },
+            },
+          },
+        }),
+        db.user.findMany({
+          where: { role: UserRole.EDITOR },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        }),
+      ]),
+    "Failed to fetch editing workflow"
+  );
+
+  if (!order) return null;
+
+  return mapOrderEditingWorkflow(order, editorRows);
+}
+
 export async function updateOrderSelectionWorkflow(
   orderId: string,
   input: UpdateOrderSelectionWorkflowInput
@@ -343,6 +386,237 @@ export async function updateOrderSelectionWorkflow(
 
   const workflow = await getOrderSelectionWorkflowById(orderId);
   if (!workflow) throw new Error("Order not found after selection update");
+  return workflow;
+}
+
+export async function updateOrderEditingWorkflow(
+  orderId: string,
+  input: UpdateOrderEditingWorkflowInput
+): Promise<OrderEditingWorkflow> {
+  const data = updateOrderEditingWorkflowSchema.parse(input);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          include: {
+            assignedEditor: { select: { id: true, name: true } },
+            invoices: {
+              select: {
+                payments: {
+                  where: { paymentType: PaymentType.BASE },
+                  select: { id: true },
+                  take: 1,
+                },
+              },
+            },
+          },
+        });
+
+        if (!order) {
+          throw new Error("Order not found");
+        }
+        if (order.status === OrderStatus.CANCELLED) {
+          throw new Error("Cancelled orders cannot be moved through editing");
+        }
+        if (order.status === OrderStatus.DELIVERED) {
+          throw new Error("Delivered orders cannot be moved through editing");
+        }
+
+        const basePaymentVerified = hasBasePayment(order.invoices);
+        const now = new Date();
+
+        switch (data.action) {
+          case "assignEditor": {
+            if (!data.assignedEditorId) {
+              throw new Error("Editor is required");
+            }
+            const editor = await tx.user.findFirst({
+              where: { id: data.assignedEditorId, role: UserRole.EDITOR },
+              select: { id: true, name: true },
+            });
+            if (!editor) {
+              throw new Error("Selected editor does not exist");
+            }
+
+            const nextStatus =
+              order.editingStatus === OrderEditingStatus.NOT_STARTED
+                ? OrderEditingStatus.ASSIGNED
+                : order.editingStatus;
+            if (nextStatus !== order.editingStatus) {
+              assertWorkflowTransition(
+                "editingStatus",
+                order.editingStatus,
+                nextStatus
+              );
+            }
+
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                assignedEditorId: editor.id,
+                editingAssignedAt: now,
+                estimatedEditingCompletionAt:
+                  data.estimatedEditingCompletionAt ?? order.estimatedEditingCompletionAt,
+                editingStatus: nextStatus,
+              },
+            });
+
+            await recordOrderActivity(tx, {
+              orderId,
+              type: OrderActivityType.EDITOR_ASSIGNED,
+              title: order.assignedEditorId ? "Editor reassigned" : "Editor assigned",
+              description: `${editor.name} was assigned to editing.`,
+              metadata: {
+                previousEditorId: order.assignedEditorId,
+                previousEditorName: order.assignedEditor?.name ?? null,
+                nextEditorId: editor.id,
+                nextEditorName: editor.name,
+                previousStatus: order.editingStatus,
+                nextStatus,
+                estimatedEditingCompletionAt:
+                  data.estimatedEditingCompletionAt?.toISOString() ?? null,
+              },
+            });
+            break;
+          }
+
+          case "markStarted": {
+            assertEditingReadyToStart(order, basePaymentVerified);
+            assertWorkflowTransition(
+              "editingStatus",
+              order.editingStatus,
+              OrderEditingStatus.IN_PROGRESS
+            );
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                editingStatus: OrderEditingStatus.IN_PROGRESS,
+                editingStartedAt: order.editingStartedAt ?? now,
+                editedPhotoCount: data.editedPhotoCount ?? order.editedPhotoCount,
+                estimatedEditingCompletionAt:
+                  data.estimatedEditingCompletionAt ?? order.estimatedEditingCompletionAt,
+                status: OrderStatus.EDITING,
+              },
+            });
+            await recordEditingStatusActivity(tx, orderId, {
+              previousStatus: order.editingStatus,
+              nextStatus: OrderEditingStatus.IN_PROGRESS,
+              title: "Editing started",
+            });
+            break;
+          }
+
+          case "requestRevision": {
+            assertWorkflowTransition(
+              "editingStatus",
+              order.editingStatus,
+              OrderEditingStatus.REVISION_REQUESTED
+            );
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                editingStatus: OrderEditingStatus.REVISION_REQUESTED,
+                revisionCount: { increment: 1 },
+              },
+            });
+            await recordEditingStatusActivity(tx, orderId, {
+              previousStatus: order.editingStatus,
+              nextStatus: OrderEditingStatus.REVISION_REQUESTED,
+              title: "Revision requested",
+              metadata: { nextRevisionCount: order.revisionCount + 1 },
+            });
+            break;
+          }
+
+          case "markComplete": {
+            assertWorkflowTransition(
+              "editingStatus",
+              order.editingStatus,
+              OrderEditingStatus.AWAITING_APPROVAL
+            );
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                editingStatus: OrderEditingStatus.AWAITING_APPROVAL,
+                editingCompletedAt: now,
+                editedPhotoCount: data.editedPhotoCount ?? order.editedPhotoCount,
+              },
+            });
+            await recordEditingStatusActivity(tx, orderId, {
+              previousStatus: order.editingStatus,
+              nextStatus: OrderEditingStatus.AWAITING_APPROVAL,
+              title: "Editing marked complete",
+            });
+            break;
+          }
+
+          case "markApproved": {
+            assertWorkflowTransition(
+              "editingStatus",
+              order.editingStatus,
+              OrderEditingStatus.APPROVED
+            );
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                editingStatus: OrderEditingStatus.APPROVED,
+                customerApprovedAt: now,
+              },
+            });
+            await recordEditingStatusActivity(tx, orderId, {
+              previousStatus: order.editingStatus,
+              nextStatus: OrderEditingStatus.APPROVED,
+              title: "Customer approved editing",
+            });
+            break;
+          }
+
+          case "sendToProduction": {
+            assertWorkflowTransition(
+              "editingStatus",
+              order.editingStatus,
+              OrderEditingStatus.COMPLETED
+            );
+            assertWorkflowTransition(
+              "productionStatus",
+              order.productionStatus,
+              OrderProductionStatus.IN_PROGRESS
+            );
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                editingStatus: OrderEditingStatus.COMPLETED,
+                productionStatus: OrderProductionStatus.IN_PROGRESS,
+                sentToProductionAt: now,
+                status: OrderStatus.PRODUCTION,
+              },
+            });
+            await recordEditingStatusActivity(tx, orderId, {
+              previousStatus: order.editingStatus,
+              nextStatus: OrderEditingStatus.COMPLETED,
+              title: "Editing sent to production",
+            });
+            await recordOrderActivity(tx, {
+              orderId,
+              type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
+              title: "Production started",
+              metadata: {
+                field: "productionStatus",
+                previousStatus: order.productionStatus,
+                nextStatus: OrderProductionStatus.IN_PROGRESS,
+              },
+            });
+            break;
+          }
+        }
+      }),
+    "Failed to update editing workflow"
+  );
+
+  const workflow = await getOrderEditingWorkflowById(orderId);
+  if (!workflow) throw new Error("Order not found after editing update");
   return workflow;
 }
 
@@ -1105,6 +1379,10 @@ function formatDateTime(date: Date): string {
   }).format(date);
 }
 
+function formatDateInput(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
 function formatMoney(value: { toFixed(dp: number): string }): string {
   return `${value.toFixed(3)} KD`;
 }
@@ -1374,6 +1652,163 @@ function formatAddOnsSummary(addOns: OrderAddOn[]): string {
 
 function formatSignedMoney(value: Prisma.Decimal): string {
   return `${value.greaterThan(0) ? "+" : ""}${formatMoney(value)}`;
+}
+
+function mapOrderEditingWorkflow(
+  order: {
+    id: string;
+    selectionStatus: OrderSelectionStatus;
+    editingStatus: OrderEditingStatus;
+    productionStatus: OrderProductionStatus;
+    assignedEditorId: string | null;
+    assignedEditor: { id: string; name: string } | null;
+    editingAssignedAt: Date | null;
+    editingStartedAt: Date | null;
+    editingCompletedAt: Date | null;
+    customerApprovedAt: Date | null;
+    sentToProductionAt: Date | null;
+    editedPhotoCount: number;
+    revisionCount: number;
+    estimatedEditingCompletionAt: Date | null;
+    selectedPhotoCount: number | null;
+    originalPackage: { photoCount: number } | null;
+    finalPackage: { photoCount: number } | null;
+    invoices: Array<{ payments: Array<{ id: string }> }>;
+  },
+  editors: OrderEditorOption[]
+): OrderEditingWorkflow {
+  const targetPhotoCount =
+    order.selectedPhotoCount ??
+    order.finalPackage?.photoCount ??
+    order.originalPackage?.photoCount ??
+    0;
+  const progressPercent =
+    targetPhotoCount > 0
+      ? Math.min(Math.round((order.editedPhotoCount / targetPhotoCount) * 100), 100)
+      : 0;
+  const basePaymentVerified = hasBasePayment(order.invoices);
+
+  return {
+    orderId: order.id,
+    assignedEditorId: order.assignedEditorId,
+    assignedEditorName: order.assignedEditor?.name ?? "Unassigned",
+    assignedAt: order.editingAssignedAt ? formatDateTime(order.editingAssignedAt) : null,
+    editingStatus: ORDER_EDITING_STATUS_LABELS[order.editingStatus],
+    productionStatus: ORDER_PRODUCTION_STATUS_LABELS[order.productionStatus],
+    progressPercent,
+    editedPhotoCount: order.editedPhotoCount,
+    targetPhotoCount,
+    revisionCount: order.revisionCount,
+    revisionState: resolveRevisionState(order.editingStatus, order.revisionCount),
+    approvalState: resolveApprovalState(order.editingStatus),
+    estimatedCompletionDate: order.estimatedEditingCompletionAt
+      ? formatDate(order.estimatedEditingCompletionAt)
+      : null,
+    estimatedCompletionDateInput: order.estimatedEditingCompletionAt
+      ? formatDateInput(order.estimatedEditingCompletionAt)
+      : "",
+    startedAt: order.editingStartedAt ? formatDateTime(order.editingStartedAt) : null,
+    completedAt: order.editingCompletedAt ? formatDateTime(order.editingCompletedAt) : null,
+    customerApprovedAt: order.customerApprovedAt
+      ? formatDateTime(order.customerApprovedAt)
+      : null,
+    sentToProductionAt: order.sentToProductionAt
+      ? formatDateTime(order.sentToProductionAt)
+      : null,
+    basePaymentVerified,
+    canAssignEditor: order.editingStatus !== OrderEditingStatus.COMPLETED,
+    canMarkStarted:
+      basePaymentVerified &&
+      order.selectionStatus === OrderSelectionStatus.COMPLETED &&
+      Boolean(order.assignedEditorId) &&
+      (
+        order.editingStatus === OrderEditingStatus.ASSIGNED ||
+        order.editingStatus === OrderEditingStatus.REVISION_REQUESTED
+      ),
+    canRequestRevision: order.editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
+    canMarkComplete:
+      order.editingStatus === OrderEditingStatus.IN_PROGRESS ||
+      order.editingStatus === OrderEditingStatus.REVISION_REQUESTED,
+    canMarkApproved: order.editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
+    canSendToProduction: order.editingStatus === OrderEditingStatus.APPROVED,
+    editorOptions: editors,
+  };
+}
+
+function resolveRevisionState(
+  status: OrderEditingStatus,
+  revisionCount: number
+): string {
+  if (status === OrderEditingStatus.REVISION_REQUESTED) {
+    return `Revision ${revisionCount} requested`;
+  }
+  if (revisionCount === 0) {
+    return "No revisions";
+  }
+  return `${revisionCount} revision${revisionCount === 1 ? "" : "s"} recorded`;
+}
+
+function resolveApprovalState(status: OrderEditingStatus): string {
+  if (
+    status === OrderEditingStatus.APPROVED ||
+    status === OrderEditingStatus.COMPLETED
+  ) {
+    return "Customer approved";
+  }
+  if (status === OrderEditingStatus.AWAITING_APPROVAL) {
+    return "Awaiting customer approval";
+  }
+  if (status === OrderEditingStatus.REVISION_REQUESTED) {
+    return "Revision requested";
+  }
+  return "Not ready for approval";
+}
+
+function hasBasePayment(
+  invoices: Array<{ payments: Array<{ id: string }> }>
+): boolean {
+  return invoices.some((invoice) => invoice.payments.length > 0);
+}
+
+function assertEditingReadyToStart(
+  order: {
+    selectionStatus: OrderSelectionStatus;
+    assignedEditorId: string | null;
+  },
+  basePaymentVerified: boolean
+): void {
+  if (order.selectionStatus !== OrderSelectionStatus.COMPLETED) {
+    throw new Error("Editing cannot start until selection is completed");
+  }
+  if (!basePaymentVerified) {
+    throw new Error("Editing cannot start until base package payment is recorded");
+  }
+  if (!order.assignedEditorId) {
+    throw new Error("Assign an editor before starting editing");
+  }
+}
+
+async function recordEditingStatusActivity(
+  client: OrderWriteClient,
+  orderId: string,
+  input: {
+    previousStatus: OrderEditingStatus;
+    nextStatus: OrderEditingStatus;
+    title: string;
+    metadata?: Prisma.InputJsonObject;
+  }
+): Promise<void> {
+  await recordOrderActivity(client, {
+    orderId,
+    type: OrderActivityType.EDITING_STATUS_CHANGED,
+    title: input.title,
+    metadata: {
+      field: "editingStatus",
+      previousStatus: input.previousStatus,
+      nextStatus: input.nextStatus,
+      ...input.metadata,
+    },
+  });
 }
 
 async function recordWorkflowActivities(

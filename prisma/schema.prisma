@@ -131,6 +131,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   assignedBookings Booking[] @relation("AssignedPhotographer")
+  assignedEditingOrders Order[] @relation("AssignedEditor")
   orderActivities  OrderActivity[]
 
   @@map("users")
@@ -271,6 +272,15 @@ model Order {
   editingStatus     OrderEditingStatus    @default(NOT_STARTED)
   productionStatus  OrderProductionStatus @default(NOT_STARTED)
   deliveryStatus    OrderDeliveryStatus   @default(NOT_READY)
+  assignedEditorId   String?
+  editingAssignedAt  DateTime?
+  editingStartedAt   DateTime?
+  editingCompletedAt DateTime?
+  customerApprovedAt DateTime?
+  sentToProductionAt DateTime?
+  editedPhotoCount   Int                   @default(0)
+  revisionCount      Int                   @default(0)
+  estimatedEditingCompletionAt DateTime?
   nasFolderPath     String?
   notes             String?
   createdAt         DateTime              @default(now())
@@ -280,10 +290,12 @@ model Order {
   customer        Customer @relation(fields: [customerId], references: [id])
   originalPackage Package? @relation("OriginalPackage", fields: [originalPackageId], references: [id])
   finalPackage    Package? @relation("FinalPackage", fields: [finalPackageId], references: [id])
+  assignedEditor  User?    @relation("AssignedEditor", fields: [assignedEditorId], references: [id])
   invoices        Invoice[]
   activities      OrderActivity[]
 
   @@index([jobNumber])
+  @@index([assignedEditorId])
   @@map("orders")
 }
 

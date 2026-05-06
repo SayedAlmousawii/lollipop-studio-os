@@ -12,6 +12,7 @@ import {
   Truck,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
+import { EditingWorkflowForm } from "@/components/orders/editing-workflow-form";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { SelectionWorkflowForm } from "@/components/orders/selection-workflow-form";
@@ -25,11 +26,13 @@ import {
 } from "@/components/ui/tabs";
 import {
   getOrderHubById,
+  getOrderEditingWorkflowById,
   getOrderSelectionWorkflowById,
 } from "@/modules/orders/order.service";
 import type {
   OrderActivityPreviewItem,
   OrderDetail,
+  OrderEditingWorkflow,
   OrderSelectionWorkflow,
   OrderWorkflowStep,
 } from "@/modules/orders/order.types";
@@ -49,12 +52,14 @@ export default async function OrderDetailPage(
   props: PageProps<"/orders/[orderId]">
 ) {
   const { orderId } = await props.params;
-  const [order, selection] = await Promise.all([
+  const [order, selection, editing] = await Promise.all([
     getOrderHubById(orderId),
     getOrderSelectionWorkflowById(orderId),
+    getOrderEditingWorkflowById(orderId),
   ]);
   if (!order) notFound();
   if (!selection) notFound();
+  if (!editing) notFound();
 
   return (
     <PageContainer>
@@ -151,16 +156,7 @@ export default async function OrderDetailPage(
             <SelectionTab selection={selection} />
           </TabsContent>
           <TabsContent value="editing" className="space-y-4">
-            <WorkflowAreaTab
-              icon={<Pencil className="h-4 w-4" />}
-              title="Editing"
-              status={order.editingStatus}
-              items={[
-                ["Current package", order.finalPackageName],
-                ["Selected photos", order.selectedPhotoCount],
-                ["Notes", order.notes],
-              ]}
-            />
+            <EditingTab editing={editing} order={order} />
           </TabsContent>
           <TabsContent value="production" className="space-y-4">
             <WorkflowAreaTab
@@ -195,6 +191,46 @@ export default async function OrderDetailPage(
         </Tabs>
       </div>
     </PageContainer>
+  );
+}
+
+function EditingTab({
+  editing,
+  order,
+}: {
+  editing: OrderEditingWorkflow;
+  order: OrderDetail;
+}) {
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="text-accent">
+              <Pencil className="h-4 w-4" />
+            </span>
+            Editing
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <InfoGrid
+            items={[
+              ["Assigned editor", editing.assignedEditorName],
+              ["Assigned date", editing.assignedAt ?? "Not assigned"],
+              ["Editing status", editing.editingStatus],
+              ["Edited photos", `${editing.editedPhotoCount} of ${editing.targetPhotoCount}`],
+              ["Revision count", String(editing.revisionCount)],
+              ["Customer approval", editing.approvalState],
+              ["Estimated completion", editing.estimatedCompletionDate ?? "Not set"],
+              ["Production status", editing.productionStatus],
+              ["Current package", order.finalPackageName],
+              ["Selection status", order.selectionStatus],
+            ]}
+          />
+        </CardContent>
+      </Card>
+      <EditingWorkflowForm editing={editing} />
+    </div>
   );
 }
 
