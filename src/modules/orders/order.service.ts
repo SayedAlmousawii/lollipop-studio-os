@@ -21,7 +21,10 @@ import {
   ORDER_SELECTION_STATUS_LABELS,
   ORDER_WORKFLOW_TRANSITIONS,
 } from "./order.constants";
-import { recordOrderActivity } from "./order-activity.service";
+import {
+  getOrderActivityTimeline,
+  recordOrderActivity,
+} from "./order-activity.service";
 import {
   updateOrderSchema,
   updateOrderWorkflowSchema,
@@ -34,12 +37,14 @@ import type {
   InvoiceStatusLabel,
   Order,
   OrderAddOn,
+  OrderActivityPreviewItem,
   OrderDetail,
   OrderEditPackage,
   OrderFilters,
   OrderPaymentStatusLabel,
   OrderStatusFilter,
   OrderStatusLabel,
+  OrderWorkflowStep,
 } from "./order.types";
 
 const ORDER_STATUS_FILTERS = new Set<OrderStatusFilter>([
@@ -109,9 +114,15 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   const summary = mapOrderRow(row);
   const includedPhotoCount = row.finalPackage?.photoCount ?? row.originalPackage?.photoCount ?? null;
   const selectedPhotoCount = row.selectedPhotoCount ?? null;
+  const workflowStatus = mapWorkflowStatus(row);
 
   return {
     ...summary,
+    customerId: row.customerId,
+    bookingId: row.bookingId,
+    originalPackageId: row.originalPackageId,
+    finalPackageId: row.finalPackageId,
+    sessionDateTime: formatDateTime(row.booking.sessionDate),
     sessionType: formatEnum(row.booking.sessionType),
     selectedPhotoCount: formatCount(selectedPhotoCount),
     includedPhotoCount: formatCount(includedPhotoCount),
@@ -120,8 +131,34 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
         ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
         : "—",
     addonsSummary: formatAddOnsSummary(parseAddOns(row.addOns)),
-    ...mapWorkflowStatus(row),
+    ...workflowStatus,
+    nextAction: resolveNextOrderAction({
+      invoiceStatus: summary.invoiceStatus,
+      paymentStatus: summary.paymentStatus,
+      selectionStatus: workflowStatus.selectionStatus,
+      editingStatus: workflowStatus.editingStatus,
+      productionStatus: workflowStatus.productionStatus,
+      deliveryStatus: workflowStatus.deliveryStatus,
+    }),
+    workflowSteps: buildWorkflowSteps(workflowStatus),
+    recentActivity: [],
     notes: row.notes?.trim() ? row.notes : "—",
+  };
+}
+
+export async function getOrderHubById(
+  orderId: string
+): Promise<OrderDetail | null> {
+  const [order, activity] = await Promise.all([
+    getOrderById(orderId),
+    getOrderActivityTimeline(orderId),
+  ]);
+
+  if (!order) return null;
+
+  return {
+    ...order,
+    recentActivity: activity.slice(-5).reverse().map(mapActivityPreviewItem),
   };
 }
 
@@ -713,6 +750,86 @@ function mapWorkflowStatus(row: Pick<
   };
 }
 
+function buildWorkflowSteps(
+  workflow: Pick<
+    OrderDetail,
+    "selectionStatus" | "editingStatus" | "productionStatus" | "deliveryStatus"
+  >
+): OrderWorkflowStep[] {
+  return [
+    workflowStep("Selection", workflow.selectionStatus),
+    workflowStep("Editing", workflow.editingStatus),
+    workflowStep("Production", workflow.productionStatus),
+    workflowStep("Delivery", workflow.deliveryStatus),
+  ];
+}
+
+function workflowStep(label: string, status: string): OrderWorkflowStep {
+  return {
+    label,
+    status,
+    tone: resolveWorkflowTone(status),
+  };
+}
+
+function resolveWorkflowTone(status: string): OrderWorkflowStep["tone"] {
+  if (status === "Completed" || status === "Approved" || status === "Picked up") {
+    return "complete";
+  }
+  if (
+    status === "Pending" ||
+    status === "Not started" ||
+    status === "Waiting for editing" ||
+    status === "Not ready"
+  ) {
+    return "pending";
+  }
+  return "active";
+}
+
+function resolveNextOrderAction(input: {
+  invoiceStatus: InvoiceStatusLabel;
+  paymentStatus: OrderPaymentStatusLabel;
+  selectionStatus: string;
+  editingStatus: string;
+  productionStatus: string;
+  deliveryStatus: string;
+}): string {
+  if (input.invoiceStatus === "No Invoice") {
+    return "Create the order invoice";
+  }
+  if (input.paymentStatus !== "Paid" && input.paymentStatus !== "Overridden") {
+    return "Review invoice payment";
+  }
+  if (input.selectionStatus !== "Completed") {
+    return "Continue photo selection";
+  }
+  if (input.editingStatus !== "Completed") {
+    return "Move editing forward";
+  }
+  if (input.productionStatus !== "Completed") {
+    return "Track production progress";
+  }
+  if (input.deliveryStatus !== "Completed") {
+    return "Prepare delivery";
+  }
+  return "Order complete";
+}
+
+function mapActivityPreviewItem(item: {
+  id: string;
+  title: string;
+  description: string | null;
+  createdAt: string;
+}): OrderActivityPreviewItem {
+  return {
+    id: item.id,
+    title: item.title,
+    description: item.description,
+    createdAt: item.createdAt,
+  };
+}
+
 function assertWorkflowTransition(
   field: "selectionStatus",
   current: OrderSelectionStatus,
@@ -785,6 +902,17 @@ function formatDate(date: Date): string {
     day: "numeric",
     month: "short",
     year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function formatDateTime(date: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
     timeZone: "UTC",
   }).format(date);
 }

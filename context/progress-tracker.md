@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 28 implemented.
-- Current goal: validate order activity/audit foundations against upcoming tabbed hub work.
+- Current phase: Feature 29 implemented.
+- Current goal: review the tabbed order hub shell in-app and decide the next workflow action unit.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -21,8 +21,10 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order workflow status writes go through service-layer transition validation.
 - Order activity persistence now records order creation, package/add-on edits, invoice adjustments, payments, workflow changes, completion, and note updates.
 - Order activity reads are available through a timeline-safe service ordered chronologically for one order.
+- Order details now use a tabbed operational hub shell with a compact header, workflow strip, overview workspace, read-only workflow tabs, financials, and recent activity preview.
 
 ## Recent Milestones
+- Feature 29: tabbed order hub UI shell added on top of the existing order, invoice, workflow sub-status, and activity read models.
 - Feature 28: lightweight order activity foundation added with structured metadata and service-layer writes from key order, invoice, payment, and workflow flows.
 - Feature 27: order workflow sub-status enums/fields added, legacy order rows backfilled with conservative defaults, order detail reads switched off flat-status-derived workflow labels, and payment status is computed from invoice state.
 - Feature 26: order package/add-on edits now use invoice-recognized package baseline math, update invoice totals/balance due transactionally, preview financial consequences on the edit page, and provide a create/open invoice path from order details.
@@ -35,10 +37,15 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
-- Build the tabbed order hub UI on top of stored workflow sub-status fields and the order activity timeline service.
+- Implement the first full workflow action tab once its unit spec is selected.
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 29 Implementation Notes
+- Files modified: `app/orders/[orderId]/page.tsx`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.
+- Assumption: customer and package records remain list-level links until dedicated customer/package detail routes exist.
+- Validation: `npx tsc --noEmit`, `npm run lint`, and `npm run build` completed successfully.
 
 ## Feature 28 Implementation Notes
 - Files modified: `prisma/schema.prisma`, `src/modules/orders/order.service.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/payments/payment.service.ts`.

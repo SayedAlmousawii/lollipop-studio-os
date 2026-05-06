@@ -47,6 +47,11 @@ export interface Order {
 }
 
 export interface OrderDetail extends Order {
+  customerId: string;
+  bookingId: string;
+  originalPackageId: string | null;
+  finalPackageId: string | null;
+  sessionDateTime: string;
   sessionType: string;
   selectedPhotoCount: string;
   includedPhotoCount: string;
@@ -56,7 +61,23 @@ export interface OrderDetail extends Order {
   editingStatus: string;
   productionStatus: string;
   deliveryStatus: string;
+  nextAction: string;
+  workflowSteps: OrderWorkflowStep[];
+  recentActivity: OrderActivityPreviewItem[];
   notes: string;
+}
+
+export interface OrderWorkflowStep {
+  label: string;
+  status: string;
+  tone: "pending" | "active" | "complete";
+}
+
+export interface OrderActivityPreviewItem {
+  id: string;
+  title: string;
+  description: string | null;
+  createdAt: string;
 }
 
 export interface OrderAddOn {
