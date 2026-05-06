@@ -1,8 +1,9 @@
-import { InvoiceStatus, Prisma } from "@prisma/client";
+import { InvoiceStatus, OrderActivityType, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
+import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
 import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoice.types";
 
@@ -75,7 +76,7 @@ export async function createInvoiceForOrderWithClient(
   const totalAmount = packageAmount.plus(sumAddOns(parseOrderAddOns(order.addOns)));
 
   const invoiceNumberData = await generateInvoiceNumber(client);
-  return client.invoice.create({
+  const invoice = await client.invoice.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
       jobNumber: order.jobNumber,
@@ -89,6 +90,20 @@ export async function createInvoiceForOrderWithClient(
     },
     select: { id: true, status: true },
   });
+
+  await recordOrderActivity(client, {
+    orderId: order.id,
+    type: OrderActivityType.INVOICE_ADJUSTED,
+    title: "Invoice created",
+    description: "Invoice was created for the order.",
+    metadata: {
+      invoiceId: invoice.id,
+      totalAmount: totalAmount.toFixed(3),
+      status: invoice.status,
+    },
+  });
+
+  return invoice;
 }
 
 export async function syncOrderInvoiceForFinancialEdit(
@@ -472,7 +487,7 @@ export async function createAdjustmentInvoice(
         }
 
         const invoiceNumberData = await generateInvoiceNumber(tx);
-        return tx.invoice.create({
+        const invoice = await tx.invoice.create({
           data: {
             publicId: await generatePublicId(tx, PUBLIC_ID_KIND.INVOICE),
             jobNumber: parent.jobNumber,
@@ -488,6 +503,23 @@ export async function createAdjustmentInvoice(
           },
           select: { id: true },
         });
+
+        if (parent.orderId) {
+          await recordOrderActivity(tx, {
+            orderId: parent.orderId,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Adjustment invoice created",
+            description: "Adjustment invoice was created from a locked invoice.",
+            metadata: {
+              parentInvoiceId: parent.id,
+              adjustmentInvoiceId: invoice.id,
+              totalAmount: new Prisma.Decimal(data.totalAmount).toFixed(3),
+              notesPresent: Boolean(data.notes?.trim()),
+            },
+          });
+        }
+
+        return invoice;
       }),
     "Failed to create adjustment invoice"
   );

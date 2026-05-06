@@ -104,6 +104,22 @@ enum PaymentType {
   OTHER
 }
 
+enum OrderActivityType {
+  ORDER_CREATED
+  PACKAGE_CHANGED
+  ADD_ON_CHANGED
+  PAYMENT_RECEIVED
+  INVOICE_ADJUSTED
+  SELECTION_UPDATED
+  SELECTION_COMPLETED
+  EDITOR_ASSIGNED
+  EDITING_STATUS_CHANGED
+  PRODUCTION_STATUS_CHANGED
+  DELIVERY_STATUS_CHANGED
+  ORDER_COMPLETED
+  NOTE_ADDED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -115,6 +131,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   assignedBookings Booking[] @relation("AssignedPhotographer")
+  orderActivities  OrderActivity[]
 
   @@map("users")
 }
@@ -250,9 +267,28 @@ model Order {
   originalPackage Package? @relation("OriginalPackage", fields: [originalPackageId], references: [id])
   finalPackage    Package? @relation("FinalPackage", fields: [finalPackageId], references: [id])
   invoices        Invoice[]
+  activities      OrderActivity[]
 
   @@index([jobNumber])
   @@map("orders")
+}
+
+model OrderActivity {
+  id          String            @id @default(cuid())
+  orderId     String
+  userId      String?
+  type        OrderActivityType
+  title       String
+  description String?
+  metadata    Json              @default("{}")
+  createdAt   DateTime          @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+  @@index([type])
+  @@map("order_activities")
 }
 
 model Invoice {

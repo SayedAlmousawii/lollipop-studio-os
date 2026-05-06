@@ -1,5 +1,6 @@
 import {
   InvoiceStatus,
+  OrderActivityType,
   OrderDeliveryStatus,
   OrderEditingStatus,
   OrderProductionStatus,
@@ -20,6 +21,7 @@ import {
   ORDER_SELECTION_STATUS_LABELS,
   ORDER_WORKFLOW_TRANSITIONS,
 } from "./order.constants";
+import { recordOrderActivity } from "./order-activity.service";
 import {
   updateOrderSchema,
   updateOrderWorkflowSchema,
@@ -149,13 +151,13 @@ export async function updateOrder(
           tx.order.findUnique({
             where: { id: orderId },
             include: {
-              finalPackage: { select: { price: true } },
-              originalPackage: { select: { price: true } },
+              finalPackage: { select: { id: true, name: true, price: true } },
+              originalPackage: { select: { id: true, name: true, price: true } },
             },
           }),
           tx.package.findUnique({
             where: { id: data.finalPackageId },
-            select: { id: true },
+            select: { id: true, name: true },
           }),
         ]);
 
@@ -174,6 +176,7 @@ export async function updateOrder(
           throw new Error("Order has no package price");
         }
         const previousAddOns = parseAddOns(order.addOns);
+        const previousNotes = order.notes?.trim() ?? "";
 
         await tx.order.update({
           where: { id: orderId },
@@ -194,6 +197,72 @@ export async function updateOrder(
           orderId,
           upgradeAmount: invoiceSummary.packageAdjustmentAmount,
         });
+
+        if (order.finalPackageId !== data.finalPackageId) {
+          await recordOrderActivity(tx, {
+            orderId,
+            type: OrderActivityType.PACKAGE_CHANGED,
+            title: "Package changed",
+            description: `${order.finalPackage?.name ?? order.originalPackage?.name ?? "Package"} changed to ${selectedPackage.name}.`,
+            metadata: {
+              previousPackageId: order.finalPackageId ?? order.originalPackageId,
+              previousPackageName: order.finalPackage?.name ?? order.originalPackage?.name ?? null,
+              nextPackageId: selectedPackage.id,
+              nextPackageName: selectedPackage.name,
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              recognizedPackageBaseline: invoiceSummary.recognizedPackageBaseline.toFixed(3),
+            },
+          });
+        }
+
+        if (!areAddOnsEqual(previousAddOns, data.addOns)) {
+          await recordOrderActivity(tx, {
+            orderId,
+            type: OrderActivityType.ADD_ON_CHANGED,
+            title: "Add-ons changed",
+            description: "Order add-ons were updated.",
+            metadata: {
+              previousAddOns: serializeAddOnsForMetadata(previousAddOns),
+              nextAddOns: serializeAddOnsForMetadata(data.addOns),
+              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+            },
+          });
+        }
+
+        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
+          await recordOrderActivity(tx, {
+            orderId,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
+            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
+            metadata: {
+              invoiceId: invoiceSummary.invoiceId,
+              invoicePublicId: invoiceSummary.invoicePublicId,
+              invoiceNumber: invoiceSummary.invoiceNumber,
+              totalAmount: invoiceSummary.totalAmount,
+              paidAmount: invoiceSummary.paidAmount,
+              remainingAmount: invoiceSummary.remainingAmount,
+              status: invoiceSummary.status,
+              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+            },
+          });
+        }
+
+        const nextNotes = data.notes?.trim() ?? "";
+        if (previousNotes !== nextNotes && nextNotes) {
+          await recordOrderActivity(tx, {
+            orderId,
+            type: OrderActivityType.NOTE_ADDED,
+            title: "Note updated",
+            description: "Order notes were updated.",
+            metadata: {
+              previousNotePresent: previousNotes.length > 0,
+              nextNoteLength: nextNotes.length,
+            },
+          });
+        }
 
         return tx.order.findUniqueOrThrow({
           where: { id: orderId },
@@ -267,6 +336,13 @@ export async function updateOrderWorkflowStatus(
           data,
         });
 
+        await recordWorkflowActivities(tx, orderId, {
+          selectionStatus: order.selectionStatus,
+          editingStatus: order.editingStatus,
+          productionStatus: order.productionStatus,
+          deliveryStatus: order.deliveryStatus,
+        }, data);
+
         return fetchOrderByIdWithClient(tx, orderId);
       }),
     "Failed to update order workflow status"
@@ -333,6 +409,19 @@ export async function createOrderFromBookingWithClient(
       status: OrderStatus.ACTIVE,
     },
     select: { id: true },
+  });
+
+  await recordOrderActivity(client, {
+    orderId: order.id,
+    type: OrderActivityType.ORDER_CREATED,
+    title: "Order created",
+    description: "Order was created from the completed booking.",
+    metadata: {
+      bookingId: booking.id,
+      jobNumber: booking.jobNumber,
+      originalPackageId: booking.package.id,
+      finalPackageId: booking.package.id,
+    },
   });
 
   await client.invoice.updateMany({
@@ -794,6 +883,25 @@ function parseAddOns(value: Prisma.JsonValue): OrderAddOn[] {
   });
 }
 
+function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
+  if (first.length !== second.length) return false;
+  return first.every((addOn, index) => {
+    const other = second[index];
+    return (
+      other !== undefined &&
+      addOn.name === other.name &&
+      new Prisma.Decimal(addOn.price).equals(new Prisma.Decimal(other.price))
+    );
+  });
+}
+
+function serializeAddOnsForMetadata(addOns: OrderAddOn[]): Prisma.InputJsonArray {
+  return addOns.map((addOn) => ({
+    name: addOn.name,
+    price: addOn.price,
+  }));
+}
+
 function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -804,4 +912,93 @@ function formatAddOnsSummary(addOns: OrderAddOn[]): string {
   return addOns
     .map((addOn) => `${addOn.name} (${formatMoney(new Prisma.Decimal(addOn.price))})`)
     .join(", ");
+}
+
+async function recordWorkflowActivities(
+  client: OrderWriteClient,
+  orderId: string,
+  previous: {
+    selectionStatus: OrderSelectionStatus;
+    editingStatus: OrderEditingStatus;
+    productionStatus: OrderProductionStatus;
+    deliveryStatus: OrderDeliveryStatus;
+  },
+  next: UpdateOrderWorkflowInput
+): Promise<void> {
+  if (next.selectionStatus && next.selectionStatus !== previous.selectionStatus) {
+    await recordOrderActivity(client, {
+      orderId,
+      type:
+        next.selectionStatus === OrderSelectionStatus.COMPLETED
+          ? OrderActivityType.SELECTION_COMPLETED
+          : OrderActivityType.SELECTION_UPDATED,
+      title:
+        next.selectionStatus === OrderSelectionStatus.COMPLETED
+          ? "Selection completed"
+          : "Selection status changed",
+      metadata: {
+        field: "selectionStatus",
+        previousStatus: previous.selectionStatus,
+        nextStatus: next.selectionStatus,
+      },
+    });
+  }
+
+  if (next.editingStatus && next.editingStatus !== previous.editingStatus) {
+    await recordOrderActivity(client, {
+      orderId,
+      type:
+        next.editingStatus === OrderEditingStatus.ASSIGNED
+          ? OrderActivityType.EDITOR_ASSIGNED
+          : OrderActivityType.EDITING_STATUS_CHANGED,
+      title:
+        next.editingStatus === OrderEditingStatus.ASSIGNED
+          ? "Editor assigned"
+          : "Editing status changed",
+      metadata: {
+        field: "editingStatus",
+        previousStatus: previous.editingStatus,
+        nextStatus: next.editingStatus,
+      },
+    });
+  }
+
+  if (next.productionStatus && next.productionStatus !== previous.productionStatus) {
+    await recordOrderActivity(client, {
+      orderId,
+      type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
+      title: "Production status changed",
+      metadata: {
+        field: "productionStatus",
+        previousStatus: previous.productionStatus,
+        nextStatus: next.productionStatus,
+      },
+    });
+  }
+
+  if (next.deliveryStatus && next.deliveryStatus !== previous.deliveryStatus) {
+    await recordOrderActivity(client, {
+      orderId,
+      type: OrderActivityType.DELIVERY_STATUS_CHANGED,
+      title: "Delivery status changed",
+      metadata: {
+        field: "deliveryStatus",
+        previousStatus: previous.deliveryStatus,
+        nextStatus: next.deliveryStatus,
+      },
+    });
+
+    if (next.deliveryStatus === OrderDeliveryStatus.COMPLETED) {
+      await recordOrderActivity(client, {
+        orderId,
+        type: OrderActivityType.ORDER_COMPLETED,
+        title: "Order completed",
+        metadata: {
+          field: "deliveryStatus",
+          previousStatus: previous.deliveryStatus,
+          nextStatus: next.deliveryStatus,
+        },
+      });
+    }
+  }
 }
