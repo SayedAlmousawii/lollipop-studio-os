@@ -33,6 +33,8 @@ const SESSION_TYPES = [
   { value: "OTHER", label: "Other" },
 ] as const;
 
+const UNASSIGNED_PHOTOGRAPHER_VALUE = "__UNASSIGNED__";
+
 interface BookingOption {
   id: string;
   name: string;
@@ -63,6 +65,9 @@ export function EditBookingForm({
   const [selectedPackageId, setSelectedPackageId] = useState(booking.packageId);
   const [selectedSessionType, setSelectedSessionType] = useState(
     booking.sessionType
+  );
+  const [selectedPhotographerId, setSelectedPhotographerId] = useState(
+    booking.assignedPhotographerId || UNASSIGNED_PHOTOGRAPHER_VALUE
   );
   const [state, formAction] = useActionState<
     UpdateBookingActionState,
@@ -250,20 +255,39 @@ export function EditBookingForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="assignedPhotographerId">Assigned photographer</Label>
-            <select
-              id="assignedPhotographerId"
+            <input
+              type="hidden"
               name="assignedPhotographerId"
-              defaultValue={booking.assignedPhotographerId}
+              value={
+                selectedPhotographerId === UNASSIGNED_PHOTOGRAPHER_VALUE
+                  ? ""
+                  : selectedPhotographerId
+              }
+            />
+            <Select
+              value={selectedPhotographerId}
+              onValueChange={setSelectedPhotographerId}
               disabled={!booking.canEdit}
-              className="flex h-10 w-full rounded-sm border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-0 disabled:opacity-50"
             >
-              <option value="">Unassigned</option>
-              {photographers.map((photographer) => (
-                <option key={photographer.id} value={photographer.id}>
-                  {photographer.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                id="assignedPhotographerId"
+                aria-invalid={
+                  state.errors?.assignedPhotographerId?.length ? true : undefined
+                }
+              >
+                <SelectValue placeholder="Select a photographer..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={UNASSIGNED_PHOTOGRAPHER_VALUE}>
+                  Unassigned
+                </SelectItem>
+                {photographers.map((photographer) => (
+                  <SelectItem key={photographer.id} value={photographer.id}>
+                    {photographer.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <FieldError messages={state.errors?.assignedPhotographerId} />
           </div>
         </div>

@@ -41,6 +41,7 @@ export async function updateBookingStatusAction(
   }
 
   revalidatePath("/bookings");
+  revalidatePath(`/bookings/${parsed.data.bookingId}`);
   revalidatePath("/calendar");
   revalidatePath("/orders");
 
@@ -71,6 +72,7 @@ export async function recordDepositAction(
   }
 
   revalidatePath("/bookings");
+  revalidatePath(`/bookings/${parsed.data.bookingId}`);
   revalidatePath("/calendar");
   revalidatePath("/invoices");
 
