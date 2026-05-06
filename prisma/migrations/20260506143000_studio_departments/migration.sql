@@ -29,8 +29,25 @@ UPDATE "bookings"
 SET "departmentId" = CASE
   WHEN lower(trim("department")) IN ('newborn', 'new born', 'nb') THEN 'dept-newborn'
   WHEN lower(trim("department")) IN ('kids', 'kid', 'children', 'child', 'kd') THEN 'dept-kids'
-  ELSE 'dept-kids'
+  ELSE NULL
 END;
+
+DO $$
+DECLARE
+  unmapped_count INTEGER;
+BEGIN
+  SELECT COUNT(*)
+  INTO unmapped_count
+  FROM "bookings"
+  WHERE "departmentId" IS NULL
+    OR ("department" IS NOT NULL AND "departmentId" IS NULL);
+
+  IF unmapped_count > 0 THEN
+    RAISE EXCEPTION
+      'Cannot migrate bookings.department to bookings.departmentId: % unmapped bookings.department values require manual resolution before dropping bookings.department.',
+      unmapped_count;
+  END IF;
+END $$;
 
 ALTER TABLE "bookings"
   ALTER COLUMN "departmentId" SET NOT NULL,

@@ -6,6 +6,7 @@ import { resetWorkflowTestData } from "@/modules/development/dev-reset.service";
 export type ResetWorkflowActionState = {
   message?: string;
   error?: string;
+  token?: number;
 };
 
 export async function resetWorkflowAction(): Promise<ResetWorkflowActionState> {
@@ -17,6 +18,7 @@ export async function resetWorkflowAction(): Promise<ResetWorkflowActionState> {
         error instanceof Error
           ? error.message
           : "Unable to reset workflow test data",
+      token: Date.now(),
     };
   }
 
@@ -25,5 +27,5 @@ export async function resetWorkflowAction(): Promise<ResetWorkflowActionState> {
   revalidatePath("/invoices");
   revalidatePath("/calendar");
 
-  return { message: "Workflow test data reset." };
+  return { message: "Workflow test data reset.", token: Date.now() };
 }

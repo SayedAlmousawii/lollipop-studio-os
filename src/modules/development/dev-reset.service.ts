@@ -31,6 +31,8 @@ async function resetSequence(
   client: Prisma.TransactionClient,
   sequenceName: string
 ): Promise<void> {
+  // Prisma.raw is safe here only because sequenceName is a private hardcoded
+  // literal from this module; never pass user input or dynamic values here.
   await client.$executeRaw`
     SELECT setval(${Prisma.raw(`'"${sequenceName}"'`)}, 1, false)
   `;

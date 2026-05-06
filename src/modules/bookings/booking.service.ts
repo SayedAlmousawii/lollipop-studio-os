@@ -314,7 +314,7 @@ export async function updateBooking(
       db.$transaction(async (tx) => {
         const booking = await tx.booking.findUnique({
           where: { id: bookingId },
-          select: { id: true, status: true },
+          select: { id: true, status: true, departmentId: true },
         });
 
         if (!booking) {
@@ -334,7 +334,7 @@ export async function updateBooking(
           customerId: data.customerId,
           packageId: data.packageId,
           departmentId: data.departmentId,
-          requireActiveDepartment: false,
+          requireActiveDepartment: data.departmentId !== booking.departmentId,
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
         });
 

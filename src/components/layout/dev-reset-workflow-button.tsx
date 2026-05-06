@@ -1,8 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import {
   resetWorkflowAction,
   type ResetWorkflowActionState,
@@ -29,6 +30,20 @@ export function DevResetWorkflowButton() {
     ResetWorkflowActionState,
     FormData
   >(resetWorkflowAction, {});
+  const [dismissedToken, setDismissedToken] = useState<number | null>(null);
+  const messageText = state.error ?? state.message;
+  const messageTone = state.error ? "error" : "success";
+  const messageToken = state.token ?? null;
+  const showMessage = Boolean(
+    messageText && messageToken !== null && messageToken !== dismissedToken
+  );
+
+  useEffect(() => {
+    if (!messageText || messageToken === null) return;
+
+    const timeout = window.setTimeout(() => setDismissedToken(messageToken), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [messageText, messageToken]);
 
   return (
     <form
@@ -42,9 +57,20 @@ export function DevResetWorkflowButton() {
       className="relative"
     >
       <SubmitButton />
-      {state.error || state.message ? (
-        <span className="absolute right-0 top-10 z-10 w-max max-w-64 rounded-md border border-border bg-surface px-3 py-2 text-xs text-text-secondary shadow-md">
-          {state.error ?? state.message}
+      {showMessage ? (
+        <span
+          className="absolute right-0 top-10 z-10 flex w-max max-w-64 items-center gap-2 rounded-md border border-border bg-surface px-3 py-2 text-xs text-text-secondary shadow-md"
+          role={messageTone === "error" ? "alert" : "status"}
+        >
+          <span>{messageText}</span>
+          <button
+            type="button"
+            onClick={() => setDismissedToken(messageToken)}
+            className="rounded-sm p-0.5 text-text-muted transition-colors hover:bg-surface-soft hover:text-text-primary"
+            aria-label="Dismiss reset message"
+          >
+            <X className="h-3 w-3" />
+          </button>
         </span>
       ) : null}
     </form>

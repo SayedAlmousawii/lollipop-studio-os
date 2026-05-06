@@ -39,10 +39,10 @@ interface NewBookingFormProps {
   departments: { id: string; name: string; code: string }[];
 }
 
-function SubmitButton() {
+function SubmitButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="min-w-[140px]">
+    <Button type="submit" disabled={disabled || pending} className="min-w-[140px]">
       {pending ? "Creating…" : "Create Booking"}
     </Button>
   );
@@ -185,10 +185,12 @@ export function NewBookingForm({
   photographers,
   departments,
 }: NewBookingFormProps) {
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [state, formAction] = useActionState<ActionState, FormData>(
     createBooking,
     {}
   );
+  const createDisabled = departments.length === 0;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -200,6 +202,12 @@ export function NewBookingForm({
       )}
 
       {/* Customer */}
+      {departments.length === 0 ? (
+        <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
+          An active department is required before this booking can be saved.
+        </p>
+      ) : null}
+
       <div className="space-y-1.5">
         <Label htmlFor="customerId-input">Customer</Label>
         <CustomerCombobox
@@ -243,7 +251,12 @@ export function NewBookingForm({
 
       <div className="space-y-1.5">
         <Label htmlFor="departmentId">Department</Label>
-        <Select name="departmentId">
+        <input type="hidden" name="departmentId" value={selectedDepartmentId} />
+        <Select
+          value={selectedDepartmentId}
+          onValueChange={setSelectedDepartmentId}
+          disabled={departments.length === 0}
+        >
           <SelectTrigger id="departmentId" className="w-full">
             <SelectValue placeholder="Select department…" />
           </SelectTrigger>
@@ -324,7 +337,7 @@ export function NewBookingForm({
         <Button variant="outline" asChild>
           <Link href="/bookings">Cancel</Link>
         </Button>
-        <SubmitButton />
+        <SubmitButton disabled={createDisabled} />
       </div>
     </form>
   );

@@ -259,7 +259,6 @@ export function EditBookingForm({
           <div className="space-y-2">
             <Label htmlFor="departmentId">Department</Label>
             <Select
-              name="departmentId"
               value={selectedDepartmentId}
               onValueChange={setSelectedDepartmentId}
               disabled={!booking.canEdit || departments.length === 0}
@@ -281,6 +280,11 @@ export function EditBookingForm({
                 ))}
               </SelectContent>
             </Select>
+            <input
+              type="hidden"
+              name="departmentId"
+              value={selectedDepartmentId}
+            />
             <FieldError messages={state.errors?.departmentId} />
           </div>
           <div className="space-y-2">
