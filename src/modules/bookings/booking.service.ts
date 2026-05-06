@@ -87,6 +87,7 @@ export interface BookingDetail {
   depositStatus: PaymentStatus;
   notes: string;
   themes: Array<{
+    id: string;
     themeName: string;
     notes: string;
   }>;
@@ -749,6 +750,7 @@ function mapBookingDetail(
     depositStatus: hasDeposit ? "Paid" : "Unpaid",
     notes: row.notes ?? "",
     themes: row.themes.map((theme) => ({
+      id: theme.id,
       themeName: theme.themeName,
       notes: theme.notes ?? "",
     })),

@@ -20,6 +20,9 @@ change.
   - `src/components/layout/topbar.tsx` — removed the top-nav booking search field and new-booking button, leaving the shared page title plus utility icons intact
   - Validation: `npm run build` and `npm run lint` pass
   - Assumption: `This Week` uses a Monday-start local calendar week for server-side booking date filtering
+  - Follow-up fix:
+    - `app/bookings/[bookingId]/page.tsx` and `src/modules/bookings/booking.service.ts` — booking themes on the details page now use the persisted theme `id` as the React key instead of a text-based fallback key
+    - Validation: `npm run build` and `npm run lint` pass
 
 - Feature 23: Booking Details Page (`context/feature-specs/23-booking-details-page.md`):
   - `app/bookings/[bookingId]/page.tsx` — added a read-only booking details route with booking summary, notes, themes, back navigation, and quick actions for edit plus eligible deposit recording

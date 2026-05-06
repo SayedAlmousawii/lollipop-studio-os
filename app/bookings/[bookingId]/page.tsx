@@ -90,7 +90,7 @@ export default async function BookingDetailPage(
           {booking.themes.length > 0 ? (
             <div className="space-y-3">
               {booking.themes.map((theme) => (
-                <div key={`${theme.themeName}-${theme.notes}`} className="space-y-1">
+                <div key={theme.id} className="space-y-1">
                   <p className="text-sm font-medium text-text-primary">
                     {theme.themeName}
                   </p>
