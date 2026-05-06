@@ -78,6 +78,7 @@ export default async function OrderDetailPage(
           <InfoGrid
             items={[
               ["Invoice status", order.invoiceStatus],
+              ["Payment status", order.paymentStatus],
               ["Total", order.totalAmount],
               ["Paid", order.paidAmount],
               ["Remaining", order.remainingAmount],

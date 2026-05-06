@@ -49,6 +49,39 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum OrderSelectionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum OrderEditingStatus {
+  NOT_STARTED
+  ASSIGNED
+  IN_PROGRESS
+  REVISION_REQUESTED
+  AWAITING_APPROVAL
+  APPROVED
+  COMPLETED
+}
+
+enum OrderProductionStatus {
+  NOT_STARTED
+  WAITING_FOR_EDITING
+  IN_PROGRESS
+  WAITING_FOR_VENDOR
+  READY_FOR_PICKUP
+  COMPLETED
+}
+
+enum OrderDeliveryStatus {
+  NOT_READY
+  READY_FOR_PICKUP
+  CUSTOMER_NOTIFIED
+  PICKED_UP
+  COMPLETED
+}
+
 enum InvoiceStatus {
   DRAFT
   ISSUED
@@ -191,22 +224,26 @@ model BookingTheme {
 }
 
 model Order {
-  id                String      @id @default(cuid())
-  publicId          String      @unique
+  id                String                @id @default(cuid())
+  publicId          String                @unique
   jobNumber         String
-  bookingId         String      @unique
+  bookingId         String                @unique
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
   customerId        String
   originalPackageId String?
   finalPackageId    String?
   selectedPhotoCount Int?
-  addOns            Json        @default("[]")
-  status            OrderStatus @default(ACTIVE)
+  addOns            Json                  @default("[]")
+  status            OrderStatus           @default(ACTIVE)
+  selectionStatus   OrderSelectionStatus  @default(PENDING)
+  editingStatus     OrderEditingStatus    @default(NOT_STARTED)
+  productionStatus  OrderProductionStatus @default(NOT_STARTED)
+  deliveryStatus    OrderDeliveryStatus   @default(NOT_READY)
   nasFolderPath     String?
   notes             String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   booking         Booking  @relation(fields: [bookingId], references: [id])
   customer        Customer @relation(fields: [customerId], references: [id])

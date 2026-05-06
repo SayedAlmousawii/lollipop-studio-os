@@ -8,6 +8,7 @@ export type OrderStatusLabel =
   | "Cancelled";
 
 export type InvoiceStatusLabel = "Draft" | "Issued" | "Partial" | "Paid" | "Closed" | "No Invoice";
+export type OrderPaymentStatusLabel = "Pending" | "Partially paid" | "Paid" | "Overridden";
 
 export type OrderStatusFilter =
   | "ACTIVE"
@@ -36,6 +37,7 @@ export interface Order {
   finalPackageName: string;
   orderStatus: OrderStatusLabel;
   invoiceStatus: InvoiceStatusLabel;
+  paymentStatus: OrderPaymentStatusLabel;
   totalAmount: string;
   paidAmount: string;
   remainingAmount: string;

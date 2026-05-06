@@ -1,11 +1,31 @@
-import { InvoiceStatus, OrderStatus, Prisma } from "@prisma/client";
+import {
+  InvoiceStatus,
+  OrderDeliveryStatus,
+  OrderEditingStatus,
+  OrderProductionStatus,
+  OrderSelectionStatus,
+  OrderStatus,
+  Prisma,
+} from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { syncOrderInvoiceForFinancialEdit } from "@/modules/invoices/invoice.service";
-import { updateOrderSchema, type UpdateOrderInput } from "./order.schema";
+import {
+  ORDER_DELIVERY_STATUS_LABELS,
+  ORDER_EDITING_STATUS_LABELS,
+  ORDER_PRODUCTION_STATUS_LABELS,
+  ORDER_SELECTION_STATUS_LABELS,
+  ORDER_WORKFLOW_TRANSITIONS,
+} from "./order.constants";
+import {
+  updateOrderSchema,
+  updateOrderWorkflowSchema,
+  type UpdateOrderInput,
+  type UpdateOrderWorkflowInput,
+} from "./order.schema";
 import type {
   EditableOrder,
   InvoiceStatusFilter,
@@ -15,6 +35,7 @@ import type {
   OrderDetail,
   OrderEditPackage,
   OrderFilters,
+  OrderPaymentStatusLabel,
   OrderStatusFilter,
   OrderStatusLabel,
 } from "./order.types";
@@ -79,6 +100,10 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
   );
 
   if (!row) return null;
+  return mapOrderDetailRow(row);
+}
+
+function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   const summary = mapOrderRow(row);
   const includedPhotoCount = row.finalPackage?.photoCount ?? row.originalPackage?.photoCount ?? null;
   const selectedPhotoCount = row.selectedPhotoCount ?? null;
@@ -93,7 +118,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
         ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
         : "—",
     addonsSummary: formatAddOnsSummary(parseAddOns(row.addOns)),
-    ...mapWorkflowStatus(row.status),
+    ...mapWorkflowStatus(row),
     notes: row.notes?.trim() ? row.notes : "—",
   };
 }
@@ -179,6 +204,79 @@ export async function updateOrder(
   );
 
   return mapEditableOrderRow(row);
+}
+
+export async function updateOrderWorkflowStatus(
+  orderId: string,
+  input: UpdateOrderWorkflowInput
+): Promise<OrderDetail> {
+  const data = updateOrderWorkflowSchema.parse(input);
+
+  const row = await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            id: true,
+            status: true,
+            selectionStatus: true,
+            editingStatus: true,
+            productionStatus: true,
+            deliveryStatus: true,
+          },
+        });
+
+        if (!order) {
+          throw new Error("Order not found");
+        }
+        if (order.status === OrderStatus.CANCELLED) {
+          throw new Error("Cancelled orders cannot be moved through workflow");
+        }
+        if (data.selectionStatus) {
+          assertWorkflowTransition(
+            "selectionStatus",
+            order.selectionStatus,
+            data.selectionStatus
+          );
+        }
+        if (data.editingStatus) {
+          assertWorkflowTransition(
+            "editingStatus",
+            order.editingStatus,
+            data.editingStatus
+          );
+        }
+        if (data.productionStatus) {
+          assertWorkflowTransition(
+            "productionStatus",
+            order.productionStatus,
+            data.productionStatus
+          );
+        }
+        if (data.deliveryStatus) {
+          assertWorkflowTransition(
+            "deliveryStatus",
+            order.deliveryStatus,
+            data.deliveryStatus
+          );
+        }
+
+        await tx.order.update({
+          where: { id: orderId },
+          data,
+        });
+
+        return fetchOrderByIdWithClient(tx, orderId);
+      }),
+    "Failed to update order workflow status"
+  );
+
+  if (!row) {
+    throw new Error("Order not found after workflow update");
+  }
+
+  return mapOrderDetailRow(row);
 }
 
 export async function createOrderFromBooking(
@@ -322,7 +420,14 @@ async function fetchOrders(filters: OrderFilters) {
 }
 
 async function fetchOrderById(orderId: string) {
-  return db.order.findUnique({
+  return fetchOrderByIdWithClient(db, orderId);
+}
+
+function fetchOrderByIdWithClient(
+  client: Pick<typeof db, "order"> | Prisma.TransactionClient,
+  orderId: string
+) {
+  return client.order.findUnique({
     where: { id: orderId },
     include: {
       customer: { select: { name: true } },
@@ -416,6 +521,7 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     finalPackageName: row.finalPackage?.name ?? row.originalPackage?.name ?? "—",
     orderStatus: mapOrderStatus(row.status),
     invoiceStatus: invoiceSummary.status,
+    paymentStatus: invoiceSummary.paymentStatus,
     totalAmount: formatMoney(invoiceSummary.totalAmount),
     paidAmount: formatMoney(invoiceSummary.paidAmount),
     remainingAmount: formatMoney(invoiceSummary.remainingAmount),
@@ -430,6 +536,7 @@ function summarizeInvoices(invoices: OrderRow["invoices"]): {
   paidAmount: Prisma.Decimal;
   remainingAmount: Prisma.Decimal;
   status: InvoiceStatusLabel;
+  paymentStatus: OrderPaymentStatusLabel;
 } {
   const totalAmount = invoices.reduce(
     (sum, invoice) => sum.plus(invoice.totalAmount),
@@ -449,6 +556,7 @@ function summarizeInvoices(invoices: OrderRow["invoices"]): {
     paidAmount,
     remainingAmount,
     status: invoices[0] ? mapInvoiceStatus(invoices[0].status) : "No Invoice",
+    paymentStatus: mapPaymentStatus(invoices, totalAmount, paidAmount, remainingAmount),
   };
 }
 
@@ -486,60 +594,100 @@ function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {
   }
 }
 
-function mapWorkflowStatus(status: OrderStatus): Pick<
-  OrderDetail,
+function mapPaymentStatus(
+  invoices: OrderRow["invoices"],
+  totalAmount: Prisma.Decimal,
+  paidAmount: Prisma.Decimal,
+  remainingAmount: Prisma.Decimal
+): OrderPaymentStatusLabel {
+  if (invoices.some((invoice) => invoice.status === InvoiceStatus.CLOSED && remainingAmount.gt(0))) {
+    return "Overridden";
+  }
+  if (invoices.length === 0 || paidAmount.lte(0)) {
+    return "Pending";
+  }
+  if (totalAmount.gt(0) && remainingAmount.lte(0)) {
+    return "Paid";
+  }
+  return "Partially paid";
+}
+
+function mapWorkflowStatus(row: Pick<
+  OrderDetailRow,
   "selectionStatus" | "editingStatus" | "productionStatus" | "deliveryStatus"
-> {
-  switch (status) {
-    case OrderStatus.ACTIVE:
-      return {
-        selectionStatus: "Not started",
-        editingStatus: "Not started",
-        productionStatus: "Not started",
-        deliveryStatus: "Not ready",
-      };
-    case OrderStatus.WAITING_SELECTION:
-      return {
-        selectionStatus: "Waiting selection",
-        editingStatus: "Not started",
-        productionStatus: "Not started",
-        deliveryStatus: "Not ready",
-      };
-    case OrderStatus.EDITING:
-      return {
-        selectionStatus: "Selected",
-        editingStatus: "Editing",
-        productionStatus: "Not started",
-        deliveryStatus: "Not ready",
-      };
-    case OrderStatus.PRODUCTION:
-      return {
-        selectionStatus: "Selected",
-        editingStatus: "Completed",
-        productionStatus: "In production",
-        deliveryStatus: "Not ready",
-      };
-    case OrderStatus.READY:
-      return {
-        selectionStatus: "Selected",
-        editingStatus: "Completed",
-        productionStatus: "Completed",
-        deliveryStatus: "Ready",
-      };
-    case OrderStatus.DELIVERED:
-      return {
-        selectionStatus: "Selected",
-        editingStatus: "Completed",
-        productionStatus: "Completed",
-        deliveryStatus: "Delivered",
-      };
-    case OrderStatus.CANCELLED:
-      return {
-        selectionStatus: "Cancelled",
-        editingStatus: "Cancelled",
-        productionStatus: "Cancelled",
-        deliveryStatus: "Cancelled",
-      };
+>): Pick<OrderDetail, "selectionStatus" | "editingStatus" | "productionStatus" | "deliveryStatus"> {
+  return {
+    selectionStatus: ORDER_SELECTION_STATUS_LABELS[row.selectionStatus],
+    editingStatus: ORDER_EDITING_STATUS_LABELS[row.editingStatus],
+    productionStatus: ORDER_PRODUCTION_STATUS_LABELS[row.productionStatus],
+    deliveryStatus: ORDER_DELIVERY_STATUS_LABELS[row.deliveryStatus],
+  };
+}
+
+function assertWorkflowTransition(
+  field: "selectionStatus",
+  current: OrderSelectionStatus,
+  next: OrderSelectionStatus
+): void;
+function assertWorkflowTransition(
+  field: "editingStatus",
+  current: OrderEditingStatus,
+  next: OrderEditingStatus
+): void;
+function assertWorkflowTransition(
+  field: "productionStatus",
+  current: OrderProductionStatus,
+  next: OrderProductionStatus
+): void;
+function assertWorkflowTransition(
+  field: "deliveryStatus",
+  current: OrderDeliveryStatus,
+  next: OrderDeliveryStatus
+): void;
+function assertWorkflowTransition(
+  field: "selectionStatus" | "editingStatus" | "productionStatus" | "deliveryStatus",
+  current:
+    | OrderSelectionStatus
+    | OrderEditingStatus
+    | OrderProductionStatus
+    | OrderDeliveryStatus,
+  next:
+    | OrderSelectionStatus
+    | OrderEditingStatus
+    | OrderProductionStatus
+    | OrderDeliveryStatus
+): void {
+  const isValid = (() => {
+    switch (field) {
+      case "selectionStatus": {
+        const allowed: readonly OrderSelectionStatus[] = ORDER_WORKFLOW_TRANSITIONS.selectionStatus[
+          current as OrderSelectionStatus
+        ];
+        return allowed.includes(next as OrderSelectionStatus);
+      }
+      case "editingStatus": {
+        const allowed: readonly OrderEditingStatus[] = ORDER_WORKFLOW_TRANSITIONS.editingStatus[
+          current as OrderEditingStatus
+        ];
+        return allowed.includes(next as OrderEditingStatus);
+      }
+      case "productionStatus": {
+        const allowed: readonly OrderProductionStatus[] = ORDER_WORKFLOW_TRANSITIONS.productionStatus[
+          current as OrderProductionStatus
+        ];
+        return allowed.includes(next as OrderProductionStatus);
+      }
+      case "deliveryStatus": {
+        const allowed: readonly OrderDeliveryStatus[] = ORDER_WORKFLOW_TRANSITIONS.deliveryStatus[
+          current as OrderDeliveryStatus
+        ];
+        return allowed.includes(next as OrderDeliveryStatus);
+      }
+    }
+  })();
+
+  if (!isValid) {
+    throw new Error(`Invalid ${field} transition from ${current} to ${next}`);
   }
 }
 

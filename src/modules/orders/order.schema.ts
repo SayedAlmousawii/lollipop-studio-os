@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  ORDER_DELIVERY_STATUS_VALUES,
+  ORDER_EDITING_STATUS_VALUES,
+  ORDER_PRODUCTION_STATUS_VALUES,
+  ORDER_SELECTION_STATUS_VALUES,
+} from "./order.constants";
 
 export const orderAddOnSchema = z.object({
   name: z.string().trim().min(1, "Add-on name is required"),
@@ -15,5 +21,20 @@ export const updateOrderSchema = z.object({
   notes: z.string().trim().max(1000, "Notes must be 1000 characters or fewer").optional(),
 });
 
+export const updateOrderWorkflowSchema = z.object({
+  selectionStatus: z.enum(ORDER_SELECTION_STATUS_VALUES).optional(),
+  editingStatus: z.enum(ORDER_EDITING_STATUS_VALUES).optional(),
+  productionStatus: z.enum(ORDER_PRODUCTION_STATUS_VALUES).optional(),
+  deliveryStatus: z.enum(ORDER_DELIVERY_STATUS_VALUES).optional(),
+}).refine(
+  (value) =>
+    value.selectionStatus ||
+    value.editingStatus ||
+    value.productionStatus ||
+    value.deliveryStatus,
+  "At least one workflow status is required"
+);
+
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
+export type UpdateOrderWorkflowInput = z.infer<typeof updateOrderWorkflowSchema>;
 export type OrderAddOnInput = z.infer<typeof orderAddOnSchema>;

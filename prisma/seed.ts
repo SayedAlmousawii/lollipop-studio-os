@@ -1,4 +1,17 @@
-import { PrismaClient, BookingStatus, SessionType, OrderStatus, InvoiceStatus, PaymentMethod, PaymentType, UserRole, CustomerStatus } from "@prisma/client";
+import {
+  BookingStatus,
+  CustomerStatus,
+  InvoiceStatus,
+  OrderEditingStatus,
+  OrderProductionStatus,
+  OrderSelectionStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentType,
+  PrismaClient,
+  SessionType,
+  UserRole,
+} from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 const url = process.env.DATABASE_URL;
@@ -348,6 +361,9 @@ async function main() {
       finalPackageId: pkgPremium.id,
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
+      selectionStatus: OrderSelectionStatus.COMPLETED,
+      editingStatus: OrderEditingStatus.IN_PROGRESS,
+      productionStatus: OrderProductionStatus.WAITING_FOR_EDITING,
       nasFolderPath: "\\\\Synology\\Family\\2026-04-15\\96555511223-AlAzmi",
     },
     create: {
@@ -360,6 +376,9 @@ async function main() {
       finalPackageId: pkgPremium.id,
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
+      selectionStatus: OrderSelectionStatus.COMPLETED,
+      editingStatus: OrderEditingStatus.IN_PROGRESS,
+      productionStatus: OrderProductionStatus.WAITING_FOR_EDITING,
       nasFolderPath: "\\\\Synology\\Family\\2026-04-15\\96555511223-AlAzmi",
     },
   });
