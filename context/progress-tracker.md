@@ -37,6 +37,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order completion is service-guarded by pickup recording, finished production sections, and settled payment or an explicit admin override reason.
 
 ## Recent Milestones
+- Feature 35 review follow-up: bound booking id server-side in the base payment action, added row locking to the base payment transaction, blocked selection updates for cancelled orders, and made the auto-calculated amount field explicitly read-only in the UI.
 - Feature 35 follow-up: base payment amount is now read-only in the booking detail and bookings list modals so staff records the service-computed remaining balance without editing it.
 - Feature 35 follow-up: added `Record Base Payment` to the bookings list row menu for confirmed bookings only, reusing the same prefilled remaining-balance modal path as the booking detail page.
 - Feature 35 review fix: sealed the old `updateBookingStatus()` completion path so `CONFIRMED` bookings can no longer bypass base-payment recording to become `COMPLETED`, and `recordBasePaymentAndComplete()` now writes an explicit order activity trail for base payment recorded, booking completed, and order created using the existing order activity system. No schema changes required.

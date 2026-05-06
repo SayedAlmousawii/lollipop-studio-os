@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 interface RecordBasePaymentFormProps {
   bookingId: string;
@@ -27,14 +28,14 @@ export function RecordBasePaymentForm({
   bookingId,
   defaultAmount,
 }: RecordBasePaymentFormProps) {
+  const action = recordBasePaymentAndCompleteAction.bind(null, bookingId);
   const [state, formAction] = useActionState<RecordBasePaymentActionState, FormData>(
-    recordBasePaymentAndCompleteAction,
+    action,
     {}
   );
 
   return (
     <form action={formAction} className="space-y-4">
-      <input type="hidden" name="bookingId" value={bookingId} />
       {state.errors?._global ? (
         <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">
           {state.errors._global[0]}
@@ -72,8 +73,14 @@ function BasePaymentFields({
           required
           readOnly
           disabled={pending}
+          aria-readonly="true"
           aria-invalid={errors?.amount?.length ? true : undefined}
+          className={cn(
+            "bg-surface-soft text-text-secondary",
+            pending && "bg-background"
+          )}
         />
+        <p className="text-xs text-text-muted">Amount is auto-calculated.</p>
         <FieldError messages={errors?.amount} />
       </div>
       <div className="space-y-2">

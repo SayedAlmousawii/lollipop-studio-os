@@ -9,11 +9,12 @@ export type RecordBasePaymentActionState = {
 };
 
 export async function recordBasePaymentAndCompleteAction(
+  bookingId: string,
   _prev: RecordBasePaymentActionState,
   formData: FormData
 ): Promise<RecordBasePaymentActionState> {
   const parsed = recordBasePaymentSchema.safeParse({
-    bookingId: formData.get("bookingId"),
+    bookingId,
     amount: formData.get("amount"),
     method: formData.get("method"),
     notes: formData.get("notes") || undefined,

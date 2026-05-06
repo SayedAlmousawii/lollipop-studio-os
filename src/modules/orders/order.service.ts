@@ -402,11 +402,7 @@ export async function updateOrderSelectionWorkflow(
     select: { status: true },
   });
   if (!orderForGuard) throw new Error("Order not found");
-  if (orderForGuard.status === OrderStatus.ACTIVE) {
-    throw new Error(
-      "Base payment has not been recorded. Record base payment on the booking to begin selection."
-    );
-  }
+  assertSelectionWorkflowWritable(orderForGuard.status);
 
   const data = updateOrderSelectionWorkflowSchema.parse(input);
   const [pricedAddOns, selectedPackage] = await Promise.all([
@@ -2236,6 +2232,17 @@ function assertProductionWorkflowWritable(status: OrderStatus): void {
   }
   if (status === OrderStatus.DELIVERED) {
     throw new Error("Delivered orders cannot be moved through production");
+  }
+}
+
+function assertSelectionWorkflowWritable(status: OrderStatus): void {
+  if (status === OrderStatus.ACTIVE) {
+    throw new Error(
+      "Base payment has not been recorded. Record base payment on the booking to begin selection."
+    );
+  }
+  if (status === OrderStatus.CANCELLED) {
+    throw new Error("Cancelled orders cannot be updated through selection");
   }
 }
 

@@ -461,7 +461,7 @@ export async function recordBookingDeposit(
   return withRetry(
     () =>
       db.$transaction(async (tx) => {
-        await lockBookingForDeposit(tx, data.bookingId);
+        await lockBookingForUpdate(tx, data.bookingId);
 
         const booking = await tx.booking.findUnique({
           where: { id: data.bookingId },
@@ -527,6 +527,8 @@ export async function recordBasePaymentAndComplete(
   return withRetry(
     () =>
       db.$transaction(async (tx) => {
+        await lockBookingForUpdate(tx, data.bookingId);
+
         const booking = await tx.booking.findUnique({
           where: { id: data.bookingId },
           select: {
@@ -667,7 +669,7 @@ async function validateBookingReferences(
   }
 }
 
-async function lockBookingForDeposit(
+async function lockBookingForUpdate(
   client: Prisma.TransactionClient,
   bookingId: string
 ): Promise<void> {
