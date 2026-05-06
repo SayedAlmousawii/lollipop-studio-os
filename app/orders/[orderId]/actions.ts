@@ -5,10 +5,12 @@ import { redirect } from "next/navigation";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
 import {
   updateOrderEditingWorkflowSchema,
+  updateOrderProductionWorkflowSchema,
   updateOrderSelectionWorkflowSchema,
 } from "@/modules/orders/order.schema";
 import {
   updateOrderEditingWorkflow,
+  updateOrderProductionWorkflow,
   updateOrderSelectionWorkflow,
 } from "@/modules/orders/order.service";
 
@@ -17,6 +19,10 @@ export type UpdateSelectionActionState = {
 };
 
 export type UpdateEditingActionState = {
+  errors?: Partial<Record<string, string[]>>;
+};
+
+export type UpdateProductionActionState = {
   errors?: Partial<Record<string, string[]>>;
 };
 
@@ -92,6 +98,32 @@ export async function updateEditingWorkflowAction(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update editing workflow";
+    return { errors: { _global: [message] } };
+  }
+
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${orderId}`);
+  return {};
+}
+
+export async function updateProductionWorkflowAction(
+  orderId: string,
+  _prev: UpdateProductionActionState,
+  formData: FormData
+): Promise<UpdateProductionActionState> {
+  const parsed = updateOrderProductionWorkflowSchema.safeParse({
+    action: formData.get("action"),
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    await updateOrderProductionWorkflow(orderId, parsed.data);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to update production workflow";
     return { errors: { _global: [message] } };
   }
 

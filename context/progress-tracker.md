@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 31 implemented.
-- Current goal: review the operational Editing tab in-app and decide whether to proceed to Feature 32.
+- Current phase: Feature 32 implemented.
+- Current goal: review the operational Production tab in-app and decide whether to proceed to Feature 33.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -29,8 +29,13 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Editing tab now supports editor assignment/reassignment, start, revision request, completion for approval, customer approval, and explicit production handoff.
 - Editing workflow state stores assignment date, progress counts, revision count, approval/handoff timestamps, and estimated completion date on the order.
 - Editing start is blocked unless selection is completed, an editor is assigned, and an order-linked invoice has a recorded `PaymentType.BASE` payment.
+- Production tab now supports album design, printing, album assembly, vendor/outsource work, framed prints, and final readiness tracking.
+- Production workflow state stores section-level production statuses and a production-ready timestamp on the order.
+- Production readiness for pickup updates production status, delivery readiness context, and high-level order status through service-layer transitions.
 
 ## Recent Milestones
+- Feature 32: operational Production workflow tab added with production section actions, early-start warnings, pickup readiness tracking, and production activity records.
+- Feature 31: operational Editing workflow tab added with editor assignment, progress counts, revision tracking, customer approval, base-payment start gate, and explicit production handoff.
 - Feature 30: operational Selection workflow tab added with service-computed limits, overage context, package upgrade guidance, add-on management, notes, and completion actions.
 - Feature 30 follow-up: database-backed add-on options added, Selection add-on entry changed from free text to dropdown choices, and extra selected photos now affect the selection add-on total/invoice sync.
 - Feature 30 follow-up: Photo Selection UX changed from editable total selected photos to editable extra photos with a read-only computed total.
@@ -47,10 +52,17 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Review the Production workflow tab in-app, including early-start warnings and ready-for-pickup handoff into Delivery.
 - Review the Editing workflow tab in-app, including base-payment blocked and approved-to-production paths.
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 32 Implementation Notes
+- Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/orders/order.constants.ts`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.
+- Files created: `prisma/migrations/20260506210000_order_production_workflow_fields/migration.sql`, `src/components/orders/production-workflow-form.tsx`.
+- Assumptions: V1 stores production section state directly on `Order`; vendor/outsource status is a lightweight section status rather than a vendor directory; admin-first early production movement shows a warning but still records the transition.
+- Validation: `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npx prisma migrate deploy`, and `npx prisma migrate status` completed successfully.
 
 ## Feature 31 Implementation Notes
 - Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/orders/order.constants.ts`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.

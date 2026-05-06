@@ -74,6 +74,12 @@ enum OrderProductionStatus {
   COMPLETED
 }
 
+enum OrderProductionSectionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
 enum OrderDeliveryStatus {
   NOT_READY
   READY_FOR_PICKUP
@@ -281,6 +287,13 @@ model Order {
   editedPhotoCount   Int                   @default(0)
   revisionCount      Int                   @default(0)
   estimatedEditingCompletionAt DateTime?
+  productionAlbumDesignStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionPrintingStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionAssemblyStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionVendorStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionFramedPrintsStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionFinalStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionReadyAt DateTime?
   nasFolderPath     String?
   notes             String?
   createdAt         DateTime              @default(now())

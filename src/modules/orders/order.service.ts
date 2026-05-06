@@ -3,6 +3,7 @@ import {
   OrderActivityType,
   OrderDeliveryStatus,
   OrderEditingStatus,
+  OrderProductionSectionStatus,
   OrderProductionStatus,
   OrderSelectionStatus,
   OrderStatus,
@@ -19,6 +20,7 @@ import { syncOrderInvoiceForFinancialEdit } from "@/modules/invoices/invoice.ser
 import {
   ORDER_DELIVERY_STATUS_LABELS,
   ORDER_EDITING_STATUS_LABELS,
+  ORDER_PRODUCTION_SECTION_STATUS_LABELS,
   ORDER_PRODUCTION_STATUS_LABELS,
   ORDER_SELECTION_STATUS_LABELS,
   ORDER_WORKFLOW_TRANSITIONS,
@@ -30,10 +32,12 @@ import {
 import {
   updateOrderSchema,
   updateOrderEditingWorkflowSchema,
+  updateOrderProductionWorkflowSchema,
   updateOrderSelectionWorkflowSchema,
   updateOrderWorkflowSchema,
   type UpdateOrderInput,
   type UpdateOrderEditingWorkflowInput,
+  type UpdateOrderProductionWorkflowInput,
   type UpdateOrderSelectionWorkflowInput,
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
@@ -51,6 +55,9 @@ import type {
   OrderEditorOption,
   OrderFilters,
   OrderPaymentStatusLabel,
+  OrderProductionAction,
+  OrderProductionSection,
+  OrderProductionWorkflow,
   OrderSelectionPackageOption,
   OrderSelectionWorkflow,
   OrderStatusFilter,
@@ -332,6 +339,35 @@ export async function getOrderEditingWorkflowById(
   if (!order) return null;
 
   return mapOrderEditingWorkflow(order, editorRows);
+}
+
+export async function getOrderProductionWorkflowById(
+  orderId: string
+): Promise<OrderProductionWorkflow | null> {
+  const order = await withRetry(
+    () =>
+      db.order.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          status: true,
+          editingStatus: true,
+          productionStatus: true,
+          deliveryStatus: true,
+          productionAlbumDesignStatus: true,
+          productionPrintingStatus: true,
+          productionAssemblyStatus: true,
+          productionVendorStatus: true,
+          productionFramedPrintsStatus: true,
+          productionFinalStatus: true,
+          productionReadyAt: true,
+        },
+      }),
+    "Failed to fetch production workflow"
+  );
+
+  if (!order) return null;
+  return mapOrderProductionWorkflow(order);
 }
 
 export async function updateOrderSelectionWorkflow(
@@ -617,6 +653,90 @@ export async function updateOrderEditingWorkflow(
 
   const workflow = await getOrderEditingWorkflowById(orderId);
   if (!workflow) throw new Error("Order not found after editing update");
+  return workflow;
+}
+
+export async function updateOrderProductionWorkflow(
+  orderId: string,
+  input: UpdateOrderProductionWorkflowInput
+): Promise<OrderProductionWorkflow> {
+  const data = updateOrderProductionWorkflowSchema.parse(input);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            id: true,
+            status: true,
+            editingStatus: true,
+            productionStatus: true,
+            deliveryStatus: true,
+            productionAlbumDesignStatus: true,
+            productionPrintingStatus: true,
+            productionAssemblyStatus: true,
+            productionVendorStatus: true,
+            productionFramedPrintsStatus: true,
+            productionFinalStatus: true,
+            productionReadyAt: true,
+          },
+        });
+
+        if (!order) {
+          throw new Error("Order not found");
+        }
+        assertProductionWorkflowWritable(order.status);
+
+        const next = resolveProductionUpdate(order, data.action);
+        if (next.productionStatus && next.productionStatus !== order.productionStatus) {
+          assertWorkflowTransition(
+            "productionStatus",
+            order.productionStatus,
+            next.productionStatus
+          );
+        }
+        if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
+          assertWorkflowTransition(
+            "deliveryStatus",
+            order.deliveryStatus,
+            next.deliveryStatus
+          );
+        }
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: next.orderData,
+        });
+
+        await recordOrderActivity(tx, {
+          orderId,
+          type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
+          title: next.title,
+          description: next.description,
+          metadata: next.metadata,
+        });
+
+        if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
+          await recordOrderActivity(tx, {
+            orderId,
+            type: OrderActivityType.DELIVERY_STATUS_CHANGED,
+            title: "Delivery readiness updated",
+            description: "Order is ready for customer pickup.",
+            metadata: {
+              field: "deliveryStatus",
+              previousStatus: order.deliveryStatus,
+              nextStatus: next.deliveryStatus,
+              source: "production",
+            },
+          });
+        }
+      }),
+    "Failed to update production workflow"
+  );
+
+  const workflow = await getOrderProductionWorkflowById(orderId);
+  if (!workflow) throw new Error("Order not found after production update");
   return workflow;
 }
 
@@ -1762,6 +1882,356 @@ function resolveApprovalState(status: OrderEditingStatus): string {
     return "Revision requested";
   }
   return "Not ready for approval";
+}
+
+type ProductionOrderState = {
+  id: string;
+  status: OrderStatus;
+  editingStatus: OrderEditingStatus;
+  productionStatus: OrderProductionStatus;
+  deliveryStatus: OrderDeliveryStatus;
+  productionAlbumDesignStatus: OrderProductionSectionStatus;
+  productionPrintingStatus: OrderProductionSectionStatus;
+  productionAssemblyStatus: OrderProductionSectionStatus;
+  productionVendorStatus: OrderProductionSectionStatus;
+  productionFramedPrintsStatus: OrderProductionSectionStatus;
+  productionFinalStatus: OrderProductionSectionStatus;
+  productionReadyAt: Date | null;
+};
+
+type ProductionWorkflowUpdate = {
+  orderData: Prisma.OrderUpdateInput;
+  productionStatus?: OrderProductionStatus;
+  deliveryStatus?: OrderDeliveryStatus;
+  title: string;
+  description: string;
+  metadata: Prisma.InputJsonObject;
+};
+
+function mapOrderProductionWorkflow(order: ProductionOrderState): OrderProductionWorkflow {
+  const canUpdateProduction =
+    order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.DELIVERED;
+  const sections = buildProductionSections(order, canUpdateProduction);
+
+  return {
+    orderId: order.id,
+    productionStatus: ORDER_PRODUCTION_STATUS_LABELS[order.productionStatus],
+    deliveryStatus: ORDER_DELIVERY_STATUS_LABELS[order.deliveryStatus],
+    editingStatus: ORDER_EDITING_STATUS_LABELS[order.editingStatus],
+    readyAt: order.productionReadyAt ? formatDateTime(order.productionReadyAt) : null,
+    readinessWarning: resolveProductionReadinessWarning(order),
+    canUpdateProduction,
+    canMarkReadyForPickup:
+      canUpdateProduction &&
+      order.productionStatus !== OrderProductionStatus.READY_FOR_PICKUP &&
+      order.productionStatus !== OrderProductionStatus.COMPLETED,
+    sections,
+  };
+}
+
+function buildProductionSections(
+  order: ProductionOrderState,
+  canUpdateProduction: boolean
+): OrderProductionSection[] {
+  return [
+    productionSection({
+      key: "albumDesign",
+      title: "Album Design",
+      description: "Layout and customer album design preparation.",
+      status: order.productionAlbumDesignStatus,
+      startAction: "markAlbumDesignStarted",
+      completeAction: "markAlbumDesignCompleted",
+      canUpdateProduction,
+    }),
+    productionSection({
+      key: "printing",
+      title: "Printing",
+      description: "Album pages and print items sent to production.",
+      status: order.productionPrintingStatus,
+      startAction: "markSentToPrint",
+      completeAction: "markPrintsReady",
+      startLabel: "Send to print",
+      completeLabel: "Prints ready",
+      canUpdateProduction,
+    }),
+    productionSection({
+      key: "assembly",
+      title: "Album Assembly",
+      description: "Final album build, binding, and finishing.",
+      status: order.productionAssemblyStatus,
+      startAction: "markAssemblyStarted",
+      completeAction: "markAssemblyCompleted",
+      canUpdateProduction,
+    }),
+    productionSection({
+      key: "vendor",
+      title: "Vendor / Outsource",
+      description: "Outsourced production work and vendor handoff.",
+      status: order.productionVendorStatus,
+      startAction: "markVendorInProgress",
+      completeAction: "markVendorCompleted",
+      startLabel: "Vendor in progress",
+      completeLabel: "Vendor complete",
+      canUpdateProduction,
+    }),
+    productionSection({
+      key: "framedPrints",
+      title: "Framed Prints",
+      description: "Frames, enlargements, and standalone print deliverables.",
+      status: order.productionFramedPrintsStatus,
+      startAction: null,
+      completeAction: "markPrintsReady",
+      completeLabel: "Prints ready",
+      canUpdateProduction,
+    }),
+    {
+      key: "finalReadiness",
+      title: "Final Production Readiness",
+      description: "Final production check before pickup handoff.",
+      status: ORDER_PRODUCTION_SECTION_STATUS_LABELS[order.productionFinalStatus],
+      action:
+        canUpdateProduction &&
+        order.productionStatus !== OrderProductionStatus.READY_FOR_PICKUP &&
+        order.productionStatus !== OrderProductionStatus.COMPLETED
+          ? "markProductionReadyForPickup"
+          : null,
+      actionLabel:
+        canUpdateProduction &&
+        order.productionStatus !== OrderProductionStatus.READY_FOR_PICKUP &&
+        order.productionStatus !== OrderProductionStatus.COMPLETED
+          ? "Ready for pickup"
+          : null,
+    },
+  ];
+}
+
+function productionSection(input: {
+  key: OrderProductionSection["key"];
+  title: string;
+  description: string;
+  status: OrderProductionSectionStatus;
+  startAction: OrderProductionAction | null;
+  completeAction: OrderProductionAction;
+  startLabel?: string;
+  completeLabel?: string;
+  canUpdateProduction: boolean;
+}): OrderProductionSection {
+  const action =
+    input.canUpdateProduction && input.status === OrderProductionSectionStatus.NOT_STARTED
+      ? input.startAction
+      : input.canUpdateProduction && input.status === OrderProductionSectionStatus.IN_PROGRESS
+        ? input.completeAction
+        : null;
+  const actionLabel =
+    input.status === OrderProductionSectionStatus.NOT_STARTED
+      ? input.startLabel ?? "Start"
+      : input.status === OrderProductionSectionStatus.IN_PROGRESS
+        ? input.completeLabel ?? "Complete"
+        : null;
+
+  return {
+    key: input.key,
+    title: input.title,
+    description: input.description,
+    status: ORDER_PRODUCTION_SECTION_STATUS_LABELS[input.status],
+    action,
+    actionLabel: action ? actionLabel : null,
+  };
+}
+
+function resolveProductionReadinessWarning(order: ProductionOrderState): string | null {
+  if (
+    order.editingStatus !== OrderEditingStatus.COMPLETED &&
+    order.productionStatus !== OrderProductionStatus.READY_FOR_PICKUP
+  ) {
+    return "Editing is not marked completed yet. Admin-first mode allows production progress, but this is early.";
+  }
+
+  if (
+    order.productionStatus === OrderProductionStatus.READY_FOR_PICKUP &&
+    hasIncompleteProductionSections(order)
+  ) {
+    return "Production is marked ready while one or more section checks are still open.";
+  }
+
+  return null;
+}
+
+function hasIncompleteProductionSections(order: ProductionOrderState): boolean {
+  return [
+    order.productionAlbumDesignStatus,
+    order.productionPrintingStatus,
+    order.productionAssemblyStatus,
+    order.productionVendorStatus,
+    order.productionFramedPrintsStatus,
+  ].some((status) => status !== OrderProductionSectionStatus.COMPLETED);
+}
+
+function assertProductionWorkflowWritable(status: OrderStatus): void {
+  if (status === OrderStatus.CANCELLED) {
+    throw new Error("Cancelled orders cannot be moved through production");
+  }
+  if (status === OrderStatus.DELIVERED) {
+    throw new Error("Delivered orders cannot be moved through production");
+  }
+}
+
+function resolveProductionUpdate(
+  order: ProductionOrderState,
+  action: UpdateOrderProductionWorkflowInput["action"]
+): ProductionWorkflowUpdate {
+  const now = new Date();
+  const inProgressStatus =
+    order.productionStatus === OrderProductionStatus.READY_FOR_PICKUP ||
+    order.productionStatus === OrderProductionStatus.COMPLETED
+      ? order.productionStatus
+      : OrderProductionStatus.IN_PROGRESS;
+
+  switch (action) {
+    case "markAlbumDesignStarted":
+      return productionSectionUpdate(order, {
+        field: "productionAlbumDesignStatus",
+        previousStatus: order.productionAlbumDesignStatus,
+        nextStatus: OrderProductionSectionStatus.IN_PROGRESS,
+        productionStatus: inProgressStatus,
+        title: "Album design started",
+        description: "Album design was marked in progress.",
+      });
+    case "markAlbumDesignCompleted":
+      return productionSectionUpdate(order, {
+        field: "productionAlbumDesignStatus",
+        previousStatus: order.productionAlbumDesignStatus,
+        nextStatus: OrderProductionSectionStatus.COMPLETED,
+        productionStatus: inProgressStatus,
+        title: "Album design completed",
+        description: "Album design was marked completed.",
+      });
+    case "markSentToPrint":
+      return productionSectionUpdate(order, {
+        field: "productionPrintingStatus",
+        previousStatus: order.productionPrintingStatus,
+        nextStatus: OrderProductionSectionStatus.IN_PROGRESS,
+        productionStatus: inProgressStatus,
+        title: "Sent to print",
+        description: "Production was marked sent to print.",
+      });
+    case "markAssemblyStarted":
+      return productionSectionUpdate(order, {
+        field: "productionAssemblyStatus",
+        previousStatus: order.productionAssemblyStatus,
+        nextStatus: OrderProductionSectionStatus.IN_PROGRESS,
+        productionStatus: inProgressStatus,
+        title: "Album assembly started",
+        description: "Album assembly was marked in progress.",
+      });
+    case "markAssemblyCompleted":
+      return productionSectionUpdate(order, {
+        field: "productionAssemblyStatus",
+        previousStatus: order.productionAssemblyStatus,
+        nextStatus: OrderProductionSectionStatus.COMPLETED,
+        productionStatus: inProgressStatus,
+        title: "Album assembly completed",
+        description: "Album assembly was marked completed.",
+      });
+    case "markVendorInProgress":
+      return productionSectionUpdate(order, {
+        field: "productionVendorStatus",
+        previousStatus: order.productionVendorStatus,
+        nextStatus: OrderProductionSectionStatus.IN_PROGRESS,
+        productionStatus: OrderProductionStatus.WAITING_FOR_VENDOR,
+        title: "Vendor work in progress",
+        description: "Outsourced production work was marked in progress.",
+      });
+    case "markVendorCompleted":
+      return productionSectionUpdate(order, {
+        field: "productionVendorStatus",
+        previousStatus: order.productionVendorStatus,
+        nextStatus: OrderProductionSectionStatus.COMPLETED,
+        productionStatus: inProgressStatus,
+        title: "Vendor work completed",
+        description: "Outsourced production work was marked completed.",
+      });
+    case "markPrintsReady":
+      return {
+        orderData: {
+          productionPrintingStatus: OrderProductionSectionStatus.COMPLETED,
+          productionFramedPrintsStatus: OrderProductionSectionStatus.COMPLETED,
+          productionStatus: inProgressStatus,
+        },
+        productionStatus: inProgressStatus,
+        title: "Prints ready",
+        description: "Printing and framed prints were marked ready.",
+        metadata: {
+          fields: ["productionPrintingStatus", "productionFramedPrintsStatus"],
+          previousPrintingStatus: order.productionPrintingStatus,
+          nextPrintingStatus: OrderProductionSectionStatus.COMPLETED,
+          previousFramedPrintsStatus: order.productionFramedPrintsStatus,
+          nextFramedPrintsStatus: OrderProductionSectionStatus.COMPLETED,
+          previousProductionStatus: order.productionStatus,
+          nextProductionStatus: inProgressStatus,
+        },
+      };
+    case "markProductionReadyForPickup":
+      return {
+        orderData: {
+          productionFinalStatus: OrderProductionSectionStatus.COMPLETED,
+          productionStatus: OrderProductionStatus.READY_FOR_PICKUP,
+          deliveryStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
+          productionReadyAt: order.productionReadyAt ?? now,
+          status: OrderStatus.READY,
+        },
+        productionStatus: OrderProductionStatus.READY_FOR_PICKUP,
+        deliveryStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
+        title: "Production ready for pickup",
+        description: "Production was marked ready for customer pickup.",
+        metadata: {
+          field: "productionStatus",
+          previousStatus: order.productionStatus,
+          nextStatus: OrderProductionStatus.READY_FOR_PICKUP,
+          previousDeliveryStatus: order.deliveryStatus,
+          nextDeliveryStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
+          incompleteSectionsAtReady: hasIncompleteProductionSections(order),
+        },
+      };
+  }
+}
+
+function productionSectionUpdate(
+  order: ProductionOrderState,
+  input: {
+    field:
+      | "productionAlbumDesignStatus"
+      | "productionPrintingStatus"
+      | "productionAssemblyStatus"
+      | "productionVendorStatus"
+      | "productionFramedPrintsStatus";
+    previousStatus: OrderProductionSectionStatus;
+    nextStatus: OrderProductionSectionStatus;
+    productionStatus: OrderProductionStatus;
+    title: string;
+    description: string;
+  }
+): ProductionWorkflowUpdate {
+  return {
+    orderData: {
+      [input.field]: input.nextStatus,
+      productionStatus: input.productionStatus,
+      status: order.status === OrderStatus.READY ? OrderStatus.READY : OrderStatus.PRODUCTION,
+    },
+    productionStatus: input.productionStatus,
+    title: input.title,
+    description: input.description,
+    metadata: {
+      field: input.field,
+      previousStatus: input.previousStatus,
+      nextStatus: input.nextStatus,
+      previousProductionStatus: order.productionStatus,
+      nextProductionStatus: input.productionStatus,
+      earlyProduction:
+        order.editingStatus !== OrderEditingStatus.COMPLETED &&
+        order.editingStatus !== OrderEditingStatus.APPROVED,
+    },
+  };
 }
 
 function hasBasePayment(

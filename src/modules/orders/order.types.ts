@@ -123,6 +123,44 @@ export interface OrderEditingWorkflow {
   editorOptions: OrderEditorOption[];
 }
 
+export interface OrderProductionWorkflow {
+  orderId: string;
+  productionStatus: string;
+  deliveryStatus: string;
+  editingStatus: string;
+  readyAt: string | null;
+  readinessWarning: string | null;
+  canUpdateProduction: boolean;
+  canMarkReadyForPickup: boolean;
+  sections: OrderProductionSection[];
+}
+
+export interface OrderProductionSection {
+  key:
+    | "albumDesign"
+    | "printing"
+    | "assembly"
+    | "vendor"
+    | "framedPrints"
+    | "finalReadiness";
+  title: string;
+  description: string;
+  status: string;
+  action: OrderProductionAction | null;
+  actionLabel: string | null;
+}
+
+export type OrderProductionAction =
+  | "markAlbumDesignStarted"
+  | "markAlbumDesignCompleted"
+  | "markSentToPrint"
+  | "markAssemblyStarted"
+  | "markAssemblyCompleted"
+  | "markVendorInProgress"
+  | "markVendorCompleted"
+  | "markPrintsReady"
+  | "markProductionReadyForPickup";
+
 export interface OrderEditorOption {
   id: string;
   name: string;

@@ -15,6 +15,7 @@ import { PageContainer } from "@/components/layout/page-container";
 import { EditingWorkflowForm } from "@/components/orders/editing-workflow-form";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { ProductionWorkflowForm } from "@/components/orders/production-workflow-form";
 import { SelectionWorkflowForm } from "@/components/orders/selection-workflow-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,12 +28,14 @@ import {
 import {
   getOrderHubById,
   getOrderEditingWorkflowById,
+  getOrderProductionWorkflowById,
   getOrderSelectionWorkflowById,
 } from "@/modules/orders/order.service";
 import type {
   OrderActivityPreviewItem,
   OrderDetail,
   OrderEditingWorkflow,
+  OrderProductionWorkflow,
   OrderSelectionWorkflow,
   OrderWorkflowStep,
 } from "@/modules/orders/order.types";
@@ -52,14 +55,16 @@ export default async function OrderDetailPage(
   props: PageProps<"/orders/[orderId]">
 ) {
   const { orderId } = await props.params;
-  const [order, selection, editing] = await Promise.all([
+  const [order, selection, editing, production] = await Promise.all([
     getOrderHubById(orderId),
     getOrderSelectionWorkflowById(orderId),
     getOrderEditingWorkflowById(orderId),
+    getOrderProductionWorkflowById(orderId),
   ]);
   if (!order) notFound();
   if (!selection) notFound();
   if (!editing) notFound();
+  if (!production) notFound();
 
   return (
     <PageContainer>
@@ -159,16 +164,7 @@ export default async function OrderDetailPage(
             <EditingTab editing={editing} order={order} />
           </TabsContent>
           <TabsContent value="production" className="space-y-4">
-            <WorkflowAreaTab
-              icon={<PackageCheck className="h-4 w-4" />}
-              title="Production"
-              status={order.productionStatus}
-              items={[
-                ["Deliverables", order.addonsSummary],
-                ["Included photos", order.includedPhotoCount],
-                ["Extra photos", order.extraPhotoCount],
-              ]}
-            />
+            <ProductionTab production={production} order={order} />
           </TabsContent>
           <TabsContent value="delivery" className="space-y-4">
             <WorkflowAreaTab
@@ -191,6 +187,42 @@ export default async function OrderDetailPage(
         </Tabs>
       </div>
     </PageContainer>
+  );
+}
+
+function ProductionTab({
+  production,
+  order,
+}: {
+  production: OrderProductionWorkflow;
+  order: OrderDetail;
+}) {
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="text-accent">
+              <PackageCheck className="h-4 w-4" />
+            </span>
+            Production
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <InfoGrid
+            items={[
+              ["Production status", production.productionStatus],
+              ["Delivery readiness", production.deliveryStatus],
+              ["Ready for pickup", production.readyAt ?? "Not ready"],
+              ["Deliverables", order.addonsSummary],
+              ["Included photos", order.includedPhotoCount],
+              ["Extra photos", order.extraPhotoCount],
+            ]}
+          />
+        </CardContent>
+      </Card>
+      <ProductionWorkflowForm production={production} />
+    </div>
   );
 }
 

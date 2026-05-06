@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ORDER_DELIVERY_STATUS_VALUES,
   ORDER_EDITING_STATUS_VALUES,
+  ORDER_PRODUCTION_SECTION_STATUS_VALUES,
   ORDER_PRODUCTION_STATUS_VALUES,
   ORDER_SELECTION_STATUS_VALUES,
 } from "./order.constants";
@@ -65,8 +66,24 @@ export const updateOrderEditingWorkflowSchema = z.object({
   estimatedEditingCompletionAt: z.coerce.date().optional(),
 });
 
+export const updateOrderProductionWorkflowSchema = z.object({
+  action: z.enum([
+    "markAlbumDesignStarted",
+    "markAlbumDesignCompleted",
+    "markSentToPrint",
+    "markAssemblyStarted",
+    "markAssemblyCompleted",
+    "markVendorInProgress",
+    "markVendorCompleted",
+    "markPrintsReady",
+    "markProductionReadyForPickup",
+  ]),
+  sectionStatus: z.enum(ORDER_PRODUCTION_SECTION_STATUS_VALUES).optional(),
+});
+
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type UpdateOrderWorkflowInput = z.infer<typeof updateOrderWorkflowSchema>;
 export type UpdateOrderSelectionWorkflowInput = z.infer<typeof updateOrderSelectionWorkflowSchema>;
 export type UpdateOrderEditingWorkflowInput = z.infer<typeof updateOrderEditingWorkflowSchema>;
+export type UpdateOrderProductionWorkflowInput = z.infer<typeof updateOrderProductionWorkflowSchema>;
 export type OrderAddOnInput = z.infer<typeof orderAddOnSchema>;

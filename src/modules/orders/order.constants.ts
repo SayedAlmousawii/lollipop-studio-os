@@ -1,6 +1,7 @@
 import {
   OrderDeliveryStatus,
   OrderEditingStatus,
+  OrderProductionSectionStatus,
   OrderProductionStatus,
   OrderSelectionStatus,
 } from "@prisma/client";
@@ -29,6 +30,12 @@ export const ORDER_PRODUCTION_STATUS_LABELS = {
   [OrderProductionStatus.READY_FOR_PICKUP]: "Ready for pickup",
   [OrderProductionStatus.COMPLETED]: "Completed",
 } as const satisfies Record<OrderProductionStatus, string>;
+
+export const ORDER_PRODUCTION_SECTION_STATUS_LABELS = {
+  [OrderProductionSectionStatus.NOT_STARTED]: "Not started",
+  [OrderProductionSectionStatus.IN_PROGRESS]: "In progress",
+  [OrderProductionSectionStatus.COMPLETED]: "Completed",
+} as const satisfies Record<OrderProductionSectionStatus, string>;
 
 export const ORDER_DELIVERY_STATUS_LABELS = {
   [OrderDeliveryStatus.NOT_READY]: "Not ready",
@@ -61,6 +68,12 @@ export const ORDER_PRODUCTION_STATUS_VALUES = [
   OrderProductionStatus.WAITING_FOR_VENDOR,
   OrderProductionStatus.READY_FOR_PICKUP,
   OrderProductionStatus.COMPLETED,
+] as const;
+
+export const ORDER_PRODUCTION_SECTION_STATUS_VALUES = [
+  OrderProductionSectionStatus.NOT_STARTED,
+  OrderProductionSectionStatus.IN_PROGRESS,
+  OrderProductionSectionStatus.COMPLETED,
 ] as const;
 
 export const ORDER_DELIVERY_STATUS_VALUES = [
@@ -119,10 +132,12 @@ export const ORDER_WORKFLOW_TRANSITIONS = {
       OrderProductionStatus.NOT_STARTED,
       OrderProductionStatus.WAITING_FOR_EDITING,
       OrderProductionStatus.IN_PROGRESS,
+      OrderProductionStatus.READY_FOR_PICKUP,
     ],
     [OrderProductionStatus.WAITING_FOR_EDITING]: [
       OrderProductionStatus.WAITING_FOR_EDITING,
       OrderProductionStatus.IN_PROGRESS,
+      OrderProductionStatus.READY_FOR_PICKUP,
     ],
     [OrderProductionStatus.IN_PROGRESS]: [
       OrderProductionStatus.IN_PROGRESS,
