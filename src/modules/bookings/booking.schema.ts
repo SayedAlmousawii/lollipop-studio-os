@@ -18,11 +18,7 @@ export const createBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   packageId: z.string().min(1, "Package is required"),
   sessionDate: z.coerce.date({ error: "Session date is required" }),
-  department: z
-    .string()
-    .trim()
-    .min(1, "Department is required")
-    .max(80, "Department must be 80 characters or fewer"),
+  departmentId: z.string().min(1, "Department is required"),
   assignedPhotographerId: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().trim().optional()
@@ -44,11 +40,7 @@ export const updateBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   packageId: z.string().min(1, "Package is required"),
   date: z.date({ error: "Session date is required" }),
-  department: z
-    .string()
-    .trim()
-    .min(1, "Department is required")
-    .max(80, "Department must be 80 characters or fewer"),
+  departmentId: z.string().min(1, "Department is required"),
   assignedPhotographerId: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.string().trim().optional()

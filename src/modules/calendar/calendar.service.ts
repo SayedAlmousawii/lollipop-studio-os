@@ -40,6 +40,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
         include: {
           customer: { select: { name: true } },
           package: { select: { name: true } },
+          department: { select: { name: true } },
           assignedPhotographer: { select: { name: true } },
         },
         orderBy: { sessionDate: "asc" },
@@ -60,7 +61,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
         customerName: row.customer.name,
         sessionType,
         status: mapBookingStatus(row.status),
-        department: row.department,
+        department: row.department.name,
         packageName: row.package?.name ?? "—",
         photographerName: row.assignedPhotographer?.name ?? "—",
       },

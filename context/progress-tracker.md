@@ -5,13 +5,36 @@ change.
 
 ## Current Phase
 
-- Feature 24 Implemented
+- Feature 25 Implemented
 
 ## Current Goal
 
-- Awaiting review/confirmation for public IDs and shared job number workflow.
+- Review follow-ups for public IDs, shared job numbers, and database-backed Studio Departments.
 
 ## Completed
+
+- Development tooling: Workflow test-data reset button
+  - `src/modules/development/dev-reset.service.ts` + `app/dev/actions.ts` — added a development-only server-side reset that clears bookings, booking themes, orders, invoices, payments, public ID sequences, invoice number sequence, and job-number identifier sequences while preserving users, customers, packages, and studio departments
+  - `src/components/layout/dev-reset-workflow-button.tsx` + `src/components/layout/topbar.tsx` — added a development-only topbar reset icon with browser confirmation and inline result/error feedback
+  - Validation: `npm run build` and `npm run lint` pass
+  - Decision: guarded both UI rendering and server execution with `NODE_ENV === "development"` so the reset cannot run in production
+  - Assumption: the reset should not reseed sample bookings/orders; it leaves workflow pages empty for manual clean testing
+
+- Feature 25: Studio Departments (`context/feature-specs/25-studio-departments.md`):
+  - `prisma/schema.prisma` + `prisma/migrations/20260506143000_studio_departments/migration.sql` — added `StudioDepartment`, linked bookings through required `departmentId`, seeded/backfilled Newborn (`NB`) and Kids (`KD`), and removed the old free-text booking department column
+  - `src/modules/departments/studio-department.service.ts` — added service-layer loading for active department dropdown options
+  - `src/modules/bookings/booking.schema.ts`, `app/bookings/new/actions.ts`, and `app/bookings/[bookingId]/edit/actions.ts` — changed booking create/edit validation and form parsing from free-text `department` to required `departmentId`
+  - `src/modules/bookings/booking.service.ts` and `src/modules/identifiers/identifier.service.ts` — booking creation/edit now validate linked departments, booking reads expose department labels, search includes department name/code, and new job numbers use `StudioDepartment.code`
+  - `app/bookings/new/page.tsx`, `app/bookings/[bookingId]/edit/page.tsx`, `src/components/bookings/new-booking-form.tsx`, and `src/components/bookings/edit-booking-form.tsx` — add/edit booking forms now render database-backed department dropdowns
+  - `src/modules/calendar/calendar.service.ts` and `prisma/seed.ts` — calendar booking reads and seed data now use linked departments
+  - Validation: `npx prisma generate`, `npx prisma migrate deploy`, `npx prisma migrate status`, `npm run build`, `npm run lint`, and `git diff --check` pass
+  - Decision: kept department management CRUD out of scope and limited active seeded departments to Newborn and Kids
+  - Assumption: existing non-Newborn/Kids department text is backfilled to Kids; existing immutable job numbers are preserved
+
+- Documentation: Feature 25 Studio Departments spec
+  - `context/feature-specs/25-studio-departments.md` — drafted a focused unit spec for adding a `StudioDepartment` catalog, linking bookings by `departmentId`, replacing add/edit booking department text inputs with database-backed dropdowns, and using department codes for new job-number prefixes
+  - Decision: kept the first catalog to Newborn and Kids only, with department management screens out of scope
+  - Assumption: unknown legacy department text can map to Kids during migration unless implementation-time data review suggests a safer fallback
 
 - Feature 24: Public IDs and Shared Job Number (`context/feature-specs/24-public-ids-and-job-number.md`):
   - `prisma/schema.prisma` + `prisma/migrations/20260506130000_public_ids_and_job_numbers/migration.sql` — added required unique `publicId` fields to bookings, orders, invoices, and payments; added indexed `jobNumber` fields; added DB-backed public ID sequences; added `identifier_sequences` for department/year job sequencing; backfilled existing data; added DB triggers that prevent `jobNumber` updates
@@ -24,6 +47,10 @@ change.
   - Decision: invoice screens display `invoiceNumber` plus `jobNumber` and hide `Invoice.publicId` to avoid redundant `INV-*` references in staff workflows
   - Decision: used explicit department code mapping with known values (`NB`, `KD`, `FM`, `MT`, `PH`, `GN`, `OT`) and a stable `GN` fallback for unmapped department text
   - Assumption: record-level public IDs use simple prefixes (`BKG`, `ORD`, `INV-PUB`, `PAY`) because the spec only prescribed the shared `jobNumber` format
+  - Review follow-up: `Booking.jobNumber` is now unique at the booking source, with duplicate rejection before unique-index creation; orders, invoices, and payments keep non-unique fan-out job-number indexes
+  - Review follow-up: seed upserts for `order-003`, `pay-001`, `pay-003a`, and `pay-003b` now backfill public IDs/job numbers on rerun
+  - Review follow-up: invoice search now uses prefix matching for structured identifiers and keeps substring matching only for customer names
+  - Review follow-up validation: `npx prisma generate`, `npx prisma migrate deploy`, `npx prisma migrate status`, `npm run build`, `npm run lint`, and `git diff --check` pass
 
 - Documentation: Public IDs and shared job number design
   - `context/target-data-model.md` — added target-model guidance for internal-only raw IDs, record-level public IDs, and one immutable shared `jobNumber` carried across booking, order, invoice, payment, and downstream workflow records

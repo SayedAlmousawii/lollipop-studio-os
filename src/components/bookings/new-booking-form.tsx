@@ -36,6 +36,7 @@ interface NewBookingFormProps {
   customers: Customer[];
   packages: { id: string; name: string; price: string }[];
   photographers: { id: string; name: string }[];
+  departments: { id: string; name: string; code: string }[];
 }
 
 function SubmitButton() {
@@ -182,6 +183,7 @@ export function NewBookingForm({
   customers,
   packages,
   photographers,
+  departments,
 }: NewBookingFormProps) {
   const [state, formAction] = useActionState<ActionState, FormData>(
     createBooking,
@@ -240,14 +242,20 @@ export function NewBookingForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="department">Department</Label>
-        <Input
-          id="department"
-          name="department"
-          placeholder="Photography"
-          className="w-full"
-        />
-        <FieldError messages={state.errors?.department} />
+        <Label htmlFor="departmentId">Department</Label>
+        <Select name="departmentId">
+          <SelectTrigger id="departmentId" className="w-full">
+            <SelectValue placeholder="Select department…" />
+          </SelectTrigger>
+          <SelectContent>
+            {departments.map((department) => (
+              <SelectItem key={department.id} value={department.id}>
+                {department.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldError messages={state.errors?.departmentId} />
       </div>
 
       <div className="space-y-1.5">

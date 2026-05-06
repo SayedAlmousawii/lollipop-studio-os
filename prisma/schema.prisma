@@ -134,15 +134,29 @@ model Package {
   @@map("packages")
 }
 
+model StudioDepartment {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bookings Booking[]
+
+  @@map("studio_departments")
+}
+
 model Booking {
   id                     String        @id @default(cuid())
   publicId               String        @unique
-  jobNumber              String
+  jobNumber              String        @unique
   customerId             String
   packageId              String?
   sessionDate            DateTime
   sessionType            SessionType
-  department             String
+  departmentId           String
   status                 BookingStatus @default(PENDING)
   assignedPhotographerId String?
   notes                  String?
@@ -151,12 +165,13 @@ model Booking {
 
   customer             Customer     @relation(fields: [customerId], references: [id])
   package              Package?     @relation("BookingPackage", fields: [packageId], references: [id])
+  department           StudioDepartment @relation(fields: [departmentId], references: [id])
   assignedPhotographer User?        @relation("AssignedPhotographer", fields: [assignedPhotographerId], references: [id])
   order                Order?
   themes               BookingTheme[]
   invoices             Invoice[]
 
-  @@index([jobNumber])
+  @@index([departmentId])
   @@map("bookings")
 }
 

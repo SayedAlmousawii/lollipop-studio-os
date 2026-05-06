@@ -4,13 +4,15 @@ import { PageContainer } from "@/components/layout/page-container";
 import { NewBookingForm } from "@/components/bookings/new-booking-form";
 import { getAssignablePhotographers } from "@/modules/bookings/booking.service";
 import { getCustomers } from "@/modules/customers/customer.service";
+import { getActiveStudioDepartments } from "@/modules/departments/studio-department.service";
 import { getPackages } from "@/modules/packages/package.service";
 
 export default async function NewBookingPage() {
-  const [allCustomers, allPackages, photographers] = await Promise.all([
+  const [allCustomers, allPackages, photographers, departments] = await Promise.all([
     getCustomers(),
     getPackages(),
     getAssignablePhotographers(),
+    getActiveStudioDepartments(),
   ]);
 
   const customers = allCustomers.map((c) => ({ id: c.id, name: c.fullName }));
@@ -46,6 +48,7 @@ export default async function NewBookingPage() {
             customers={customers}
             packages={packages}
             photographers={photographers}
+            departments={departments}
           />
         </div>
       </div>

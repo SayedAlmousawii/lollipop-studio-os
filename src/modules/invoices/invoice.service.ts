@@ -304,19 +304,23 @@ export async function createAdjustmentInvoice(
 function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput | undefined {
   const trimmed = search?.trim();
   if (!trimmed) return undefined;
-  const containsFilter = {
+  const identifierFilter = {
+    startsWith: trimmed,
+    mode: Prisma.QueryMode.insensitive,
+  };
+  const customerNameFilter = {
     contains: trimmed,
     mode: Prisma.QueryMode.insensitive,
   };
 
   return {
     OR: [
-      { publicId: containsFilter },
-      { jobNumber: containsFilter },
-      { invoiceNumber: containsFilter },
-      { customer: { is: { name: containsFilter } } },
-      { order: { is: { publicId: containsFilter } } },
-      { booking: { is: { publicId: containsFilter } } },
+      { publicId: identifierFilter },
+      { jobNumber: identifierFilter },
+      { invoiceNumber: identifierFilter },
+      { customer: { is: { name: customerNameFilter } } },
+      { order: { is: { publicId: identifierFilter } } },
+      { booking: { is: { publicId: identifierFilter } } },
     ],
   };
 }

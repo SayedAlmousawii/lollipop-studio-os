@@ -30,4 +30,4 @@ Only read what is needed for the current task.
 - Use mock data by default
 
 ## Progress
-- update progress-tracker automatically
+- update progress-tracker automatically only during code implemantation, if writing docs, skip update.
