@@ -1,13 +1,38 @@
-import { InvoiceStatus, Prisma } from "@prisma/client";
+import { InvoiceStatus, OrderActivityType, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
+import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
 import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoice.types";
 
 type DbClient = typeof db | Prisma.TransactionClient;
 type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
+type OrderAddOnLine = { optionId?: string; name: string; price: number };
+
+export interface OrderInvoiceSyncInput {
+  orderId: string;
+  previousPackagePrice: Prisma.Decimal;
+  previousAddOns: OrderAddOnLine[];
+  previousSelectedPhotoCount?: number | null;
+  previousIncludedPhotoCount?: number | null;
+}
+
+export interface OrderInvoiceSyncSummary {
+  invoiceId: string;
+  invoicePublicId: string;
+  invoiceNumber: string;
+  totalAmount: string;
+  paidAmount: string;
+  remainingAmount: string;
+  status: InvoiceStatusLabel;
+  packageAdjustmentAmount: Prisma.Decimal;
+  addOnAdjustmentAmount: Prisma.Decimal;
+  totalAdjustmentAmount: Prisma.Decimal;
+  recognizedPackageBaseline: Prisma.Decimal;
+  createdInvoice: boolean;
+}
 
 export async function createInvoiceForOrder(orderId: string): Promise<{ id: string }> {
   return withRetry(
@@ -34,17 +59,34 @@ export async function createInvoiceForOrderWithClient(
     where: { id: orderId },
     include: {
       customer: { select: { id: true } },
-      finalPackage: { select: { price: true } },
-      originalPackage: { select: { price: true } },
+      finalPackage: { select: { price: true, photoCount: true } },
+      originalPackage: { select: { price: true, photoCount: true } },
+      invoices: {
+        where: { parentInvoiceId: null },
+        select: { id: true, status: true },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+      },
     },
   });
   if (!order) throw new Error("Order not found");
+  const existingInvoice = order.invoices[0];
+  if (existingInvoice) return existingInvoice;
 
-  const totalAmount = order.finalPackage?.price ?? order.originalPackage?.price;
-  if (!totalAmount) throw new Error("Order has no package price");
+  const packageAmount = order.finalPackage?.price ?? order.originalPackage?.price;
+  if (!packageAmount) throw new Error("Order has no package price");
+  const includedPhotoCount =
+    order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
+  const extraPhotoCharge = await calculateExtraPhotoCharge(client, {
+    selectedPhotoCount: order.selectedPhotoCount,
+    includedPhotoCount,
+  });
+  const totalAmount = packageAmount
+    .plus(sumAddOns(parseOrderAddOns(order.addOns)))
+    .plus(extraPhotoCharge);
 
   const invoiceNumberData = await generateInvoiceNumber(client);
-  return client.invoice.create({
+  const invoice = await client.invoice.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
       jobNumber: order.jobNumber,
@@ -58,6 +100,135 @@ export async function createInvoiceForOrderWithClient(
     },
     select: { id: true, status: true },
   });
+
+  await recordOrderActivity(client, {
+    orderId: order.id,
+    type: OrderActivityType.INVOICE_ADJUSTED,
+    title: "Invoice created",
+    description: "Invoice was created for the order.",
+    metadata: {
+      invoiceId: invoice.id,
+      totalAmount: totalAmount.toFixed(3),
+      status: invoice.status,
+    },
+  });
+
+  return invoice;
+}
+
+export async function syncOrderInvoiceForFinancialEdit(
+  client: DbClient,
+  input: OrderInvoiceSyncInput
+): Promise<OrderInvoiceSyncSummary> {
+  const order = await client.order.findUnique({
+    where: { id: input.orderId },
+    include: {
+      customer: { select: { id: true } },
+      finalPackage: { select: { price: true, photoCount: true } },
+      originalPackage: { select: { price: true, photoCount: true } },
+      invoices: {
+        where: { parentInvoiceId: null },
+        select: {
+          id: true,
+          publicId: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          status: true,
+          isLocked: true,
+        },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+      },
+    },
+  });
+  if (!order) throw new Error("Order not found");
+
+  const packagePrice = order.finalPackage?.price ?? order.originalPackage?.price;
+  if (!packagePrice) throw new Error("Order has no package price");
+
+  const nextAddOns = parseOrderAddOns(order.addOns);
+  const previousAddOnTotal = sumAddOns(input.previousAddOns);
+  const nextAddOnTotal = sumAddOns(nextAddOns);
+  const includedPhotoCount =
+    order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
+  const previousExtraPhotoCharge = await calculateExtraPhotoCharge(client, {
+    selectedPhotoCount: input.previousSelectedPhotoCount,
+    includedPhotoCount: input.previousIncludedPhotoCount ?? includedPhotoCount,
+  });
+  const nextExtraPhotoCharge = await calculateExtraPhotoCharge(client, {
+    selectedPhotoCount: order.selectedPhotoCount,
+    includedPhotoCount,
+  });
+  const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
+  const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
+  const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
+  const existingInvoice = order.invoices[0] ?? null;
+
+  if (existingInvoice?.isLocked) {
+    throw new Error("Locked invoices cannot be recalculated from order edits");
+  }
+
+  const recognizedPackageBaseline = existingInvoice
+    ? existingInvoice.totalAmount.minus(previousSelectionAddOnTotal)
+    : input.previousPackagePrice;
+  const packageAdjustmentAmount = packagePrice.minus(recognizedPackageBaseline);
+  const addOnAdjustmentAmount = nextSelectionAddOnTotal.minus(previousSelectionAddOnTotal);
+  const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
+
+  const invoice = existingInvoice
+    ? await client.invoice.update({
+        where: { id: existingInvoice.id },
+        data: { totalAmount: targetTotalAmount },
+        select: {
+          id: true,
+          publicId: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          status: true,
+        },
+      })
+    : await createSyncedOrderInvoice(client, {
+        orderId: order.id,
+        bookingId: order.bookingId,
+        customerId: order.customer.id,
+        jobNumber: order.jobNumber,
+        totalAmount: targetTotalAmount,
+      });
+
+  await recalculateInvoiceStatus(invoice.id, client);
+
+  const recalculated = await client.invoice.findUnique({
+    where: { id: invoice.id },
+    select: {
+      id: true,
+      publicId: true,
+      invoiceNumber: true,
+      totalAmount: true,
+      paidAmount: true,
+      remainingAmount: true,
+      status: true,
+    },
+  });
+  if (!recalculated) throw new Error("Invoice not found after recalculation");
+
+  return {
+    invoiceId: recalculated.id,
+    invoicePublicId: recalculated.publicId,
+    invoiceNumber: recalculated.invoiceNumber,
+    totalAmount: formatMoney(recalculated.totalAmount),
+    paidAmount: formatMoney(recalculated.paidAmount),
+    remainingAmount: formatMoney(recalculated.remainingAmount),
+    status: mapInvoiceStatus(recalculated.status),
+    packageAdjustmentAmount,
+    addOnAdjustmentAmount,
+    totalAdjustmentAmount,
+    recognizedPackageBaseline,
+    createdInvoice: !existingInvoice,
+  };
 }
 
 export async function createInvoiceForBookingWithClient(
@@ -235,14 +406,14 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
   });
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.isLocked) return;
-  if (invoice.status === InvoiceStatus.DRAFT) return;
 
   const paidAmount = invoice.payments.reduce(
     (sum, payment) => sum.plus(payment.amount),
     new Prisma.Decimal(0)
   );
   const remainingAmount = Prisma.Decimal.max(invoice.totalAmount.minus(paidAmount), 0);
-  let status: InvoiceStatus = InvoiceStatus.ISSUED;
+  let status: InvoiceStatus =
+    invoice.status === InvoiceStatus.DRAFT ? InvoiceStatus.DRAFT : InvoiceStatus.ISSUED;
   if (paidAmount.greaterThan(0) && paidAmount.lessThan(invoice.totalAmount)) {
     status = InvoiceStatus.PARTIAL;
   }
@@ -254,6 +425,92 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
     where: { id },
     data: { paidAmount, remainingAmount, status },
   });
+}
+
+async function createSyncedOrderInvoice(
+  client: DbClient,
+  data: {
+    orderId: string;
+    bookingId: string;
+    customerId: string;
+    jobNumber: string;
+    totalAmount: Prisma.Decimal;
+  }
+) {
+  const invoiceNumberData = await generateInvoiceNumber(client);
+  return client.invoice.create({
+    data: {
+      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      jobNumber: data.jobNumber,
+      orderId: data.orderId,
+      bookingId: data.bookingId,
+      customerId: data.customerId,
+      ...invoiceNumberData,
+      totalAmount: data.totalAmount,
+      remainingAmount: data.totalAmount,
+      status: InvoiceStatus.DRAFT,
+    },
+    select: {
+      id: true,
+      publicId: true,
+      invoiceNumber: true,
+      totalAmount: true,
+      paidAmount: true,
+      remainingAmount: true,
+      status: true,
+    },
+  });
+}
+
+function parseOrderAddOns(value: Prisma.JsonValue): OrderAddOnLine[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!isJsonObject(item)) return [];
+    const { optionId, name, price } = item;
+    if (typeof name !== "string") return [];
+    if (typeof price !== "number") return [];
+    return [{
+      ...(typeof optionId === "string" ? { optionId } : {}),
+      name,
+      price,
+    }];
+  });
+}
+
+function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sumAddOns(addOns: OrderAddOnLine[]): Prisma.Decimal {
+  return addOns.reduce(
+    (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
+    new Prisma.Decimal(0)
+  );
+}
+
+async function calculateExtraPhotoCharge(
+  client: DbClient,
+  input: {
+    selectedPhotoCount?: number | null;
+    includedPhotoCount: number;
+  }
+): Promise<Prisma.Decimal> {
+  const extraPhotoCount = Math.max(
+    (input.selectedPhotoCount ?? input.includedPhotoCount) - input.includedPhotoCount,
+    0
+  );
+  if (extraPhotoCount === 0) return new Prisma.Decimal(0);
+
+  const extraPhotoOption = await client.orderAddOnOption.findUnique({
+    where: { id: "addon-extra-photo" },
+    select: { price: true, isActive: true },
+  });
+  if (!extraPhotoOption?.isActive) {
+    throw new Error("Active extra-photo add-on price is required");
+  }
+
+  return extraPhotoOption.price.mul(extraPhotoCount);
 }
 
 export async function createAdjustmentInvoice(
@@ -280,7 +537,7 @@ export async function createAdjustmentInvoice(
         }
 
         const invoiceNumberData = await generateInvoiceNumber(tx);
-        return tx.invoice.create({
+        const invoice = await tx.invoice.create({
           data: {
             publicId: await generatePublicId(tx, PUBLIC_ID_KIND.INVOICE),
             jobNumber: parent.jobNumber,
@@ -296,6 +553,23 @@ export async function createAdjustmentInvoice(
           },
           select: { id: true },
         });
+
+        if (parent.orderId) {
+          await recordOrderActivity(tx, {
+            orderId: parent.orderId,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Adjustment invoice created",
+            description: "Adjustment invoice was created from a locked invoice.",
+            metadata: {
+              parentInvoiceId: parent.id,
+              adjustmentInvoiceId: invoice.id,
+              totalAmount: new Prisma.Decimal(data.totalAmount).toFixed(3),
+              notesPresent: Boolean(data.notes?.trim()),
+            },
+          });
+        }
+
+        return invoice;
       }),
     "Failed to create adjustment invoice"
   );

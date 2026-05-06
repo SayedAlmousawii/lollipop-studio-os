@@ -49,6 +49,45 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum OrderSelectionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum OrderEditingStatus {
+  NOT_STARTED
+  ASSIGNED
+  IN_PROGRESS
+  REVISION_REQUESTED
+  AWAITING_APPROVAL
+  APPROVED
+  COMPLETED
+}
+
+enum OrderProductionStatus {
+  NOT_STARTED
+  WAITING_FOR_EDITING
+  IN_PROGRESS
+  WAITING_FOR_VENDOR
+  READY_FOR_PICKUP
+  COMPLETED
+}
+
+enum OrderProductionSectionStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum OrderDeliveryStatus {
+  NOT_READY
+  READY_FOR_PICKUP
+  CUSTOMER_NOTIFIED
+  PICKED_UP
+  COMPLETED
+}
+
 enum InvoiceStatus {
   DRAFT
   ISSUED
@@ -71,6 +110,22 @@ enum PaymentType {
   OTHER
 }
 
+enum OrderActivityType {
+  ORDER_CREATED
+  PACKAGE_CHANGED
+  ADD_ON_CHANGED
+  PAYMENT_RECEIVED
+  INVOICE_ADJUSTED
+  SELECTION_UPDATED
+  SELECTION_COMPLETED
+  EDITOR_ASSIGNED
+  EDITING_STATUS_CHANGED
+  PRODUCTION_STATUS_CHANGED
+  DELIVERY_STATUS_CHANGED
+  ORDER_COMPLETED
+  NOTE_ADDED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -82,6 +137,8 @@ model User {
   updatedAt DateTime @updatedAt
 
   assignedBookings Booking[] @relation("AssignedPhotographer")
+  assignedEditingOrders Order[] @relation("AssignedEditor")
+  orderActivities  OrderActivity[]
 
   @@map("users")
 }
@@ -132,6 +189,20 @@ model Package {
   finalOrders    Order[]   @relation("FinalPackage")
 
   @@map("packages")
+}
+
+model OrderAddOnOption {
+  id          String   @id @default(cuid())
+  name        String
+  category    String
+  price       Decimal  @db.Decimal(10, 3)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, isActive])
+  @@map("order_add_on_options")
 }
 
 model StudioDepartment {
@@ -191,31 +262,79 @@ model BookingTheme {
 }
 
 model Order {
-  id                String      @id @default(cuid())
-  publicId          String      @unique
+  id                String                @id @default(cuid())
+  publicId          String                @unique
   jobNumber         String
-  bookingId         String      @unique
+  bookingId         String                @unique
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
   customerId        String
   originalPackageId String?
   finalPackageId    String?
   selectedPhotoCount Int?
-  addOns            Json        @default("[]")
-  status            OrderStatus @default(ACTIVE)
+  addOns            Json                  @default("[]")
+  status            OrderStatus           @default(ACTIVE)
+  selectionStatus   OrderSelectionStatus  @default(PENDING)
+  editingStatus     OrderEditingStatus    @default(NOT_STARTED)
+  productionStatus  OrderProductionStatus @default(NOT_STARTED)
+  deliveryStatus    OrderDeliveryStatus   @default(NOT_READY)
+  assignedEditorId   String?
+  editingAssignedAt  DateTime?
+  editingStartedAt   DateTime?
+  editingCompletedAt DateTime?
+  customerApprovedAt DateTime?
+  sentToProductionAt DateTime?
+  editedPhotoCount   Int                   @default(0)
+  revisionCount      Int                   @default(0)
+  estimatedEditingCompletionAt DateTime?
+  productionAlbumDesignStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionPrintingStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionAssemblyStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionVendorStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionFramedPrintsStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionFinalStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionReadyAt DateTime?
+  deliveryPreparedAt DateTime?
+  customerNotifiedAt DateTime?
+  pickedUpAt        DateTime?
+  deliveryCompletedAt DateTime?
+  deliveryCompletedBy String?
+  deliveryPickupNotes String?
+  deliveryOverrideReason String?
   nasFolderPath     String?
   notes             String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   booking         Booking  @relation(fields: [bookingId], references: [id])
   customer        Customer @relation(fields: [customerId], references: [id])
   originalPackage Package? @relation("OriginalPackage", fields: [originalPackageId], references: [id])
   finalPackage    Package? @relation("FinalPackage", fields: [finalPackageId], references: [id])
+  assignedEditor  User?    @relation("AssignedEditor", fields: [assignedEditorId], references: [id])
   invoices        Invoice[]
+  activities      OrderActivity[]
 
   @@index([jobNumber])
+  @@index([assignedEditorId])
   @@map("orders")
+}
+
+model OrderActivity {
+  id          String            @id @default(cuid())
+  orderId     String
+  userId      String?
+  type        OrderActivityType
+  title       String
+  description String?
+  metadata    Json              @default("{}")
+  createdAt   DateTime          @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+  @@index([type])
+  @@map("order_activities")
 }
 
 model Invoice {

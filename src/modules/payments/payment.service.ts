@@ -1,9 +1,10 @@
-import { Prisma } from "@prisma/client";
+import { OrderActivityType, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recalculateInvoiceStatus } from "@/modules/invoices/invoice.service";
+import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import type { RecordPaymentInput } from "./payment.schema";
 
 type DbClient = typeof db | Prisma.TransactionClient;
@@ -25,7 +26,14 @@ export async function recordPaymentWithClient(
 ): Promise<{ id: string }> {
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true, isLocked: true, jobNumber: true },
+    select: {
+      id: true,
+      publicId: true,
+      invoiceNumber: true,
+      isLocked: true,
+      jobNumber: true,
+      orderId: true,
+    },
   });
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.isLocked) {
@@ -48,6 +56,25 @@ export async function recordPaymentWithClient(
   });
 
   await recalculateInvoiceStatus(invoiceId, client);
+  if (invoice.orderId) {
+    await recordOrderActivity(client, {
+      orderId: invoice.orderId,
+      type: OrderActivityType.PAYMENT_RECEIVED,
+      title: "Payment received",
+      description: `${new Prisma.Decimal(data.amount).toFixed(3)} KD payment recorded.`,
+      metadata: {
+        invoiceId,
+        invoicePublicId: invoice.publicId,
+        invoiceNumber: invoice.invoiceNumber,
+        paymentId: payment.id,
+        amount: new Prisma.Decimal(data.amount).toFixed(3),
+        method: data.method,
+        paymentType: data.paymentType,
+        paidAt: (data.paidAt ?? new Date()).toISOString(),
+        reference: data.reference ?? null,
+      },
+    });
+  }
   return payment;
 }
 

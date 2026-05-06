@@ -47,13 +47,28 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
   const selectedPackage = packageOptions.find((item) => item.id === selectedPackageId) ?? null;
   const originalPrice = order.originalPackage?.price ?? 0;
   const selectedPrice = selectedPackage?.price ?? 0;
-  const isUpgrade =
-    Boolean(order.originalPackage) && selectedPackageId !== order.originalPackage?.id;
-  const difference = selectedPrice - originalPrice;
+  const currentAddOnTotal = sumAddOns(order.addOns);
+  const selectedAddOnTotal = sumAddOns(addOns);
+  const recognizedPackageBaseline =
+    order.invoiceSummary?.recognizedPackageBaseline ??
+    order.finalPackage?.price ??
+    order.originalPackage?.price ??
+    0;
+  const packageAdjustment = selectedPrice - recognizedPackageBaseline;
+  const addOnAdjustment = selectedAddOnTotal - currentAddOnTotal;
+  const totalAdjustment = packageAdjustment + addOnAdjustment;
+  const projectedInvoiceTotal = selectedPrice + selectedAddOnTotal;
+  const projectedBalanceDue = Math.max(
+    projectedInvoiceTotal - (order.invoiceSummary?.paidAmount ?? 0),
+    0
+  );
+  const packageChangeLabel =
+    packageAdjustment > 0 ? "Package upgraded" : packageAdjustment < 0 ? "Package downgraded" : "No package adjustment";
   const includedPhotos = selectedPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
   const extraPhotos = Math.max(selectedPhotos - includedPhotos, 0);
   const isDelivered = order.orderStatus === "Delivered";
-  const saveDisabled = isDelivered || packageOptions.length === 0;
+  const isInvoiceLocked = order.invoiceSummary?.isLocked ?? false;
+  const saveDisabled = isDelivered || isInvoiceLocked || packageOptions.length === 0;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -87,6 +102,12 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
       {packageOptions.length === 0 ? (
         <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
           No packages are available. Saving is disabled until a package exists.
+        </p>
+      ) : null}
+
+      {isInvoiceLocked ? (
+        <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
+          This order&apos;s invoice is locked. Unlock or adjust the invoice before editing financial order fields.
         </p>
       ) : null}
 
@@ -133,21 +154,51 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
           <div className="rounded-md border border-border bg-surface-soft p-4">
             <div className="grid gap-3 text-sm">
               <PriceRow label="Original package price" value={formatMoney(originalPrice)} />
+              <PriceRow
+                label="Invoice package baseline"
+                value={formatMoney(recognizedPackageBaseline)}
+              />
               <PriceRow label="Selected package price" value={formatMoney(selectedPrice)} />
               <div className="flex items-center justify-between border-t border-border pt-3">
-                <span className="text-text-secondary">Difference</span>
-                <span className={isUpgrade ? "font-semibold text-accent-dark" : "font-medium text-text-primary"}>
-                  {formatSignedMoney(difference)}
+                <span className="text-text-secondary">Package adjustment</span>
+                <span className={packageAdjustment > 0 ? "font-semibold text-accent-dark" : "font-medium text-text-primary"}>
+                  {formatSignedMoney(packageAdjustment)}
                 </span>
               </div>
-              {isUpgrade ? (
+              {packageAdjustment !== 0 ? (
                 <p className="rounded-sm bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent-dark">
-                  Upgrade
+                  {packageChangeLabel}
                 </p>
               ) : null}
             </div>
           </div>
         </div>
+      </Section>
+
+      <Section title="Financial Consequence">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <ReadOnlyMetric
+            label="Package adjustment"
+            value={formatSignedMoney(packageAdjustment)}
+          />
+          <ReadOnlyMetric
+            label="Add-on adjustment"
+            value={formatSignedMoney(addOnAdjustment)}
+          />
+          <ReadOnlyMetric
+            label="Total adjustment"
+            value={formatSignedMoney(totalAdjustment)}
+          />
+          <ReadOnlyMetric
+            label="Projected balance due"
+            value={formatMoney(projectedBalanceDue)}
+          />
+        </div>
+        <p className="mt-3 text-sm text-text-secondary">
+          {order.invoiceSummary
+            ? `Saving will sync invoice ${order.invoiceSummary.invoiceNumber} and preserve the recorded paid amount of ${formatMoney(order.invoiceSummary.paidAmount)}.`
+            : "Saving will create the order invoice context and apply these totals."}
+        </p>
       </Section>
 
       <Section title="Photo Selection">
@@ -341,4 +392,8 @@ function formatMoney(value: number): string {
 function formatSignedMoney(value: number): string {
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${formatMoney(value)}`;
+}
+
+function sumAddOns(addOns: OrderAddOn[]): number {
+  return addOns.reduce((sum, addOn) => sum + addOn.price, 0);
 }
