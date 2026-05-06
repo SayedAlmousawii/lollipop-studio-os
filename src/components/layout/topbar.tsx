@@ -1,4 +1,5 @@
 import { Bell, User } from "lucide-react";
+import { DevResetWorkflowButton } from "./dev-reset-workflow-button";
 
 interface TopbarProps {
   pageTitle: string;
@@ -12,6 +13,10 @@ export function Topbar({ pageTitle }: TopbarProps) {
       </h1>
 
       <div className="flex flex-1 items-center justify-end gap-2">
+        {process.env.NODE_ENV === "development" ? (
+          <DevResetWorkflowButton />
+        ) : null}
+
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-accent-soft hover:text-text-primary"

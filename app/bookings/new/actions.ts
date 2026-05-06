@@ -17,7 +17,7 @@ export async function createBooking(
     customerId: formData.get("customerId"),
     packageId: formData.get("packageId"),
     sessionDate: formData.get("sessionDate"),
-    department: formData.get("department"),
+    departmentId: formData.get("departmentId"),
     assignedPhotographerId:
       formData.get("assignedPhotographerId") || undefined,
     sessionType: formData.get("sessionType"),

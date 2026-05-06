@@ -68,6 +68,7 @@ export interface EditableBooking {
   sessionDate: string;
   sessionTime: string;
   sessionType: UpdateBookingInput["sessionType"];
+  departmentId: string;
   department: string;
   assignedPhotographerId: string;
   assignedPhotographerName: string;
@@ -160,6 +161,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
         include: {
           customer: { select: { name: true } },
           package: { select: { name: true } },
+          department: { select: { name: true } },
           assignedPhotographer: { select: { name: true } },
           invoices: {
             where: {
@@ -188,7 +190,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),
-    department: row.department,
+    department: row.department.name,
     package: row.package?.name ?? "—",
     status: mapBookingStatus(row.status),
     paymentStatus: mapDepositStatus(row.invoices),
@@ -230,12 +232,21 @@ export async function createBookingInDb(
         await validateBookingReferences(tx, {
           customerId: data.customerId,
           packageId: data.packageId,
+          departmentId: data.departmentId,
+          requireActiveDepartment: true,
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
         });
+        const department = await tx.studioDepartment.findUnique({
+          where: { id: data.departmentId },
+          select: { code: true },
+        });
+        if (!department) {
+          throw new Error("Department not found");
+        }
         const [publicId, jobNumber] = await Promise.all([
           generatePublicId(tx, PUBLIC_ID_KIND.BOOKING),
           generateJobNumber(tx, {
-            department: data.department,
+            departmentCode: department.code,
             sessionDate: data.sessionDate,
           }),
         ]);
@@ -248,7 +259,7 @@ export async function createBookingInDb(
             packageId: data.packageId,
             sessionDate: data.sessionDate,
             sessionType: data.sessionType,
-            department: data.department.trim(),
+            departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
             notes: emptyToNull(data.notes) ?? null,
@@ -303,7 +314,7 @@ export async function updateBooking(
       db.$transaction(async (tx) => {
         const booking = await tx.booking.findUnique({
           where: { id: bookingId },
-          select: { id: true, status: true },
+          select: { id: true, status: true, departmentId: true },
         });
 
         if (!booking) {
@@ -322,6 +333,8 @@ export async function updateBooking(
         await validateBookingReferences(tx, {
           customerId: data.customerId,
           packageId: data.packageId,
+          departmentId: data.departmentId,
+          requireActiveDepartment: data.departmentId !== booking.departmentId,
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
         });
 
@@ -349,7 +362,7 @@ export async function updateBooking(
             packageId: data.packageId,
             sessionDate: data.date,
             sessionType: data.sessionType,
-            department: data.department.trim(),
+            departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
             notes: emptyToNull(data.notes) ?? null,
@@ -501,16 +514,22 @@ async function validateBookingReferences(
   input: {
     customerId: string;
     packageId: string;
+    departmentId: string;
+    requireActiveDepartment: boolean;
     assignedPhotographerId: string | null;
   }
 ): Promise<void> {
-  const [customer, pkg, photographer] = await Promise.all([
+  const [customer, pkg, department, photographer] = await Promise.all([
     client.customer.findUnique({
       where: { id: input.customerId },
       select: { id: true },
     }),
     client.package.findUnique({
       where: { id: input.packageId },
+      select: { id: true, isActive: true },
+    }),
+    client.studioDepartment.findUnique({
+      where: { id: input.departmentId },
       select: { id: true, isActive: true },
     }),
     input.assignedPhotographerId
@@ -532,6 +551,12 @@ async function validateBookingReferences(
   }
   if (!pkg.isActive) {
     throw new Error("Package is not active");
+  }
+  if (!department) {
+    throw new Error("Department not found");
+  }
+  if (input.requireActiveDepartment && !department.isActive) {
+    throw new Error("Department is not active");
   }
   if (input.assignedPhotographerId && !photographer) {
     throw new Error("Assigned photographer not found");
@@ -566,6 +591,9 @@ const editableBookingInclude = {
       name: true,
       price: true,
     },
+  },
+  department: {
+    select: { id: true, name: true, code: true },
   },
   assignedPhotographer: {
     select: { id: true, name: true },
@@ -624,7 +652,13 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
                 is: { name: containsFilter },
               },
             },
-            { department: containsFilter },
+            {
+              department: {
+                is: {
+                  OR: [{ name: containsFilter }, { code: containsFilter }],
+                },
+              },
+            },
             {
               assignedPhotographer: {
                 is: { name: containsFilter },
@@ -739,7 +773,8 @@ function mapEditableBooking(
     sessionDate: formatInputDate(row.sessionDate),
     sessionTime: formatInputTime(row.sessionDate),
     sessionType: row.sessionType,
-    department: row.department,
+    departmentId: row.department.id,
+    department: row.department.name,
     assignedPhotographerId: row.assignedPhotographer?.id ?? "",
     assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
     bookingStatus: mapBookingStatus(row.status),
@@ -770,7 +805,7 @@ function mapBookingDetail(
     sessionType: formatEnum(row.sessionType),
     packageName: row.package?.name ?? "—",
     packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
-    department: row.department,
+    department: row.department.name,
     assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
     bookingStatus: mapBookingStatus(row.status),
     depositStatus: hasDeposit ? "Paid" : "Unpaid",

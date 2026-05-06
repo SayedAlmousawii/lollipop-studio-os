@@ -1,7 +1,5 @@
 import { Prisma } from "@prisma/client";
 import {
-  DEFAULT_DEPARTMENT_JOB_CODE,
-  DEPARTMENT_JOB_CODES,
   PUBLIC_ID_KIND,
   PUBLIC_ID_PREFIX,
   type PublicIdKind,
@@ -19,9 +17,9 @@ export async function generatePublicId(
 
 export async function generateJobNumber(
   client: IdentifierClient,
-  input: { department: string; sessionDate: Date }
+  input: { departmentCode: string; sessionDate: Date }
 ): Promise<string> {
-  const code = getDepartmentJobCode(input.department);
+  const code = input.departmentCode.trim().toUpperCase();
   const year = input.sessionDate.getUTCFullYear();
   const rows = await client.$queryRaw<Array<{ lastValue: number | bigint }>>`
     INSERT INTO "identifier_sequences" ("scope", "year", "lastValue", "createdAt", "updatedAt")
@@ -38,12 +36,6 @@ export async function generateJobNumber(
   }
 
   return `${code}-${year}-${String(Number(lastValue)).padStart(5, "0")}`;
-}
-
-export function getDepartmentJobCode(department: string): string {
-  const normalized = department.trim().toLowerCase();
-  return DEPARTMENT_JOB_CODES[normalized as keyof typeof DEPARTMENT_JOB_CODES]
-    ?? DEFAULT_DEPARTMENT_JOB_CODE;
 }
 
 async function nextPublicIdValue(

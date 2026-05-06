@@ -6,18 +6,21 @@ import {
   getAssignablePhotographers,
   getEditableBookingById,
 } from "@/modules/bookings/booking.service";
+import { getActiveStudioDepartments } from "@/modules/departments/studio-department.service";
 import { getPackages } from "@/modules/packages/package.service";
 
 export default async function EditBookingPage(
   props: PageProps<"/bookings/[bookingId]/edit">
 ) {
   const { bookingId } = await props.params;
-  const [booking, allCustomers, allPackages, photographers] = await Promise.all([
-    getEditableBookingById(bookingId),
-    getCustomers(),
-    getPackages(),
-    getAssignablePhotographers(),
-  ]);
+  const [booking, allCustomers, allPackages, photographers, departments] =
+    await Promise.all([
+      getEditableBookingById(bookingId),
+      getCustomers(),
+      getPackages(),
+      getAssignablePhotographers(),
+      getActiveStudioDepartments(),
+    ]);
 
   if (!booking) notFound();
 
@@ -38,6 +41,7 @@ export default async function EditBookingPage(
         customers={customers}
         packages={packages}
         photographers={photographers}
+        departments={departments}
       />
     </PageContainer>
   );

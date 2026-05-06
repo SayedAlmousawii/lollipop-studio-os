@@ -142,6 +142,40 @@ async function main() {
     }),
   ]);
 
+  // Studio departments
+  const [newbornDepartment, kidsDepartment] = await Promise.all([
+    prisma.studioDepartment.upsert({
+      where: { code: "NB" },
+      update: {
+        name: "Newborn",
+        isActive: true,
+        sortOrder: 10,
+      },
+      create: {
+        id: "dept-newborn",
+        name: "Newborn",
+        code: "NB",
+        isActive: true,
+        sortOrder: 10,
+      },
+    }),
+    prisma.studioDepartment.upsert({
+      where: { code: "KD" },
+      update: {
+        name: "Kids",
+        isActive: true,
+        sortOrder: 20,
+      },
+      create: {
+        id: "dept-kids",
+        name: "Kids",
+        code: "KD",
+        isActive: true,
+        sortOrder: 20,
+      },
+    }),
+  ]);
+
   // Booking 1: Confirmed newborn session for Fatima
   const booking1 = await prisma.booking.upsert({
     where: { id: "booking-001" },
@@ -152,7 +186,7 @@ async function main() {
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionType: SessionType.NEWBORN,
-      department: "Photography",
+      departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
       notes: "Newborn session — baby is 3 weeks old",
@@ -169,7 +203,7 @@ async function main() {
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionType: SessionType.NEWBORN,
-      department: "Photography",
+      departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
       notes: "Newborn session — baby is 3 weeks old",
@@ -213,7 +247,15 @@ async function main() {
   // Payment 1: Deposit for Booking 1
   await prisma.payment.upsert({
     where: { id: "pay-001" },
-    update: {},
+    update: {
+      publicId: "PAY-00001",
+      jobNumber: booking1.jobNumber,
+      invoiceId: invoice1.id,
+      amount: 20,
+      method: PaymentMethod.KNET,
+      paymentType: PaymentType.DEPOSIT,
+      notes: "Deposit paid via KNET",
+    },
     create: {
       id: "pay-001",
       publicId: "PAY-00001",
@@ -236,7 +278,7 @@ async function main() {
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionType: SessionType.KIDS,
-      department: "Photography",
+      departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       assignedPhotographerId: null,
       notes: "Waiting for deposit confirmation",
@@ -252,7 +294,7 @@ async function main() {
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionType: SessionType.KIDS,
-      department: "Photography",
+      departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       notes: "Waiting for deposit confirmation",
     },
@@ -268,7 +310,7 @@ async function main() {
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionType: SessionType.FAMILY,
-      department: "Photography",
+      departmentId: kidsDepartment.id,
       status: BookingStatus.COMPLETED,
       assignedPhotographerId: photographer.id,
       notes: null,
@@ -285,7 +327,7 @@ async function main() {
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionType: SessionType.FAMILY,
-      department: "Photography",
+      departmentId: kidsDepartment.id,
       status: BookingStatus.COMPLETED,
       assignedPhotographerId: photographer.id,
       themes: {
@@ -297,7 +339,17 @@ async function main() {
   // Order 3 linked to Booking 3
   const order3 = await prisma.order.upsert({
     where: { id: "order-003" },
-    update: {},
+    update: {
+      publicId: "ORD-00001",
+      jobNumber: booking3.jobNumber,
+      bookingId: booking3.id,
+      customerId: customerMaryam.id,
+      originalPackageId: pkgPremium.id,
+      finalPackageId: pkgPremium.id,
+      selectedPhotoCount: 65,
+      status: OrderStatus.EDITING,
+      nasFolderPath: "\\\\Synology\\Family\\2026-04-15\\96555511223-AlAzmi",
+    },
     create: {
       id: "order-003",
       publicId: "ORD-00001",
@@ -348,7 +400,14 @@ async function main() {
   await Promise.all([
     prisma.payment.upsert({
       where: { id: "pay-003a" },
-      update: {},
+      update: {
+        publicId: "PAY-00002",
+        jobNumber: booking3.jobNumber,
+        invoiceId: invoice3.id,
+        amount: 20,
+        method: PaymentMethod.CASH,
+        paymentType: PaymentType.DEPOSIT,
+      },
       create: {
         id: "pay-003a",
         publicId: "PAY-00002",
@@ -361,7 +420,15 @@ async function main() {
     }),
     prisma.payment.upsert({
       where: { id: "pay-003b" },
-      update: {},
+      update: {
+        publicId: "PAY-00003",
+        jobNumber: booking3.jobNumber,
+        invoiceId: invoice3.id,
+        amount: 380,
+        method: PaymentMethod.KNET,
+        paymentType: PaymentType.BASE,
+        notes: "Full session payment",
+      },
       create: {
         id: "pay-003b",
         publicId: "PAY-00003",
@@ -421,6 +488,7 @@ async function main() {
   console.log("✓ Seed completed");
   console.log(`  Users:     ${[admin, manager, receptionist, photographer, editor].length}`);
   console.log(`  Packages:  ${[pkgBasic, pkgStandard, pkgPremium].length}`);
+  console.log(`  Departments: ${[newbornDepartment, kidsDepartment].length}`);
   console.log(`  Customers: ${[customerFatima, customerAhmed, customerMaryam].length}`);
   console.log(`  Bookings:  ${[booking1, booking2, booking3].length}`);
 }

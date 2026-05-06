@@ -49,6 +49,7 @@ interface EditBookingFormProps {
   customers: BookingOption[];
   packages: PackageOption[];
   photographers: BookingOption[];
+  departments: BookingOption[];
 }
 
 export function EditBookingForm({
@@ -56,6 +57,7 @@ export function EditBookingForm({
   customers,
   packages,
   photographers,
+  departments,
 }: EditBookingFormProps) {
   const packageOptions = useMemo(
     () => mergePackageOptions(packages, booking),
@@ -65,6 +67,9 @@ export function EditBookingForm({
   const [selectedPackageId, setSelectedPackageId] = useState(booking.packageId);
   const [selectedSessionType, setSelectedSessionType] = useState(
     booking.sessionType
+  );
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState(
+    booking.departmentId
   );
   const [selectedPhotographerId, setSelectedPhotographerId] = useState(
     booking.assignedPhotographerId || UNASSIGNED_PHOTOGRAPHER_VALUE
@@ -79,7 +84,10 @@ export function EditBookingForm({
   const selectedPackage =
     packageOptions.find((item) => item.id === selectedPackageId) ?? null;
   const saveDisabled =
-    !booking.canEdit || customers.length === 0 || packageOptions.length === 0;
+    !booking.canEdit ||
+    customers.length === 0 ||
+    packageOptions.length === 0 ||
+    departments.length === 0;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -115,6 +123,12 @@ export function EditBookingForm({
       {customers.length === 0 || packageOptions.length === 0 ? (
         <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
           A customer and package are required before this booking can be saved.
+        </p>
+      ) : null}
+
+      {departments.length === 0 ? (
+        <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
+          An active department is required before this booking can be saved.
         </p>
       ) : null}
 
@@ -243,15 +257,35 @@ export function EditBookingForm({
       <Section title="Assignment">
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="department">Department</Label>
-            <Input
-              id="department"
-              name="department"
-              defaultValue={booking.department}
-              disabled={!booking.canEdit}
-              aria-invalid={state.errors?.department?.length ? true : undefined}
+            <Label htmlFor="departmentId">Department</Label>
+            <Select
+              value={selectedDepartmentId}
+              onValueChange={setSelectedDepartmentId}
+              disabled={!booking.canEdit || departments.length === 0}
+              required
+            >
+              <SelectTrigger
+                id="departmentId"
+                aria-invalid={
+                  state.errors?.departmentId?.length ? true : undefined
+                }
+              >
+                <SelectValue placeholder="Select a department..." />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((department) => (
+                  <SelectItem key={department.id} value={department.id}>
+                    {department.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <input
+              type="hidden"
+              name="departmentId"
+              value={selectedDepartmentId}
             />
-            <FieldError messages={state.errors?.department} />
+            <FieldError messages={state.errors?.departmentId} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="assignedPhotographerId">Assigned photographer</Label>

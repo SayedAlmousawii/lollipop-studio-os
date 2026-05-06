@@ -158,8 +158,21 @@ ALTER TABLE "payments"
   ALTER COLUMN "publicId" SET NOT NULL,
   ALTER COLUMN "jobNumber" SET NOT NULL;
 
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "bookings"
+    GROUP BY "jobNumber"
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'Cannot create unique bookings.jobNumber index while duplicate booking job numbers exist';
+  END IF;
+END;
+$$;
+
 CREATE UNIQUE INDEX "bookings_publicId_key" ON "bookings"("publicId");
-CREATE INDEX "bookings_jobNumber_idx" ON "bookings"("jobNumber");
+CREATE UNIQUE INDEX "bookings_jobNumber_key" ON "bookings"("jobNumber");
 CREATE UNIQUE INDEX "orders_publicId_key" ON "orders"("publicId");
 CREATE INDEX "orders_jobNumber_idx" ON "orders"("jobNumber");
 CREATE UNIQUE INDEX "invoices_publicId_key" ON "invoices"("publicId");
