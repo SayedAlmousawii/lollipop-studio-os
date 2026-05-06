@@ -67,6 +67,40 @@ export interface OrderDetail extends Order {
   notes: string;
 }
 
+export interface OrderSelectionWorkflow {
+  orderId: string;
+  finalPackageId: string;
+  originalPackageName: string;
+  finalPackageName: string;
+  selectedPhotos: number;
+  includedPhotoCount: number;
+  extraPhotoCount: number;
+  addOns: OrderAddOn[];
+  notes: string;
+  selectionStatus: string;
+  completedAt: string | null;
+  manualAddOnTotal: string;
+  extraPhotoUnitPriceAmount: number;
+  extraPhotoUnitPrice: string;
+  extraPhotoCharge: string;
+  selectionAddOnTotal: string;
+  packageUpgradeDifference: string;
+  nextRecommendedFinancialAction: string;
+  keepCurrentPackageLabel: string;
+  upgradePackageLabel: string;
+  recommendedPackage: OrderSelectionPackageOption | null;
+  invoiceLocked: boolean;
+  packageOptions: OrderSelectionPackageOption[];
+  addOnOptions: OrderAddOnOption[];
+}
+
+export interface OrderSelectionPackageOption extends OrderEditPackage {
+  upgradeDifference: number;
+  upgradeDifferenceLabel: string;
+  isCurrent: boolean;
+  isRecommended: boolean;
+}
+
 export interface OrderWorkflowStep {
   label: string;
   status: string;
@@ -81,8 +115,17 @@ export interface OrderActivityPreviewItem {
 }
 
 export interface OrderAddOn {
+  optionId?: string;
   name: string;
   price: number;
+}
+
+export interface OrderAddOnOption {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  priceLabel: string;
 }
 
 export interface OrderEditPackage {

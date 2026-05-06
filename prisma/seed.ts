@@ -89,6 +89,99 @@ async function main() {
     }),
   ]);
 
+  const addOnOptions = await Promise.all([
+    prisma.orderAddOnOption.upsert({
+      where: { id: "addon-extra-photo" },
+      update: {
+        name: "Extra photo",
+        category: "EXTRA_PHOTO",
+        price: 5,
+        isActive: true,
+        sortOrder: 10,
+      },
+      create: {
+        id: "addon-extra-photo",
+        name: "Extra photo",
+        category: "EXTRA_PHOTO",
+        price: 5,
+        isActive: true,
+        sortOrder: 10,
+      },
+    }),
+    prisma.orderAddOnOption.upsert({
+      where: { id: "addon-canvas-30x40" },
+      update: {
+        name: "Canvas 30x40",
+        category: "CANVAS",
+        price: 25,
+        isActive: true,
+        sortOrder: 20,
+      },
+      create: {
+        id: "addon-canvas-30x40",
+        name: "Canvas 30x40",
+        category: "CANVAS",
+        price: 25,
+        isActive: true,
+        sortOrder: 20,
+      },
+    }),
+    prisma.orderAddOnOption.upsert({
+      where: { id: "addon-canvas-40x60" },
+      update: {
+        name: "Canvas 40x60",
+        category: "CANVAS",
+        price: 35,
+        isActive: true,
+        sortOrder: 30,
+      },
+      create: {
+        id: "addon-canvas-40x60",
+        name: "Canvas 40x60",
+        category: "CANVAS",
+        price: 35,
+        isActive: true,
+        sortOrder: 30,
+      },
+    }),
+    prisma.orderAddOnOption.upsert({
+      where: { id: "addon-album-20x20" },
+      update: {
+        name: "Album 20x20",
+        category: "ALBUM",
+        price: 45,
+        isActive: true,
+        sortOrder: 40,
+      },
+      create: {
+        id: "addon-album-20x20",
+        name: "Album 20x20",
+        category: "ALBUM",
+        price: 45,
+        isActive: true,
+        sortOrder: 40,
+      },
+    }),
+    prisma.orderAddOnOption.upsert({
+      where: { id: "addon-album-30x30" },
+      update: {
+        name: "Album 30x30",
+        category: "ALBUM",
+        price: 65,
+        isActive: true,
+        sortOrder: 50,
+      },
+      create: {
+        id: "addon-album-30x30",
+        name: "Album 30x30",
+        category: "ALBUM",
+        price: 65,
+        isActive: true,
+        sortOrder: 50,
+      },
+    }),
+  ]);
+
   // Customers
   const [customerFatima, customerAhmed, customerMaryam] = await Promise.all([
     prisma.customer.upsert({
@@ -507,6 +600,7 @@ async function main() {
   console.log("✓ Seed completed");
   console.log(`  Users:     ${[admin, manager, receptionist, photographer, editor].length}`);
   console.log(`  Packages:  ${[pkgBasic, pkgStandard, pkgPremium].length}`);
+  console.log(`  Add-ons:   ${addOnOptions.length}`);
   console.log(`  Departments: ${[newbornDepartment, kidsDepartment].length}`);
   console.log(`  Customers: ${[customerFatima, customerAhmed, customerMaryam].length}`);
   console.log(`  Bookings:  ${[booking1, booking2, booking3].length}`);

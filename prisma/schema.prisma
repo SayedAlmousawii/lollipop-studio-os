@@ -184,6 +184,20 @@ model Package {
   @@map("packages")
 }
 
+model OrderAddOnOption {
+  id          String   @id @default(cuid())
+  name        String
+  category    String
+  price       Decimal  @db.Decimal(10, 3)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, isActive])
+  @@map("order_add_on_options")
+}
+
 model StudioDepartment {
   id        String   @id @default(cuid())
   name      String

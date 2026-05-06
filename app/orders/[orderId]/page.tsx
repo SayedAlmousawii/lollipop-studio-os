@@ -14,6 +14,7 @@ import {
 import { PageContainer } from "@/components/layout/page-container";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import { SelectionWorkflowForm } from "@/components/orders/selection-workflow-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -22,10 +23,14 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import { getOrderHubById } from "@/modules/orders/order.service";
+import {
+  getOrderHubById,
+  getOrderSelectionWorkflowById,
+} from "@/modules/orders/order.service";
 import type {
   OrderActivityPreviewItem,
   OrderDetail,
+  OrderSelectionWorkflow,
   OrderWorkflowStep,
 } from "@/modules/orders/order.types";
 import { createOrderInvoiceAction } from "./actions";
@@ -44,8 +49,12 @@ export default async function OrderDetailPage(
   props: PageProps<"/orders/[orderId]">
 ) {
   const { orderId } = await props.params;
-  const order = await getOrderHubById(orderId);
+  const [order, selection] = await Promise.all([
+    getOrderHubById(orderId),
+    getOrderSelectionWorkflowById(orderId),
+  ]);
   if (!order) notFound();
+  if (!selection) notFound();
 
   return (
     <PageContainer>
@@ -139,7 +148,7 @@ export default async function OrderDetailPage(
             <OverviewTab order={order} />
           </TabsContent>
           <TabsContent value="selection" className="space-y-4">
-            <SelectionTab order={order} />
+            <SelectionTab selection={selection} />
           </TabsContent>
           <TabsContent value="editing" className="space-y-4">
             <WorkflowAreaTab
@@ -239,19 +248,31 @@ function OverviewTab({ order }: { order: OrderDetail }) {
   );
 }
 
-function SelectionTab({ order }: { order: OrderDetail }) {
+function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
   return (
-    <WorkflowAreaTab
-      icon={<ClipboardList className="h-4 w-4" />}
-      title="Selection"
-      status={order.selectionStatus}
-      items={[
-        ["Selected photos", order.selectedPhotoCount],
-        ["Included photos", order.includedPhotoCount],
-        ["Extra photos", order.extraPhotoCount],
-        ["Package", order.finalPackageName],
-      ]}
-    />
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="text-accent">
+              <ClipboardList className="h-4 w-4" />
+            </span>
+            Selection
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <InfoGrid
+            items={[
+              ["Package", selection.finalPackageName],
+              ["Package limit", String(selection.includedPhotoCount)],
+              ["Selected photos", String(selection.selectedPhotos)],
+              ["Extra selected", String(selection.extraPhotoCount)],
+            ]}
+          />
+        </CardContent>
+      </Card>
+      <SelectionWorkflowForm selection={selection} />
+    </div>
   );
 }
 

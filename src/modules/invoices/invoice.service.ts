@@ -9,12 +9,14 @@ import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoi
 
 type DbClient = typeof db | Prisma.TransactionClient;
 type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
-type OrderAddOnLine = { name: string; price: number };
+type OrderAddOnLine = { optionId?: string; name: string; price: number };
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
   previousPackagePrice: Prisma.Decimal;
   previousAddOns: OrderAddOnLine[];
+  previousSelectedPhotoCount?: number | null;
+  previousIncludedPhotoCount?: number | null;
 }
 
 export interface OrderInvoiceSyncSummary {
@@ -57,8 +59,8 @@ export async function createInvoiceForOrderWithClient(
     where: { id: orderId },
     include: {
       customer: { select: { id: true } },
-      finalPackage: { select: { price: true } },
-      originalPackage: { select: { price: true } },
+      finalPackage: { select: { price: true, photoCount: true } },
+      originalPackage: { select: { price: true, photoCount: true } },
       invoices: {
         where: { parentInvoiceId: null },
         select: { id: true, status: true },
@@ -73,7 +75,15 @@ export async function createInvoiceForOrderWithClient(
 
   const packageAmount = order.finalPackage?.price ?? order.originalPackage?.price;
   if (!packageAmount) throw new Error("Order has no package price");
-  const totalAmount = packageAmount.plus(sumAddOns(parseOrderAddOns(order.addOns)));
+  const includedPhotoCount =
+    order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
+  const extraPhotoCharge = await calculateExtraPhotoCharge(client, {
+    selectedPhotoCount: order.selectedPhotoCount,
+    includedPhotoCount,
+  });
+  const totalAmount = packageAmount
+    .plus(sumAddOns(parseOrderAddOns(order.addOns)))
+    .plus(extraPhotoCharge);
 
   const invoiceNumberData = await generateInvoiceNumber(client);
   const invoice = await client.invoice.create({
@@ -114,8 +124,8 @@ export async function syncOrderInvoiceForFinancialEdit(
     where: { id: input.orderId },
     include: {
       customer: { select: { id: true } },
-      finalPackage: { select: { price: true } },
-      originalPackage: { select: { price: true } },
+      finalPackage: { select: { price: true, photoCount: true } },
+      originalPackage: { select: { price: true, photoCount: true } },
       invoices: {
         where: { parentInvoiceId: null },
         select: {
@@ -141,7 +151,19 @@ export async function syncOrderInvoiceForFinancialEdit(
   const nextAddOns = parseOrderAddOns(order.addOns);
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
-  const targetTotalAmount = packagePrice.plus(nextAddOnTotal);
+  const includedPhotoCount =
+    order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
+  const previousExtraPhotoCharge = await calculateExtraPhotoCharge(client, {
+    selectedPhotoCount: input.previousSelectedPhotoCount,
+    includedPhotoCount: input.previousIncludedPhotoCount ?? includedPhotoCount,
+  });
+  const nextExtraPhotoCharge = await calculateExtraPhotoCharge(client, {
+    selectedPhotoCount: order.selectedPhotoCount,
+    includedPhotoCount,
+  });
+  const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
+  const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
+  const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
   const existingInvoice = order.invoices[0] ?? null;
 
   if (existingInvoice?.isLocked) {
@@ -149,10 +171,10 @@ export async function syncOrderInvoiceForFinancialEdit(
   }
 
   const recognizedPackageBaseline = existingInvoice
-    ? existingInvoice.totalAmount.minus(previousAddOnTotal)
+    ? existingInvoice.totalAmount.minus(previousSelectionAddOnTotal)
     : input.previousPackagePrice;
   const packageAdjustmentAmount = packagePrice.minus(recognizedPackageBaseline);
-  const addOnAdjustmentAmount = nextAddOnTotal.minus(previousAddOnTotal);
+  const addOnAdjustmentAmount = nextSelectionAddOnTotal.minus(previousSelectionAddOnTotal);
   const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
 
   const invoice = existingInvoice
@@ -445,10 +467,14 @@ function parseOrderAddOns(value: Prisma.JsonValue): OrderAddOnLine[] {
 
   return value.flatMap((item) => {
     if (!isJsonObject(item)) return [];
-    const { name, price } = item;
+    const { optionId, name, price } = item;
     if (typeof name !== "string") return [];
     if (typeof price !== "number") return [];
-    return [{ name, price }];
+    return [{
+      ...(typeof optionId === "string" ? { optionId } : {}),
+      name,
+      price,
+    }];
   });
 }
 
@@ -461,6 +487,30 @@ function sumAddOns(addOns: OrderAddOnLine[]): Prisma.Decimal {
     (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
     new Prisma.Decimal(0)
   );
+}
+
+async function calculateExtraPhotoCharge(
+  client: DbClient,
+  input: {
+    selectedPhotoCount?: number | null;
+    includedPhotoCount: number;
+  }
+): Promise<Prisma.Decimal> {
+  const extraPhotoCount = Math.max(
+    (input.selectedPhotoCount ?? input.includedPhotoCount) - input.includedPhotoCount,
+    0
+  );
+  if (extraPhotoCount === 0) return new Prisma.Decimal(0);
+
+  const extraPhotoOption = await client.orderAddOnOption.findUnique({
+    where: { id: "addon-extra-photo" },
+    select: { price: true, isActive: true },
+  });
+  if (!extraPhotoOption?.isActive) {
+    throw new Error("Active extra-photo add-on price is required");
+  }
+
+  return extraPhotoOption.price.mul(extraPhotoCount);
 }
 
 export async function createAdjustmentInvoice(

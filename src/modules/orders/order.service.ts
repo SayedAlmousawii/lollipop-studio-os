@@ -27,8 +27,10 @@ import {
 } from "./order-activity.service";
 import {
   updateOrderSchema,
+  updateOrderSelectionWorkflowSchema,
   updateOrderWorkflowSchema,
   type UpdateOrderInput,
+  type UpdateOrderSelectionWorkflowInput,
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
 import type {
@@ -37,11 +39,14 @@ import type {
   InvoiceStatusLabel,
   Order,
   OrderAddOn,
+  OrderAddOnOption,
   OrderActivityPreviewItem,
   OrderDetail,
   OrderEditPackage,
   OrderFilters,
   OrderPaymentStatusLabel,
+  OrderSelectionPackageOption,
+  OrderSelectionWorkflow,
   OrderStatusFilter,
   OrderStatusLabel,
   OrderWorkflowStep,
@@ -162,6 +167,185 @@ export async function getOrderHubById(
   };
 }
 
+export async function getOrderSelectionWorkflowById(
+  orderId: string
+): Promise<OrderSelectionWorkflow | null> {
+  const [order, packageRows, addOnOptionRows, completedActivity] = await withRetry(
+    () =>
+      Promise.all([
+        db.order.findUnique({
+          where: { id: orderId },
+          include: {
+            originalPackage: {
+              select: { id: true, name: true, price: true, photoCount: true },
+            },
+            finalPackage: {
+              select: { id: true, name: true, price: true, photoCount: true },
+            },
+            invoices: {
+              where: { parentInvoiceId: null },
+              select: {
+                totalAmount: true,
+                paidAmount: true,
+                remainingAmount: true,
+                isLocked: true,
+              },
+              orderBy: { createdAt: "asc" },
+              take: 1,
+            },
+          },
+        }),
+        db.package.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, price: true, photoCount: true },
+          orderBy: { price: "asc" },
+        }),
+        db.orderAddOnOption.findMany({
+          where: {
+            isActive: true,
+            category: { not: "EXTRA_PHOTO" },
+          },
+          select: { id: true, name: true, category: true, price: true },
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        }),
+        db.orderActivity.findFirst({
+          where: {
+            orderId,
+            type: OrderActivityType.SELECTION_COMPLETED,
+          },
+          select: { createdAt: true },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]),
+    "Failed to fetch selection workflow"
+  );
+
+  if (!order) return null;
+
+  const addOns = parseAddOns(order.addOns);
+  const includedPhotoCount =
+    order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
+  const selectedPhotos = order.selectedPhotoCount ?? includedPhotoCount;
+  const extraPhotoCount = Math.max(selectedPhotos - includedPhotoCount, 0);
+  const currentPackage =
+    order.finalPackage ?? order.originalPackage ?? packageRows[0] ?? null;
+  if (!currentPackage) {
+    throw new Error("Order has no package available for selection workflow");
+  }
+
+  const manualAddOnTotal = sumAddOnsDecimal(addOns);
+  const invoice = order.invoices[0] ?? null;
+  const recognizedPackageBaseline = invoice
+    ? invoice.totalAmount
+        .minus(manualAddOnTotal)
+        .minus(await calculateExtraPhotoCharge({
+          selectedPhotoCount: order.selectedPhotoCount,
+          includedPhotoCount,
+        }))
+    : currentPackage.price;
+  const packageOptions = buildSelectionPackageOptions({
+    packages: packageRows,
+    currentPackage,
+    selectedPhotos,
+    recognizedPackageBaseline,
+  });
+  const recommendedPackage =
+    packageOptions.find((option) => option.isRecommended) ?? null;
+  const packageUpgradeDifference = currentPackage.price.minus(recognizedPackageBaseline);
+  const extraPhotoOption = await getExtraPhotoAddOnOption();
+  const extraPhotoCharge = extraPhotoOption.price.mul(extraPhotoCount);
+  const selectionAddOnTotal = manualAddOnTotal.plus(extraPhotoCharge);
+
+  return {
+    orderId: order.id,
+    finalPackageId: currentPackage.id,
+    originalPackageName: order.originalPackage?.name ?? "—",
+    finalPackageName: currentPackage.name,
+    selectedPhotos,
+    includedPhotoCount,
+    extraPhotoCount,
+    addOns,
+    notes: order.notes ?? "",
+    selectionStatus: ORDER_SELECTION_STATUS_LABELS[order.selectionStatus],
+    completedAt: completedActivity ? formatDateTime(completedActivity.createdAt) : null,
+    manualAddOnTotal: formatMoney(manualAddOnTotal),
+    extraPhotoUnitPriceAmount: extraPhotoOption.price.toNumber(),
+    extraPhotoUnitPrice: formatMoney(extraPhotoOption.price),
+    extraPhotoCharge: formatMoney(extraPhotoCharge),
+    selectionAddOnTotal: formatMoney(selectionAddOnTotal),
+    packageUpgradeDifference: formatSignedMoney(packageUpgradeDifference),
+    nextRecommendedFinancialAction: resolveSelectionFinancialAction({
+      extraPhotoCount,
+      addOnTotal: selectionAddOnTotal,
+      remainingAmount: invoice?.remainingAmount ?? zeroMoney(),
+      recommendedPackage,
+    }),
+    keepCurrentPackageLabel: `Keep current package and review ${formatMoney(selectionAddOnTotal)} in add-ons or extra-photo charges.`,
+    upgradePackageLabel: recommendedPackage
+      ? `Upgrade to ${recommendedPackage.name} for ${recommendedPackage.upgradeDifferenceLabel}.`
+      : "No higher active package covers the current selected-photo count.",
+    recommendedPackage,
+    invoiceLocked: invoice?.isLocked ?? false,
+    packageOptions,
+    addOnOptions: addOnOptionRows.map(mapOrderAddOnOption),
+  };
+}
+
+export async function updateOrderSelectionWorkflow(
+  orderId: string,
+  input: UpdateOrderSelectionWorkflowInput
+): Promise<OrderSelectionWorkflow> {
+  const data = updateOrderSelectionWorkflowSchema.parse(input);
+  const [pricedAddOns, selectedPackage] = await Promise.all([
+    priceSelectionAddOns(data.addOns),
+    db.package.findUnique({
+      where: { id: data.finalPackageId },
+      select: { photoCount: true },
+    }),
+  ]);
+  if (!selectedPackage) {
+    throw new Error("Selected package does not exist");
+  }
+  const selectedPhotos = selectedPackage.photoCount + data.extraPhotos;
+
+  await updateOrder(orderId, {
+    finalPackageId: data.finalPackageId,
+    selectedPhotos,
+    addOns: pricedAddOns,
+    notes: data.notes,
+  });
+
+  if (data.completeSelection) {
+    const order = await db.order.findUnique({
+      where: { id: orderId },
+      select: { selectionStatus: true },
+    });
+    if (!order) throw new Error("Order not found");
+    if (order.selectionStatus === OrderSelectionStatus.PENDING) {
+      await updateOrderWorkflowStatus(orderId, {
+        selectionStatus: OrderSelectionStatus.IN_PROGRESS,
+      });
+    }
+    await updateOrderWorkflowStatus(orderId, {
+      selectionStatus: OrderSelectionStatus.COMPLETED,
+    });
+  } else {
+    const order = await db.order.findUnique({
+      where: { id: orderId },
+      select: { selectionStatus: true },
+    });
+    if (order?.selectionStatus === OrderSelectionStatus.PENDING) {
+      await updateOrderWorkflowStatus(orderId, {
+        selectionStatus: OrderSelectionStatus.IN_PROGRESS,
+      });
+    }
+  }
+
+  const workflow = await getOrderSelectionWorkflowById(orderId);
+  if (!workflow) throw new Error("Order not found after selection update");
+  return workflow;
+}
+
 export async function getEditableOrderById(
   orderId: string
 ): Promise<EditableOrder | null> {
@@ -188,8 +372,8 @@ export async function updateOrder(
           tx.order.findUnique({
             where: { id: orderId },
             include: {
-              finalPackage: { select: { id: true, name: true, price: true } },
-              originalPackage: { select: { id: true, name: true, price: true } },
+              originalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
+              finalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
             },
           }),
           tx.package.findUnique({
@@ -214,6 +398,8 @@ export async function updateOrder(
         }
         const previousAddOns = parseAddOns(order.addOns);
         const previousNotes = order.notes?.trim() ?? "";
+        const previousIncludedPhotoCount =
+          order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? null;
 
         await tx.order.update({
           where: { id: orderId },
@@ -228,6 +414,8 @@ export async function updateOrder(
           orderId,
           previousPackagePrice,
           previousAddOns,
+          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousIncludedPhotoCount,
         });
 
         await syncUpgradeCommissionForOrder(tx, {
@@ -992,6 +1180,142 @@ function mapEditPackage(packageRow: {
   };
 }
 
+function buildSelectionPackageOptions(input: {
+  packages: Array<{
+    id: string;
+    name: string;
+    price: Prisma.Decimal;
+    photoCount: number;
+  }>;
+  currentPackage: {
+    id: string;
+    name: string;
+    price: Prisma.Decimal;
+    photoCount: number;
+  };
+  selectedPhotos: number;
+  recognizedPackageBaseline: Prisma.Decimal;
+}): OrderSelectionPackageOption[] {
+  const byId = new Map<string, typeof input.currentPackage>();
+  for (const packageOption of input.packages) {
+    byId.set(packageOption.id, packageOption);
+  }
+  byId.set(input.currentPackage.id, input.currentPackage);
+
+  const sortedPackages = Array.from(byId.values()).sort((a, b) =>
+    a.price.minus(b.price).toNumber()
+  );
+  const recommended = sortedPackages.find(
+    (packageOption) =>
+      packageOption.id !== input.currentPackage.id &&
+      packageOption.photoCount >= input.selectedPhotos &&
+      packageOption.price.greaterThan(input.currentPackage.price)
+  );
+
+  return sortedPackages.map((packageOption) => {
+    const upgradeDifference = packageOption.price.minus(input.recognizedPackageBaseline);
+    return {
+      id: packageOption.id,
+      name: packageOption.name,
+      price: packageOption.price.toNumber(),
+      priceLabel: formatMoney(packageOption.price),
+      photoCount: packageOption.photoCount,
+      upgradeDifference: upgradeDifference.toNumber(),
+      upgradeDifferenceLabel: formatSignedMoney(upgradeDifference),
+      isCurrent: packageOption.id === input.currentPackage.id,
+      isRecommended: recommended?.id === packageOption.id,
+    };
+  });
+}
+
+function mapOrderAddOnOption(option: {
+  id: string;
+  name: string;
+  category: string;
+  price: Prisma.Decimal;
+}): OrderAddOnOption {
+  return {
+    id: option.id,
+    name: option.name,
+    category: option.category,
+    price: option.price.toNumber(),
+    priceLabel: formatMoney(option.price),
+  };
+}
+
+async function priceSelectionAddOns(addOns: OrderAddOn[]): Promise<OrderAddOn[]> {
+  const optionIds = addOns.flatMap((addOn) => addOn.optionId ? [addOn.optionId] : []);
+  if (optionIds.length === 0) return addOns;
+
+  const options = await db.orderAddOnOption.findMany({
+    where: {
+      id: { in: optionIds },
+      isActive: true,
+      category: { not: "EXTRA_PHOTO" },
+    },
+    select: { id: true, name: true, price: true },
+  });
+  const byId = new Map(options.map((option) => [option.id, option]));
+
+  return addOns.map((addOn) => {
+    if (!addOn.optionId) return addOn;
+    const option = byId.get(addOn.optionId);
+    if (!option) {
+      throw new Error("Selected add-on option is not available");
+    }
+    return {
+      optionId: option.id,
+      name: option.name,
+      price: option.price.toNumber(),
+    };
+  });
+}
+
+async function getExtraPhotoAddOnOption(): Promise<{
+  price: Prisma.Decimal;
+}> {
+  const option = await db.orderAddOnOption.findUnique({
+    where: { id: "addon-extra-photo" },
+    select: { price: true, isActive: true },
+  });
+  if (!option?.isActive) {
+    throw new Error("Active extra-photo add-on price is required");
+  }
+  return option;
+}
+
+async function calculateExtraPhotoCharge(input: {
+  selectedPhotoCount?: number | null;
+  includedPhotoCount: number;
+}): Promise<Prisma.Decimal> {
+  const extraPhotoCount = Math.max(
+    (input.selectedPhotoCount ?? input.includedPhotoCount) - input.includedPhotoCount,
+    0
+  );
+  if (extraPhotoCount === 0) return zeroMoney();
+
+  const option = await getExtraPhotoAddOnOption();
+  return option.price.mul(extraPhotoCount);
+}
+
+function resolveSelectionFinancialAction(input: {
+  extraPhotoCount: number;
+  addOnTotal: Prisma.Decimal;
+  remainingAmount: Prisma.Decimal;
+  recommendedPackage: OrderSelectionPackageOption | null;
+}): string {
+  if (input.recommendedPackage && input.extraPhotoCount > 0) {
+    return `Review upgrade to ${input.recommendedPackage.name} before completing selection.`;
+  }
+  if (input.extraPhotoCount > 0) {
+    return "Add an extra-photo charge or confirm package upgrade handling before completion.";
+  }
+  if (input.addOnTotal.greaterThan(0) || input.remainingAmount.greaterThan(0)) {
+    return "Confirm the invoice balance and collect any remaining payment adjustment.";
+  }
+  return "No payment adjustment is currently indicated.";
+}
+
 function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
   return addOns.reduce(
     (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
@@ -1004,10 +1328,14 @@ function parseAddOns(value: Prisma.JsonValue): OrderAddOn[] {
 
   return value.flatMap((item) => {
     if (!isJsonObject(item)) return [];
-    const { name, price } = item;
+    const { optionId, name, price } = item;
     if (typeof name !== "string") return [];
     if (typeof price !== "number") return [];
-    return [{ name, price }];
+    return [{
+      ...(typeof optionId === "string" ? { optionId } : {}),
+      name,
+      price,
+    }];
   });
 }
 
@@ -1017,6 +1345,7 @@ function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
     const other = second[index];
     return (
       other !== undefined &&
+      addOn.optionId === other.optionId &&
       addOn.name === other.name &&
       new Prisma.Decimal(addOn.price).equals(new Prisma.Decimal(other.price))
     );
@@ -1025,6 +1354,7 @@ function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
 
 function serializeAddOnsForMetadata(addOns: OrderAddOn[]): Prisma.InputJsonArray {
   return addOns.map((addOn) => ({
+    ...(addOn.optionId ? { optionId: addOn.optionId } : {}),
     name: addOn.name,
     price: addOn.price,
   }));
@@ -1040,6 +1370,10 @@ function formatAddOnsSummary(addOns: OrderAddOn[]): string {
   return addOns
     .map((addOn) => `${addOn.name} (${formatMoney(new Prisma.Decimal(addOn.price))})`)
     .join(", ");
+}
+
+function formatSignedMoney(value: Prisma.Decimal): string {
+  return `${value.greaterThan(0) ? "+" : ""}${formatMoney(value)}`;
 }
 
 async function recordWorkflowActivities(

@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 29 implemented.
-- Current goal: review the tabbed order hub shell in-app and decide the next workflow action unit.
+- Current phase: Feature 30 implemented.
+- Current goal: review the operational Selection tab in-app and decide whether to proceed to Feature 31.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -22,8 +22,15 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order activity persistence now records order creation, package/add-on edits, invoice adjustments, payments, workflow changes, completion, and note updates.
 - Order activity reads are available through a timeline-safe service ordered chronologically for one order.
 - Order details now use a tabbed operational hub shell with a compact header, workflow strip, overview workspace, read-only workflow tabs, financials, and recent activity preview.
+- Selection tab now supports selected-photo counts, add-ons, notes, completion, package decision guidance, and service-layer financial routing.
+- Extra selected photos are treated as a per-photo service-computed add-on charge using the database-backed extra-photo add-on option.
+- Selection add-ons are now chosen from database-backed add-on options while order selections continue to store the priced snapshot on the order.
+- Selection photo entry now captures extra photos only; total selected photos are computed from the package limit plus extras.
 
 ## Recent Milestones
+- Feature 30: operational Selection workflow tab added with service-computed limits, overage context, package upgrade guidance, add-on management, notes, and completion actions.
+- Feature 30 follow-up: database-backed add-on options added, Selection add-on entry changed from free text to dropdown choices, and extra selected photos now affect the selection add-on total/invoice sync.
+- Feature 30 follow-up: Photo Selection UX changed from editable total selected photos to editable extra photos with a read-only computed total.
 - Feature 29: tabbed order hub UI shell added on top of the existing order, invoice, workflow sub-status, and activity read models.
 - Feature 28: lightweight order activity foundation added with structured metadata and service-layer writes from key order, invoice, payment, and workflow flows.
 - Feature 27: order workflow sub-status enums/fields added, legacy order rows backfilled with conservative defaults, order detail reads switched off flat-status-derived workflow labels, and payment status is computed from invoice state.
@@ -37,10 +44,16 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
-- Implement the first full workflow action tab once its unit spec is selected.
+- Implement the Editing workflow tab once Feature 31 is selected.
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 30 Implementation Notes
+- Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `prisma/schema.prisma`, `prisma/seed.ts`, `src/components/orders/selection-workflow-form.tsx`, `src/modules/invoices/invoice.service.ts`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.
+- Files created: `prisma/migrations/20260506193000_order_add_on_options/migration.sql`, `src/components/orders/selection-workflow-form.tsx`.
+- Assumptions: selection completion timestamp can be surfaced from the latest `SELECTION_COMPLETED` activity rather than adding a new database column; selected add-ons can remain stored as order JSON snapshots with `optionId`, `name`, and `price` until a fuller add-on catalog/order-line unit exists; Selection tab staff input should capture extra photos and derive stored total selected photos from the package limit.
+- Validation: `npx prisma generate`, `npx tsc --noEmit`, `npx prisma migrate deploy`, `npm run lint`, `npm run build`, and `npx prisma migrate status` completed successfully. Latest UX-only follow-up also passed `npx tsc --noEmit`, `npm run lint`, and `npm run build`.
 
 ## Feature 29 Implementation Notes
 - Files modified: `app/orders/[orderId]/page.tsx`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.
