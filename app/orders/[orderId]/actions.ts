@@ -4,11 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
 import {
+  updateOrderDeliveryWorkflowSchema,
   updateOrderEditingWorkflowSchema,
   updateOrderProductionWorkflowSchema,
   updateOrderSelectionWorkflowSchema,
 } from "@/modules/orders/order.schema";
 import {
+  updateOrderDeliveryWorkflow,
   updateOrderEditingWorkflow,
   updateOrderProductionWorkflow,
   updateOrderSelectionWorkflow,
@@ -23,6 +25,10 @@ export type UpdateEditingActionState = {
 };
 
 export type UpdateProductionActionState = {
+  errors?: Partial<Record<string, string[]>>;
+};
+
+export type UpdateDeliveryActionState = {
   errors?: Partial<Record<string, string[]>>;
 };
 
@@ -124,6 +130,36 @@ export async function updateProductionWorkflowAction(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update production workflow";
+    return { errors: { _global: [message] } };
+  }
+
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${orderId}`);
+  return {};
+}
+
+export async function updateDeliveryWorkflowAction(
+  orderId: string,
+  _prev: UpdateDeliveryActionState,
+  formData: FormData
+): Promise<UpdateDeliveryActionState> {
+  const parsed = updateOrderDeliveryWorkflowSchema.safeParse({
+    action: formData.get("action"),
+    pickupNotes: formData.get("pickupNotes") || undefined,
+    completedBy: formData.get("completedBy") || undefined,
+    allowPaymentOverride: formData.get("allowPaymentOverride") === "true",
+    overrideReason: formData.get("overrideReason") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    await updateOrderDeliveryWorkflow(orderId, parsed.data);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to update delivery workflow";
     return { errors: { _global: [message] } };
   }
 

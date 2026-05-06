@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 32 implemented.
-- Current goal: review the operational Production tab in-app and decide whether to proceed to Feature 33.
+- Current phase: Feature 33 implemented.
+- Current goal: review the operational Delivery tab in-app and decide the next order-hub unit.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -32,8 +32,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production tab now supports album design, printing, album assembly, vendor/outsource work, framed prints, and final readiness tracking.
 - Production workflow state stores section-level production statuses and a production-ready timestamp on the order.
 - Production readiness for pickup updates production status, delivery readiness context, and high-level order status through service-layer transitions.
+- Delivery tab now supports prepare-for-pickup, customer notification, pickup recording, and controlled order completion actions.
+- Delivery workflow state stores prepared/notified/picked-up/completed timestamps, pickup notes, completion actor, and payment override reason on the order.
+- Order completion is service-guarded by pickup recording, finished production sections, and settled payment or an explicit admin override reason.
 
 ## Recent Milestones
+- Feature 33: operational Delivery workflow tab added with pickup readiness, notification, pickup notes, completion metadata, completion guards, payment override capture, and delivery activity records.
 - Feature 32: operational Production workflow tab added with production section actions, early-start warnings, pickup readiness tracking, and production activity records.
 - Feature 31: operational Editing workflow tab added with editor assignment, progress counts, revision tracking, customer approval, base-payment start gate, and explicit production handoff.
 - Feature 30: operational Selection workflow tab added with service-computed limits, overage context, package upgrade guidance, add-on management, notes, and completion actions.
@@ -52,11 +56,18 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Review the Delivery workflow tab in-app, including payment override handling and production-complete blockers.
 - Review the Production workflow tab in-app, including early-start warnings and ready-for-pickup handoff into Delivery.
 - Review the Editing workflow tab in-app, including base-payment blocked and approved-to-production paths.
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 33 Implementation Notes
+- Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.
+- Files created: `prisma/migrations/20260506220000_order_delivery_workflow_fields/migration.sql`, `src/components/orders/delivery-workflow-form.tsx`.
+- Assumptions: V1 captures the completing staff member as a required form field because stable actor context is not wired into order actions yet; unsettled payment completion is allowed only through the explicit override checkbox plus reason; delivery completion requires all lightweight production section statuses to be complete.
+- Validation: `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npx prisma migrate deploy`, and `npx prisma migrate status` completed successfully.
 
 ## Feature 32 Implementation Notes
 - Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/orders/order.constants.ts`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.

@@ -32,11 +32,13 @@ import {
 import {
   updateOrderSchema,
   updateOrderEditingWorkflowSchema,
+  updateOrderDeliveryWorkflowSchema,
   updateOrderProductionWorkflowSchema,
   updateOrderSelectionWorkflowSchema,
   updateOrderWorkflowSchema,
   type UpdateOrderInput,
   type UpdateOrderEditingWorkflowInput,
+  type UpdateOrderDeliveryWorkflowInput,
   type UpdateOrderProductionWorkflowInput,
   type UpdateOrderSelectionWorkflowInput,
   type UpdateOrderWorkflowInput,
@@ -50,6 +52,7 @@ import type {
   OrderAddOnOption,
   OrderActivityPreviewItem,
   OrderDetail,
+  OrderDeliveryWorkflow,
   OrderEditPackage,
   OrderEditingWorkflow,
   OrderEditorOption,
@@ -368,6 +371,22 @@ export async function getOrderProductionWorkflowById(
 
   if (!order) return null;
   return mapOrderProductionWorkflow(order);
+}
+
+export async function getOrderDeliveryWorkflowById(
+  orderId: string
+): Promise<OrderDeliveryWorkflow | null> {
+  const order = await withRetry(
+    () =>
+      db.order.findUnique({
+        where: { id: orderId },
+        select: deliveryOrderSelect,
+      }),
+    "Failed to fetch delivery workflow"
+  );
+
+  if (!order) return null;
+  return mapOrderDeliveryWorkflow(order);
 }
 
 export async function updateOrderSelectionWorkflow(
@@ -737,6 +756,77 @@ export async function updateOrderProductionWorkflow(
 
   const workflow = await getOrderProductionWorkflowById(orderId);
   if (!workflow) throw new Error("Order not found after production update");
+  return workflow;
+}
+
+export async function updateOrderDeliveryWorkflow(
+  orderId: string,
+  input: UpdateOrderDeliveryWorkflowInput
+): Promise<OrderDeliveryWorkflow> {
+  const data = updateOrderDeliveryWorkflowSchema.parse(input);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: deliveryOrderSelect,
+        });
+
+        if (!order) {
+          throw new Error("Order not found");
+        }
+        assertDeliveryWorkflowWritable(order.status);
+
+        const next = resolveDeliveryUpdate(order, data);
+        if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
+          assertWorkflowTransition(
+            "deliveryStatus",
+            order.deliveryStatus,
+            next.deliveryStatus
+          );
+        }
+        if (next.productionStatus && next.productionStatus !== order.productionStatus) {
+          assertWorkflowTransition(
+            "productionStatus",
+            order.productionStatus,
+            next.productionStatus
+          );
+        }
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: next.orderData,
+        });
+
+        await recordOrderActivity(tx, {
+          orderId,
+          type: OrderActivityType.DELIVERY_STATUS_CHANGED,
+          title: next.title,
+          description: next.description,
+          metadata: next.metadata,
+        });
+
+        if (next.completed) {
+          await recordOrderActivity(tx, {
+            orderId,
+            type: OrderActivityType.ORDER_COMPLETED,
+            title: "Order completed",
+            description: "Order was completed through the delivery workflow.",
+            metadata: {
+              completedBy: data.completedBy?.trim() ?? null,
+              completedAt: new Date().toISOString(),
+              paymentOverrideUsed: next.paymentOverrideUsed,
+              overrideReason: data.overrideReason?.trim() ?? null,
+            },
+          });
+        }
+      }),
+    "Failed to update delivery workflow"
+  );
+
+  const workflow = await getOrderDeliveryWorkflowById(orderId);
+  if (!workflow) throw new Error("Order not found after delivery update");
   return workflow;
 }
 
@@ -1239,7 +1329,14 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
   };
 }
 
-function summarizeInvoices(invoices: OrderRow["invoices"]): {
+type InvoiceSummaryRow = Array<{
+  totalAmount: Prisma.Decimal;
+  paidAmount: Prisma.Decimal;
+  remainingAmount: Prisma.Decimal;
+  status: InvoiceStatus;
+}>;
+
+function summarizeInvoices(invoices: InvoiceSummaryRow): {
   totalAmount: Prisma.Decimal;
   paidAmount: Prisma.Decimal;
   remainingAmount: Prisma.Decimal;
@@ -1303,7 +1400,7 @@ function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {
 }
 
 function mapPaymentStatus(
-  invoices: OrderRow["invoices"],
+  invoices: InvoiceSummaryRow,
   totalAmount: Prisma.Decimal,
   paidAmount: Prisma.Decimal,
   remainingAmount: Prisma.Decimal
@@ -1908,6 +2005,52 @@ type ProductionWorkflowUpdate = {
   metadata: Prisma.InputJsonObject;
 };
 
+const deliveryOrderSelect = {
+  id: true,
+  status: true,
+  productionStatus: true,
+  deliveryStatus: true,
+  productionAlbumDesignStatus: true,
+  productionPrintingStatus: true,
+  productionAssemblyStatus: true,
+  productionVendorStatus: true,
+  productionFramedPrintsStatus: true,
+  productionFinalStatus: true,
+  productionReadyAt: true,
+  deliveryPreparedAt: true,
+  customerNotifiedAt: true,
+  pickedUpAt: true,
+  deliveryCompletedAt: true,
+  deliveryCompletedBy: true,
+  deliveryPickupNotes: true,
+  deliveryOverrideReason: true,
+  invoices: {
+    select: {
+      totalAmount: true,
+      paidAmount: true,
+      remainingAmount: true,
+      status: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+  },
+} satisfies Prisma.OrderSelect;
+
+type DeliveryOrderState = Prisma.OrderGetPayload<{
+  select: typeof deliveryOrderSelect;
+}>;
+
+type DeliveryWorkflowUpdate = {
+  orderData: Prisma.OrderUpdateInput;
+  productionStatus?: OrderProductionStatus;
+  deliveryStatus?: OrderDeliveryStatus;
+  title: string;
+  description: string;
+  metadata: Prisma.InputJsonObject;
+  completed?: boolean;
+  paymentOverrideUsed?: boolean;
+};
+
 function mapOrderProductionWorkflow(order: ProductionOrderState): OrderProductionWorkflow {
   const canUpdateProduction =
     order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.DELIVERED;
@@ -2232,6 +2375,244 @@ function productionSectionUpdate(
         order.editingStatus !== OrderEditingStatus.APPROVED,
     },
   };
+}
+
+function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkflow {
+  const invoiceSummary = summarizeInvoices(order.invoices);
+  const paymentSettled =
+    invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
+  const completionBlockers = resolveDeliveryCompletionBlockers(order, paymentSettled);
+
+  return {
+    orderId: order.id,
+    deliveryStatus: ORDER_DELIVERY_STATUS_LABELS[order.deliveryStatus],
+    productionStatus: ORDER_PRODUCTION_STATUS_LABELS[order.productionStatus],
+    paymentStatus: invoiceSummary.paymentStatus,
+    readyAt: order.productionReadyAt ? formatDateTime(order.productionReadyAt) : null,
+    preparedAt: order.deliveryPreparedAt ? formatDateTime(order.deliveryPreparedAt) : null,
+    customerNotifiedAt: order.customerNotifiedAt
+      ? formatDateTime(order.customerNotifiedAt)
+      : null,
+    pickedUpAt: order.pickedUpAt ? formatDateTime(order.pickedUpAt) : null,
+    completedAt: order.deliveryCompletedAt ? formatDateTime(order.deliveryCompletedAt) : null,
+    completedBy: order.deliveryCompletedBy ?? "",
+    pickupNotes: order.deliveryPickupNotes ?? "",
+    overrideReason: order.deliveryOverrideReason ?? "",
+    completionBlockers,
+    requiresPaymentOverride: !paymentSettled,
+    canPrepareForPickup:
+      order.status !== OrderStatus.CANCELLED &&
+      order.status !== OrderStatus.DELIVERED &&
+      (
+        order.deliveryStatus === OrderDeliveryStatus.NOT_READY ||
+        (
+          order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP &&
+          !order.deliveryPreparedAt
+        )
+      ) &&
+      isProductionReadyForDelivery(order),
+    canRecordNotification:
+      order.status !== OrderStatus.CANCELLED &&
+      order.status !== OrderStatus.DELIVERED &&
+      order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP,
+    canMarkPickedUp:
+      order.status !== OrderStatus.CANCELLED &&
+      order.status !== OrderStatus.DELIVERED &&
+      (
+        order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP ||
+        order.deliveryStatus === OrderDeliveryStatus.CUSTOMER_NOTIFIED
+      ),
+    canCompleteOrder:
+      order.status !== OrderStatus.CANCELLED &&
+      order.status !== OrderStatus.DELIVERED &&
+      order.deliveryStatus === OrderDeliveryStatus.PICKED_UP &&
+      completionBlockers.every((blocker) => blocker === "Payment needs admin override before completion."),
+  };
+}
+
+function assertDeliveryWorkflowWritable(status: OrderStatus): void {
+  if (status === OrderStatus.CANCELLED) {
+    throw new Error("Cancelled orders cannot be moved through delivery");
+  }
+  if (status === OrderStatus.DELIVERED) {
+    throw new Error("Delivered orders cannot be moved through delivery");
+  }
+}
+
+function resolveDeliveryUpdate(
+  order: DeliveryOrderState,
+  input: UpdateOrderDeliveryWorkflowInput
+): DeliveryWorkflowUpdate {
+  const now = new Date();
+  const pickupNotes = input.pickupNotes?.trim() || null;
+
+  switch (input.action) {
+    case "prepareForPickup": {
+      assertProductionReadyForDelivery(order);
+      return {
+        orderData: {
+          deliveryStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
+          deliveryPreparedAt: order.deliveryPreparedAt ?? now,
+          status: OrderStatus.READY,
+        },
+        deliveryStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
+        title: "Prepared for pickup",
+        description: "Order was prepared for customer pickup.",
+        metadata: {
+          field: "deliveryStatus",
+          previousStatus: order.deliveryStatus,
+          nextStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
+          preparedAt: (order.deliveryPreparedAt ?? now).toISOString(),
+        },
+      };
+    }
+
+    case "recordCustomerNotification": {
+      if (order.deliveryStatus !== OrderDeliveryStatus.READY_FOR_PICKUP) {
+        throw new Error("Customer notification can only be recorded after pickup readiness");
+      }
+      return {
+        orderData: {
+          deliveryStatus: OrderDeliveryStatus.CUSTOMER_NOTIFIED,
+          customerNotifiedAt: order.customerNotifiedAt ?? now,
+        },
+        deliveryStatus: OrderDeliveryStatus.CUSTOMER_NOTIFIED,
+        title: "Customer notification recorded",
+        description: "Customer pickup notification was recorded.",
+        metadata: {
+          field: "deliveryStatus",
+          previousStatus: order.deliveryStatus,
+          nextStatus: OrderDeliveryStatus.CUSTOMER_NOTIFIED,
+          customerNotifiedAt: (order.customerNotifiedAt ?? now).toISOString(),
+        },
+      };
+    }
+
+    case "markPickedUp": {
+      if (
+        order.deliveryStatus !== OrderDeliveryStatus.READY_FOR_PICKUP &&
+        order.deliveryStatus !== OrderDeliveryStatus.CUSTOMER_NOTIFIED
+      ) {
+        throw new Error("Pickup can only be recorded after delivery is ready");
+      }
+      return {
+        orderData: {
+          deliveryStatus: OrderDeliveryStatus.PICKED_UP,
+          pickedUpAt: order.pickedUpAt ?? now,
+          deliveryPickupNotes: pickupNotes ?? order.deliveryPickupNotes,
+        },
+        deliveryStatus: OrderDeliveryStatus.PICKED_UP,
+        title: "Order picked up",
+        description: "Customer pickup was recorded.",
+        metadata: {
+          field: "deliveryStatus",
+          previousStatus: order.deliveryStatus,
+          nextStatus: OrderDeliveryStatus.PICKED_UP,
+          pickedUpAt: (order.pickedUpAt ?? now).toISOString(),
+          pickupNotesUpdated: Boolean(pickupNotes),
+        },
+      };
+    }
+
+    case "completeOrder": {
+      if (order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP) {
+        throw new Error("Order completion requires recorded pickup");
+      }
+      assertProductionReadyForDelivery(order);
+
+      const invoiceSummary = summarizeInvoices(order.invoices);
+      const paymentSettled =
+        invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
+      const completedBy = input.completedBy?.trim();
+      if (!completedBy) {
+        throw new Error("Completed by is required");
+      }
+
+      const overrideReason = input.overrideReason?.trim();
+      const paymentOverrideUsed = !paymentSettled;
+      if (paymentOverrideUsed && !input.allowPaymentOverride) {
+        throw new Error("Payment must be settled or explicitly overridden by admin");
+      }
+      if (paymentOverrideUsed && !overrideReason) {
+        throw new Error("Admin override reason is required when payment is not settled");
+      }
+
+      return {
+        orderData: {
+          deliveryStatus: OrderDeliveryStatus.COMPLETED,
+          productionStatus: OrderProductionStatus.COMPLETED,
+          deliveryCompletedAt: order.deliveryCompletedAt ?? now,
+          deliveryCompletedBy: completedBy,
+          deliveryPickupNotes: pickupNotes ?? order.deliveryPickupNotes,
+          deliveryOverrideReason: paymentOverrideUsed ? overrideReason : null,
+          status: OrderStatus.DELIVERED,
+        },
+        deliveryStatus: OrderDeliveryStatus.COMPLETED,
+        productionStatus: OrderProductionStatus.COMPLETED,
+        title: "Delivery completed",
+        description: "Order delivery was marked complete.",
+        metadata: {
+          field: "deliveryStatus",
+          previousStatus: order.deliveryStatus,
+          nextStatus: OrderDeliveryStatus.COMPLETED,
+          previousProductionStatus: order.productionStatus,
+          nextProductionStatus: OrderProductionStatus.COMPLETED,
+          completedBy,
+          completedAt: (order.deliveryCompletedAt ?? now).toISOString(),
+          paymentStatus: invoiceSummary.paymentStatus,
+          paymentOverrideUsed,
+          overrideReason: paymentOverrideUsed ? overrideReason ?? null : null,
+          pickupNotesUpdated: Boolean(pickupNotes),
+        },
+        completed: true,
+        paymentOverrideUsed,
+      };
+    }
+  }
+}
+
+function resolveDeliveryCompletionBlockers(
+  order: DeliveryOrderState,
+  paymentSettled: boolean
+): string[] {
+  const blockers: string[] = [];
+  if (!paymentSettled) {
+    blockers.push("Payment needs admin override before completion.");
+  }
+  if (!isProductionReadyForDelivery(order)) {
+    blockers.push("Production must be ready and all production sections must be complete.");
+  }
+  if (order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP) {
+    blockers.push("Pickup must be recorded before completion.");
+  }
+  return blockers;
+}
+
+function assertProductionReadyForDelivery(order: DeliveryOrderState): void {
+  if (!isProductionReadyForDelivery(order)) {
+    throw new Error("Order cannot be completed until production is ready and all production sections are complete");
+  }
+}
+
+function isProductionReadyForDelivery(order: DeliveryOrderState): boolean {
+  return (
+    (
+      order.productionStatus === OrderProductionStatus.READY_FOR_PICKUP ||
+      order.productionStatus === OrderProductionStatus.COMPLETED
+    ) &&
+    !hasIncompleteDeliveryProductionSections(order)
+  );
+}
+
+function hasIncompleteDeliveryProductionSections(order: DeliveryOrderState): boolean {
+  return [
+    order.productionAlbumDesignStatus,
+    order.productionPrintingStatus,
+    order.productionAssemblyStatus,
+    order.productionVendorStatus,
+    order.productionFramedPrintsStatus,
+    order.productionFinalStatus,
+  ].some((status) => status !== OrderProductionSectionStatus.COMPLETED);
 }
 
 function hasBasePayment(

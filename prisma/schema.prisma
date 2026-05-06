@@ -294,6 +294,13 @@ model Order {
   productionFramedPrintsStatus OrderProductionSectionStatus @default(NOT_STARTED)
   productionFinalStatus OrderProductionSectionStatus @default(NOT_STARTED)
   productionReadyAt DateTime?
+  deliveryPreparedAt DateTime?
+  customerNotifiedAt DateTime?
+  pickedUpAt        DateTime?
+  deliveryCompletedAt DateTime?
+  deliveryCompletedBy String?
+  deliveryPickupNotes String?
+  deliveryOverrideReason String?
   nasFolderPath     String?
   notes             String?
   createdAt         DateTime              @default(now())

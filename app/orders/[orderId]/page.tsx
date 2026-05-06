@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -9,9 +8,9 @@ import {
   ExternalLink,
   PackageCheck,
   Pencil,
-  Truck,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
+import { DeliveryWorkflowForm } from "@/components/orders/delivery-workflow-form";
 import { EditingWorkflowForm } from "@/components/orders/editing-workflow-form";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
@@ -27,6 +26,7 @@ import {
 } from "@/components/ui/tabs";
 import {
   getOrderHubById,
+  getOrderDeliveryWorkflowById,
   getOrderEditingWorkflowById,
   getOrderProductionWorkflowById,
   getOrderSelectionWorkflowById,
@@ -34,6 +34,7 @@ import {
 import type {
   OrderActivityPreviewItem,
   OrderDetail,
+  OrderDeliveryWorkflow,
   OrderEditingWorkflow,
   OrderProductionWorkflow,
   OrderSelectionWorkflow,
@@ -55,16 +56,18 @@ export default async function OrderDetailPage(
   props: PageProps<"/orders/[orderId]">
 ) {
   const { orderId } = await props.params;
-  const [order, selection, editing, production] = await Promise.all([
+  const [order, selection, editing, production, delivery] = await Promise.all([
     getOrderHubById(orderId),
     getOrderSelectionWorkflowById(orderId),
     getOrderEditingWorkflowById(orderId),
     getOrderProductionWorkflowById(orderId),
+    getOrderDeliveryWorkflowById(orderId),
   ]);
   if (!order) notFound();
   if (!selection) notFound();
   if (!editing) notFound();
   if (!production) notFound();
+  if (!delivery) notFound();
 
   return (
     <PageContainer>
@@ -167,16 +170,7 @@ export default async function OrderDetailPage(
             <ProductionTab production={production} order={order} />
           </TabsContent>
           <TabsContent value="delivery" className="space-y-4">
-            <WorkflowAreaTab
-              icon={<Truck className="h-4 w-4" />}
-              title="Delivery"
-              status={order.deliveryStatus}
-              items={[
-                ["Customer", order.customerName],
-                ["Order status", order.orderStatus],
-                ["Production status", order.productionStatus],
-              ]}
-            />
+            <DeliveryTab delivery={delivery} order={order} />
           </TabsContent>
           <TabsContent value="financials" className="space-y-4">
             <FinancialsTab order={order} />
@@ -222,6 +216,42 @@ function ProductionTab({
         </CardContent>
       </Card>
       <ProductionWorkflowForm production={production} />
+    </div>
+  );
+}
+
+function DeliveryTab({
+  delivery,
+  order,
+}: {
+  delivery: OrderDeliveryWorkflow;
+  order: OrderDetail;
+}) {
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <span className="text-accent">
+              <PackageCheck className="h-4 w-4" />
+            </span>
+            Delivery
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <InfoGrid
+            items={[
+              ["Customer", order.customerName],
+              ["Order status", order.orderStatus],
+              ["Delivery status", delivery.deliveryStatus],
+              ["Payment status", delivery.paymentStatus],
+              ["Production status", delivery.productionStatus],
+              ["Pickup notes", delivery.pickupNotes || "—"],
+            ]}
+          />
+        </CardContent>
+      </Card>
+      <DeliveryWorkflowForm delivery={delivery} />
     </div>
   );
 }
@@ -384,36 +414,6 @@ function FinancialsTab({ order }: { order: OrderDetail }) {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function WorkflowAreaTab({
-  icon,
-  title,
-  status,
-  items,
-}: {
-  icon: ReactNode;
-  title: string;
-  status: string;
-  items: Array<[string, string]>;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="text-accent">{icon}</span>
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-md border border-border bg-surface-soft p-4">
-          <p className="text-xs font-medium uppercase text-text-muted">Current status</p>
-          <p className="mt-1 text-sm font-medium text-text-primary">{status}</p>
-        </div>
-        <InfoGrid items={items} />
-      </CardContent>
-    </Card>
   );
 }
 

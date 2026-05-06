@@ -135,6 +135,27 @@ export interface OrderProductionWorkflow {
   sections: OrderProductionSection[];
 }
 
+export interface OrderDeliveryWorkflow {
+  orderId: string;
+  deliveryStatus: string;
+  productionStatus: string;
+  paymentStatus: OrderPaymentStatusLabel;
+  readyAt: string | null;
+  preparedAt: string | null;
+  customerNotifiedAt: string | null;
+  pickedUpAt: string | null;
+  completedAt: string | null;
+  completedBy: string;
+  pickupNotes: string;
+  overrideReason: string;
+  completionBlockers: string[];
+  requiresPaymentOverride: boolean;
+  canPrepareForPickup: boolean;
+  canRecordNotification: boolean;
+  canMarkPickedUp: boolean;
+  canCompleteOrder: boolean;
+}
+
 export interface OrderProductionSection {
   key:
     | "albumDesign"
@@ -160,6 +181,12 @@ export type OrderProductionAction =
   | "markVendorCompleted"
   | "markPrintsReady"
   | "markProductionReadyForPickup";
+
+export type OrderDeliveryAction =
+  | "prepareForPickup"
+  | "recordCustomerNotification"
+  | "markPickedUp"
+  | "completeOrder";
 
 export interface OrderEditorOption {
   id: string;

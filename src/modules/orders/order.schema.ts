@@ -81,9 +81,23 @@ export const updateOrderProductionWorkflowSchema = z.object({
   sectionStatus: z.enum(ORDER_PRODUCTION_SECTION_STATUS_VALUES).optional(),
 });
 
+export const updateOrderDeliveryWorkflowSchema = z.object({
+  action: z.enum([
+    "prepareForPickup",
+    "recordCustomerNotification",
+    "markPickedUp",
+    "completeOrder",
+  ]),
+  pickupNotes: z.string().trim().max(1000, "Pickup notes must be 1000 characters or fewer").optional(),
+  completedBy: z.string().trim().max(120, "Completed by must be 120 characters or fewer").optional(),
+  allowPaymentOverride: z.coerce.boolean().optional(),
+  overrideReason: z.string().trim().max(500, "Override reason must be 500 characters or fewer").optional(),
+});
+
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type UpdateOrderWorkflowInput = z.infer<typeof updateOrderWorkflowSchema>;
 export type UpdateOrderSelectionWorkflowInput = z.infer<typeof updateOrderSelectionWorkflowSchema>;
 export type UpdateOrderEditingWorkflowInput = z.infer<typeof updateOrderEditingWorkflowSchema>;
 export type UpdateOrderProductionWorkflowInput = z.infer<typeof updateOrderProductionWorkflowSchema>;
+export type UpdateOrderDeliveryWorkflowInput = z.infer<typeof updateOrderDeliveryWorkflowSchema>;
 export type OrderAddOnInput = z.infer<typeof orderAddOnSchema>;
