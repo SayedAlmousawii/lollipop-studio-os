@@ -31,6 +31,8 @@ import { RecordDepositDialog } from "./record-deposit-dialog";
 
 export interface Booking {
   id: string;
+  publicId: string;
+  jobNumber: string;
   customerName: string;
   sessionDate: string;
   department: string;
@@ -50,6 +52,8 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
+            <TableHead className="text-text-secondary">Booking ID</TableHead>
+            <TableHead className="text-text-secondary">Job Number</TableHead>
             <TableHead className="text-text-secondary">Customer</TableHead>
             <TableHead className="text-text-secondary">Session Date</TableHead>
             <TableHead className="text-text-secondary">Department</TableHead>
@@ -80,6 +84,12 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
 
   return (
     <TableRow className="border-border hover:bg-surface-soft">
+      <TableCell className="font-medium text-text-primary">
+        {booking.publicId}
+      </TableCell>
+      <TableCell className="text-sm font-medium text-text-primary">
+        {booking.jobNumber}
+      </TableCell>
       <TableCell className="font-medium text-text-primary">
         {booking.customerName}
       </TableCell>

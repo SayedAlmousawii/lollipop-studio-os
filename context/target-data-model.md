@@ -23,6 +23,30 @@ The ideal V1 schema should follow these rules:
 4. Avoid duplicated business truth when a derived source already exists
 5. Preserve traceability for all sensitive actions
 6. Keep V1 practical and not over-engineered
+7. Keep raw database IDs internal-only and use staff-friendly public identifiers for operations
+
+## Public Identifier Direction
+
+The ideal V1 schema should distinguish between internal primary keys and human-friendly operational identifiers.
+
+- Keep raw `id` fields as internal database keys only
+- Add record-level public identifiers for staff-facing display, search, and references
+- Add one shared immutable `jobNumber` to link the full workflow across booking, order, invoice, payment, and downstream jobs
+
+**Suggested roles**
+- `publicId`: identifies one specific record such as a booking, order, invoice, or payment
+- `jobNumber`: identifies the entire customer job/workflow thread
+
+**Suggested behavior**
+- Generate `jobNumber` when the booking is created
+- Keep `jobNumber` immutable for the life of the workflow
+- Carry the same `jobNumber` into the related order, invoice, payment, editing job, production job, and commission records when applicable
+- Allow staff to search and cross-reference by both the record `publicId` and the shared `jobNumber`
+
+**Suggested format**
+- Department/year/sequence format such as `NB-2026-00124`
+- Prefix should come from a stable department code
+- Sequence generation should be database-backed and safe under concurrency
 
 ---
 
@@ -117,6 +141,8 @@ The ideal V1 schema should follow these rules:
 
 **Core fields**
 - `id`
+- `publicId`
+- `jobNumber`
 - `customerId`
 - `packageId`
 - `sessionDate`
@@ -131,6 +157,7 @@ The ideal V1 schema should follow these rules:
 **Important notes**
 - Do not use `depositPaid` as a separate source of truth if deposit state can be derived from payments
 - Booking owns scheduling and assignment, not final order pricing
+- Booking is the lifecycle entry point for generating the shared `jobNumber`
 
 ### 8. BookingTheme
 
@@ -151,6 +178,8 @@ The ideal V1 schema should follow these rules:
 
 **Core fields**
 - `id`
+- `publicId`
+- `jobNumber`
 - `bookingId` unique
 - `customerId`
 - `originalPackageId`
@@ -165,6 +194,7 @@ The ideal V1 schema should follow these rules:
 **Important notes**
 - `bookingId` stays 1:1 with order
 - `synologyPath` supports the manual V1 storage-link requirement
+- Order inherits the immutable `jobNumber` from its source booking
 
 ### 10. OrderAddOn
 
@@ -206,6 +236,8 @@ The ideal V1 schema should follow these rules:
 
 **Core fields**
 - `id`
+- `publicId`
+- `jobNumber`
 - `orderId`
 - `bookingId`
 - `customerId`
@@ -229,6 +261,7 @@ The ideal V1 schema should follow these rules:
 **Important notes**
 - Keep explicit invoice classification instead of inferring from creation order
 - Denormalized amounts are acceptable if recalculated consistently
+- `invoiceNumber` remains the finance-facing invoice sequence; it should not replace record `publicId` or shared `jobNumber`
 
 ### 13. Payment
 
@@ -236,6 +269,8 @@ The ideal V1 schema should follow these rules:
 
 **Core fields**
 - `id`
+- `publicId`
+- `jobNumber`
 - `invoiceId`
 - `amount`
 - `method`
@@ -252,12 +287,16 @@ The ideal V1 schema should follow these rules:
 - `ADDON`
 - `OTHER`
 
+**Important notes**
+- Payment should inherit `jobNumber` from the linked booking/order chain so finance activity remains traceable to the same operational job
+
 ### 14. EditingJob
 
 **Purpose:** editing workflow and revision loop
 
 **Core fields**
 - `id`
+- `jobNumber`
 - `orderId`
 - `assignedEditorId` nullable
 - `status`
@@ -281,6 +320,7 @@ The ideal V1 schema should follow these rules:
 
 **Core fields**
 - `id`
+- `jobNumber`
 - `orderId`
 - `jobType`
 - `status`
@@ -307,6 +347,7 @@ The ideal V1 schema should follow these rules:
 
 **Core fields**
 - `id`
+- `jobNumber`
 - `orderId`
 - `userId`
 - `upgradeRecordId`

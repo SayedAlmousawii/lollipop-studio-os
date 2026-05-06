@@ -1,6 +1,8 @@
 import { InvoiceStatus, OrderStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
+import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { updateOrderSchema, type UpdateOrderInput } from "./order.schema";
 import type {
   EditableOrder,
@@ -35,7 +37,7 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
-type OrderWriteClient = Pick<Prisma.TransactionClient, "booking" | "order" | "invoice">;
+type OrderWriteClient = Prisma.TransactionClient;
 
 export function parseOrderFilters(filters: {
   search?: string | string[];
@@ -196,6 +198,7 @@ export async function createOrderFromBookingWithClient(
     where: { id: bookingId },
     select: {
       id: true,
+      jobNumber: true,
       customer: { select: { id: true } },
       package: { select: { id: true } },
       order: { select: { id: true } },
@@ -221,6 +224,8 @@ export async function createOrderFromBookingWithClient(
 
   const order = await client.order.create({
     data: {
+      publicId: await generatePublicId(client, PUBLIC_ID_KIND.ORDER),
+      jobNumber: booking.jobNumber,
       booking: { connect: { id: booking.id } },
       customer: { connect: { id: booking.customer.id } },
       originalPackage: { connect: { id: booking.package.id } },
@@ -246,12 +251,28 @@ async function fetchOrders(filters: OrderFilters) {
   const where: Prisma.OrderWhereInput = {
     ...(filters.search
       ? {
-          customer: {
-            name: {
-              contains: filters.search,
-              mode: "insensitive",
+          OR: [
+            {
+              customer: {
+                name: {
+                  contains: filters.search,
+                  mode: "insensitive",
+                },
+              },
             },
-          },
+            {
+              publicId: {
+                contains: filters.search,
+                mode: "insensitive",
+              },
+            },
+            {
+              jobNumber: {
+                contains: filters.search,
+                mode: "insensitive",
+              },
+            },
+          ],
         }
       : {}),
     ...(filters.orderStatus ? { status: filters.orderStatus } : {}),
@@ -285,6 +306,7 @@ async function fetchOrders(filters: OrderFilters) {
       invoices: {
         select: {
           id: true,
+          publicId: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -324,6 +346,7 @@ async function fetchOrderById(orderId: string) {
       invoices: {
         select: {
           id: true,
+          publicId: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -369,6 +392,8 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
 
   return {
     id: row.id,
+    publicId: row.publicId,
+    jobNumber: row.jobNumber,
     customerName: row.customer.name,
     bookingDate: formatDate(row.booking.sessionDate),
     originalPackageName: row.originalPackage?.name ?? "—",
@@ -380,6 +405,7 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     remainingAmount: formatMoney(invoiceSummary.remainingAmount),
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
+    primaryInvoicePublicId: row.invoices[0]?.publicId ?? null,
   };
 }
 

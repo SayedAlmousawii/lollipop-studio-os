@@ -18,6 +18,7 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
+            <TableHead>Payment ID</TableHead>
             <TableHead>Paid At</TableHead>
             <TableHead>Amount</TableHead>
             <TableHead>Method</TableHead>
@@ -29,6 +30,9 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
         <TableBody>
           {payments.map((payment) => (
             <TableRow key={payment.id} className="border-border">
+              <TableCell className="text-sm font-medium text-text-primary">
+                {payment.publicId}
+              </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {payment.paidAt}
               </TableCell>
@@ -51,7 +55,7 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
           ))}
           {payments.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={6} className="h-20 text-center text-sm text-text-secondary">
+              <TableCell colSpan={7} className="h-20 text-center text-sm text-text-secondary">
                 No payments recorded.
               </TableCell>
             </TableRow>

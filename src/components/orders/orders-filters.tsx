@@ -39,7 +39,7 @@ export function OrdersFilters() {
         <label htmlFor="orders-search" className="sr-only">Search orders</label>
         <Input
           id="orders-search"
-          placeholder="Search by customer..."
+          placeholder="Search customer, order ID, or job number..."
           className="pl-9"
           value={search}
           onChange={(event) => updateFilter("search", event.target.value)}

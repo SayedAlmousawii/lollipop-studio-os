@@ -31,7 +31,7 @@ export default async function OrderDetailPage(
               {order.customerName}
             </h1>
             <p className="mt-1 text-sm text-text-secondary">
-              Order {order.id}
+              Order {order.publicId} · Job {order.jobNumber}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -59,6 +59,8 @@ export default async function OrderDetailPage(
           <InfoGrid
             items={[
               ["Customer", order.customerName],
+              ["Order ID", order.publicId],
+              ["Job number", order.jobNumber],
               ["Booking date", order.bookingDate],
               ["Session type", order.sessionType],
               ["Original package", order.originalPackageName],

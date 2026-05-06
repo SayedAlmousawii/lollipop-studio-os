@@ -1,9 +1,14 @@
 import { PageContainer } from "@/components/layout/page-container";
+import { InvoicesFilters } from "@/components/invoices/invoices-filters";
 import { InvoicesTable } from "@/components/invoices/invoices-table";
 import { getInvoices } from "@/modules/invoices/invoice.service";
 
-export default async function InvoicesPage() {
-  const invoices = await getInvoices();
+export default async function InvoicesPage(props: PageProps<"/invoices">) {
+  const searchParams = await props.searchParams;
+  const search = Array.isArray(searchParams.search)
+    ? searchParams.search[0]
+    : searchParams.search;
+  const invoices = await getInvoices({ search });
 
   return (
     <PageContainer>
@@ -16,6 +21,8 @@ export default async function InvoicesPage() {
             Track issued invoices, locked records, adjustments, and payments.
           </p>
         </div>
+
+        <InvoicesFilters />
 
         <InvoicesTable invoices={invoices} />
       </div>

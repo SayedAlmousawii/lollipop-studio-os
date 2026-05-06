@@ -2,6 +2,8 @@ export type InvoiceStatusLabel = "Draft" | "Issued" | "Partial" | "Paid" | "Clos
 
 export interface InvoiceListItem {
   id: string;
+  publicId: string;
+  jobNumber: string;
   invoiceNumber: string;
   customerName: string;
   orderId: string | null;
@@ -21,6 +23,8 @@ export interface InvoiceDetail extends InvoiceListItem {
   parentInvoiceNumber: string | null;
   payments: Array<{
     id: string;
+    publicId: string;
+    jobNumber: string;
     amount: string;
     method: string;
     paymentType: string;

@@ -5,13 +5,32 @@ change.
 
 ## Current Phase
 
-- Feature 23 Completed
+- Feature 24 Implemented
 
 ## Current Goal
 
-- Awaiting review for bookings page filter wiring and topbar cleanup.
+- Awaiting review/confirmation for public IDs and shared job number workflow.
 
 ## Completed
+
+- Feature 24: Public IDs and Shared Job Number (`context/feature-specs/24-public-ids-and-job-number.md`):
+  - `prisma/schema.prisma` + `prisma/migrations/20260506130000_public_ids_and_job_numbers/migration.sql` — added required unique `publicId` fields to bookings, orders, invoices, and payments; added indexed `jobNumber` fields; added DB-backed public ID sequences; added `identifier_sequences` for department/year job sequencing; backfilled existing data; added DB triggers that prevent `jobNumber` updates
+  - `src/modules/identifiers/identifier.constants.ts` + `src/modules/identifiers/identifier.service.ts` — centralized service-layer generation for record public IDs and concurrency-safe department/year job numbers
+  - `src/modules/bookings/booking.service.ts`, `src/modules/orders/order.service.ts`, `src/modules/invoices/invoice.service.ts`, and `src/modules/payments/payment.service.ts` — booking creation now creates the immutable job number, while order/invoice/payment creation inherits it through the workflow chain
+  - Booking, order, invoice, and payment UI reads now expose public IDs/job numbers on list/detail screens; booking/order/invoice search now includes public IDs and job numbers
+  - `prisma/seed.ts` — seed data now provides stable public IDs and shared job numbers for required fields
+  - Validation: `npx prisma generate`, `npx prisma migrate deploy`, `npx prisma migrate status`, `npm run build`, and `npm run lint` pass
+  - Decision: kept `invoiceNumber` unchanged and separate from invoice `publicId`
+  - Decision: invoice screens display `invoiceNumber` plus `jobNumber` and hide `Invoice.publicId` to avoid redundant `INV-*` references in staff workflows
+  - Decision: used explicit department code mapping with known values (`NB`, `KD`, `FM`, `MT`, `PH`, `GN`, `OT`) and a stable `GN` fallback for unmapped department text
+  - Assumption: record-level public IDs use simple prefixes (`BKG`, `ORD`, `INV-PUB`, `PAY`) because the spec only prescribed the shared `jobNumber` format
+
+- Documentation: Public IDs and shared job number design
+  - `context/target-data-model.md` — added target-model guidance for internal-only raw IDs, record-level public IDs, and one immutable shared `jobNumber` carried across booking, order, invoice, payment, and downstream workflow records
+  - `context/feature-specs/24-public-ids-and-job-number.md` — added a short unit spec for additive public ID fields, shared `jobNumber` generation/inheritance, format expectations, and service-layer constraints
+  - Decision: kept `publicId` and `jobNumber` conceptually separate so one identifies a specific record while the other links the entire workflow
+  - Decision: kept `invoiceNumber` as a separate finance-facing identifier instead of folding it into the new public ID/job number model
+  - Assumption: the eventual department prefix in `jobNumber` will come from a stable department-code mapping such as `NB` for newborn
 
 - Maintenance: Bookings page filters and topbar cleanup
   - `app/bookings/page.tsx` — now reads `searchParams`, parses booking filters on the server, and fetches both filtered bookings and package filter options
@@ -327,7 +346,7 @@ change.
 
 ## Next Up
 
-- Feature 19 and beyond (not yet specified)
+- Feature 25 and beyond (not yet specified)
 
 ## Open Questions
 

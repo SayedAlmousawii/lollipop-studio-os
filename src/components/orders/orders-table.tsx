@@ -30,6 +30,8 @@ export function OrdersTable({ orders }: OrdersTableProps) {
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Customer</TableHead>
+            <TableHead className="text-text-secondary">Order ID</TableHead>
+            <TableHead className="text-text-secondary">Job Number</TableHead>
             <TableHead className="text-text-secondary">Booking Date</TableHead>
             <TableHead className="text-text-secondary">Original Package</TableHead>
             <TableHead className="text-text-secondary">Final Package</TableHead>
@@ -52,6 +54,12 @@ export function OrdersTable({ orders }: OrdersTableProps) {
             >
               <TableCell className="font-medium text-text-primary">
                 {order.customerName}
+              </TableCell>
+              <TableCell className="text-sm font-medium text-text-primary">
+                {order.publicId}
+              </TableCell>
+              <TableCell className="text-sm font-medium text-text-primary">
+                {order.jobNumber}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {order.bookingDate}
@@ -104,7 +112,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
                     {order.primaryInvoiceId ? (
                       <DropdownMenuItem asChild>
                         <Link href={`/invoices/${order.primaryInvoiceId}`}>
-                          View Invoice
+                          View Invoice {order.primaryInvoicePublicId}
                         </Link>
                       </DropdownMenuItem>
                     ) : (
@@ -118,7 +126,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
           {orders.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={11}
+                colSpan={13}
                 className="h-24 text-center text-sm text-text-secondary"
               >
                 No orders match these filters.
