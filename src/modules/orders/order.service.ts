@@ -57,7 +57,9 @@ import type {
   OrderEditingWorkflow,
   OrderEditorOption,
   OrderFilters,
+  OrderFinancialSummary,
   OrderPaymentStatusLabel,
+  OrderPaymentStage,
   OrderProductionAction,
   OrderProductionSection,
   OrderProductionWorkflow,
@@ -2749,4 +2751,109 @@ async function recordWorkflowActivities(
       });
     }
   }
+}
+
+export async function getOrderFinancialSummary(
+  orderId: string
+): Promise<OrderFinancialSummary | null> {
+  const order = await withRetry(
+    () =>
+      db.order.findUnique({
+        where: { id: orderId },
+        include: {
+          originalPackage: { select: { name: true, price: true } },
+          finalPackage: { select: { name: true, price: true } },
+          invoices: {
+            where: { parentInvoiceId: null },
+            select: {
+              id: true,
+              publicId: true,
+              invoiceNumber: true,
+              totalAmount: true,
+              paidAmount: true,
+              remainingAmount: true,
+              status: true,
+              payments: {
+                orderBy: { paidAt: "desc" },
+                select: {
+                  id: true,
+                  publicId: true,
+                  amount: true,
+                  method: true,
+                  paymentType: true,
+                  paidAt: true,
+                  reference: true,
+                  notes: true,
+                },
+              },
+            },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+          },
+        },
+      }),
+    "Failed to fetch order financial summary"
+  );
+
+  if (!order) return null;
+
+  const invoice = order.invoices[0] ?? null;
+  const originalPackage = order.originalPackage;
+  const finalPackage = order.finalPackage ?? originalPackage;
+  const addOns = parseAddOns(order.addOns);
+  const addOnTotal = sumAddOnsDecimal(addOns);
+
+  const originalPrice = originalPackage ? new Prisma.Decimal(originalPackage.price) : zeroMoney();
+  const finalPrice = finalPackage ? new Prisma.Decimal(finalPackage.price) : originalPrice;
+  const upgradeAmount = finalPrice.minus(originalPrice);
+  const hasUpgrade =
+    finalPackage !== null &&
+    originalPackage !== null &&
+    finalPackage.name !== originalPackage.name &&
+    upgradeAmount.greaterThan(0);
+
+  const invoiceTotal = invoice ? invoice.totalAmount : finalPrice.plus(addOnTotal);
+  const extraPhotoTotal = invoice
+    ? invoiceTotal.minus(finalPrice).minus(addOnTotal)
+    : zeroMoney();
+  const extraPhotoTotalClamped = Prisma.Decimal.max(extraPhotoTotal, 0);
+
+  const invoiceSummary = invoice
+    ? summarizeInvoices([invoice])
+    : {
+        status: "No Invoice" as InvoiceStatusLabel,
+        paymentStatus: "Pending" as OrderPaymentStatusLabel,
+        totalAmount: finalPrice.plus(addOnTotal),
+        paidAmount: zeroMoney(),
+        remainingAmount: finalPrice.plus(addOnTotal),
+      };
+
+  const payments: OrderPaymentStage[] = (invoice?.payments ?? []).map((p) => ({
+    id: p.id,
+    publicId: p.publicId,
+    amount: formatMoney(p.amount),
+    method: formatEnum(p.method),
+    paymentType: formatEnum(p.paymentType),
+    paidAt: formatDate(p.paidAt),
+    reference: p.reference ?? "—",
+    notes: p.notes ?? "—",
+  }));
+
+  return {
+    invoiceId: invoice?.id ?? null,
+    invoiceNumber: invoice?.invoiceNumber ?? null,
+    invoicePublicId: invoice?.publicId ?? null,
+    invoiceStatus: invoiceSummary.status,
+    paymentStatus: invoiceSummary.paymentStatus,
+    basePackageName: originalPackage?.name ?? "—",
+    basePackagePrice: formatMoney(originalPrice),
+    upgradePackageName: hasUpgrade ? (finalPackage?.name ?? null) : null,
+    upgradeAmount: hasUpgrade ? formatMoney(upgradeAmount) : null,
+    addOnTotal: formatMoney(addOnTotal),
+    extraPhotoTotal: formatMoney(extraPhotoTotalClamped),
+    invoiceTotal: formatMoney(invoiceSummary.totalAmount),
+    paidAmount: formatMoney(invoiceSummary.paidAmount),
+    balanceDue: formatMoney(invoiceSummary.remainingAmount),
+    payments,
+  };
 }

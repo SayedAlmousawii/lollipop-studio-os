@@ -259,3 +259,32 @@ export interface EditableOrderInvoiceSummary {
   isLocked: boolean;
   recognizedPackageBaseline: number;
 }
+
+export interface OrderPaymentStage {
+  id: string;
+  publicId: string;
+  amount: string;
+  method: string;
+  paymentType: string;
+  paidAt: string;
+  reference: string;
+  notes: string;
+}
+
+export interface OrderFinancialSummary {
+  invoiceId: string | null;
+  invoiceNumber: string | null;
+  invoicePublicId: string | null;
+  invoiceStatus: InvoiceStatusLabel;
+  paymentStatus: OrderPaymentStatusLabel;
+  basePackageName: string;
+  basePackagePrice: string;
+  upgradePackageName: string | null;
+  upgradeAmount: string | null;
+  addOnTotal: string;
+  extraPhotoTotal: string;
+  invoiceTotal: string;
+  paidAmount: string;
+  balanceDue: string;
+  payments: OrderPaymentStage[];
+}

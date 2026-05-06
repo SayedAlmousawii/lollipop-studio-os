@@ -10,6 +10,7 @@ import {
   Pencil,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
+import { ActivityTabContent } from "@/components/orders/activity-tab-content";
 import { DeliveryWorkflowForm } from "@/components/orders/delivery-workflow-form";
 import { EditingWorkflowForm } from "@/components/orders/editing-workflow-form";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
@@ -28,14 +29,17 @@ import {
   getOrderHubById,
   getOrderDeliveryWorkflowById,
   getOrderEditingWorkflowById,
+  getOrderFinancialSummary,
   getOrderProductionWorkflowById,
   getOrderSelectionWorkflowById,
 } from "@/modules/orders/order.service";
+import { getOrderActivityTimeline } from "@/modules/orders/order-activity.service";
 import type {
   OrderActivityPreviewItem,
   OrderDetail,
   OrderDeliveryWorkflow,
   OrderEditingWorkflow,
+  OrderFinancialSummary,
   OrderProductionWorkflow,
   OrderSelectionWorkflow,
   OrderWorkflowStep,
@@ -56,13 +60,16 @@ export default async function OrderDetailPage(
   props: PageProps<"/orders/[orderId]">
 ) {
   const { orderId } = await props.params;
-  const [order, selection, editing, production, delivery] = await Promise.all([
-    getOrderHubById(orderId),
-    getOrderSelectionWorkflowById(orderId),
-    getOrderEditingWorkflowById(orderId),
-    getOrderProductionWorkflowById(orderId),
-    getOrderDeliveryWorkflowById(orderId),
-  ]);
+  const [order, selection, editing, production, delivery, financial, activity] =
+    await Promise.all([
+      getOrderHubById(orderId),
+      getOrderSelectionWorkflowById(orderId),
+      getOrderEditingWorkflowById(orderId),
+      getOrderProductionWorkflowById(orderId),
+      getOrderDeliveryWorkflowById(orderId),
+      getOrderFinancialSummary(orderId),
+      getOrderActivityTimeline(orderId),
+    ]);
   if (!order) notFound();
   if (!selection) notFound();
   if (!editing) notFound();
@@ -173,10 +180,10 @@ export default async function OrderDetailPage(
             <DeliveryTab delivery={delivery} order={order} />
           </TabsContent>
           <TabsContent value="financials" className="space-y-4">
-            <FinancialsTab order={order} />
+            <FinancialsTab order={order} financial={financial} />
           </TabsContent>
           <TabsContent value="activity" className="space-y-4">
-            <ActivityPanel items={order.recentActivity} fullList />
+            <ActivityTabContent items={activity} />
           </TabsContent>
         </Tabs>
       </div>
@@ -374,45 +381,114 @@ function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
   );
 }
 
-function FinancialsTab({ order }: { order: OrderDetail }) {
+function FinancialsTab({
+  order,
+  financial,
+}: {
+  order: OrderDetail;
+  financial: OrderFinancialSummary | null;
+}) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Invoice Summary</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <InfoGrid
-            items={[
-              ["Invoice status", order.invoiceStatus],
-              ["Payment status", order.paymentStatus],
-              ["Total", order.totalAmount],
-              ["Paid", order.paidAmount],
-              ["Remaining", order.remainingAmount],
-            ]}
-          />
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base">Invoice Summary</CardTitle>
+              {financial?.invoiceId ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/invoices/${financial.invoiceId}`}>
+                    <ExternalLink className="mr-2 h-3.5 w-3.5" />
+                    {financial.invoiceNumber}
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <InfoGrid
+              items={[
+                ["Invoice number", financial?.invoiceNumber ?? "—"],
+                ["Invoice status", financial?.invoiceStatus ?? order.invoiceStatus],
+                ["Payment status", financial?.paymentStatus ?? order.paymentStatus],
+                ["Invoice total", financial?.invoiceTotal ?? order.totalAmount],
+                ["Paid amount", financial?.paidAmount ?? order.paidAmount],
+                ["Balance due", financial?.balanceDue ?? order.remainingAmount],
+              ]}
+            />
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Related Invoice</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {order.primaryInvoiceId ? (
-            <Button variant="outline" asChild>
-              <Link href={`/invoices/${order.primaryInvoiceId}`}>
-                <ExternalLink className="mr-2 h-4 w-4" />
-                Open {order.primaryInvoicePublicId}
-              </Link>
-            </Button>
-          ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Price Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <InfoGrid
+              items={[
+                ["Base package", financial?.basePackageName ?? order.originalPackageName],
+                ["Package price", financial?.basePackagePrice ?? "—"],
+                ...(financial?.upgradePackageName
+                  ? ([
+                      ["Upgrade to", financial.upgradePackageName],
+                      ["Upgrade charge", financial.upgradeAmount ?? "—"],
+                    ] as Array<[string, string]>)
+                  : []),
+                ["Add-on total", financial?.addOnTotal ?? "—"],
+                ["Extra photos", financial?.extraPhotoTotal ?? "—"],
+              ]}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {financial && financial.payments.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Payment Records</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {financial.payments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
+                >
+                  <div className="space-y-0.5">
+                    <p className="text-sm font-medium text-text-primary">
+                      {payment.amount}
+                    </p>
+                    <p className="text-xs text-text-secondary">
+                      {payment.paymentType} · {payment.method}
+                      {payment.reference !== "—" ? ` · Ref: ${payment.reference}` : ""}
+                    </p>
+                  </div>
+                  <p className="text-xs text-text-muted">{payment.paidAt}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!financial?.invoiceId ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Invoice</CardTitle>
+          </CardHeader>
+          <CardContent className="flex items-center gap-3">
             <p className="text-sm text-text-secondary">
               No invoice exists for this order yet.
             </p>
-          )}
-        </CardContent>
-      </Card>
+            <form action={createOrderInvoiceAction.bind(null, order.id)}>
+              <Button type="submit" variant="outline" size="sm">
+                <CreditCard className="mr-2 h-4 w-4" />
+                Create Invoice
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

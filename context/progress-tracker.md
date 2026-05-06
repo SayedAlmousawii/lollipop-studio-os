@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 33 implemented.
-- Current goal: review the operational Delivery tab in-app and decide the next order-hub unit.
+- Current phase: Feature 34 implemented.
+- Current goal: review Financials and Activity tabs in-app and decide the next unit.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -37,6 +37,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order completion is service-guarded by pickup recording, finished production sections, and settled payment or an explicit admin override reason.
 
 ## Recent Milestones
+- Feature 34: Financials tab enriched with invoice number, full price breakdown (base package, upgrade charge, add-on total, extra photos, invoice total, paid, balance due), payment records list, and invoice link. Activity tab replaced with full chronological timeline with event-type filtering (All / Financial / Workflow / Package). `getOrderFinancialSummary` service function added; `OrderFinancialSummary` and `OrderPaymentStage` types added; `ActivityTabContent` client component created.
 - Feature 33: operational Delivery workflow tab added with pickup readiness, notification, pickup notes, completion metadata, completion guards, payment override capture, and delivery activity records.
 - Feature 32: operational Production workflow tab added with production section actions, early-start warnings, pickup readiness tracking, and production activity records.
 - Feature 31: operational Editing workflow tab added with editor assignment, progress counts, revision tracking, customer approval, base-payment start gate, and explicit production handoff.
