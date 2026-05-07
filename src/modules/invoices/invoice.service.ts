@@ -89,6 +89,7 @@ export async function createInvoiceForOrderWithClient(
   const invoice = await client.invoice.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      jobId: order.jobId,
       jobNumber: order.jobNumber,
       orderId: order.id,
       bookingId: order.bookingId,
@@ -195,6 +196,7 @@ export async function syncOrderInvoiceForFinancialEdit(
         orderId: order.id,
         bookingId: order.bookingId,
         customerId: order.customer.id,
+        jobId: order.jobId,
         jobNumber: order.jobNumber,
         totalAmount: targetTotalAmount,
       });
@@ -251,6 +253,7 @@ export async function createInvoiceForBookingWithClient(
   return client.invoice.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      jobId: booking.jobId,
       jobNumber: booking.jobNumber,
       bookingId: booking.id,
       customerId: booking.customer.id,
@@ -433,6 +436,7 @@ async function createSyncedOrderInvoice(
     orderId: string;
     bookingId: string;
     customerId: string;
+    jobId: string;
     jobNumber: string;
     totalAmount: Prisma.Decimal;
   }
@@ -441,6 +445,7 @@ async function createSyncedOrderInvoice(
   return client.invoice.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      jobId: data.jobId,
       jobNumber: data.jobNumber,
       orderId: data.orderId,
       bookingId: data.bookingId,
@@ -527,6 +532,7 @@ export async function createAdjustmentInvoice(
             orderId: true,
             bookingId: true,
             customerId: true,
+            jobId: true,
             jobNumber: true,
             isLocked: true,
           },
@@ -540,6 +546,7 @@ export async function createAdjustmentInvoice(
         const invoice = await tx.invoice.create({
           data: {
             publicId: await generatePublicId(tx, PUBLIC_ID_KIND.INVOICE),
+            jobId: parent.jobId,
             jobNumber: parent.jobNumber,
             orderId: parent.orderId,
             bookingId: parent.bookingId,

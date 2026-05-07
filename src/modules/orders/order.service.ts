@@ -1094,6 +1094,7 @@ export async function createOrderFromBookingWithClient(
     where: { id: bookingId },
     select: {
       id: true,
+      jobId: true,
       jobNumber: true,
       customer: { select: { id: true } },
       package: { select: { id: true } },
@@ -1121,11 +1122,12 @@ export async function createOrderFromBookingWithClient(
   const order = await client.order.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.ORDER),
+      jobId: booking.jobId,
       jobNumber: booking.jobNumber,
-      booking: { connect: { id: booking.id } },
-      customer: { connect: { id: booking.customer.id } },
-      originalPackage: { connect: { id: booking.package.id } },
-      finalPackage: { connect: { id: booking.package.id } },
+      bookingId: booking.id,
+      customerId: booking.customer.id,
+      originalPackageId: booking.package.id,
+      finalPackageId: booking.package.id,
       selectedPhotoCount: 0,
       status: initialStatus,
     },

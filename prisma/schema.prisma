@@ -168,8 +168,11 @@ model Job {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  customer Customer @relation(fields: [customerId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
   booking  Booking?
+  order    Order?
+  invoices Invoice[]
+  payments Payment[]
 
   @@index([customerId])
   @@map("jobs")
@@ -281,6 +284,7 @@ model Order {
   id                           String                       @id @default(cuid())
   publicId                     String                       @unique
   jobNumber                    String
+  jobId                        String                       @unique
   bookingId                    String                       @unique
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
@@ -322,6 +326,7 @@ model Order {
   createdAt                    DateTime                     @default(now())
   updatedAt                    DateTime                     @updatedAt
 
+  job             Job             @relation(fields: [jobId], references: [id])
   booking         Booking         @relation(fields: [bookingId], references: [id])
   customer        Customer        @relation(fields: [customerId], references: [id])
   originalPackage Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
@@ -357,6 +362,7 @@ model Invoice {
   id              String        @id @default(cuid())
   publicId        String        @unique
   jobNumber       String
+  jobId           String
   orderId         String?
   bookingId       String?
   customerId      String
@@ -374,6 +380,7 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  job           Job       @relation(fields: [jobId], references: [id])
   order         Order?    @relation(fields: [orderId], references: [id])
   booking       Booking?  @relation(fields: [bookingId], references: [id])
   customer      Customer  @relation(fields: [customerId], references: [id])
@@ -381,6 +388,7 @@ model Invoice {
   adjustments   Invoice[] @relation("InvoiceAdjustments")
   payments      Payment[]
 
+  @@index([jobId])
   @@index([jobNumber])
   @@map("invoices")
 }
@@ -389,6 +397,7 @@ model Payment {
   id          String        @id @default(cuid())
   publicId    String        @unique
   jobNumber   String
+  jobId       String
   invoiceId   String
   amount      Decimal       @db.Decimal(10, 3)
   method      PaymentMethod
@@ -398,8 +407,10 @@ model Payment {
   notes       String?
   createdAt   DateTime      @default(now())
 
+  job     Job     @relation(fields: [jobId], references: [id])
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
+  @@index([jobId])
   @@index([jobNumber])
   @@map("payments")
 }

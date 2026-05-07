@@ -3,12 +3,13 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 42 implemented.
-- Current goal: hold for review before downstream `jobId` adoption units.
+- Current phase: Feature 43 implemented.
+- Current goal: hold for review before the next feature unit.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
 - Canonical `Job` rows now own immutable `jobNumber` values; `Booking.jobId` is required and is the source-of-truth booking attachment.
+- `Order`, `Invoice`, and `Payment` now also carry canonical `jobId` links back to `Job` for downstream joins; the transitional `jobNumber` fields remain for compatibility reads.
 - `jobNumber` is immutable and shared across the booking/order/invoice/payment workflow.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Studio departments are database-backed; active seeded departments are Newborn and Kids.
@@ -42,6 +43,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 43: downstream canonical `jobId` adoption added for `Order`, `Invoice`, and `Payment` with service-layer write path updates, safe backfill and consistency-validation migrations, Prisma schema/documentation refresh, and seed data updates.
 - Feature 42: canonical `Job` ownership added with `Booking.jobId`, safe booking backfill migration, transactional job creation during new booking writes, booking-customer sync into the canonical job row, and updated schema documentation for the new relationship.
 - Feature 41: customer internal notes surfaced as a dedicated profile section with preserved line breaks and a focused edit action using the existing persisted customer update dialog.
 - Feature 40: child management added inside `/customers/[customerId]` with service-layer create/update methods, Zod validation, profile revalidation, full child list rendering, and inline add/edit dialogs.
@@ -76,6 +78,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Review whether any remaining reads should be switched from `jobNumber` to canonical `jobId` joins in a later cleanup unit.
 - Manually test editing internal notes from `/customers/[customerId]`, including line breaks, clearing notes, and refresh persistence.
 - Manually test adding and editing children from `/customers/[customerId]`, including required-name validation and optional date-of-birth clearing.
 - Manually test the customer edit dialog from the customers list and the profile page, including duplicate phone validation and successful save return paths.
@@ -87,6 +90,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 43 Implementation Notes
+- Files modified: `context/reviews/current-database-er-diagram.md`, `prisma/schema.prisma`, `prisma/seed.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/orders/order.service.ts`, `src/modules/payments/payment.service.ts`, `context/progress-tracker.md`.
+- Files created: `prisma/migrations/20260507020000_downstream_jobid_adoption/migration.sql`, `prisma/migrations/20260507021000_downstream_jobid_consistency_validation/migration.sql`.
+- Assumptions: `Order.jobId` remains a one-to-one canonical link because each booking/job still produces a single active order in the current workflow; downstream invoice/payment rows can share the same job through many-to-one links.
+- Validation: `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check` completed successfully. Review follow-up also passed `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check`.
 
 ## Feature 37 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `context/progress-tracker.md`.

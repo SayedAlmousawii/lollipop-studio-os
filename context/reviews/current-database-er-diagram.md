@@ -8,7 +8,7 @@ _Generated: 2026-05-07 | Source: `prisma/schema.prisma` | Updated for the canoni
 
 The database has **14 models** and **14 enums** running on PostgreSQL via Prisma ORM. The schema covers the full studio workflow: customer and children management, canonical job ownership, booking scheduling, photography session themes, package selection, order lifecycle (selection → editing → production → delivery), invoicing with adjustment chains, and payment recording.
 
-The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and still aggregates the post-session workflow state: high-level workflow statuses, editing timestamps, section-level production statuses, delivery timestamps/override fields, assigned editor, NAS folder path, and financial references (invoices, activities).
+The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and now also carries its own `jobId` FK back to the canonical job. `Invoice` and `Payment` similarly point back to the same job thread for downstream joins while the order still aggregates the post-session workflow state: high-level workflow statuses, editing timestamps, section-level production statuses, delivery timestamps/override fields, assigned editor, NAS folder path, and financial references (invoices, activities).
 
 `Customer.id` is intentionally denormalized into `Order` to allow direct customer-scoped queries without joining through `Booking`.
 
@@ -116,6 +116,7 @@ erDiagram
         string id PK
         string publicId UK
         string jobNumber
+        string jobId FK UK
         string bookingId FK
         string customerId FK
         string originalPackageId FK
@@ -171,6 +172,7 @@ erDiagram
         string id PK
         string publicId UK
         string jobNumber
+        string jobId FK
         string orderId FK
         string bookingId FK
         string customerId FK
@@ -193,6 +195,7 @@ erDiagram
         string id PK
         string publicId UK
         string jobNumber
+        string jobId FK
         string invoiceId FK
         decimal amount
         PaymentMethod method
@@ -218,6 +221,9 @@ erDiagram
     Customer ||--o{ Invoice : "billed on"
 
     Job ||--o| Booking : "anchors"
+    Job ||--o| Order : "anchors"
+    Job ||--o{ Invoice : "owns"
+    Job ||--o{ Payment : "owns"
     Booking }o--|| StudioDepartment : "held at"
     Booking }o--o| Package : "booked with"
     Booking }o--o| User : "assigned photographer"
@@ -243,7 +249,7 @@ erDiagram
 
 - **Customer → Child**: A customer can have zero or more children. The current child record remains intentionally small: only `name`, optional `dateOfBirth`, and timestamps, linked back to a single customer.
 - **Customer → Job → Booking → Order**: The core workflow chain now starts with a canonical `Job` row that owns the immutable `jobNumber`. Each current booking points to one job through `Booking.jobId`; once the session completes, one `Order` is created from that booking and continues the operational workflow.
-- **Job ownership**: `Job.customerId` is the canonical customer owner for the job thread. Booking creation now creates the job and attaches it transactionally, while the transitional `Booking.jobNumber` string remains stored for compatibility reads.
+- **Job ownership**: `Job.customerId` is the canonical customer owner for the job thread. Booking creation now creates the job and attaches it transactionally, while the transitional `Booking.jobNumber` string remains stored for compatibility reads. `Order`, `Invoice`, and `Payment` now also keep canonical `jobId` links for downstream joins.
 - **Booking → Package**: A booking may reference a package at time of booking (optional). The actual final package used can differ and is tracked on the `Order` as `finalPackageId`.
 - **Order → Package (×2)**: An order records both the package originally booked (`originalPackageId`) and the package the customer ends up with after any upgrades (`finalPackageId`).
 - **Order workflow state**: `Order` now stores both top-level workflow enums and deeper phase metadata directly on the row: editing assignment/start/completion fields, approval and handoff timestamps, section-level production statuses, ready-for-pickup timestamps, pickup/completion metadata, and manual delivery override reason fields.
