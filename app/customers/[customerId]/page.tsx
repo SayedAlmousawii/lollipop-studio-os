@@ -7,6 +7,7 @@ import {
   CalendarRange,
   ClipboardList,
   History,
+  MessageSquareText,
   Pencil,
   Phone,
   Plus,
@@ -125,7 +126,8 @@ export default async function CustomerProfilePage(
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-6">
-            <ContactAndNotes customer={customer} />
+            <ProfileSummary customer={customer} />
+            <InternalNotes customer={customer} />
             <ChildrenPreview customer={customer} />
             <BookingsPreview bookings={customer.bookings} />
             <OrdersPreview orders={customer.orders} />
@@ -184,7 +186,7 @@ function Section({
   );
 }
 
-function ContactAndNotes({ customer }: { customer: CustomerProfile }) {
+function ProfileSummary({ customer }: { customer: CustomerProfile }) {
   return (
     <Section title="Profile Summary" icon={<UserRound className="h-4 w-4" />}>
       <div className="grid gap-4 md:grid-cols-2">
@@ -193,14 +195,42 @@ function ContactAndNotes({ customer }: { customer: CustomerProfile }) {
         <InfoItem label="Status" value={customer.status} />
         <InfoItem label="Last updated" value={customer.updatedAt} />
       </div>
-      <div className="mt-5 border-t border-border pt-4">
-        <p className="text-xs font-medium uppercase text-text-muted">
-          Internal notes
+    </Section>
+  );
+}
+
+function InternalNotes({ customer }: { customer: CustomerProfile }) {
+  return (
+    <Section
+      title="Internal Notes"
+      icon={<MessageSquareText className="h-4 w-4" />}
+      action={
+        <CustomerEditDialog
+          customer={{
+            id: customer.id,
+            name: customer.fullName,
+            phone: customer.phone,
+            notes: customer.notes,
+            status: customer.statusValue,
+          }}
+          returnTo={`/customers/${customer.id}`}
+          title="Edit Internal Notes"
+          trigger={
+            <Button size="sm" variant="outline">
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit Notes
+            </Button>
+          }
+        />
+      }
+    >
+      {customer.notes ? (
+        <p className="whitespace-pre-line break-words text-sm leading-6 text-text-secondary">
+          {customer.notes}
         </p>
-        <p className="mt-2 text-sm text-text-secondary">
-          {customer.notes || "No customer notes added yet."}
-        </p>
-      </div>
+      ) : (
+        <EmptyState text="No internal notes added yet." />
+      )}
     </Section>
   );
 }

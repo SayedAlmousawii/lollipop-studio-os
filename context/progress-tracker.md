@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 40 implemented.
-- Current goal: review child add/edit from the customer profile page.
+- Current phase: Feature 41 implemented.
+- Current goal: verify customer internal notes view/edit on the customer profile page.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -38,8 +38,10 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer edit opens in a dialog from the customers list and customer profile page, and updates only Customer model fields: name, phone, status, and notes.
 - Customer profiles are read-first hubs that show core contact context, linked children, bookings, orders, and recent booking/order history without owning invoice, payment, or workflow controls.
 - Customer profiles now support child add/edit dialogs using the existing Child model fields: name and optional date of birth.
+- Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 41: customer internal notes surfaced as a dedicated profile section with preserved line breaks and a focused edit action using the existing persisted customer update dialog.
 - Feature 40: child management added inside `/customers/[customerId]` with service-layer create/update methods, Zod validation, profile revalidation, full child list rendering, and inline add/edit dialogs.
 - Customer edit dialog hydration fix: `CustomersTable` now runs as a Client Component so dropdown/dialog event handlers are created on the client side instead of crossing the server/client boundary.
 - Feature 39 follow-up: Customer editing now uses a popup dialog from both `/customers` and `/customers/[customerId]`, reusing the shared customer form with dialog cancel behavior; the old full-page `/customers/[customerId]/edit` route was removed.
@@ -72,6 +74,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Manually test editing internal notes from `/customers/[customerId]`, including line breaks, clearing notes, and refresh persistence.
 - Manually test adding and editing children from `/customers/[customerId]`, including required-name validation and optional date-of-birth clearing.
 - Manually test the customer edit dialog from the customers list and the profile page, including duplicate phone validation and successful save return paths.
 - Manually review `/customers/[customerId]` in-app against customers with and without linked children, bookings, and orders.
@@ -113,6 +116,11 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Files modified: `app/customers/[customerId]/page.tsx`, `app/customers/actions.ts`, `src/modules/customers/customer.schema.ts`, `src/modules/customers/customer.service.ts`, `src/modules/customers/customer.types.ts`, `context/progress-tracker.md`.
 - Files created: `src/components/customers/child-form-dialog.tsx`.
 - Assumptions: Child management stays inside the customer profile; date of birth remains optional and can be cleared; children are ordered newest-first and returned as customer-owned records for future booking selectors.
+- Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `git diff --check` completed successfully.
+
+## Feature 41 Implementation Notes
+- Files modified: `app/customers/[customerId]/page.tsx`, `src/components/customers/customer-edit-dialog.tsx`, `context/progress-tracker.md`.
+- Assumptions: `Customer.notes` is the only persisted customer-context field available in the current schema; preferences and tags remain future work because no persisted schema support was approved.
 - Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `git diff --check` completed successfully.
 
 ## Feature 36 Implementation Notes
