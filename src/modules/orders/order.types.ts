@@ -29,7 +29,6 @@ export interface OrderFilters {
 
 export interface Order {
   id: string;
-  publicId: string;
   jobNumber: string;
   customerName: string;
   bookingDate: string;
@@ -43,7 +42,7 @@ export interface Order {
   remainingAmount: string;
   createdAt: string;
   primaryInvoiceId: string | null;
-  primaryInvoicePublicId: string | null;
+  primaryInvoiceNumber: string | null;
 }
 
 export interface OrderDetail extends Order {
@@ -251,7 +250,6 @@ export interface EditableOrder {
 
 export interface EditableOrderInvoiceSummary {
   id: string;
-  publicId: string;
   invoiceNumber: string;
   totalAmount: number;
   paidAmount: number;
@@ -275,7 +273,6 @@ export interface OrderPaymentStage {
 export interface OrderFinancialSummary {
   invoiceId: string | null;
   invoiceNumber: string | null;
-  invoicePublicId: string | null;
   invoiceStatus: InvoiceStatusLabel;
   paymentStatus: OrderPaymentStatusLabel;
   basePackageName: string;

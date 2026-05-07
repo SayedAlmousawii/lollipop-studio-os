@@ -282,12 +282,43 @@ async function main() {
     }),
   ]);
 
+  const [job1, job2, job3] = await Promise.all([
+    prisma.job.upsert({
+      where: { jobNumber: "PH-2026-00001" },
+      update: { customerId: customerFatima.id },
+      create: {
+        id: "job-001",
+        jobNumber: "PH-2026-00001",
+        customerId: customerFatima.id,
+      },
+    }),
+    prisma.job.upsert({
+      where: { jobNumber: "PH-2026-00002" },
+      update: { customerId: customerAhmed.id },
+      create: {
+        id: "job-002",
+        jobNumber: "PH-2026-00002",
+        customerId: customerAhmed.id,
+      },
+    }),
+    prisma.job.upsert({
+      where: { jobNumber: "PH-2026-00003" },
+      update: { customerId: customerMaryam.id },
+      create: {
+        id: "job-003",
+        jobNumber: "PH-2026-00003",
+        customerId: customerMaryam.id,
+      },
+    }),
+  ]);
+
   // Booking 1: Confirmed newborn session for Fatima
   const booking1 = await prisma.booking.upsert({
     where: { id: "booking-001" },
     update: {
       publicId: "BKG-00001",
       jobNumber: "PH-2026-00001",
+      jobId: job1.id,
       customerId: customerFatima.id,
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
@@ -305,6 +336,7 @@ async function main() {
       id: "booking-001",
       publicId: "BKG-00001",
       jobNumber: "PH-2026-00001",
+      jobId: job1.id,
       customerId: customerFatima.id,
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
@@ -324,6 +356,7 @@ async function main() {
     where: { id: "inv-001" },
     update: {
       publicId: "INV-PUB-00001",
+      jobId: booking1.jobId,
       jobNumber: booking1.jobNumber,
       bookingId: booking1.id,
       orderId: null,
@@ -338,6 +371,7 @@ async function main() {
     create: {
       id: "inv-001",
       publicId: "INV-PUB-00001",
+      jobId: booking1.jobId,
       jobNumber: booking1.jobNumber,
       bookingId: booking1.id,
       customerId: customerFatima.id,
@@ -355,6 +389,7 @@ async function main() {
     where: { id: "pay-001" },
     update: {
       publicId: "PAY-00001",
+      jobId: booking1.jobId,
       jobNumber: booking1.jobNumber,
       invoiceId: invoice1.id,
       amount: 20,
@@ -365,6 +400,7 @@ async function main() {
     create: {
       id: "pay-001",
       publicId: "PAY-00001",
+      jobId: booking1.jobId,
       jobNumber: booking1.jobNumber,
       invoiceId: invoice1.id,
       amount: 20,
@@ -380,6 +416,7 @@ async function main() {
     update: {
       publicId: "BKG-00002",
       jobNumber: "PH-2026-00002",
+      jobId: job2.id,
       customerId: customerAhmed.id,
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
@@ -396,6 +433,7 @@ async function main() {
       id: "booking-002",
       publicId: "BKG-00002",
       jobNumber: "PH-2026-00002",
+      jobId: job2.id,
       customerId: customerAhmed.id,
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
@@ -412,6 +450,7 @@ async function main() {
     update: {
       publicId: "BKG-00003",
       jobNumber: "PH-2026-00003",
+      jobId: job3.id,
       customerId: customerMaryam.id,
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
@@ -429,6 +468,7 @@ async function main() {
       id: "booking-003",
       publicId: "BKG-00003",
       jobNumber: "PH-2026-00003",
+      jobId: job3.id,
       customerId: customerMaryam.id,
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
@@ -447,6 +487,7 @@ async function main() {
     where: { id: "order-003" },
     update: {
       publicId: "ORD-00001",
+      jobId: booking3.jobId,
       jobNumber: booking3.jobNumber,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
@@ -462,6 +503,7 @@ async function main() {
     create: {
       id: "order-003",
       publicId: "ORD-00001",
+      jobId: booking3.jobId,
       jobNumber: booking3.jobNumber,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
@@ -481,6 +523,7 @@ async function main() {
     where: { id: "inv-003" },
     update: {
       publicId: "INV-PUB-00002",
+      jobId: booking3.jobId,
       jobNumber: booking3.jobNumber,
       orderId: order3.id,
       bookingId: booking3.id,
@@ -495,6 +538,7 @@ async function main() {
     create: {
       id: "inv-003",
       publicId: "INV-PUB-00002",
+      jobId: booking3.jobId,
       jobNumber: booking3.jobNumber,
       orderId: order3.id,
       bookingId: booking3.id,
@@ -514,6 +558,7 @@ async function main() {
       where: { id: "pay-003a" },
       update: {
         publicId: "PAY-00002",
+        jobId: booking3.jobId,
         jobNumber: booking3.jobNumber,
         invoiceId: invoice3.id,
         amount: 20,
@@ -523,6 +568,7 @@ async function main() {
       create: {
         id: "pay-003a",
         publicId: "PAY-00002",
+        jobId: booking3.jobId,
         jobNumber: booking3.jobNumber,
         invoiceId: invoice3.id,
         amount: 20,
@@ -534,6 +580,7 @@ async function main() {
       where: { id: "pay-003b" },
       update: {
         publicId: "PAY-00003",
+        jobId: booking3.jobId,
         jobNumber: booking3.jobNumber,
         invoiceId: invoice3.id,
         amount: 380,
@@ -544,6 +591,7 @@ async function main() {
       create: {
         id: "pay-003b",
         publicId: "PAY-00003",
+        jobId: booking3.jobId,
         jobNumber: booking3.jobNumber,
         invoiceId: invoice3.id,
         amount: 380,

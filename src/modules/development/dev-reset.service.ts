@@ -15,6 +15,7 @@ export async function resetWorkflowTestData(): Promise<void> {
         await tx.order.deleteMany({});
         await tx.bookingTheme.deleteMany({});
         await tx.booking.deleteMany({});
+        await tx.job.deleteMany({});
         await tx.identifierSequence.deleteMany({});
 
         await resetSequence(tx, "booking_public_id_seq");

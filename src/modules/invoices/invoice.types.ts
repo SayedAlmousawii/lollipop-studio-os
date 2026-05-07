@@ -2,7 +2,6 @@ export type InvoiceStatusLabel = "Draft" | "Issued" | "Partial" | "Paid" | "Clos
 
 export interface InvoiceListItem {
   id: string;
-  publicId: string;
   jobNumber: string;
   invoiceNumber: string;
   customerName: string;

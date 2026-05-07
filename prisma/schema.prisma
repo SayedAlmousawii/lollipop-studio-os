@@ -136,9 +136,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedBookings Booking[] @relation("AssignedPhotographer")
-  assignedEditingOrders Order[] @relation("AssignedEditor")
-  orderActivities  OrderActivity[]
+  assignedBookings      Booking[]       @relation("AssignedPhotographer")
+  assignedEditingOrders Order[]         @relation("AssignedEditor")
+  orderActivities       OrderActivity[]
 
   @@map("users")
 }
@@ -152,12 +152,30 @@ model Customer {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
-  children  Child[]
-  bookings  Booking[]
-  orders    Order[]
-  invoices  Invoice[]
+  children Child[]
+  jobs     Job[]
+  bookings Booking[]
+  orders   Order[]
+  invoices Invoice[]
 
   @@map("customers")
+}
+
+model Job {
+  id         String   @id @default(cuid())
+  jobNumber  String   @unique
+  customerId String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer  @relation(fields: [customerId], references: [id])
+  booking  Booking?
+  order    Order?
+  invoices Invoice[]
+  payments Payment[]
+
+  @@index([customerId])
+  @@map("jobs")
 }
 
 model Child {
@@ -192,14 +210,14 @@ model Package {
 }
 
 model OrderAddOnOption {
-  id          String   @id @default(cuid())
-  name        String
-  category    String
-  price       Decimal  @db.Decimal(10, 3)
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  category  String
+  price     Decimal  @db.Decimal(10, 3)
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([category, isActive])
   @@map("order_add_on_options")
@@ -223,6 +241,7 @@ model Booking {
   id                     String        @id @default(cuid())
   publicId               String        @unique
   jobNumber              String        @unique
+  jobId                  String        @unique
   customerId             String
   packageId              String?
   sessionDate            DateTime
@@ -234,14 +253,16 @@ model Booking {
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
-  customer             Customer     @relation(fields: [customerId], references: [id])
-  package              Package?     @relation("BookingPackage", fields: [packageId], references: [id])
+  job                  Job              @relation(fields: [jobId], references: [id])
+  customer             Customer         @relation(fields: [customerId], references: [id])
+  package              Package?         @relation("BookingPackage", fields: [packageId], references: [id])
   department           StudioDepartment @relation(fields: [departmentId], references: [id])
-  assignedPhotographer User?        @relation("AssignedPhotographer", fields: [assignedPhotographerId], references: [id])
+  assignedPhotographer User?            @relation("AssignedPhotographer", fields: [assignedPhotographerId], references: [id])
   order                Order?
   themes               BookingTheme[]
   invoices             Invoice[]
 
+  @@unique([id, jobId])
   @@index([departmentId])
   @@map("bookings")
 }
@@ -257,63 +278,66 @@ model BookingTheme {
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@index([bookingId])
-
   @@map("booking_themes")
 }
 
 model Order {
-  id                String                @id @default(cuid())
-  publicId          String                @unique
-  jobNumber         String
-  bookingId         String                @unique
+  id                           String                       @id @default(cuid())
+  publicId                     String                       @unique
+  jobNumber                    String
+  jobId                        String                       @unique
+  bookingId                    String                       @unique
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
-  customerId        String
-  originalPackageId String?
-  finalPackageId    String?
-  selectedPhotoCount Int?
-  addOns            Json                  @default("[]")
-  status            OrderStatus           @default(ACTIVE)
-  selectionStatus   OrderSelectionStatus  @default(PENDING)
-  editingStatus     OrderEditingStatus    @default(NOT_STARTED)
-  productionStatus  OrderProductionStatus @default(NOT_STARTED)
-  deliveryStatus    OrderDeliveryStatus   @default(NOT_READY)
-  assignedEditorId   String?
-  editingAssignedAt  DateTime?
-  editingStartedAt   DateTime?
-  editingCompletedAt DateTime?
-  customerApprovedAt DateTime?
-  sentToProductionAt DateTime?
-  editedPhotoCount   Int                   @default(0)
-  revisionCount      Int                   @default(0)
+  customerId                   String
+  originalPackageId            String?
+  finalPackageId               String?
+  selectedPhotoCount           Int?
+  addOns                       Json                         @default("[]")
+  status                       OrderStatus                  @default(ACTIVE)
+  selectionStatus              OrderSelectionStatus         @default(PENDING)
+  editingStatus                OrderEditingStatus           @default(NOT_STARTED)
+  productionStatus             OrderProductionStatus        @default(NOT_STARTED)
+  deliveryStatus               OrderDeliveryStatus          @default(NOT_READY)
+  assignedEditorId             String?
+  editingAssignedAt            DateTime?
+  editingStartedAt             DateTime?
+  editingCompletedAt           DateTime?
+  customerApprovedAt           DateTime?
+  sentToProductionAt           DateTime?
+  editedPhotoCount             Int                          @default(0)
+  revisionCount                Int                          @default(0)
   estimatedEditingCompletionAt DateTime?
-  productionAlbumDesignStatus OrderProductionSectionStatus @default(NOT_STARTED)
-  productionPrintingStatus OrderProductionSectionStatus @default(NOT_STARTED)
-  productionAssemblyStatus OrderProductionSectionStatus @default(NOT_STARTED)
-  productionVendorStatus OrderProductionSectionStatus @default(NOT_STARTED)
+  productionAlbumDesignStatus  OrderProductionSectionStatus @default(NOT_STARTED)
+  productionPrintingStatus     OrderProductionSectionStatus @default(NOT_STARTED)
+  productionAssemblyStatus     OrderProductionSectionStatus @default(NOT_STARTED)
+  productionVendorStatus       OrderProductionSectionStatus @default(NOT_STARTED)
   productionFramedPrintsStatus OrderProductionSectionStatus @default(NOT_STARTED)
-  productionFinalStatus OrderProductionSectionStatus @default(NOT_STARTED)
-  productionReadyAt DateTime?
-  deliveryPreparedAt DateTime?
-  customerNotifiedAt DateTime?
-  pickedUpAt        DateTime?
-  deliveryCompletedAt DateTime?
-  deliveryCompletedBy String?
-  deliveryPickupNotes String?
-  deliveryOverrideReason String?
-  nasFolderPath     String?
-  notes             String?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  productionFinalStatus        OrderProductionSectionStatus @default(NOT_STARTED)
+  productionReadyAt            DateTime?
+  deliveryPreparedAt           DateTime?
+  customerNotifiedAt           DateTime?
+  pickedUpAt                   DateTime?
+  deliveryCompletedAt          DateTime?
+  deliveryCompletedBy          String?
+  deliveryPickupNotes          String?
+  deliveryOverrideReason       String?
+  nasFolderPath                String?
+  notes                        String?
+  createdAt                    DateTime                     @default(now())
+  updatedAt                    DateTime                     @updatedAt
 
-  booking         Booking  @relation(fields: [bookingId], references: [id])
-  customer        Customer @relation(fields: [customerId], references: [id])
-  originalPackage Package? @relation("OriginalPackage", fields: [originalPackageId], references: [id])
-  finalPackage    Package? @relation("FinalPackage", fields: [finalPackageId], references: [id])
-  assignedEditor  User?    @relation("AssignedEditor", fields: [assignedEditorId], references: [id])
+  job             Job             @relation(fields: [jobId], references: [id])
+  booking         Booking         @relation(fields: [bookingId, jobId], references: [id, jobId])
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  originalPackage Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
+  finalPackage    Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
+  assignedEditor  User?           @relation("AssignedEditor", fields: [assignedEditorId], references: [id])
   invoices        Invoice[]
   activities      OrderActivity[]
 
+  @@unique([id, jobId])
+  @@unique([bookingId, jobId])
   @@index([jobNumber])
   @@index([assignedEditorId])
   @@map("orders")
@@ -341,6 +365,7 @@ model Invoice {
   id              String        @id @default(cuid())
   publicId        String        @unique
   jobNumber       String
+  jobId           String
   orderId         String?
   bookingId       String?
   customerId      String
@@ -358,13 +383,16 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  order         Order?    @relation(fields: [orderId], references: [id])
-  booking       Booking?  @relation(fields: [bookingId], references: [id])
+  job           Job       @relation(fields: [jobId], references: [id])
+  order         Order?    @relation(fields: [orderId, jobId], references: [id, jobId])
+  booking       Booking?  @relation(fields: [bookingId, jobId], references: [id, jobId])
   customer      Customer  @relation(fields: [customerId], references: [id])
   parentInvoice Invoice?  @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
   adjustments   Invoice[] @relation("InvoiceAdjustments")
   payments      Payment[]
 
+  @@unique([id, jobId])
+  @@index([jobId])
   @@index([jobNumber])
   @@map("invoices")
 }
@@ -373,6 +401,7 @@ model Payment {
   id          String        @id @default(cuid())
   publicId    String        @unique
   jobNumber   String
+  jobId       String
   invoiceId   String
   amount      Decimal       @db.Decimal(10, 3)
   method      PaymentMethod
@@ -382,8 +411,10 @@ model Payment {
   notes       String?
   createdAt   DateTime      @default(now())
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  job     Job     @relation(fields: [jobId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId, jobId], references: [id, jobId])
 
+  @@index([jobId])
   @@index([jobNumber])
   @@map("payments")
 }

@@ -3,16 +3,20 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 41 implemented.
-- Current goal: verify customer internal notes view/edit on the customer profile page.
+- Current phase: Feature 44 implemented.
+- Current goal: verify the new-booking bugfix in-app after push.
 
 ## Key State
-- `publicId` and `jobNumber` are separate concepts.
+- `jobNumber` is the sole staff-facing operational identifier.
+- Canonical `Job` rows now own immutable `jobNumber` values; `Booking.jobId` is required and is the source-of-truth booking attachment.
+- `Order`, `Invoice`, and `Payment` now also carry canonical `jobId` links back to `Job` for downstream joins; the transitional booking/order/invoice public IDs remain only for compatibility storage, not active staff-facing reads.
 - `jobNumber` is immutable and shared across the booking/order/invoice/payment workflow.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Studio departments are database-backed; active seeded departments are Newborn and Kids.
 - Booking edits now use `departmentId` instead of free-text department values.
 - New booking job numbers use `StudioDepartment.code`; the old hardcoded department-name mapping is retired.
+- Job number generation now self-heals if `identifier_sequences` falls behind existing canonical `Job.jobNumber` rows.
+- Development workflow reset now clears canonical `Job` rows in addition to bookings/orders/invoices/payments and sequence state, so test data resets also restart job-number allocation.
 - Order package and add-on edits now sync the active order invoice total, paid amount, remaining balance, and status in the same transaction.
 - Existing invoice payments remain append-only; financial order edits recalculate invoice math without overwriting payment records.
 - Upgrade commission integration is represented by a service-layer hook for future commission persistence.
@@ -22,6 +26,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order activity persistence now records order creation, package/add-on edits, invoice adjustments, payments, workflow changes, completion, and note updates.
 - Order activity reads are available through a timeline-safe service ordered chronologically for one order.
 - Order details now use a tabbed operational hub shell with a compact header, workflow strip, overview workspace, read-only workflow tabs, financials, and recent activity preview.
+- Feature 44 cleanup: booking and order tables/details now show `jobNumber` only, invoice read/search uses `invoiceNumber` plus `jobNumber`, and booking/order/invoice public IDs are no longer exposed in active staff-facing reads.
 - Selection tab now supports selected-photo counts, add-ons, notes, completion, package decision guidance, and service-layer financial routing.
 - Extra selected photos are treated as a per-photo service-computed add-on charge using the database-backed extra-photo add-on option.
 - Selection add-ons are now chosen from database-backed add-on options while order selections continue to store the priced snapshot on the order.
@@ -41,6 +46,11 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 43: downstream canonical `jobId` adoption added for `Order`, `Invoice`, and `Payment` with service-layer write path updates, safe backfill, consistency-validation, and composite-FK integrity migrations, Prisma schema/documentation refresh, and seed data updates.
+- Feature 42: canonical `Job` ownership added with `Booking.jobId`, safe booking backfill migration, transactional job creation during new booking writes, booking-customer sync into the canonical job row, and updated schema documentation for the new relationship.
+- Feature 44: identifier cleanup removed booking/order public IDs from active UI/search/read models, switched invoice references to `invoiceNumber`/`jobNumber`, and left the transitional schema fields intact for compatibility.
+- Feature 44 bugfix: new booking creation now submits `sessionType` explicitly and job-number generation advances from existing `jobs.jobNumber` values when the sequence table is empty or stale.
+- Development workflow reset bugfix: the reset service now deletes canonical `Job` rows too, so resetting workflow test data also resets subsequent `jobNumber` allocation.
 - Feature 41: customer internal notes surfaced as a dedicated profile section with preserved line breaks and a focused edit action using the existing persisted customer update dialog.
 - Feature 40: child management added inside `/customers/[customerId]` with service-layer create/update methods, Zod validation, profile revalidation, full child list rendering, and inline add/edit dialogs.
 - Customer edit dialog hydration fix: `CustomersTable` now runs as a Client Component so dropdown/dialog event handlers are created on the client side instead of crossing the server/client boundary.
@@ -74,6 +84,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Review whether any remaining reads should be switched from `jobNumber` to canonical `jobId` joins in a later cleanup unit.
 - Manually test editing internal notes from `/customers/[customerId]`, including line breaks, clearing notes, and refresh persistence.
 - Manually test adding and editing children from `/customers/[customerId]`, including required-name validation and optional date-of-birth clearing.
 - Manually test the customer edit dialog from the customers list and the profile page, including duplicate phone validation and successful save return paths.
@@ -85,6 +96,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 43 Implementation Notes
+- Files modified: `context/reviews/current-database-er-diagram.md`, `prisma/schema.prisma`, `prisma/seed.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/orders/order.service.ts`, `src/modules/payments/payment.service.ts`, `context/progress-tracker.md`.
+- Files created: `prisma/migrations/20260507020000_downstream_jobid_adoption/migration.sql`, `prisma/migrations/20260507021000_downstream_jobid_consistency_validation/migration.sql`, `prisma/migrations/20260507022000_downstream_jobid_composite_integrity/migration.sql`.
+- Assumptions: `Order.jobId` remains a one-to-one canonical link because each booking/job still produces a single active order in the current workflow; downstream invoice/payment rows can share the same job through many-to-one links.
+- Validation: `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check` completed successfully. Review follow-ups also passed `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check`.
 
 ## Feature 37 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `context/progress-tracker.md`.
@@ -122,6 +139,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Files modified: `app/customers/[customerId]/page.tsx`, `src/components/customers/customer-edit-dialog.tsx`, `context/progress-tracker.md`.
 - Assumptions: `Customer.notes` is the only persisted customer-context field available in the current schema; preferences and tags remain future work because no persisted schema support was approved.
 - Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `git diff --check` completed successfully.
+
+## Feature 42 Implementation Notes
+- Files modified: `prisma/schema.prisma`, `prisma/seed.ts`, `src/modules/bookings/booking.service.ts`, `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`.
+- Files created: `prisma/migrations/20260507010000_job_entity_booking_foundation/migration.sql`.
+- Assumptions: Current workflow remains one canonical job per booking, so `Booking.jobId` is enforced as unique; downstream `Order`/`Invoice`/`Payment` `jobId` adoption remains intentionally out of scope for this unit.
+- Validation: `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npx prisma migrate deploy`, `npx prisma migrate status`, and `git diff --check` completed successfully.
 
 ## Feature 36 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `src/components/customers/customers-filters.tsx`, `src/components/customers/customers-table.tsx`, `app/bookings/new/page.tsx`, `src/components/bookings/new-booking-form.tsx`, `context/progress-tracker.md`.
@@ -173,3 +196,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Use the relevant feature spec or review doc for detail.
 - Validate with the smallest command set needed for the change.
 - Prefer `build`, `lint`, and migration checks when schema/workflow changes are involved.
+
+## Feature 44 Implementation Notes
+- Files modified: `app/bookings/[bookingId]/page.tsx`, `app/customers/[customerId]/page.tsx`, `app/invoices/[id]/page.tsx`, `app/orders/[orderId]/page.tsx`, `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`, `src/components/bookings/bookings-table.tsx`, `src/components/orders/orders-table.tsx`, `src/modules/bookings/booking.service.ts`, `src/modules/customers/customer.service.ts`, `src/modules/customers/customer.types.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/invoices/invoice.types.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`, `src/modules/payments/payment.service.ts`.
+- Assumptions: booking/order/invoice public IDs remain in the database for compatibility, but active staff-facing flows now use `jobNumber` and `invoiceNumber` exclusively; payment receipt public IDs remain unchanged.
+- Validation: `npx tsc --noEmit`, `npm run lint`, and `npm run build` completed successfully.

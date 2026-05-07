@@ -32,8 +32,10 @@ export async function createBooking(
 
   try {
     await createBookingInDb(parsed.data);
-  } catch {
-    return { errors: { _global: ["Unable to save booking, please try again."] } };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to save booking, please try again.";
+    return { errors: { _global: [message] } };
   }
   redirect("/bookings");
 }

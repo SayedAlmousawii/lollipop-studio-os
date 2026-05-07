@@ -90,9 +90,6 @@ export default async function OrderDetailPage(
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium uppercase text-text-muted">
-                  {order.publicId}
-                </span>
                 <span className="text-xs text-text-muted">Job {order.jobNumber}</span>
               </div>
               <div>
@@ -517,7 +514,7 @@ function FinancialsTab({
 function RelatedRecords({ order }: { order: OrderDetail }) {
   const records: Array<[string, string, string | null]> = [
     ["Booking", order.bookingDate, `/bookings/${order.bookingId}`],
-    ["Invoice", order.primaryInvoicePublicId ?? "No invoice", order.primaryInvoiceId ? `/invoices/${order.primaryInvoiceId}` : null],
+    ["Invoice", order.primaryInvoiceNumber ?? "No invoice", order.primaryInvoiceId ? `/invoices/${order.primaryInvoiceId}` : null],
     ["Customer", order.customerName, null],
     ["Package", order.finalPackageName, null],
   ];

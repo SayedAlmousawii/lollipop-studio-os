@@ -28,9 +28,9 @@ export async function recordPaymentWithClient(
     where: { id: invoiceId },
     select: {
       id: true,
-      publicId: true,
       invoiceNumber: true,
       isLocked: true,
+      jobId: true,
       jobNumber: true,
       orderId: true,
     },
@@ -43,6 +43,7 @@ export async function recordPaymentWithClient(
   const payment = await client.payment.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.PAYMENT),
+      jobId: invoice.jobId,
       jobNumber: invoice.jobNumber,
       invoiceId,
       amount: new Prisma.Decimal(data.amount),
@@ -64,7 +65,6 @@ export async function recordPaymentWithClient(
       description: `${new Prisma.Decimal(data.amount).toFixed(3)} KD payment recorded.`,
       metadata: {
         invoiceId,
-        invoicePublicId: invoice.publicId,
         invoiceNumber: invoice.invoiceNumber,
         paymentId: payment.id,
         amount: new Prisma.Decimal(data.amount).toFixed(3),

@@ -143,7 +143,6 @@ export async function getCustomerById(
             take: 6,
             select: {
               id: true,
-              publicId: true,
               jobNumber: true,
               sessionDate: true,
               sessionType: true,
@@ -157,7 +156,6 @@ export async function getCustomerById(
             take: 6,
             select: {
               id: true,
-              publicId: true,
               jobNumber: true,
               status: true,
               createdAt: true,
@@ -175,7 +173,6 @@ export async function getCustomerById(
 
   const bookings = row.bookings.map((booking) => ({
     id: booking.id,
-    publicId: booking.publicId,
     jobNumber: booking.jobNumber,
     sessionDate: formatSessionDate(booking.sessionDate),
     sessionType: formatEnum(booking.sessionType),
@@ -185,7 +182,6 @@ export async function getCustomerById(
   }));
   const orders = row.orders.map((order) => ({
     id: order.id,
-    publicId: order.publicId,
     jobNumber: order.jobNumber,
     bookingDate: formatSessionDate(order.booking.sessionDate),
     packageName: order.finalPackage?.name ?? order.originalPackage?.name ?? "—",
@@ -475,14 +471,12 @@ function mapOrderStatus(status: OrderStatus): OrderStatusLabel {
 function buildRecentHistory(
   bookings: Array<{
     id: string;
-    publicId: string;
     jobNumber: string;
     sessionDate: Date;
     status: BookingStatus;
   }>,
   orders: Array<{
     id: string;
-    publicId: string;
     jobNumber: string;
     createdAt: Date;
     status: OrderStatus;
@@ -491,7 +485,7 @@ function buildRecentHistory(
   return [
     ...bookings.map((booking) => ({
       id: `booking-${booking.id}`,
-      label: `Booking ${booking.publicId}`,
+      label: `Job ${booking.jobNumber}`,
       detail: `Job ${booking.jobNumber} · ${mapBookingStatus(booking.status)}`,
       date: formatSessionDate(booking.sessionDate),
       sortDate: booking.sessionDate,
@@ -499,7 +493,7 @@ function buildRecentHistory(
     })),
     ...orders.map((order) => ({
       id: `order-${order.id}`,
-      label: `Order ${order.publicId}`,
+      label: `Job ${order.jobNumber}`,
       detail: `Job ${order.jobNumber} · ${mapOrderStatus(order.status)}`,
       date: formatSessionDate(order.createdAt),
       sortDate: order.createdAt,
