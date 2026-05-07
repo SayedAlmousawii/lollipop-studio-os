@@ -20,12 +20,14 @@ interface CustomerEditDialogProps {
     status: CustomerStatus;
   };
   returnTo: string;
+  title?: string;
   trigger: ReactNode;
 }
 
 export function CustomerEditDialog({
   customer,
   returnTo,
+  title = "Edit Customer",
   trigger,
 }: CustomerEditDialogProps) {
   return (
@@ -33,7 +35,7 @@ export function CustomerEditDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit Customer</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         <CustomerForm
           mode="edit"
