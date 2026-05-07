@@ -3,11 +3,12 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 41 implemented.
-- Current goal: verify customer internal notes view/edit on the customer profile page.
+- Current phase: Feature 42 implemented.
+- Current goal: hold for review before downstream `jobId` adoption units.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
+- Canonical `Job` rows now own immutable `jobNumber` values; `Booking.jobId` is required and is the source-of-truth booking attachment.
 - `jobNumber` is immutable and shared across the booking/order/invoice/payment workflow.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Studio departments are database-backed; active seeded departments are Newborn and Kids.
@@ -41,6 +42,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 42: canonical `Job` ownership added with `Booking.jobId`, safe booking backfill migration, transactional job creation during new booking writes, booking-customer sync into the canonical job row, and updated schema documentation for the new relationship.
 - Feature 41: customer internal notes surfaced as a dedicated profile section with preserved line breaks and a focused edit action using the existing persisted customer update dialog.
 - Feature 40: child management added inside `/customers/[customerId]` with service-layer create/update methods, Zod validation, profile revalidation, full child list rendering, and inline add/edit dialogs.
 - Customer edit dialog hydration fix: `CustomersTable` now runs as a Client Component so dropdown/dialog event handlers are created on the client side instead of crossing the server/client boundary.
@@ -122,6 +124,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Files modified: `app/customers/[customerId]/page.tsx`, `src/components/customers/customer-edit-dialog.tsx`, `context/progress-tracker.md`.
 - Assumptions: `Customer.notes` is the only persisted customer-context field available in the current schema; preferences and tags remain future work because no persisted schema support was approved.
 - Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `git diff --check` completed successfully.
+
+## Feature 42 Implementation Notes
+- Files modified: `prisma/schema.prisma`, `prisma/seed.ts`, `src/modules/bookings/booking.service.ts`, `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`.
+- Files created: `prisma/migrations/20260507010000_job_entity_booking_foundation/migration.sql`.
+- Assumptions: Current workflow remains one canonical job per booking, so `Booking.jobId` is enforced as unique; downstream `Order`/`Invoice`/`Payment` `jobId` adoption remains intentionally out of scope for this unit.
+- Validation: `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npx prisma migrate deploy`, `npx prisma migrate status`, and `git diff --check` completed successfully.
 
 ## Feature 36 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `src/components/customers/customers-filters.tsx`, `src/components/customers/customers-table.tsx`, `app/bookings/new/page.tsx`, `src/components/bookings/new-booking-form.tsx`, `context/progress-tracker.md`.

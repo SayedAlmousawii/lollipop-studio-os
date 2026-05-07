@@ -260,11 +260,19 @@ export async function createBookingInDb(
             sessionDate: data.sessionDate,
           }),
         ]);
+        const job = await tx.job.create({
+          data: {
+            jobNumber,
+            customerId: data.customerId,
+          },
+          select: { id: true },
+        });
 
         return tx.booking.create({
           data: {
             publicId,
             jobNumber,
+            jobId: job.id,
             customerId: data.customerId,
             packageId: data.packageId,
             sessionDate: data.sessionDate,
@@ -324,7 +332,7 @@ export async function updateBooking(
       db.$transaction(async (tx) => {
         const booking = await tx.booking.findUnique({
           where: { id: bookingId },
-          select: { id: true, status: true, departmentId: true },
+          select: { id: true, status: true, departmentId: true, jobId: true },
         });
 
         if (!booking) {
@@ -363,6 +371,11 @@ export async function updateBooking(
             themeName: theme.themeName.trim(),
             notes: emptyToNull(theme.notes) ?? existingTheme?.notes ?? null,
           };
+        });
+
+        await tx.job.update({
+          where: { id: booking.jobId },
+          data: { customerId: data.customerId },
         });
 
         return tx.booking.update({

@@ -282,12 +282,43 @@ async function main() {
     }),
   ]);
 
+  const [job1, job2, job3] = await Promise.all([
+    prisma.job.upsert({
+      where: { jobNumber: "PH-2026-00001" },
+      update: { customerId: customerFatima.id },
+      create: {
+        id: "job-001",
+        jobNumber: "PH-2026-00001",
+        customerId: customerFatima.id,
+      },
+    }),
+    prisma.job.upsert({
+      where: { jobNumber: "PH-2026-00002" },
+      update: { customerId: customerAhmed.id },
+      create: {
+        id: "job-002",
+        jobNumber: "PH-2026-00002",
+        customerId: customerAhmed.id,
+      },
+    }),
+    prisma.job.upsert({
+      where: { jobNumber: "PH-2026-00003" },
+      update: { customerId: customerMaryam.id },
+      create: {
+        id: "job-003",
+        jobNumber: "PH-2026-00003",
+        customerId: customerMaryam.id,
+      },
+    }),
+  ]);
+
   // Booking 1: Confirmed newborn session for Fatima
   const booking1 = await prisma.booking.upsert({
     where: { id: "booking-001" },
     update: {
       publicId: "BKG-00001",
       jobNumber: "PH-2026-00001",
+      jobId: job1.id,
       customerId: customerFatima.id,
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
@@ -305,6 +336,7 @@ async function main() {
       id: "booking-001",
       publicId: "BKG-00001",
       jobNumber: "PH-2026-00001",
+      jobId: job1.id,
       customerId: customerFatima.id,
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
@@ -380,6 +412,7 @@ async function main() {
     update: {
       publicId: "BKG-00002",
       jobNumber: "PH-2026-00002",
+      jobId: job2.id,
       customerId: customerAhmed.id,
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
@@ -396,6 +429,7 @@ async function main() {
       id: "booking-002",
       publicId: "BKG-00002",
       jobNumber: "PH-2026-00002",
+      jobId: job2.id,
       customerId: customerAhmed.id,
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
@@ -412,6 +446,7 @@ async function main() {
     update: {
       publicId: "BKG-00003",
       jobNumber: "PH-2026-00003",
+      jobId: job3.id,
       customerId: customerMaryam.id,
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
@@ -429,6 +464,7 @@ async function main() {
       id: "booking-003",
       publicId: "BKG-00003",
       jobNumber: "PH-2026-00003",
+      jobId: job3.id,
       customerId: customerMaryam.id,
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
