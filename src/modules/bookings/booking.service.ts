@@ -63,7 +63,6 @@ export interface BookingFilterOption {
 
 export interface EditableBooking {
   id: string;
-  publicId: string;
   jobNumber: string;
   customerId: string;
   customerName: string;
@@ -89,7 +88,6 @@ export interface EditableBooking {
 
 export interface BookingDetail {
   id: string;
-  publicId: string;
   jobNumber: string;
   customerName: string;
   sessionDate: string;
@@ -194,7 +192,6 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
 
   return rows.map((row) => ({
     id: row.id,
-    publicId: row.publicId,
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),
@@ -765,7 +762,6 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
                 is: { name: containsFilter },
               },
             },
-            { publicId: containsFilter },
             { jobNumber: containsFilter },
             {
               package: {
@@ -883,7 +879,6 @@ function mapEditableBooking(
 ): EditableBooking {
   return {
     id: row.id,
-    publicId: row.publicId,
     jobNumber: row.jobNumber,
     customerId: row.customerId,
     customerName: row.customer.name,
@@ -921,7 +916,6 @@ function mapBookingDetail(
 
   return {
     id: row.id,
-    publicId: row.publicId,
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),

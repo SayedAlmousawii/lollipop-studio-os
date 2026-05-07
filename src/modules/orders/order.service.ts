@@ -957,7 +957,6 @@ export async function updateOrder(
             description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
             metadata: {
               invoiceId: invoiceSummary.invoiceId,
-              invoicePublicId: invoiceSummary.invoicePublicId,
               invoiceNumber: invoiceSummary.invoiceNumber,
               totalAmount: invoiceSummary.totalAmount,
               paidAmount: invoiceSummary.paidAmount,
@@ -1172,12 +1171,6 @@ async function fetchOrders(filters: OrderFilters) {
               },
             },
             {
-              publicId: {
-                contains: filters.search,
-                mode: "insensitive",
-              },
-            },
-            {
               jobNumber: {
                 contains: filters.search,
                 mode: "insensitive",
@@ -1217,7 +1210,7 @@ async function fetchOrders(filters: OrderFilters) {
       invoices: {
         select: {
           id: true,
-          publicId: true,
+          invoiceNumber: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -1264,7 +1257,7 @@ function fetchOrderByIdWithClient(
       invoices: {
         select: {
           id: true,
-          publicId: true,
+          invoiceNumber: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -1296,13 +1289,12 @@ const editableOrderInclude = {
       photoCount: true,
     },
   },
-  invoices: {
-    where: { parentInvoiceId: null },
-    select: {
-      id: true,
-      publicId: true,
-      invoiceNumber: true,
-      totalAmount: true,
+    invoices: {
+      where: { parentInvoiceId: null },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        totalAmount: true,
       paidAmount: true,
       remainingAmount: true,
       status: true,
@@ -1325,7 +1317,6 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
 
   return {
     id: row.id,
-    publicId: row.publicId,
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
     bookingDate: formatDate(row.booking.sessionDate),
@@ -1339,7 +1330,7 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     remainingAmount: formatMoney(invoiceSummary.remainingAmount),
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
-    primaryInvoicePublicId: row.invoices[0]?.publicId ?? null,
+    primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
   };
 }
 
@@ -1665,7 +1656,6 @@ function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
     invoiceSummary: invoice
       ? {
           id: invoice.id,
-          publicId: invoice.publicId,
           invoiceNumber: invoice.invoiceNumber,
           totalAmount: invoice.totalAmount.toNumber(),
           paidAmount: invoice.paidAmount.toNumber(),
@@ -2794,7 +2784,6 @@ export async function getOrderFinancialSummary(
             where: { parentInvoiceId: null },
             select: {
               id: true,
-              publicId: true,
               invoiceNumber: true,
               totalAmount: true,
               paidAmount: true,
@@ -2869,7 +2858,6 @@ export async function getOrderFinancialSummary(
   return {
     invoiceId: invoice?.id ?? null,
     invoiceNumber: invoice?.invoiceNumber ?? null,
-    invoicePublicId: invoice?.publicId ?? null,
     invoiceStatus: invoiceSummary.status,
     paymentStatus: invoiceSummary.paymentStatus,
     basePackageName: originalPackage?.name ?? "—",

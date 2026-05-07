@@ -8,7 +8,7 @@ _Generated: 2026-05-07 | Source: `prisma/schema.prisma` | Updated for the canoni
 
 The database has **14 models** and **14 enums** running on PostgreSQL via Prisma ORM. The schema covers the full studio workflow: customer and children management, canonical job ownership, booking scheduling, photography session themes, package selection, order lifecycle (selection → editing → production → delivery), invoicing with adjustment chains, and payment recording.
 
-The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and now also carries its own `jobId` FK back to the canonical job. `Invoice` and `Payment` similarly point back to the same job thread for downstream joins while the order still aggregates the post-session workflow state: high-level workflow statuses, editing timestamps, section-level production statuses, delivery timestamps/override fields, assigned editor, NAS folder path, and financial references (invoices, activities).
+The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and now also carries its own `jobId` FK back to the canonical job. `Invoice` and `Payment` similarly point back to the same job thread for downstream joins while the order still aggregates the post-session workflow state: high-level workflow statuses, editing timestamps, section-level production statuses, delivery timestamps/override fields, assigned editor, NAS folder path, and financial references (invoices, activities). Booking, order, and invoice public IDs still exist in the schema for compatibility, but active staff-facing reads and searches now use `jobNumber` / `invoiceNumber` instead.
 
 `Customer.id` is intentionally denormalized into `Order` to allow direct customer-scoped queries without joining through `Booking`.
 
@@ -249,7 +249,7 @@ erDiagram
 
 - **Customer → Child**: A customer can have zero or more children. The current child record remains intentionally small: only `name`, optional `dateOfBirth`, and timestamps, linked back to a single customer.
 - **Customer → Job → Booking → Order**: The core workflow chain now starts with a canonical `Job` row that owns the immutable `jobNumber`. Each current booking points to one job through `Booking.jobId`; once the session completes, one `Order` is created from that booking and continues the operational workflow.
-- **Job ownership**: `Job.customerId` is the canonical customer owner for the job thread. Booking creation now creates the job and attaches it transactionally, while the transitional `Booking.jobNumber` string remains stored for compatibility reads. `Order`, `Invoice`, and `Payment` now also keep canonical `jobId` links for downstream joins.
+- **Job ownership**: `Job.customerId` is the canonical customer owner for the job thread. Booking creation now creates the job and attaches it transactionally, while the transitional `Booking.jobNumber` string remains stored for compatibility reads. `Order`, `Invoice`, and `Payment` now also keep canonical `jobId` links for downstream joins, and the older booking/order/invoice public IDs are no longer used in active staff-facing flows.
 - **Booking → Package**: A booking may reference a package at time of booking (optional). The actual final package used can differ and is tracked on the `Order` as `finalPackageId`.
 - **Order → Package (×2)**: An order records both the package originally booked (`originalPackageId`) and the package the customer ends up with after any upgrades (`finalPackageId`).
 - **Order workflow state**: `Order` now stores both top-level workflow enums and deeper phase metadata directly on the row: editing assignment/start/completion fields, approval and handoff timestamps, section-level production statuses, ready-for-pickup timestamps, pickup/completion metadata, and manual delivery override reason fields.
@@ -278,8 +278,7 @@ erDiagram
 
 ## Possible Future Improvements
 
-- Remove `Booking.publicId` and `Order.publicId` fields once URL routing moves to `jobNumber` slugs — both are made redundant by the existing `jobNumber` and internal cuid.
-- Remove `Invoice.publicId` field — `Invoice.id` (cuid) handles internal FK use and `invoiceNumber` handles financial display; the field serves neither role cleanly.
+- Remove the transitional `Booking.publicId`, `Order.publicId`, and `Invoice.publicId` fields once the remaining compatibility dependencies are gone and the schema cleanup is approved.
 - Continue the downstream transition to canonical `Job` ownership by moving reads and reports toward `jobId` joins, then retire propagated job-number compatibility fields once all workflow paths use the existing `Job` relation.
 - Replace `Order.addOns` JSON field with a proper join table to `OrderAddOnOption` to enforce referential integrity and enable querying by add-on.
 - Formalize `Order.deliveryCompletedBy` as a nullable FK to `User` if it represents a staff member.
@@ -315,11 +314,11 @@ The `IdentifierSequence` table (shown in the ER diagram) feeds `jobNumber` only 
 
 | Identifier | Employee-Facing? | Notes |
 |---|---|---|
-| `Booking.publicId` (`BKG-XXXXX`) | Currently yes — **should be demoted then removed** | Shown in table column and detail header; Phase 1: remove from UI; V1.1: drop field entirely |
+| `Booking.publicId` (`BKG-XXXXX`) | No for active flows - compatibility only | Retained in schema for transition, but no longer surfaced in staff-facing reads/search |
 | `Booking.jobNumber` (`DEPT-YEAR-NNNNN`) | Yes — **primary operational ID** | The one identifier employees should use for all workflow |
-| `Order.publicId` (`ORD-XXXXX`) | Currently yes — **should be demoted then removed** | Same treatment as `Booking.publicId`; redundant given jobNumber is already 1:1 with order |
+| `Order.publicId` (`ORD-XXXXX`) | No for active flows - compatibility only | Retained in schema for transition, but no longer surfaced in staff-facing reads/search |
 | `Order.jobNumber` | Yes — inherited from Booking | Correct |
-| `Invoice.publicId` (`INV-PUB-XXXXX`) | **No** — already system-internal; **redundant** | `Invoice.id` handles FK use; `invoiceNumber` handles financial display; this field serves neither role cleanly. V1.1: drop field |
+| `Invoice.publicId` (`INV-PUB-XXXXX`) | No for active flows - compatibility only | Retained in schema for transition, but no longer surfaced in staff-facing reads/search |
 | `Invoice.invoiceNumber` (`INV-XXXXX`) | Yes — financial document reference | Correct; globally incrementing, never resets |
 | `Payment.publicId` (`PAY-XXXXX`) | Yes — payment receipt reference | Correct; keep |
 
@@ -333,15 +332,15 @@ Every identifier should serve exactly one of three roles:
 | **Operational identity** | `jobNumber` | `NB-2026-00018` — generated once at booking, inherited downstream |
 | **Financial identity** | Immutable document number | `Invoice.invoiceNumber` (`INV-00001`), `Payment.publicId` (`PAY-00001`) |
 
-`Booking.publicId`, `Order.publicId`, and `Invoice.publicId` do not fit any of these three roles cleanly and are identified as redundant in the architecture review.
+`Booking.publicId`, `Order.publicId`, and `Invoice.publicId` do not fit any of these three roles cleanly and are now treated as transitional compatibility fields rather than staff-facing identifiers.
 
 ### Target Architecture Intent
 
 The target architecture direction, in phases:
 
-1. **Phase 1 (UI only, no schema change):** Remove `BKG-XXXXX` and `ORD-XXXXX` from all employee-facing tables, headers, and search filters. `jobNumber` becomes the sole operational identifier staff use.
+1. **Phase 1 (UI/read cleanup, no schema change):** Complete. `BKG-XXXXX` and `ORD-XXXXX` are no longer shown in active employee-facing tables, headers, or search filters. `jobNumber` is the sole operational identifier staff use.
 2. **Phase 2 (near-term schema):** Change URL routing from `[cuid]` slugs to `[jobNumber]` slugs (e.g. `/bookings/NB-2026-00018`).
-3. **Phase 3 (V1.1 schema cleanup):** Drop `Booking.publicId`, `Order.publicId`, and `Invoice.publicId` fields and their associated PostgreSQL sequences. `Invoice.invoiceNumber` and `Payment.publicId` remain untouched.
+3. **Phase 3 (V1.1 schema cleanup):** Drop the transitional `Booking.publicId`, `Order.publicId`, and `Invoice.publicId` fields and their associated PostgreSQL sequences once compatibility dependencies are fully retired. `Invoice.invoiceNumber` and `Payment.publicId` remain untouched.
 4. **Phase 4 (V1.1+):** Extract `EditingJob` and `ProductionJob` as separate entities; replace `Order.addOns` JSON with a structured join table.
 5. **Phase 5 (V2):** Complete the identifier cleanup around the existing canonical `Job`: migrate any remaining downstream reads to `jobId` joins, remove propagated job-number string dependencies from child entities, and drop redundant fields only after compatibility paths are retired.
 

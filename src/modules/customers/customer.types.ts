@@ -42,7 +42,6 @@ export interface CustomerProfileChild {
 
 export interface CustomerProfileBooking {
   id: string;
-  publicId: string;
   jobNumber: string;
   sessionDate: string;
   sessionType: string;
@@ -53,7 +52,6 @@ export interface CustomerProfileBooking {
 
 export interface CustomerProfileOrder {
   id: string;
-  publicId: string;
   jobNumber: string;
   bookingDate: string;
   packageName: string;

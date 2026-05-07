@@ -46,7 +46,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
               {invoice.invoiceNumber}
             </h1>
             <p className="mt-1 text-sm text-text-secondary">
-              {invoice.customerName} · {invoice.referenceLabel} · Job {invoice.jobNumber}
+              {invoice.customerName} · Job {invoice.jobNumber}
             </p>
           </div>
           <InvoiceStatusBadge status={invoice.status} />

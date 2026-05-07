@@ -320,15 +320,12 @@ function BookingsPreview({
               {bookings.map((booking) => (
                 <TableRow key={booking.id} className="border-border">
                   <TableCell>
-                    <Link
+                  <Link
                       href={`/bookings/${booking.id}`}
                       className="font-medium text-text-primary hover:text-accent-dark"
                     >
-                      {booking.publicId}
-                    </Link>
-                    <p className="text-xs text-text-muted">
                       Job {booking.jobNumber}
-                    </p>
+                    </Link>
                   </TableCell>
                   <TableCell className="text-sm text-text-secondary">
                     {booking.sessionDate}
@@ -372,15 +369,12 @@ function OrdersPreview({ orders }: { orders: CustomerProfileOrder[] }) {
               {orders.map((order) => (
                 <TableRow key={order.id} className="border-border">
                   <TableCell>
-                    <Link
+                  <Link
                       href={`/orders/${order.id}`}
                       className="font-medium text-text-primary hover:text-accent-dark"
                     >
-                      {order.publicId}
-                    </Link>
-                    <p className="text-xs text-text-muted">
                       Job {order.jobNumber}
-                    </p>
+                    </Link>
                   </TableCell>
                   <TableCell className="text-sm text-text-secondary">
                     {order.bookingDate}

@@ -21,7 +21,6 @@ export interface OrderInvoiceSyncInput {
 
 export interface OrderInvoiceSyncSummary {
   invoiceId: string;
-  invoicePublicId: string;
   invoiceNumber: string;
   totalAmount: string;
   paidAmount: string;
@@ -131,7 +130,6 @@ export async function syncOrderInvoiceForFinancialEdit(
         where: { parentInvoiceId: null },
         select: {
           id: true,
-          publicId: true,
           invoiceNumber: true,
           totalAmount: true,
           paidAmount: true,
@@ -182,10 +180,9 @@ export async function syncOrderInvoiceForFinancialEdit(
     ? await client.invoice.update({
         where: { id: existingInvoice.id },
         data: { totalAmount: targetTotalAmount },
-        select: {
-          id: true,
-          publicId: true,
-          invoiceNumber: true,
+      select: {
+        id: true,
+        invoiceNumber: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -207,7 +204,6 @@ export async function syncOrderInvoiceForFinancialEdit(
     where: { id: invoice.id },
     select: {
       id: true,
-      publicId: true,
       invoiceNumber: true,
       totalAmount: true,
       paidAmount: true,
@@ -219,7 +215,6 @@ export async function syncOrderInvoiceForFinancialEdit(
 
   return {
     invoiceId: recalculated.id,
-    invoicePublicId: recalculated.publicId,
     invoiceNumber: recalculated.invoiceNumber,
     totalAmount: formatMoney(recalculated.totalAmount),
     paidAmount: formatMoney(recalculated.paidAmount),
@@ -285,8 +280,8 @@ export async function getInvoices({
         take: safePageSize,
         include: {
           customer: { select: { name: true } },
-          order: { select: { publicId: true } },
-          booking: { select: { publicId: true } },
+          order: { select: { jobNumber: true } },
+          booking: { select: { jobNumber: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
@@ -295,13 +290,12 @@ export async function getInvoices({
 
   return rows.map((row) => ({
     id: row.id,
-    publicId: row.publicId,
     jobNumber: row.jobNumber,
     invoiceNumber: row.invoiceNumber,
     customerName: row.customer.name,
     orderId: row.orderId,
     bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.order?.publicId, row.booking?.publicId),
+    referenceLabel: formatInvoiceReference(row.jobNumber),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -318,8 +312,8 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
         where: { id },
         include: {
           customer: { select: { name: true } },
-          order: { select: { publicId: true } },
-          booking: { select: { publicId: true } },
+          order: { select: { jobNumber: true } },
+          booking: { select: { jobNumber: true } },
           parentInvoice: { select: { id: true, invoiceNumber: true } },
           payments: { orderBy: { paidAt: "desc" } },
           adjustments: {
@@ -335,13 +329,12 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
 
   return {
     id: row.id,
-    publicId: row.publicId,
     jobNumber: row.jobNumber,
     invoiceNumber: row.invoiceNumber,
     customerName: row.customer.name,
     orderId: row.orderId,
     bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.order?.publicId, row.booking?.publicId),
+    referenceLabel: formatInvoiceReference(row.jobNumber),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -457,7 +450,6 @@ async function createSyncedOrderInvoice(
     },
     select: {
       id: true,
-      publicId: true,
       invoiceNumber: true,
       totalAmount: true,
       paidAmount: true,
@@ -596,12 +588,9 @@ function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput
 
   return {
     OR: [
-      { publicId: identifierFilter },
       { jobNumber: identifierFilter },
       { invoiceNumber: identifierFilter },
       { customer: { is: { name: customerNameFilter } } },
-      { order: { is: { publicId: identifierFilter } } },
-      { booking: { is: { publicId: identifierFilter } } },
     ],
   };
 }
@@ -657,15 +646,9 @@ function formatEnum(value: string): string {
     .join(" ");
 }
 
-function formatInvoiceReference(
-  orderPublicId: string | null | undefined,
-  bookingPublicId: string | null | undefined
-): string {
-  if (orderPublicId) {
-    return `Order ${orderPublicId}`;
+function formatInvoiceReference(jobNumber: string | null | undefined): string {
+  if (jobNumber) {
+    return `Job ${jobNumber}`;
   }
-  if (bookingPublicId) {
-    return `Booking ${bookingPublicId} · Order pending`;
-  }
-  return "Order pending";
+  return "Job pending";
 }
