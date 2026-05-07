@@ -136,9 +136,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedBookings      Booking[]       @relation("AssignedPhotographer")
-  assignedEditingJobs   EditingJob[]    @relation("AssignedEditor")
-  orderActivities       OrderActivity[]
+  assignedBookings    Booking[]       @relation("AssignedPhotographer")
+  assignedEditingJobs EditingJob[]    @relation("AssignedEditor")
+  orderActivities     OrderActivity[]
 
   @@map("users")
 }
@@ -168,12 +168,13 @@ model Job {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  customer Customer  @relation(fields: [customerId], references: [id])
-  booking  Booking?
-  order    Order?
-  editingJob EditingJob?
-  invoices Invoice[]
-  payments Payment[]
+  customer      Customer       @relation(fields: [customerId], references: [id])
+  booking       Booking?
+  order         Order?
+  editingJob    EditingJob?
+  productionJob ProductionJob?
+  invoices      Invoice[]
+  payments      Payment[]
 
   @@index([customerId])
   @@map("jobs")
@@ -283,45 +284,38 @@ model BookingTheme {
 }
 
 model Order {
-  id                           String                       @id @default(cuid())
-  publicId                     String                       @unique
-  jobNumber                    String
-  jobId                        String                       @unique
-  bookingId                    String                       @unique
+  id                     String               @id @default(cuid())
+  publicId               String               @unique
+  jobNumber              String
+  jobId                  String               @unique
+  bookingId              String               @unique
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
-  customerId                   String
-  originalPackageId            String?
-  finalPackageId               String?
-  selectedPhotoCount           Int?
-  addOns                       Json                         @default("[]")
-  status                       OrderStatus                  @default(ACTIVE)
-  selectionStatus              OrderSelectionStatus         @default(PENDING)
-  productionStatus             OrderProductionStatus        @default(NOT_STARTED)
-  deliveryStatus               OrderDeliveryStatus          @default(NOT_READY)
-  productionAlbumDesignStatus  OrderProductionSectionStatus @default(NOT_STARTED)
-  productionPrintingStatus     OrderProductionSectionStatus @default(NOT_STARTED)
-  productionAssemblyStatus     OrderProductionSectionStatus @default(NOT_STARTED)
-  productionVendorStatus       OrderProductionSectionStatus @default(NOT_STARTED)
-  productionFramedPrintsStatus OrderProductionSectionStatus @default(NOT_STARTED)
-  productionFinalStatus        OrderProductionSectionStatus @default(NOT_STARTED)
-  productionReadyAt            DateTime?
-  deliveryPreparedAt           DateTime?
-  customerNotifiedAt           DateTime?
-  pickedUpAt                   DateTime?
-  deliveryCompletedAt          DateTime?
-  deliveryCompletedBy          String?
-  deliveryPickupNotes          String?
-  deliveryOverrideReason       String?
-  nasFolderPath                String?
-  notes                        String?
-  createdAt                    DateTime                     @default(now())
-  updatedAt                    DateTime                     @updatedAt
+  customerId             String
+  originalPackageId      String?
+  finalPackageId         String?
+  selectedPhotoCount     Int?
+  addOns                 Json                 @default("[]")
+  status                 OrderStatus          @default(ACTIVE)
+  selectionStatus        OrderSelectionStatus @default(PENDING)
+  deliveryStatus         OrderDeliveryStatus  @default(NOT_READY)
+  deliveryPreparedAt     DateTime?
+  customerNotifiedAt     DateTime?
+  pickedUpAt             DateTime?
+  deliveryCompletedAt    DateTime?
+  deliveryCompletedBy    String?
+  deliveryPickupNotes    String?
+  deliveryOverrideReason String?
+  nasFolderPath          String?
+  notes                  String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 
   job             Job             @relation(fields: [jobId], references: [id])
   booking         Booking         @relation(fields: [bookingId, jobId], references: [id, jobId])
   customer        Customer        @relation(fields: [customerId], references: [id])
   editingJob      EditingJob?
+  productionJob   ProductionJob?
   originalPackage Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
   finalPackage    Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
   invoices        Invoice[]
@@ -334,13 +328,13 @@ model Order {
 }
 
 model EditingJob {
-  id                           String                       @id @default(cuid())
-  jobId                        String                       @unique
-  orderId                      String                       @unique
+  id                           String             @id @default(cuid())
+  jobId                        String             @unique
+  orderId                      String             @unique
   assignedEditorId             String?
-  status                       OrderEditingStatus           @default(NOT_STARTED)
-  editedPhotoCount             Int                          @default(0)
-  revisionCount                Int                          @default(0)
+  status                       OrderEditingStatus @default(NOT_STARTED)
+  editedPhotoCount             Int                @default(0)
+  revisionCount                Int                @default(0)
   editingAssignedAt            DateTime?
   editingStartedAt             DateTime?
   editingCompletedAt           DateTime?
@@ -348,8 +342,8 @@ model EditingJob {
   sentToProductionAt           DateTime?
   estimatedEditingCompletionAt DateTime?
   notes                        String?
-  createdAt                    DateTime                     @default(now())
-  updatedAt                    DateTime                     @updatedAt
+  createdAt                    DateTime           @default(now())
+  updatedAt                    DateTime           @updatedAt
 
   job            Job   @relation(fields: [jobId], references: [id])
   order          Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -358,6 +352,32 @@ model EditingJob {
   @@index([jobId])
   @@index([assignedEditorId])
   @@map("editing_jobs")
+}
+
+model ProductionJob {
+  id                  String                       @id @default(cuid())
+  jobId               String                       @unique
+  orderId             String                       @unique
+  status              OrderProductionStatus        @default(NOT_STARTED)
+  albumDesignStatus   OrderProductionSectionStatus @default(NOT_STARTED)
+  printingStatus      OrderProductionSectionStatus @default(NOT_STARTED)
+  assemblyStatus      OrderProductionSectionStatus @default(NOT_STARTED)
+  vendorStatus        OrderProductionSectionStatus @default(NOT_STARTED)
+  framedPrintsStatus  OrderProductionSectionStatus @default(NOT_STARTED)
+  finalStatus         OrderProductionSectionStatus @default(NOT_STARTED)
+  productionStartedAt DateTime?
+  readyForPickupAt    DateTime?
+  completedAt         DateTime?
+  vendorName          String?
+  notes               String?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+
+  job   Job   @relation(fields: [jobId], references: [id])
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("production_jobs")
 }
 
 model OrderActivity {

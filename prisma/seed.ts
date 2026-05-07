@@ -496,7 +496,6 @@ async function main() {
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
       selectionStatus: OrderSelectionStatus.COMPLETED,
-      productionStatus: OrderProductionStatus.WAITING_FOR_EDITING,
       nasFolderPath: "\\\\Synology\\Family\\2026-04-15\\96555511223-AlAzmi",
     },
     create: {
@@ -511,7 +510,6 @@ async function main() {
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
       selectionStatus: OrderSelectionStatus.COMPLETED,
-      productionStatus: OrderProductionStatus.WAITING_FOR_EDITING,
       nasFolderPath: "\\\\Synology\\Family\\2026-04-15\\96555511223-AlAzmi",
     },
   });
@@ -538,6 +536,19 @@ async function main() {
       editingAssignedAt: new Date("2026-04-16T09:00:00Z"),
       editingStartedAt: new Date("2026-04-16T10:00:00Z"),
       estimatedEditingCompletionAt: new Date("2026-04-18T10:00:00Z"),
+    },
+  });
+
+  await prisma.productionJob.upsert({
+    where: { orderId: order3.id },
+    update: {
+      jobId: booking3.jobId,
+      status: OrderProductionStatus.WAITING_FOR_EDITING,
+    },
+    create: {
+      orderId: order3.id,
+      jobId: booking3.jobId,
+      status: OrderProductionStatus.WAITING_FOR_EDITING,
     },
   });
 
