@@ -265,16 +265,20 @@ export async function updateCustomer(
   const data = updateCustomerSchema.parse(input);
 
   try {
-    return await db.customer.update({
-      where: { id: customerId },
-      data: {
-        name: data.name,
-        phone: data.phone,
-        notes: data.notes,
-        status: data.status,
-      },
-      select: { id: true },
-    });
+    return await withRetry(
+      () =>
+        db.customer.update({
+          where: { id: customerId },
+          data: {
+            name: data.name,
+            phone: data.phone,
+            notes: data.notes,
+            status: data.status,
+          },
+          select: { id: true },
+        }),
+      "Failed to update customer"
+    );
   } catch (error) {
     if (isUniquePhoneConflict(error)) {
       throw new CustomerPhoneConflictError();
@@ -352,7 +356,15 @@ function mapBookingStatus(status: BookingStatus): BookingStatusLabel {
     case BookingStatus.CANCELLED:
     case BookingStatus.NO_SHOW:
       return "Cancelled";
+    default:
+      return assertUnreachableBookingStatus(status);
   }
+}
+
+function assertUnreachableBookingStatus(
+  status: never
+): BookingStatusLabel {
+  throw new Error(`Unhandled BookingStatus in mapBookingStatus: ${status}`);
 }
 
 function mapOrderStatus(status: OrderStatus): OrderStatusLabel {

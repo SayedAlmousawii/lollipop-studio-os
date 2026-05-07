@@ -111,7 +111,6 @@ export async function updateCustomer(
 
   revalidatePath("/customers");
   revalidatePath(`/customers/${customerId}`);
-  revalidatePath(`/customers/${customerId}/edit`);
   redirect(returnTo);
 }
 
