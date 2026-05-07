@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
@@ -25,9 +26,11 @@ export default async function CustomersPage(props: PageProps<"/customers">) {
               View and manage your studio customers
             </p>
           </div>
-          <Button className="shrink-0">
-            <Plus className="mr-2 h-4 w-4" />
-            New Customer
+          <Button className="shrink-0" asChild>
+            <Link href="/customers/new">
+              <Plus className="mr-2 h-4 w-4" />
+              New Customer
+            </Link>
           </Button>
         </div>
 

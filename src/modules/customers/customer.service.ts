@@ -1,6 +1,10 @@
 import { CustomerStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import {
+  createCustomerSchema,
+  type CreateCustomerInput,
+} from "./customer.schema";
 import type { Customer } from "./customer.types";
 
 export interface CustomerFilters {
@@ -12,6 +16,13 @@ const CUSTOMER_STATUS_FILTERS = new Set<CustomerStatus>([
   CustomerStatus.ACTIVE,
   CustomerStatus.INACTIVE,
 ]);
+
+export class CustomerPhoneConflictError extends Error {
+  constructor() {
+    super("A customer with this phone number already exists.");
+    this.name = "CustomerPhoneConflictError";
+  }
+}
 
 export function parseCustomerFilters(filters: {
   search?: string | string[];
@@ -62,6 +73,29 @@ export async function getCustomers(
   }));
 }
 
+export async function createCustomer(
+  input: CreateCustomerInput
+): Promise<{ id: string }> {
+  const data = createCustomerSchema.parse(input);
+
+  try {
+    return await db.customer.create({
+      data: {
+        name: data.name,
+        phone: data.phone,
+        notes: data.notes,
+        status: CustomerStatus.ACTIVE,
+      },
+      select: { id: true },
+    });
+  } catch (error) {
+    if (isUniquePhoneConflict(error)) {
+      throw new CustomerPhoneConflictError();
+    }
+    throw error;
+  }
+}
+
 function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInput {
   const search = filters.search;
   const searchClause = search
@@ -103,4 +137,16 @@ function formatSessionDate(date: Date): string {
 
 function singleValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function isUniquePhoneConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  return error.code === "P2002" && isPhoneTarget(error.meta?.target);
+}
+
+function isPhoneTarget(target: unknown): boolean {
+  return Array.isArray(target) && target.includes("phone");
 }
