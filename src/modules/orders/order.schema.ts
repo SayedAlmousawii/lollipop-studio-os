@@ -89,7 +89,7 @@ export const updateOrderDeliveryWorkflowSchema = z.object({
     "completeOrder",
   ]),
   pickupNotes: z.string().trim().max(1000, "Pickup notes must be 1000 characters or fewer").optional(),
-  completedBy: z.string().trim().max(120, "Completed by must be 120 characters or fewer").optional(),
+  completedById: z.string().trim().min(1, "Completed by is required").optional(),
   allowPaymentOverride: z.coerce.boolean().optional(),
   overrideReason: z.string().trim().max(500, "Override reason must be 500 characters or fewer").optional(),
 });

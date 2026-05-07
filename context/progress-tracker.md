@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 47 implemented.
-- Current goal: deploy the structured add-on migration and verify backfill.
+- Current phase: Feature 48 implemented.
+- Current goal: deploy the deliveryCompletedById FK migration and verify.
 
 ## Key State
 - `jobNumber` is the sole staff-facing operational identifier.
@@ -12,6 +12,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `Order`, `Invoice`, and `Payment` now also carry canonical `jobId` links back to `Job` for downstream joins; the transitional booking/order/invoice public IDs remain only for compatibility storage, not active staff-facing reads.
 - `EditingJob` now owns editing assignment, progress, revision, and approval/handoff state; the old order-level editing fields were removed from the read/write path.
 - `ProductionJob` now owns production status, section progress, and pickup-readiness timestamps; the old order-level production fields were removed from the read/write path.
+- `Order.deliveryCompletedById` (FK to `User`) is now the active delivery actor reference; `Order.deliveryCompletedBy` (free-text) is retained as a non-authoritative legacy fallback only.
 - `jobNumber` is immutable and shared across the booking/order/invoice/payment workflow.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Studio departments are database-backed; active seeded departments are Newborn and Kids.
@@ -221,3 +222,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Files modified: `app/bookings/[bookingId]/page.tsx`, `app/customers/[customerId]/page.tsx`, `app/invoices/[id]/page.tsx`, `app/orders/[orderId]/page.tsx`, `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`, `src/components/bookings/bookings-table.tsx`, `src/components/orders/orders-table.tsx`, `src/modules/bookings/booking.service.ts`, `src/modules/customers/customer.service.ts`, `src/modules/customers/customer.types.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/invoices/invoice.types.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`, `src/modules/payments/payment.service.ts`.
 - Assumptions: booking/order/invoice public IDs remain in the database for compatibility, but active staff-facing flows now use `jobNumber` and `invoiceNumber` exclusively; payment receipt public IDs remain unchanged.
 - Validation: `npx tsc --noEmit`, `npm run lint`, and `npm run build` completed successfully.
+
+## Feature 48 Implementation Notes
+- Files modified: `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`, `src/components/orders/delivery-workflow-form.tsx`, `app/orders/[orderId]/actions.ts`.
+- Files created: `prisma/migrations/20260508020000_delivery_completed_by_user_fk/migration.sql`.
+- Assumptions: free-text `deliveryCompletedBy` values from before this migration cannot be programmatically mapped to user IDs; they are preserved as a non-authoritative legacy fallback and the read model falls back to them only when the FK is null. The "Completed by" form input is now a staff dropdown rather than a free-text field.
+- Validation: `npx prisma generate`, `npm run lint`, `npm run build` completed successfully.

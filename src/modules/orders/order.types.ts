@@ -145,6 +145,7 @@ export interface OrderDeliveryWorkflow {
   customerNotifiedAt: string | null;
   pickedUpAt: string | null;
   completedAt: string | null;
+  completedById: string | null;
   completedBy: string;
   pickupNotes: string;
   overrideReason: string;
@@ -154,6 +155,12 @@ export interface OrderDeliveryWorkflow {
   canRecordNotification: boolean;
   canMarkPickedUp: boolean;
   canCompleteOrder: boolean;
+  staffOptions: OrderStaffOption[];
+}
+
+export interface OrderStaffOption {
+  id: string;
+  name: string;
 }
 
 export interface OrderProductionSection {

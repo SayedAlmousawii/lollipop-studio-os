@@ -403,17 +403,23 @@ export async function getOrderProductionWorkflowById(
 export async function getOrderDeliveryWorkflowById(
   orderId: string
 ): Promise<OrderDeliveryWorkflow | null> {
-  const order = await withRetry(
+  const [order, staffRows] = await withRetry(
     () =>
-      db.order.findUnique({
-        where: { id: orderId },
-        select: deliveryOrderSelect,
-      }),
+      Promise.all([
+        db.order.findUnique({
+          where: { id: orderId },
+          select: deliveryOrderSelect,
+        }),
+        db.user.findMany({
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        }),
+      ]),
     "Failed to fetch delivery workflow"
   );
 
   if (!order) return null;
-  return mapOrderDeliveryWorkflow(order);
+  return mapOrderDeliveryWorkflow(order, staffRows);
 }
 
 export async function updateOrderSelectionWorkflow(
@@ -944,7 +950,7 @@ export async function updateOrderDeliveryWorkflow(
             title: "Order completed",
             description: "Order was completed through the delivery workflow.",
             metadata: {
-              completedBy: data.completedBy?.trim() ?? null,
+              completedById: data.completedById?.trim() ?? null,
               completedAt: new Date().toISOString(),
               paymentOverrideUsed: next.paymentOverrideUsed,
               overrideReason: data.overrideReason?.trim() ?? null,
@@ -2081,22 +2087,6 @@ function mapStructuredAddOns(
   });
 }
 
-function parseAddOns(value: Prisma.JsonValue): OrderAddOn[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.flatMap((item) => {
-    if (!isJsonObject(item)) return [];
-    const { optionId, name, price } = item;
-    if (typeof name !== "string") return [];
-    if (typeof price !== "number") return [];
-    return [{
-      ...(typeof optionId === "string" ? { optionId } : {}),
-      name,
-      price,
-    }];
-  });
-}
-
 function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
   if (first.length !== second.length) return false;
   return first.every((addOn, index) => {
@@ -2116,10 +2106,6 @@ function serializeAddOnsForMetadata(addOns: OrderAddOn[]): Prisma.InputJsonArray
     name: addOn.name,
     price: addOn.price,
   }));
-}
-
-function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function formatAddOnsSummary(addOns: OrderAddOn[]): string {
@@ -2317,6 +2303,8 @@ const deliveryOrderSelect = {
   customerNotifiedAt: true,
   pickedUpAt: true,
   deliveryCompletedAt: true,
+  deliveryCompletedById: true,
+  deliveryCompletedByUser: { select: { id: true, name: true } },
   deliveryCompletedBy: true,
   deliveryPickupNotes: true,
   deliveryOverrideReason: true,
@@ -2747,7 +2735,10 @@ function productionSectionUpdate(
   };
 }
 
-function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkflow {
+function mapOrderDeliveryWorkflow(
+  order: DeliveryOrderState,
+  staffRows: Array<{ id: string; name: string }>
+): OrderDeliveryWorkflow {
   const invoiceSummary = summarizeInvoices(order.invoices);
   const paymentSettled =
     invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
@@ -2767,7 +2758,9 @@ function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkf
       : null,
     pickedUpAt: order.pickedUpAt ? formatDateTime(order.pickedUpAt) : null,
     completedAt: order.deliveryCompletedAt ? formatDateTime(order.deliveryCompletedAt) : null,
-    completedBy: order.deliveryCompletedBy ?? "",
+    completedById: order.deliveryCompletedById ?? null,
+    completedBy: order.deliveryCompletedByUser?.name ?? order.deliveryCompletedBy ?? "",
+    staffOptions: staffRows,
     pickupNotes: order.deliveryPickupNotes ?? "",
     overrideReason: order.deliveryOverrideReason ?? "",
     completionBlockers,
@@ -3010,8 +3003,8 @@ function resolveDeliveryUpdate(
       const invoiceSummary = summarizeInvoices(order.invoices);
       const paymentSettled =
         invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
-      const completedBy = input.completedBy?.trim();
-      if (!completedBy) {
+      const completedById = input.completedById?.trim();
+      if (!completedById) {
         throw new Error("Completed by is required");
       }
 
@@ -3029,7 +3022,7 @@ function resolveDeliveryUpdate(
           order: {
             deliveryStatus: OrderDeliveryStatus.COMPLETED,
             deliveryCompletedAt: order.deliveryCompletedAt ?? now,
-            deliveryCompletedBy: completedBy,
+            deliveryCompletedByUser: { connect: { id: completedById } },
             deliveryPickupNotes: pickupNotes ?? order.deliveryPickupNotes,
             deliveryOverrideReason: paymentOverrideUsed ? overrideReason : null,
             status: OrderStatus.DELIVERED,
@@ -3058,7 +3051,7 @@ function resolveDeliveryUpdate(
           nextStatus: OrderDeliveryStatus.COMPLETED,
           previousProductionStatus: productionStatus,
           nextProductionStatus: OrderProductionStatus.COMPLETED,
-          completedBy,
+          completedById,
           completedAt: (order.deliveryCompletedAt ?? now).toISOString(),
           paymentStatus: invoiceSummary.paymentStatus,
           paymentOverrideUsed,
@@ -3289,6 +3282,15 @@ export async function getOrderFinancialSummary(
             orderBy: { createdAt: "asc" },
             take: 1,
           },
+          orderAddOns: {
+            select: {
+              addOnOptionId: true,
+              nameSnapshot: true,
+              priceSnapshot: true,
+              quantity: true,
+            },
+            orderBy: { createdAt: "asc" },
+          },
         },
       }),
     "Failed to fetch order financial summary"
@@ -3299,7 +3301,7 @@ export async function getOrderFinancialSummary(
   const invoice = order.invoices[0] ?? null;
   const originalPackage = order.originalPackage;
   const finalPackage = order.finalPackage ?? originalPackage;
-  const addOns = parseAddOns(order.addOns);
+  const addOns = mapStructuredAddOns(order.orderAddOns);
   const addOnTotal = sumAddOnsDecimal(addOns);
 
   const originalPrice = originalPackage ? new Prisma.Decimal(originalPackage.price) : zeroMoney();
