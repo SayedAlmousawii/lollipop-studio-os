@@ -4,6 +4,8 @@ import { withRetry } from "@/lib/retry";
 import {
   createCustomerSchema,
   type CreateCustomerInput,
+  updateCustomerSchema,
+  type UpdateCustomerInput,
 } from "./customer.schema";
 import type { Customer } from "./customer.types";
 
@@ -22,6 +24,21 @@ export class CustomerPhoneConflictError extends Error {
     super("A customer with this phone number already exists.");
     this.name = "CustomerPhoneConflictError";
   }
+}
+
+export class CustomerNotFoundError extends Error {
+  constructor() {
+    super("Customer not found.");
+    this.name = "CustomerNotFoundError";
+  }
+}
+
+export interface CustomerEditRecord {
+  id: string;
+  name: string;
+  phone: string;
+  status: CustomerStatus;
+  notes: string;
 }
 
 export function parseCustomerFilters(filters: {
@@ -73,6 +90,32 @@ export async function getCustomers(
   }));
 }
 
+export async function getCustomerForEdit(
+  customerId: string
+): Promise<CustomerEditRecord | null> {
+  const row = await withRetry(
+    () =>
+      db.customer.findUnique({
+        where: { id: customerId },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          status: true,
+          notes: true,
+        },
+      }),
+    "Failed to fetch customer"
+  );
+
+  if (!row) return null;
+
+  return {
+    ...row,
+    notes: row.notes ?? "",
+  };
+}
+
 export async function createCustomer(
   input: CreateCustomerInput
 ): Promise<{ id: string }> {
@@ -91,6 +134,34 @@ export async function createCustomer(
   } catch (error) {
     if (isUniquePhoneConflict(error)) {
       throw new CustomerPhoneConflictError();
+    }
+    throw error;
+  }
+}
+
+export async function updateCustomer(
+  customerId: string,
+  input: UpdateCustomerInput
+): Promise<{ id: string }> {
+  const data = updateCustomerSchema.parse(input);
+
+  try {
+    return await db.customer.update({
+      where: { id: customerId },
+      data: {
+        name: data.name,
+        phone: data.phone,
+        notes: data.notes,
+        status: data.status,
+      },
+      select: { id: true },
+    });
+  } catch (error) {
+    if (isUniquePhoneConflict(error)) {
+      throw new CustomerPhoneConflictError();
+    }
+    if (isRecordNotFound(error)) {
+      throw new CustomerNotFoundError();
     }
     throw error;
   }
@@ -145,6 +216,13 @@ function isUniquePhoneConflict(error: unknown): boolean {
   }
 
   return error.code === "P2002" && isPhoneTarget(error.meta?.target);
+}
+
+function isRecordNotFound(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2025"
+  );
 }
 
 function isPhoneTarget(target: unknown): boolean {

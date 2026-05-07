@@ -2,9 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createCustomerSchema } from "@/modules/customers/customer.schema";
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+} from "@/modules/customers/customer.schema";
 import {
   createCustomer as createCustomerRecord,
+  updateCustomer as updateCustomerRecord,
+  CustomerNotFoundError,
   CustomerPhoneConflictError,
 } from "@/modules/customers/customer.service";
 
@@ -14,6 +19,7 @@ export type CustomerActionState = {
     name: string;
     phone: string;
     notes: string;
+    status?: string;
   };
 };
 
@@ -54,6 +60,56 @@ export async function createCustomer(
   }
 
   revalidatePath("/customers");
+  redirect("/customers");
+}
+
+export async function updateCustomer(
+  customerId: string,
+  _prev: CustomerActionState,
+  formData: FormData
+): Promise<CustomerActionState> {
+  const values = {
+    name: formValue(formData.get("name")),
+    phone: formValue(formData.get("phone")),
+    notes: formValue(formData.get("notes")),
+    status: formValue(formData.get("status")),
+  };
+
+  const parsed = updateCustomerSchema.safeParse(values);
+  if (!parsed.success) {
+    return {
+      values,
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  try {
+    await updateCustomerRecord(customerId, parsed.data);
+  } catch (error) {
+    if (error instanceof CustomerPhoneConflictError) {
+      return {
+        values,
+        errors: { phone: [error.message] },
+      };
+    }
+    if (error instanceof CustomerNotFoundError) {
+      return {
+        values,
+        errors: { _global: [error.message] },
+      };
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Unable to update customer";
+    return {
+      values,
+      errors: { _global: [message] },
+    };
+  }
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  revalidatePath(`/customers/${customerId}/edit`);
   redirect("/customers");
 }
 

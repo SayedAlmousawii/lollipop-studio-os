@@ -84,8 +84,10 @@ export function CustomersTable({ customers }: CustomersTableProps) {
                         New Booking
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem disabled>
-                      Edit Customer (coming soon)
+                    <DropdownMenuItem asChild>
+                      <Link href={`/customers/${customer.id}/edit`}>
+                        Edit Customer
+                      </Link>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

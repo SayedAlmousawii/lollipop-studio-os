@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CustomerStatus } from "@prisma/client";
 
 export const createCustomerSchema = z.object({
   name: z
@@ -23,4 +24,11 @@ export const createCustomerSchema = z.object({
   ),
 });
 
+export const updateCustomerSchema = createCustomerSchema.extend({
+  status: z.nativeEnum(CustomerStatus, {
+    error: "Select a valid customer status",
+  }),
+});
+
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
+export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
