@@ -37,6 +37,7 @@ export interface CustomerProfileChild {
   id: string;
   name: string;
   dateOfBirth: string;
+  dateOfBirthInput: string;
 }
 
 export interface CustomerProfileBooking {

@@ -30,5 +30,27 @@ export const updateCustomerSchema = createCustomerSchema.extend({
   }),
 });
 
+export const childSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Child name is required")
+    .max(120, "Child name must be 120 characters or fewer"),
+  dateOfBirth: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date")
+      .refine((value) => isValidDateInput(value), "Enter a valid date")
+      .optional()
+  ),
+});
+
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
+export type ChildInput = z.infer<typeof childSchema>;
+
+function isValidDateInput(value: string): boolean {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}

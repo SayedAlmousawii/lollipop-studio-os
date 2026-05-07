@@ -7,6 +7,8 @@ import {
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import {
+  childSchema,
+  type ChildInput,
   createCustomerSchema,
   type CreateCustomerInput,
   updateCustomerSchema,
@@ -37,6 +39,13 @@ export class CustomerNotFoundError extends Error {
   constructor() {
     super("Customer not found.");
     this.name = "CustomerNotFoundError";
+  }
+}
+
+export class ChildNotFoundError extends Error {
+  constructor() {
+    super("Child not found for this customer.");
+    this.name = "ChildNotFoundError";
   }
 }
 
@@ -123,7 +132,6 @@ export async function getCustomerById(
           },
           children: {
             orderBy: { createdAt: "desc" },
-            take: 5,
             select: {
               id: true,
               name: true,
@@ -202,6 +210,9 @@ export async function getCustomerById(
       dateOfBirth: child.dateOfBirth
         ? formatSessionDate(child.dateOfBirth)
         : "—",
+      dateOfBirthInput: child.dateOfBirth
+        ? formatDateInput(child.dateOfBirth)
+        : "",
     })),
     bookings,
     orders,
@@ -290,6 +301,66 @@ export async function updateCustomer(
   }
 }
 
+export async function createChild(
+  customerId: string,
+  input: ChildInput
+): Promise<{ id: string }> {
+  const data = childSchema.parse(input);
+  const customer = await withRetry(
+    () =>
+      db.customer.findUnique({
+        where: { id: customerId },
+        select: { id: true },
+      }),
+    "Failed to verify customer"
+  );
+
+  if (!customer) {
+    throw new CustomerNotFoundError();
+  }
+
+  return withRetry(
+    () =>
+      db.child.create({
+        data: {
+          customerId,
+          name: data.name,
+          dateOfBirth: parseDateOfBirth(data.dateOfBirth),
+        },
+        select: { id: true },
+      }),
+    "Failed to create child"
+  );
+}
+
+export async function updateChild(
+  customerId: string,
+  childId: string,
+  input: ChildInput
+): Promise<{ id: string }> {
+  const data = childSchema.parse(input);
+  const result = await withRetry(
+    () =>
+      db.child.updateMany({
+        where: {
+          id: childId,
+          customerId,
+        },
+        data: {
+          name: data.name,
+          dateOfBirth: parseDateOfBirth(data.dateOfBirth),
+        },
+      }),
+    "Failed to update child"
+  );
+
+  if (result.count === 0) {
+    throw new ChildNotFoundError();
+  }
+
+  return { id: childId };
+}
+
 function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInput {
   const search = filters.search;
   const searchClause = search
@@ -327,6 +398,21 @@ function formatSessionDate(date: Date): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
+}
+
+function formatDateInput(date: Date): string {
+  if (!(date instanceof Date) || isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function parseDateOfBirth(value: string | undefined): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  return new Date(`${value}T00:00:00.000Z`);
 }
 
 function formatEnum(value: string): string {

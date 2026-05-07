@@ -3,12 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
+  childSchema,
   createCustomerSchema,
   updateCustomerSchema,
 } from "@/modules/customers/customer.schema";
 import {
+  createChild as createChildRecord,
   createCustomer as createCustomerRecord,
+  updateChild as updateChildRecord,
   updateCustomer as updateCustomerRecord,
+  ChildNotFoundError,
   CustomerNotFoundError,
   CustomerPhoneConflictError,
 } from "@/modules/customers/customer.service";
@@ -20,6 +24,14 @@ export type CustomerActionState = {
     phone: string;
     notes: string;
     status?: string;
+  };
+};
+
+export type ChildActionState = {
+  errors?: Partial<Record<string, string[]>>;
+  values?: {
+    name: string;
+    dateOfBirth: string;
   };
 };
 
@@ -62,6 +74,83 @@ export async function createCustomer(
 
   revalidatePath("/customers");
   redirect(`/customers/${customer.id}`);
+}
+
+export async function createChild(
+  customerId: string,
+  _prev: ChildActionState,
+  formData: FormData
+): Promise<ChildActionState> {
+  const values = childFormValues(formData);
+  const parsed = childSchema.safeParse(values);
+
+  if (!parsed.success) {
+    return {
+      values,
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  try {
+    await createChildRecord(customerId, parsed.data);
+  } catch (error) {
+    if (error instanceof CustomerNotFoundError) {
+      return {
+        values,
+        errors: { _global: [error.message] },
+      };
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Unable to create child";
+    return {
+      values,
+      errors: { _global: [message] },
+    };
+  }
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}`);
+}
+
+export async function updateChild(
+  customerId: string,
+  childId: string,
+  _prev: ChildActionState,
+  formData: FormData
+): Promise<ChildActionState> {
+  const values = childFormValues(formData);
+  const parsed = childSchema.safeParse(values);
+
+  if (!parsed.success) {
+    return {
+      values,
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  try {
+    await updateChildRecord(customerId, childId, parsed.data);
+  } catch (error) {
+    if (error instanceof ChildNotFoundError) {
+      return {
+        values,
+        errors: { _global: [error.message] },
+      };
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Unable to update child";
+    return {
+      values,
+      errors: { _global: [message] },
+    };
+  }
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(`/customers/${customerId}`);
 }
 
 export async function updateCustomer(
@@ -116,6 +205,16 @@ export async function updateCustomer(
 
 function formValue(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value : "";
+}
+
+function childFormValues(formData: FormData): {
+  name: string;
+  dateOfBirth: string;
+} {
+  return {
+    name: formValue(formData.get("name")),
+    dateOfBirth: formValue(formData.get("dateOfBirth")),
+  };
 }
 
 function customerReturnPath(
