@@ -2,9 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createCustomerSchema } from "@/modules/customers/customer.schema";
+import {
+  createCustomerSchema,
+  updateCustomerSchema,
+} from "@/modules/customers/customer.schema";
 import {
   createCustomer as createCustomerRecord,
+  updateCustomer as updateCustomerRecord,
+  CustomerNotFoundError,
   CustomerPhoneConflictError,
 } from "@/modules/customers/customer.service";
 
@@ -14,6 +19,7 @@ export type CustomerActionState = {
     name: string;
     phone: string;
     notes: string;
+    status?: string;
   };
 };
 
@@ -35,8 +41,9 @@ export async function createCustomer(
     };
   }
 
+  let customer: { id: string };
   try {
-    await createCustomerRecord(parsed.data);
+    customer = await createCustomerRecord(parsed.data);
   } catch (error) {
     if (error instanceof CustomerPhoneConflictError) {
       return {
@@ -54,9 +61,74 @@ export async function createCustomer(
   }
 
   revalidatePath("/customers");
-  redirect("/customers");
+  redirect(`/customers/${customer.id}`);
+}
+
+export async function updateCustomer(
+  customerId: string,
+  _prev: CustomerActionState,
+  formData: FormData
+): Promise<CustomerActionState> {
+  const values = {
+    name: formValue(formData.get("name")),
+    phone: formValue(formData.get("phone")),
+    notes: formValue(formData.get("notes")),
+    status: formValue(formData.get("status")),
+  };
+  const returnTo = customerReturnPath(formData.get("returnTo"), customerId);
+
+  const parsed = updateCustomerSchema.safeParse(values);
+  if (!parsed.success) {
+    return {
+      values,
+      errors: parsed.error.flatten().fieldErrors,
+    };
+  }
+
+  try {
+    await updateCustomerRecord(customerId, parsed.data);
+  } catch (error) {
+    if (error instanceof CustomerPhoneConflictError) {
+      return {
+        values,
+        errors: { phone: [error.message] },
+      };
+    }
+    if (error instanceof CustomerNotFoundError) {
+      return {
+        values,
+        errors: { _global: [error.message] },
+      };
+    }
+
+    const message =
+      error instanceof Error ? error.message : "Unable to update customer";
+    return {
+      values,
+      errors: { _global: [message] },
+    };
+  }
+
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  redirect(returnTo);
 }
 
 function formValue(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value : "";
+}
+
+function customerReturnPath(
+  value: FormDataEntryValue | null,
+  customerId: string
+): string {
+  if (typeof value !== "string") {
+    return `/customers/${customerId}`;
+  }
+
+  if (value === "/customers" || value === `/customers/${customerId}`) {
+    return value;
+  }
+
+  return `/customers/${customerId}`;
 }

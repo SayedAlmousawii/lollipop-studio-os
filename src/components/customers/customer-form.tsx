@@ -5,18 +5,52 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   createCustomer,
+  updateCustomer,
   type CustomerActionState,
 } from "@/app/customers/actions";
+import { DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import type { CustomerStatus } from "@prisma/client";
 
-export function CustomerForm() {
+interface CustomerFormProps {
+  mode?: "create" | "edit";
+  customerId?: string;
+  defaultValues?: {
+    name: string;
+    phone: string;
+    notes: string;
+    status?: CustomerStatus;
+  };
+  returnTo?: string;
+  variant?: "page" | "dialog";
+}
+
+export function CustomerForm({
+  mode = "create",
+  customerId,
+  defaultValues,
+  returnTo,
+  variant = "page",
+}: CustomerFormProps) {
+  const action =
+    mode === "edit" && customerId
+      ? updateCustomer.bind(null, customerId)
+      : createCustomer;
   const [state, formAction] = useActionState<CustomerActionState, FormData>(
-    createCustomer,
-    {}
+    action,
+    { values: defaultValues }
   );
+  const isEdit = mode === "edit";
 
   return (
     <form action={formAction} className="space-y-6">
@@ -26,19 +60,43 @@ export function CustomerForm() {
         </p>
       ) : null}
 
-      <CustomerFields state={state} />
+      {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
+
+      <CustomerFields state={state} showStatus={isEdit} />
 
       <div className="flex items-center justify-end gap-3 pt-2">
-        <Button variant="outline" asChild>
-          <Link href="/customers">Cancel</Link>
-        </Button>
-        <SubmitButton />
+        <CancelButton variant={variant} />
+        <SubmitButton mode={mode} />
       </div>
     </form>
   );
 }
 
-function CustomerFields({ state }: { state: CustomerActionState }) {
+function CancelButton({ variant }: { variant: "page" | "dialog" }) {
+  if (variant === "dialog") {
+    return (
+      <DialogClose asChild>
+        <Button type="button" variant="outline">
+          Cancel
+        </Button>
+      </DialogClose>
+    );
+  }
+
+  return (
+    <Button variant="outline" asChild>
+      <Link href="/customers">Cancel</Link>
+    </Button>
+  );
+}
+
+function CustomerFields({
+  state,
+  showStatus,
+}: {
+  state: CustomerActionState;
+  showStatus: boolean;
+}) {
   const { pending } = useFormStatus();
 
   return (
@@ -70,6 +128,29 @@ function CustomerFields({ state }: { state: CustomerActionState }) {
         <FieldError messages={state.errors?.phone} />
       </div>
 
+      {showStatus ? (
+        <div className="space-y-2">
+          <Label htmlFor="status">Status</Label>
+          <Select
+            name="status"
+            defaultValue={state.values?.status ?? "ACTIVE"}
+            disabled={pending}
+          >
+            <SelectTrigger
+              id="status"
+              aria-invalid={state.errors?.status?.length ? true : undefined}
+            >
+              <SelectValue placeholder="Select status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ACTIVE">Active</SelectItem>
+              <SelectItem value="INACTIVE">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+          <FieldError messages={state.errors?.status} />
+        </div>
+      ) : null}
+
       <div className="space-y-2">
         <Label htmlFor="notes">Internal notes</Label>
         <Textarea
@@ -87,12 +168,14 @@ function CustomerFields({ state }: { state: CustomerActionState }) {
   );
 }
 
-function SubmitButton() {
+function SubmitButton({ mode }: { mode: "create" | "edit" }) {
   const { pending } = useFormStatus();
+  const label = mode === "edit" ? "Save Changes" : "Create Customer";
+  const pendingLabel = mode === "edit" ? "Saving..." : "Creating...";
 
   return (
     <Button type="submit" disabled={pending} className="min-w-[140px]">
-      {pending ? "Creating..." : "Create Customer"}
+      {pending ? pendingLabel : label}
     </Button>
   );
 }
