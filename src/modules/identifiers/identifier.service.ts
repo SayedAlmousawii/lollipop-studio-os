@@ -21,12 +21,30 @@ export async function generateJobNumber(
 ): Promise<string> {
   const code = input.departmentCode.trim().toUpperCase();
   const year = input.sessionDate.getUTCFullYear();
+  const jobNumberPrefix = `${code}-${year}-%`;
   const rows = await client.$queryRaw<Array<{ lastValue: number | bigint }>>`
     INSERT INTO "identifier_sequences" ("scope", "year", "lastValue", "createdAt", "updatedAt")
-    VALUES (${code}, ${year}, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    VALUES (
+      ${code},
+      ${year},
+      (
+        SELECT COALESCE(MAX(substring("jobNumber" FROM '[0-9]+$')::INTEGER), 0) + 1
+        FROM "jobs"
+        WHERE "jobNumber" LIKE ${jobNumberPrefix}
+      ),
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )
     ON CONFLICT ("scope", "year")
     DO UPDATE SET
-      "lastValue" = "identifier_sequences"."lastValue" + 1,
+      "lastValue" = GREATEST(
+        "identifier_sequences"."lastValue" + 1,
+        (
+          SELECT COALESCE(MAX(substring("jobNumber" FROM '[0-9]+$')::INTEGER), 0) + 1
+          FROM "jobs"
+          WHERE "jobNumber" LIKE ${jobNumberPrefix}
+        )
+      ),
       "updatedAt" = CURRENT_TIMESTAMP
     RETURNING "lastValue"
   `;

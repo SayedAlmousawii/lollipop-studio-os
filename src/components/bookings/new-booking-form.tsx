@@ -195,6 +195,7 @@ export function NewBookingForm({
   initialCustomerId,
 }: NewBookingFormProps) {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [selectedSessionType, setSelectedSessionType] = useState("");
   const [state, formAction] = useActionState<ActionState, FormData>(
     createBooking,
     {}
@@ -302,7 +303,8 @@ export function NewBookingForm({
       {/* Session Type */}
       <div className="space-y-1.5">
         <Label htmlFor="sessionType">Session Type</Label>
-        <Select name="sessionType">
+        <input type="hidden" name="sessionType" value={selectedSessionType} />
+        <Select value={selectedSessionType} onValueChange={setSelectedSessionType}>
           <SelectTrigger id="sessionType" className="w-full">
             <SelectValue placeholder="Select session type…" />
           </SelectTrigger>
