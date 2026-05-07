@@ -43,7 +43,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
-- Feature 43: downstream canonical `jobId` adoption added for `Order`, `Invoice`, and `Payment` with service-layer write path updates, safe backfill and consistency-validation migrations, Prisma schema/documentation refresh, and seed data updates.
+- Feature 43: downstream canonical `jobId` adoption added for `Order`, `Invoice`, and `Payment` with service-layer write path updates, safe backfill, consistency-validation, and composite-FK integrity migrations, Prisma schema/documentation refresh, and seed data updates.
 - Feature 42: canonical `Job` ownership added with `Booking.jobId`, safe booking backfill migration, transactional job creation during new booking writes, booking-customer sync into the canonical job row, and updated schema documentation for the new relationship.
 - Feature 41: customer internal notes surfaced as a dedicated profile section with preserved line breaks and a focused edit action using the existing persisted customer update dialog.
 - Feature 40: child management added inside `/customers/[customerId]` with service-layer create/update methods, Zod validation, profile revalidation, full child list rendering, and inline add/edit dialogs.
@@ -93,9 +93,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ## Feature 43 Implementation Notes
 - Files modified: `context/reviews/current-database-er-diagram.md`, `prisma/schema.prisma`, `prisma/seed.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/orders/order.service.ts`, `src/modules/payments/payment.service.ts`, `context/progress-tracker.md`.
-- Files created: `prisma/migrations/20260507020000_downstream_jobid_adoption/migration.sql`, `prisma/migrations/20260507021000_downstream_jobid_consistency_validation/migration.sql`.
+- Files created: `prisma/migrations/20260507020000_downstream_jobid_adoption/migration.sql`, `prisma/migrations/20260507021000_downstream_jobid_consistency_validation/migration.sql`, `prisma/migrations/20260507022000_downstream_jobid_composite_integrity/migration.sql`.
 - Assumptions: `Order.jobId` remains a one-to-one canonical link because each booking/job still produces a single active order in the current workflow; downstream invoice/payment rows can share the same job through many-to-one links.
-- Validation: `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check` completed successfully. Review follow-up also passed `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check`.
+- Validation: `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check` completed successfully. Review follow-ups also passed `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check`.
 
 ## Feature 37 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `context/progress-tracker.md`.

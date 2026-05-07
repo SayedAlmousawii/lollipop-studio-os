@@ -280,7 +280,7 @@ erDiagram
 
 - Remove `Booking.publicId` and `Order.publicId` fields once URL routing moves to `jobNumber` slugs — both are made redundant by the existing `jobNumber` and internal cuid.
 - Remove `Invoice.publicId` field — `Invoice.id` (cuid) handles internal FK use and `invoiceNumber` handles financial display; the field serves neither role cleanly.
-- Introduce a canonical `Job` entity with `Job.jobNumber` as the single source of truth, replacing the current pattern of propagating `jobNumber` as a copied string across `Order`, `Invoice`, and `Payment`.
+- Continue the downstream transition to canonical `Job` ownership by moving reads and reports toward `jobId` joins, then retire propagated job-number compatibility fields once all workflow paths use the existing `Job` relation.
 - Replace `Order.addOns` JSON field with a proper join table to `OrderAddOnOption` to enforce referential integrity and enable querying by add-on.
 - Formalize `Order.deliveryCompletedBy` as a nullable FK to `User` if it represents a staff member.
 - Clarify (and possibly enforce via constraint or application rule) whether an `Invoice` should link to an `Order`, a `Booking`, or both simultaneously.
@@ -343,6 +343,6 @@ The target architecture direction, in phases:
 2. **Phase 2 (near-term schema):** Change URL routing from `[cuid]` slugs to `[jobNumber]` slugs (e.g. `/bookings/NB-2026-00018`).
 3. **Phase 3 (V1.1 schema cleanup):** Drop `Booking.publicId`, `Order.publicId`, and `Invoice.publicId` fields and their associated PostgreSQL sequences. `Invoice.invoiceNumber` and `Payment.publicId` remain untouched.
 4. **Phase 4 (V1.1+):** Extract `EditingJob` and `ProductionJob` as separate entities; replace `Order.addOns` JSON with a structured join table.
-5. **Phase 5 (V2):** Introduce a canonical `Job` entity — `jobNumber` moves to `Job.jobNumber` as the single source of truth, and all downstream entities hold `jobId FK → Job.id` instead of the current propagated string.
+5. **Phase 5 (V2):** Complete the identifier cleanup around the existing canonical `Job`: migrate any remaining downstream reads to `jobId` joins, remove propagated job-number string dependencies from child entities, and drop redundant fields only after compatibility paths are retired.
 
 See `context/reviews/identifier-architecture-review.md` for the full gap analysis, redundancy re-evaluation, canonical Job entity proposal, and risk details.

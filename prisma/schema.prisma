@@ -262,6 +262,7 @@ model Booking {
   themes               BookingTheme[]
   invoices             Invoice[]
 
+  @@unique([id, jobId])
   @@index([departmentId])
   @@map("bookings")
 }
@@ -327,7 +328,7 @@ model Order {
   updatedAt                    DateTime                     @updatedAt
 
   job             Job             @relation(fields: [jobId], references: [id])
-  booking         Booking         @relation(fields: [bookingId], references: [id])
+  booking         Booking         @relation(fields: [bookingId, jobId], references: [id, jobId])
   customer        Customer        @relation(fields: [customerId], references: [id])
   originalPackage Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
   finalPackage    Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
@@ -335,6 +336,8 @@ model Order {
   invoices        Invoice[]
   activities      OrderActivity[]
 
+  @@unique([id, jobId])
+  @@unique([bookingId, jobId])
   @@index([jobNumber])
   @@index([assignedEditorId])
   @@map("orders")
@@ -381,13 +384,14 @@ model Invoice {
   updatedAt       DateTime      @updatedAt
 
   job           Job       @relation(fields: [jobId], references: [id])
-  order         Order?    @relation(fields: [orderId], references: [id])
-  booking       Booking?  @relation(fields: [bookingId], references: [id])
+  order         Order?    @relation(fields: [orderId, jobId], references: [id, jobId])
+  booking       Booking?  @relation(fields: [bookingId, jobId], references: [id, jobId])
   customer      Customer  @relation(fields: [customerId], references: [id])
   parentInvoice Invoice?  @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
   adjustments   Invoice[] @relation("InvoiceAdjustments")
   payments      Payment[]
 
+  @@unique([id, jobId])
   @@index([jobId])
   @@index([jobNumber])
   @@map("invoices")
@@ -408,7 +412,7 @@ model Payment {
   createdAt   DateTime      @default(now())
 
   job     Job     @relation(fields: [jobId], references: [id])
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId, jobId], references: [id, jobId])
 
   @@index([jobId])
   @@index([jobNumber])

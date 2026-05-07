@@ -4,6 +4,10 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+## Communication Efficiency
+- Minimize working chatter.
+- Update only on blockers, completion of a concrete step, or a change in direction.
+- Keep each update to one short sentence unless clarification is needed.
 
 ## Application Building Context
 
