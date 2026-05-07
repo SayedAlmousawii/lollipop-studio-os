@@ -3,13 +3,14 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 44 implemented.
-- Current goal: verify the new-booking bugfix in-app after push.
+- Current phase: Feature 45 implemented.
+- Current goal: push the editing-job extraction and verify the migration state after push.
 
 ## Key State
 - `jobNumber` is the sole staff-facing operational identifier.
 - Canonical `Job` rows now own immutable `jobNumber` values; `Booking.jobId` is required and is the source-of-truth booking attachment.
 - `Order`, `Invoice`, and `Payment` now also carry canonical `jobId` links back to `Job` for downstream joins; the transitional booking/order/invoice public IDs remain only for compatibility storage, not active staff-facing reads.
+- `EditingJob` now owns editing assignment, progress, revision, and approval/handoff state; the old order-level editing fields were removed from the read/write path.
 - `jobNumber` is immutable and shared across the booking/order/invoice/payment workflow.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Studio departments are database-backed; active seeded departments are Newborn and Kids.
@@ -46,6 +47,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 45: editing workflow extraction moved assignment, timestamps, progress, revision count, and approval/handoff state into a dedicated `EditingJob` row with a backfill migration and service-layer read/write updates.
 - Feature 43: downstream canonical `jobId` adoption added for `Order`, `Invoice`, and `Payment` with service-layer write path updates, safe backfill, consistency-validation, and composite-FK integrity migrations, Prisma schema/documentation refresh, and seed data updates.
 - Feature 42: canonical `Job` ownership added with `Booking.jobId`, safe booking backfill migration, transactional job creation during new booking writes, booking-customer sync into the canonical job row, and updated schema documentation for the new relationship.
 - Feature 44: identifier cleanup removed booking/order public IDs from active UI/search/read models, switched invoice references to `invoiceNumber`/`jobNumber`, and left the transitional schema fields intact for compatibility.
@@ -196,6 +198,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Use the relevant feature spec or review doc for detail.
 - Validate with the smallest command set needed for the change.
 - Prefer `build`, `lint`, and migration checks when schema/workflow changes are involved.
+
+## Feature 45 Implementation Notes
+- Files modified: `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`, `prisma/schema.prisma`, `prisma/seed.ts`, `src/modules/orders/order.service.ts`.
+- Files created: `prisma/migrations/20260507030000_extract_editing_job/migration.sql`.
+- Assumptions: every existing order should receive one backfilled editing job row so the editing tab keeps rendering, even when the prior order row carried default editing state; new order creation seeds an empty editing job immediately; editing history display can keep using the same UI contract while the storage owner changes.
+- Validation: `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npx prisma migrate deploy`, and `npx prisma migrate status` completed successfully.
 
 ## Feature 44 Implementation Notes
 - Files modified: `app/bookings/[bookingId]/page.tsx`, `app/customers/[customerId]/page.tsx`, `app/invoices/[id]/page.tsx`, `app/orders/[orderId]/page.tsx`, `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`, `src/components/bookings/bookings-table.tsx`, `src/components/orders/orders-table.tsx`, `src/modules/bookings/booking.service.ts`, `src/modules/customers/customer.service.ts`, `src/modules/customers/customer.types.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/invoices/invoice.types.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`, `src/modules/payments/payment.service.ts`.

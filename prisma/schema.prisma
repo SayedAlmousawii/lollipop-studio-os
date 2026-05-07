@@ -137,7 +137,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   assignedBookings      Booking[]       @relation("AssignedPhotographer")
-  assignedEditingOrders Order[]         @relation("AssignedEditor")
+  assignedEditingJobs   EditingJob[]    @relation("AssignedEditor")
   orderActivities       OrderActivity[]
 
   @@map("users")
@@ -171,6 +171,7 @@ model Job {
   customer Customer  @relation(fields: [customerId], references: [id])
   booking  Booking?
   order    Order?
+  editingJob EditingJob?
   invoices Invoice[]
   payments Payment[]
 
@@ -296,18 +297,8 @@ model Order {
   addOns                       Json                         @default("[]")
   status                       OrderStatus                  @default(ACTIVE)
   selectionStatus              OrderSelectionStatus         @default(PENDING)
-  editingStatus                OrderEditingStatus           @default(NOT_STARTED)
   productionStatus             OrderProductionStatus        @default(NOT_STARTED)
   deliveryStatus               OrderDeliveryStatus          @default(NOT_READY)
-  assignedEditorId             String?
-  editingAssignedAt            DateTime?
-  editingStartedAt             DateTime?
-  editingCompletedAt           DateTime?
-  customerApprovedAt           DateTime?
-  sentToProductionAt           DateTime?
-  editedPhotoCount             Int                          @default(0)
-  revisionCount                Int                          @default(0)
-  estimatedEditingCompletionAt DateTime?
   productionAlbumDesignStatus  OrderProductionSectionStatus @default(NOT_STARTED)
   productionPrintingStatus     OrderProductionSectionStatus @default(NOT_STARTED)
   productionAssemblyStatus     OrderProductionSectionStatus @default(NOT_STARTED)
@@ -330,17 +321,43 @@ model Order {
   job             Job             @relation(fields: [jobId], references: [id])
   booking         Booking         @relation(fields: [bookingId, jobId], references: [id, jobId])
   customer        Customer        @relation(fields: [customerId], references: [id])
+  editingJob      EditingJob?
   originalPackage Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
   finalPackage    Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
-  assignedEditor  User?           @relation("AssignedEditor", fields: [assignedEditorId], references: [id])
   invoices        Invoice[]
   activities      OrderActivity[]
 
   @@unique([id, jobId])
   @@unique([bookingId, jobId])
   @@index([jobNumber])
-  @@index([assignedEditorId])
   @@map("orders")
+}
+
+model EditingJob {
+  id                           String                       @id @default(cuid())
+  jobId                        String                       @unique
+  orderId                      String                       @unique
+  assignedEditorId             String?
+  status                       OrderEditingStatus           @default(NOT_STARTED)
+  editedPhotoCount             Int                          @default(0)
+  revisionCount                Int                          @default(0)
+  editingAssignedAt            DateTime?
+  editingStartedAt             DateTime?
+  editingCompletedAt           DateTime?
+  customerApprovedAt           DateTime?
+  sentToProductionAt           DateTime?
+  estimatedEditingCompletionAt DateTime?
+  notes                        String?
+  createdAt                    DateTime                     @default(now())
+  updatedAt                    DateTime                     @updatedAt
+
+  job            Job   @relation(fields: [jobId], references: [id])
+  order          Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  assignedEditor User? @relation("AssignedEditor", fields: [assignedEditorId], references: [id])
+
+  @@index([jobId])
+  @@index([assignedEditorId])
+  @@map("editing_jobs")
 }
 
 model OrderActivity {
