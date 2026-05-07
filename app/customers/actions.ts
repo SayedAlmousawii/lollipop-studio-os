@@ -75,6 +75,7 @@ export async function updateCustomer(
     notes: formValue(formData.get("notes")),
     status: formValue(formData.get("status")),
   };
+  const returnTo = customerReturnPath(formData.get("returnTo"), customerId);
 
   const parsed = updateCustomerSchema.safeParse(values);
   if (!parsed.success) {
@@ -111,9 +112,24 @@ export async function updateCustomer(
   revalidatePath("/customers");
   revalidatePath(`/customers/${customerId}`);
   revalidatePath(`/customers/${customerId}/edit`);
-  redirect(`/customers/${customerId}`);
+  redirect(returnTo);
 }
 
 function formValue(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value : "";
+}
+
+function customerReturnPath(
+  value: FormDataEntryValue | null,
+  customerId: string
+): string {
+  if (typeof value !== "string") {
+    return `/customers/${customerId}`;
+  }
+
+  if (value === "/customers" || value === `/customers/${customerId}`) {
+    return value;
+  }
+
+  return `/customers/${customerId}`;
 }

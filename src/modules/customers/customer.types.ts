@@ -1,3 +1,4 @@
+import type { CustomerStatus as CustomerStatusValue } from "@prisma/client";
 import type { CustomerStatus } from "@/components/customers/customer-status-badge";
 import type { BookingStatus } from "@/components/bookings/booking-status-badge";
 import type { OrderStatusLabel } from "@/modules/orders/order.types";
@@ -10,6 +11,8 @@ export interface Customer {
   totalBookings: number;
   lastSessionDate: string;
   status: CustomerStatus;
+  statusValue: CustomerStatusValue;
+  notes: string;
 }
 
 export interface CustomerProfile {
@@ -17,6 +20,7 @@ export interface CustomerProfile {
   fullName: string;
   phone: string;
   status: CustomerStatus;
+  statusValue: CustomerStatusValue;
   notes: string;
   createdAt: string;
   updatedAt: string;

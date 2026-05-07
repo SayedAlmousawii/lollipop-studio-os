@@ -12,6 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
+import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog";
 import { CustomerStatusBadge } from "@/components/customers/customer-status-badge";
 import { PageContainer } from "@/components/layout/page-container";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
@@ -76,12 +77,22 @@ export default async function CustomerProfilePage(
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Button asChild>
-                <Link href={`/customers/${customer.id}/edit`}>
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Edit Customer
-                </Link>
-              </Button>
+              <CustomerEditDialog
+                customer={{
+                  id: customer.id,
+                  name: customer.fullName,
+                  phone: customer.phone,
+                  notes: customer.notes,
+                  status: customer.statusValue,
+                }}
+                returnTo={`/customers/${customer.id}`}
+                trigger={
+                  <Button>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit Customer
+                  </Button>
+                }
+              />
               <Button variant="outline" asChild>
                 <Link href={`/bookings/new?customerId=${customer.id}`}>
                   <CalendarPlus className="mr-2 h-4 w-4" />
@@ -119,7 +130,7 @@ export default async function CustomerProfilePage(
           </div>
 
           <div className="space-y-6">
-            <NextActions customerId={customer.id} />
+            <NextActions customer={customer} />
             <RecentHistory customer={customer} />
           </div>
         </div>
@@ -333,22 +344,32 @@ function OrdersPreview({ orders }: { orders: CustomerProfileOrder[] }) {
   );
 }
 
-function NextActions({ customerId }: { customerId: string }) {
+function NextActions({ customer }: { customer: CustomerProfile }) {
   return (
     <Section title="Next Actions" icon={<CalendarPlus className="h-4 w-4" />}>
       <div className="space-y-3">
         <Button className="w-full justify-start" asChild>
-          <Link href={`/bookings/new?customerId=${customerId}`}>
+          <Link href={`/bookings/new?customerId=${customer.id}`}>
             <CalendarPlus className="mr-2 h-4 w-4" />
             New Booking
           </Link>
         </Button>
-        <Button variant="outline" className="w-full justify-start" asChild>
-          <Link href={`/customers/${customerId}/edit`}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit Customer
-          </Link>
-        </Button>
+        <CustomerEditDialog
+          customer={{
+            id: customer.id,
+            name: customer.fullName,
+            phone: customer.phone,
+            notes: customer.notes,
+            status: customer.statusValue,
+          }}
+          returnTo={`/customers/${customer.id}`}
+          trigger={
+            <Button variant="outline" className="w-full justify-start">
+              <Pencil className="mr-2 h-4 w-4" />
+              Edit Customer
+            </Button>
+          }
+        />
       </div>
     </Section>
   );

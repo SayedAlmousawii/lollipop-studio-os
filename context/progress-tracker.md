@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 39 implemented.
-- Current goal: review the customer profile hub in-app with real linked children, bookings, and orders.
+- Current phase: Feature 39 follow-up implemented.
+- Current goal: review the customer edit dialog from both the customers list and customer profile page.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -35,10 +35,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Delivery tab now supports prepare-for-pickup, customer notification, pickup recording, and controlled order completion actions.
 - Delivery workflow state stores prepared/notified/picked-up/completed timestamps, pickup notes, completion actor, and payment override reason on the order.
 - Order completion is service-guarded by pickup recording, finished production sections, and settled payment or an explicit admin override reason.
-- Customer edit is available from the customers list and updates only Customer model fields: name, phone, status, and notes.
+- Customer edit opens in a dialog from the customers list and customer profile page, and updates only Customer model fields: name, phone, status, and notes.
 - Customer profiles are read-first hubs that show core contact context, linked children, bookings, orders, and recent booking/order history without owning invoice, payment, or workflow controls.
 
 ## Recent Milestones
+- Customer edit dialog hydration fix: `CustomersTable` now runs as a Client Component so dropdown/dialog event handlers are created on the client side instead of crossing the server/client boundary.
+- Feature 39 follow-up: Customer editing now uses a popup dialog from both `/customers` and `/customers/[customerId]`, reusing the shared customer form with dialog cancel behavior; the old full-page `/customers/[customerId]/edit` route was removed.
 - Feature 39: Customer profile hub added at `/customers/[customerId]` with service-layer profile read model, summary metrics, contact and notes section, children preview, linked bookings/orders tables, recent history, and next-action links to edit customer or create a booking.
 - Feature 38: Edit customer flow added at `/customers/[customerId]/edit` with service-layer single-customer loading, shared customer form/schema reuse, status editing, server action update handling, duplicate-phone conflict messaging, and redirect back to `/customers`.
 - Feature 37: New customer flow added at `/customers/new` with shared customer creation schema, reusable customer form, server action, service-layer creation, duplicate-phone handling, active-by-default customers, and successful redirect back to `/customers`.
@@ -68,8 +70,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Manually test the customer edit dialog from the customers list and the profile page, including duplicate phone validation and successful save return paths.
 - Manually review `/customers/[customerId]` in-app against customers with and without linked children, bookings, and orders.
-- Manually submit the `/customers/[customerId]/edit` form in-app against the target database, including a duplicate phone case and an inactive-status update.
 - Manually submit the `/customers/new` form in-app against the target database, including a duplicate phone case.
 - Review the Delivery workflow tab in-app, including payment override handling and production-complete blockers.
 - Review the Production workflow tab in-app, including early-start warnings and ready-for-pickup handoff into Delivery.
@@ -95,6 +97,14 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Files created: `app/customers/[customerId]/page.tsx`.
 - Assumptions: Recent history is composed from recent bookings and orders because there is no customer-specific activity log yet; children are preview-only because Feature 40 owns children management; notes stay read-only/minimal because Feature 41 is intended to expand notes, preferences, and tags.
 - Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `git diff --check` completed successfully.
+
+## Feature 39 Follow-Up Notes
+- Files modified: `app/customers/[customerId]/page.tsx`, `app/customers/actions.ts`, `src/components/customers/customer-form.tsx`, `src/components/customers/customers-table.tsx`, `src/modules/customers/customer.service.ts`, `src/modules/customers/customer.types.ts`, `context/progress-tracker.md`.
+- Files created: `src/components/customers/customer-edit-dialog.tsx`.
+- Files deleted: `app/customers/[customerId]/edit/page.tsx`.
+- Assumptions: Saving from the customers list returns to `/customers`; saving from the profile returns to that customer profile; duplicate phone and field validation continue to render inside the dialog.
+- Hydration fix: `src/components/customers/customers-table.tsx` is now a Client Component so the dropdown edit-dialog trigger keeps its event handlers on the client side.
+- Validation: `npm run build`, `npx tsc --noEmit`, `npm run lint`, and `git diff --check` completed successfully.
 
 ## Feature 36 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `src/components/customers/customers-filters.tsx`, `src/components/customers/customers-table.tsx`, `app/bookings/new/page.tsx`, `src/components/bookings/new-booking-form.tsx`, `context/progress-tracker.md`.

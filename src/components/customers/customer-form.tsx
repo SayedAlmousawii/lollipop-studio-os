@@ -8,6 +8,7 @@ import {
   updateCustomer,
   type CustomerActionState,
 } from "@/app/customers/actions";
+import { DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,12 +31,16 @@ interface CustomerFormProps {
     notes: string;
     status?: CustomerStatus;
   };
+  returnTo?: string;
+  variant?: "page" | "dialog";
 }
 
 export function CustomerForm({
   mode = "create",
   customerId,
   defaultValues,
+  returnTo,
+  variant = "page",
 }: CustomerFormProps) {
   const action =
     mode === "edit" && customerId
@@ -55,15 +60,33 @@ export function CustomerForm({
         </p>
       ) : null}
 
+      {returnTo ? <input type="hidden" name="returnTo" value={returnTo} /> : null}
+
       <CustomerFields state={state} showStatus={isEdit} />
 
       <div className="flex items-center justify-end gap-3 pt-2">
-        <Button variant="outline" asChild>
-          <Link href="/customers">Cancel</Link>
-        </Button>
+        <CancelButton variant={variant} />
         <SubmitButton mode={mode} />
       </div>
     </form>
+  );
+}
+
+function CancelButton({ variant }: { variant: "page" | "dialog" }) {
+  if (variant === "dialog") {
+    return (
+      <DialogClose asChild>
+        <Button type="button" variant="outline">
+          Cancel
+        </Button>
+      </DialogClose>
+    );
+  }
+
+  return (
+    <Button variant="outline" asChild>
+      <Link href="/customers">Cancel</Link>
+    </Button>
   );
 }
 

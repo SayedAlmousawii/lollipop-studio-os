@@ -94,6 +94,8 @@ export async function getCustomers(
       ? formatSessionDate(row.bookings[0].sessionDate)
       : "—",
     status: mapCustomerStatus(row.status),
+    statusValue: row.status,
+    notes: row.notes ?? "",
   }));
 }
 
@@ -187,6 +189,7 @@ export async function getCustomerById(
     fullName: row.name,
     phone: row.phone,
     status: mapCustomerStatus(row.status),
+    statusValue: row.status,
     notes: row.notes ?? "",
     createdAt: formatSessionDate(row.createdAt),
     updatedAt: formatSessionDate(row.updatedAt),

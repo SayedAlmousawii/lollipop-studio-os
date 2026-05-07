@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,7 @@ import {
 import {
   CustomerStatusBadge,
 } from "./customer-status-badge";
+import { CustomerEditDialog } from "./customer-edit-dialog";
 import type { Customer } from "@/modules/customers/customer.types";
 
 export type { Customer };
@@ -84,11 +87,23 @@ export function CustomersTable({ customers }: CustomersTableProps) {
                         New Booking
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href={`/customers/${customer.id}/edit`}>
-                        Edit Customer
-                      </Link>
-                    </DropdownMenuItem>
+                    <CustomerEditDialog
+                      customer={{
+                        id: customer.id,
+                        name: customer.fullName,
+                        phone: customer.phone,
+                        notes: customer.notes,
+                        status: customer.statusValue,
+                      }}
+                      returnTo="/customers"
+                      trigger={
+                        <DropdownMenuItem
+                          onSelect={(event) => event.preventDefault()}
+                        >
+                          Edit Customer
+                        </DropdownMenuItem>
+                      }
+                    />
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
