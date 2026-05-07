@@ -41,8 +41,9 @@ export async function createCustomer(
     };
   }
 
+  let customer: { id: string };
   try {
-    await createCustomerRecord(parsed.data);
+    customer = await createCustomerRecord(parsed.data);
   } catch (error) {
     if (error instanceof CustomerPhoneConflictError) {
       return {
@@ -60,7 +61,7 @@ export async function createCustomer(
   }
 
   revalidatePath("/customers");
-  redirect("/customers");
+  redirect(`/customers/${customer.id}`);
 }
 
 export async function updateCustomer(
@@ -110,7 +111,7 @@ export async function updateCustomer(
   revalidatePath("/customers");
   revalidatePath(`/customers/${customerId}`);
   revalidatePath(`/customers/${customerId}/edit`);
-  redirect("/customers");
+  redirect(`/customers/${customerId}`);
 }
 
 function formValue(value: FormDataEntryValue | null): string {

@@ -1,4 +1,9 @@
-import { CustomerStatus, Prisma } from "@prisma/client";
+import {
+  BookingStatus,
+  CustomerStatus,
+  OrderStatus,
+  Prisma,
+} from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import {
@@ -7,7 +12,9 @@ import {
   updateCustomerSchema,
   type UpdateCustomerInput,
 } from "./customer.schema";
-import type { Customer } from "./customer.types";
+import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
+import type { OrderStatusLabel } from "@/modules/orders/order.types";
+import type { Customer, CustomerProfile } from "./customer.types";
 
 export interface CustomerFilters {
   search?: string;
@@ -86,8 +93,117 @@ export async function getCustomers(
     lastSessionDate: row.bookings[0]
       ? formatSessionDate(row.bookings[0].sessionDate)
       : "—",
-    status: row.status === "ACTIVE" ? "Active" : "Inactive",
+    status: mapCustomerStatus(row.status),
   }));
+}
+
+export async function getCustomerById(
+  customerId: string
+): Promise<CustomerProfile | null> {
+  const row = await withRetry(
+    () =>
+      db.customer.findUnique({
+        where: { id: customerId },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          status: true,
+          notes: true,
+          createdAt: true,
+          updatedAt: true,
+          _count: {
+            select: {
+              children: true,
+              bookings: true,
+              orders: true,
+            },
+          },
+          children: {
+            orderBy: { createdAt: "desc" },
+            take: 5,
+            select: {
+              id: true,
+              name: true,
+              dateOfBirth: true,
+            },
+          },
+          bookings: {
+            orderBy: { sessionDate: "desc" },
+            take: 6,
+            select: {
+              id: true,
+              publicId: true,
+              jobNumber: true,
+              sessionDate: true,
+              sessionType: true,
+              status: true,
+              package: { select: { name: true } },
+              department: { select: { name: true } },
+            },
+          },
+          orders: {
+            orderBy: { createdAt: "desc" },
+            take: 6,
+            select: {
+              id: true,
+              publicId: true,
+              jobNumber: true,
+              status: true,
+              createdAt: true,
+              booking: { select: { sessionDate: true } },
+              finalPackage: { select: { name: true } },
+              originalPackage: { select: { name: true } },
+            },
+          },
+        },
+      }),
+    "Failed to fetch customer profile"
+  );
+
+  if (!row) return null;
+
+  const bookings = row.bookings.map((booking) => ({
+    id: booking.id,
+    publicId: booking.publicId,
+    jobNumber: booking.jobNumber,
+    sessionDate: formatSessionDate(booking.sessionDate),
+    sessionType: formatEnum(booking.sessionType),
+    department: booking.department.name,
+    packageName: booking.package?.name ?? "—",
+    status: mapBookingStatus(booking.status),
+  }));
+  const orders = row.orders.map((order) => ({
+    id: order.id,
+    publicId: order.publicId,
+    jobNumber: order.jobNumber,
+    bookingDate: formatSessionDate(order.booking.sessionDate),
+    packageName: order.finalPackage?.name ?? order.originalPackage?.name ?? "—",
+    status: mapOrderStatus(order.status),
+  }));
+
+  return {
+    id: row.id,
+    fullName: row.name,
+    phone: row.phone,
+    status: mapCustomerStatus(row.status),
+    notes: row.notes ?? "",
+    createdAt: formatSessionDate(row.createdAt),
+    updatedAt: formatSessionDate(row.updatedAt),
+    childrenCount: row._count.children,
+    bookingsCount: row._count.bookings,
+    ordersCount: row._count.orders,
+    children: row.children.map((child) => ({
+      id: child.id,
+      name: child.name,
+      dateOfBirth: child.dateOfBirth
+        ? formatSessionDate(child.dateOfBirth)
+        : "—",
+    })),
+    bookings,
+    orders,
+    recentHistory: buildRecentHistory(row.bookings, row.orders),
+  };
 }
 
 export async function getCustomerForEdit(
@@ -206,8 +322,98 @@ function formatSessionDate(date: Date): string {
   }).format(date);
 }
 
+function formatEnum(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function singleValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function mapCustomerStatus(status: CustomerStatus): Customer["status"] {
+  return status === CustomerStatus.ACTIVE ? "Active" : "Inactive";
+}
+
+function mapBookingStatus(status: BookingStatus): BookingStatusLabel {
+  switch (status) {
+    case BookingStatus.PENDING:
+      return "Pending";
+    case BookingStatus.CONFIRMED:
+      return "Confirmed";
+    case BookingStatus.COMPLETED:
+      return "Completed";
+    case BookingStatus.CANCELLED:
+    case BookingStatus.NO_SHOW:
+      return "Cancelled";
+  }
+}
+
+function mapOrderStatus(status: OrderStatus): OrderStatusLabel {
+  switch (status) {
+    case OrderStatus.ACTIVE:
+      return "Active";
+    case OrderStatus.WAITING_SELECTION:
+      return "Waiting Selection";
+    case OrderStatus.EDITING:
+      return "Editing";
+    case OrderStatus.PRODUCTION:
+      return "Production";
+    case OrderStatus.READY:
+      return "Ready";
+    case OrderStatus.DELIVERED:
+      return "Delivered";
+    case OrderStatus.CANCELLED:
+      return "Cancelled";
+  }
+}
+
+function buildRecentHistory(
+  bookings: Array<{
+    id: string;
+    publicId: string;
+    jobNumber: string;
+    sessionDate: Date;
+    status: BookingStatus;
+  }>,
+  orders: Array<{
+    id: string;
+    publicId: string;
+    jobNumber: string;
+    createdAt: Date;
+    status: OrderStatus;
+  }>
+): CustomerProfile["recentHistory"] {
+  return [
+    ...bookings.map((booking) => ({
+      id: `booking-${booking.id}`,
+      label: `Booking ${booking.publicId}`,
+      detail: `Job ${booking.jobNumber} · ${mapBookingStatus(booking.status)}`,
+      date: formatSessionDate(booking.sessionDate),
+      sortDate: booking.sessionDate,
+      href: `/bookings/${booking.id}`,
+    })),
+    ...orders.map((order) => ({
+      id: `order-${order.id}`,
+      label: `Order ${order.publicId}`,
+      detail: `Job ${order.jobNumber} · ${mapOrderStatus(order.status)}`,
+      date: formatSessionDate(order.createdAt),
+      sortDate: order.createdAt,
+      href: `/orders/${order.id}`,
+    })),
+  ]
+    .sort((left, right) => right.sortDate.getTime() - left.sortDate.getTime())
+    .slice(0, 6)
+    .map(({ id, label, detail, date, href }) => ({
+      id,
+      label,
+      detail,
+      date,
+      href,
+    }));
 }
 
 function isUniquePhoneConflict(error: unknown): boolean {
