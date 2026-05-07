@@ -122,7 +122,7 @@ erDiagram
         string originalPackageId FK
         string finalPackageId FK
         int selectedPhotoCount
-        json addOns
+        json addOns "deprecated - no longer source of truth"
         OrderStatus status
         OrderSelectionStatus selectionStatus
         OrderDeliveryStatus deliveryStatus
@@ -135,6 +135,18 @@ erDiagram
         string deliveryOverrideReason
         string nasFolderPath
         string notes
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    OrderAddOn {
+        string id PK
+        string orderId FK
+        string addOnOptionId FK "nullable"
+        string nameSnapshot
+        decimal priceSnapshot
+        int quantity
+        string notes "nullable"
         datetime createdAt
         datetime updatedAt
     }
@@ -261,6 +273,8 @@ erDiagram
     Order ||--o| ProductionJob : "owns"
     EditingJob }o--o| User : "assigned editor"
     Order ||--o{ OrderActivity : "has"
+    Order ||--o{ OrderAddOn : "has"
+    OrderAddOnOption ||--o{ OrderAddOn : "snapshots"
     Order ||--o{ Invoice : "invoiced on"
     User ||--o{ OrderActivity : "attributed to"
 
@@ -295,7 +309,7 @@ erDiagram
 
 | Item | Status | Detail |
 |---|---|---|
-| `Order.addOns` (JSON) | **Uncertain FK** | Field stores add-on data as raw JSON. Likely references `OrderAddOnOption` IDs, but no database-level FK exists. Schema does not enforce referential integrity here. |
+| `Order.addOns` (JSON) | **Deprecated** | Field is kept for transition compatibility but is no longer the active source of truth. Structured `OrderAddOn` rows are now written and read instead. Will be removed in a future cleanup migration. |
 | `Order.deliveryCompletedBy` | **Uncertain type** | Declared as `String?` with no FK relation. Could be a free-text name or a User ID. Not modeled as a formal FK to `User`. |
 | `Invoice.orderId` + `Invoice.bookingId` | **Ambiguous scope** | Both fields are optional, so an invoice can be linked to an order, a booking, both, or neither. The business rule governing which combination is valid is not enforced at the schema level. |
 | `Invoice.parentInvoiceId` self-reference | **Depth unknown** | The schema supports an unlimited chain of invoice adjustments. No maximum depth or circular-reference guard is enforced. |
@@ -307,7 +321,7 @@ erDiagram
 
 - Remove the transitional `Booking.publicId`, `Order.publicId`, and `Invoice.publicId` fields once the remaining compatibility dependencies are gone and the schema cleanup is approved.
 - Continue the downstream transition to canonical `Job` ownership by moving reads and reports toward `jobId` joins, then retire propagated job-number compatibility fields once all workflow paths use the existing `Job` relation.
-- Replace `Order.addOns` JSON field with a proper join table to `OrderAddOnOption` to enforce referential integrity and enable querying by add-on.
+- Drop the deprecated `Order.addOns` JSON field once all compatibility paths confirm the structured `OrderAddOn` rows are stable.
 - Formalize `Order.deliveryCompletedBy` as a nullable FK to `User` if it represents a staff member.
 - Clarify (and possibly enforce via constraint or application rule) whether an `Invoice` should link to an `Order`, a `Booking`, or both simultaneously.
 - Add a depth limit or flat-adjustment model to prevent unbounded `Invoice` adjustment chains.

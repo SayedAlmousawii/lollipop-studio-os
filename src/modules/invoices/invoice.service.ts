@@ -66,6 +66,10 @@ export async function createInvoiceForOrderWithClient(
         orderBy: { createdAt: "asc" },
         take: 1,
       },
+      orderAddOns: {
+        select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!order) throw new Error("Order not found");
@@ -81,7 +85,7 @@ export async function createInvoiceForOrderWithClient(
     includedPhotoCount,
   });
   const totalAmount = packageAmount
-    .plus(sumAddOns(parseOrderAddOns(order.addOns)))
+    .plus(sumAddOns(mapOrderAddOnRows(order.orderAddOns)))
     .plus(extraPhotoCharge);
 
   const invoiceNumberData = await generateInvoiceNumber(client);
@@ -140,6 +144,10 @@ export async function syncOrderInvoiceForFinancialEdit(
         orderBy: { createdAt: "asc" },
         take: 1,
       },
+      orderAddOns: {
+        select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!order) throw new Error("Order not found");
@@ -147,7 +155,7 @@ export async function syncOrderInvoiceForFinancialEdit(
   const packagePrice = order.finalPackage?.price ?? order.originalPackage?.price;
   if (!packagePrice) throw new Error("Order has no package price");
 
-  const nextAddOns = parseOrderAddOns(order.addOns);
+  const nextAddOns = mapOrderAddOnRows(order.orderAddOns);
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
   const includedPhotoCount =
@@ -459,24 +467,22 @@ async function createSyncedOrderInvoice(
   });
 }
 
-function parseOrderAddOns(value: Prisma.JsonValue): OrderAddOnLine[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.flatMap((item) => {
-    if (!isJsonObject(item)) return [];
-    const { optionId, name, price } = item;
-    if (typeof name !== "string") return [];
-    if (typeof price !== "number") return [];
-    return [{
-      ...(typeof optionId === "string" ? { optionId } : {}),
-      name,
-      price,
-    }];
+function mapOrderAddOnRows(
+  rows: Array<{
+    addOnOptionId: string | null;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+): OrderAddOnLine[] {
+  return rows.flatMap((row) => {
+    const line: OrderAddOnLine = {
+      ...(row.addOnOptionId ? { optionId: row.addOnOptionId } : {}),
+      name: row.nameSnapshot,
+      price: row.priceSnapshot.toNumber(),
+    };
+    return Array.from({ length: row.quantity }, () => line);
   });
-}
-
-function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function sumAddOns(addOns: OrderAddOnLine[]): Prisma.Decimal {

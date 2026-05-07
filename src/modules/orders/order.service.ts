@@ -160,7 +160,7 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
       selectedPhotoCount !== null && includedPhotoCount !== null
         ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
         : "—",
-    addonsSummary: formatAddOnsSummary(parseAddOns(row.addOns)),
+    addonsSummary: formatAddOnsSummary(mapStructuredAddOns(row.orderAddOns)),
     ...workflowStatus,
     nextAction: resolveNextOrderAction({
       invoiceStatus: summary.invoiceStatus,
@@ -219,6 +219,15 @@ export async function getOrderSelectionWorkflowById(
               orderBy: { createdAt: "asc" },
               take: 1,
             },
+            orderAddOns: {
+              select: {
+                addOnOptionId: true,
+                nameSnapshot: true,
+                priceSnapshot: true,
+                quantity: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
           },
         }),
         db.package.findMany({
@@ -248,7 +257,7 @@ export async function getOrderSelectionWorkflowById(
 
   if (!order) return null;
 
-  const addOns = parseAddOns(order.addOns);
+  const addOns = mapStructuredAddOns(order.orderAddOns);
   const includedPhotoCount =
     order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
   const selectedPhotos = order.selectedPhotoCount ?? includedPhotoCount;
@@ -979,6 +988,10 @@ export async function updateOrder(
             include: {
               originalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
               finalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
+              orderAddOns: {
+                select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+                orderBy: { createdAt: "asc" },
+              },
             },
           }),
           tx.package.findUnique({
@@ -1001,7 +1014,7 @@ export async function updateOrder(
         if (!previousPackagePrice) {
           throw new Error("Order has no package price");
         }
-        const previousAddOns = parseAddOns(order.addOns);
+        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const previousNotes = order.notes?.trim() ?? "";
         const previousIncludedPhotoCount =
           order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? null;
@@ -1015,6 +1028,19 @@ export async function updateOrder(
             notes: data.notes?.trim() ? data.notes.trim() : null,
           },
         });
+
+        await tx.orderAddOn.deleteMany({ where: { orderId } });
+        if (data.addOns.length > 0) {
+          await tx.orderAddOn.createMany({
+            data: data.addOns.map((addOn) => ({
+              orderId,
+              addOnOptionId: addOn.optionId ?? null,
+              nameSnapshot: addOn.name,
+              priceSnapshot: new Prisma.Decimal(addOn.price),
+              quantity: 1,
+            })),
+          });
+        }
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
           previousPackagePrice,
@@ -1454,6 +1480,15 @@ function fetchOrderByIdWithClient(
         },
         orderBy: { createdAt: "desc" },
       },
+      orderAddOns: {
+        select: {
+          addOnOptionId: true,
+          nameSnapshot: true,
+          priceSnapshot: true,
+          quantity: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 }
@@ -1477,12 +1512,12 @@ const editableOrderInclude = {
       photoCount: true,
     },
   },
-    invoices: {
-      where: { parentInvoiceId: null },
-      select: {
-        id: true,
-        invoiceNumber: true,
-        totalAmount: true,
+  invoices: {
+    where: { parentInvoiceId: null },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      totalAmount: true,
       paidAmount: true,
       remainingAmount: true,
       status: true,
@@ -1490,6 +1525,15 @@ const editableOrderInclude = {
     },
     orderBy: { createdAt: "asc" },
     take: 1,
+  },
+  orderAddOns: {
+    select: {
+      addOnOptionId: true,
+      nameSnapshot: true,
+      priceSnapshot: true,
+      quantity: true,
+    },
+    orderBy: { createdAt: "asc" },
   },
 } satisfies Prisma.OrderInclude;
 
@@ -1826,7 +1870,7 @@ function zeroMoney(): Prisma.Decimal {
 type EditableOrderRow = NonNullable<Awaited<ReturnType<typeof fetchEditableOrderById>>>;
 
 function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
-  const addOns = parseAddOns(order.addOns);
+  const addOns = mapStructuredAddOns(order.orderAddOns);
   const invoice = order.invoices[0] ?? null;
 
   return {
@@ -2014,6 +2058,27 @@ function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
     (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
     zeroMoney()
   );
+}
+
+function mapStructuredAddOns(
+  rows: Array<{
+    addOnOptionId: string | null;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+): OrderAddOn[] {
+  return rows.flatMap((row) => {
+    const entries: OrderAddOn[] = [];
+    for (let i = 0; i < row.quantity; i++) {
+      entries.push({
+        ...(row.addOnOptionId ? { optionId: row.addOnOptionId } : {}),
+        name: row.nameSnapshot,
+        price: row.priceSnapshot.toNumber(),
+      });
+    }
+    return entries;
+  });
 }
 
 function parseAddOns(value: Prisma.JsonValue): OrderAddOn[] {

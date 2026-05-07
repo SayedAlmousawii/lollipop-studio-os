@@ -221,6 +221,8 @@ model OrderAddOnOption {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  orderAddOns OrderAddOn[]
+
   @@index([category, isActive])
   @@map("order_add_on_options")
 }
@@ -320,6 +322,7 @@ model Order {
   finalPackage    Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
   invoices        Invoice[]
   activities      OrderActivity[]
+  orderAddOns     OrderAddOn[]
 
   @@unique([id, jobId])
   @@unique([bookingId, jobId])
@@ -396,6 +399,24 @@ model OrderActivity {
   @@index([orderId, createdAt])
   @@index([type])
   @@map("order_activities")
+}
+
+model OrderAddOn {
+  id            String    @id @default(cuid())
+  orderId       String
+  addOnOptionId String?
+  nameSnapshot  String
+  priceSnapshot Decimal   @db.Decimal(10, 3)
+  quantity      Int       @default(1)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  order       Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  addOnOption OrderAddOnOption? @relation(fields: [addOnOptionId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("order_add_ons")
 }
 
 model Invoice {

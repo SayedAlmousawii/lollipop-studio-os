@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 46 implemented.
-- Current goal: push the production-job extraction and verify the migration state after push.
+- Current phase: Feature 47 implemented.
+- Current goal: deploy the structured add-on migration and verify backfill.
 
 ## Key State
 - `jobNumber` is the sole staff-facing operational identifier.
@@ -32,6 +32,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Selection tab now supports selected-photo counts, add-ons, notes, completion, package decision guidance, and service-layer financial routing.
 - Extra selected photos are treated as a per-photo service-computed add-on charge using the database-backed extra-photo add-on option.
 - Selection add-ons are now chosen from database-backed add-on options while order selections continue to store the priced snapshot on the order.
+- Order add-ons are now persisted as structured `OrderAddOn` rows with snapshot fields (`nameSnapshot`, `priceSnapshot`, `quantity`, nullable `addOnOptionId`) — `Order.addOns` JSON is deprecated and no longer the active source of truth.
+- Existing JSON add-ons are backfilled into structured rows by migration `20260508010000_structured_order_add_ons`.
+- All service-layer reads (order detail, selection workflow, editable order, invoice creation, invoice sync) now source add-ons from `OrderAddOn` rows; writes delete and recreate rows inside the same transaction while keeping the JSON field updated for compatibility.
 - Selection photo entry now captures extra photos only; total selected photos are computed from the package limit plus extras.
 - Editing tab now supports editor assignment/reassignment, start, revision request, completion for approval, customer approval, and explicit production handoff.
 - Editing workflow state stores assignment date, progress counts, revision count, approval/handoff timestamps, and estimated completion date on the order.
@@ -48,6 +51,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 47: structured `OrderAddOn` table added with snapshot fields; JSON backfill migration; all service-layer add-on reads/writes switched to structured rows; `Order.addOns` JSON deprecated; ER diagram updated.
 - Feature 45: editing workflow extraction moved assignment, timestamps, progress, revision count, and approval/handoff state into a dedicated `EditingJob` row with a backfill migration and service-layer read/write updates.
 - Feature 46: production workflow extraction moved production status, section progress, and pickup-readiness data into a dedicated `ProductionJob` row with a backfill migration and service-layer read/write updates.
 - Feature 43: downstream canonical `jobId` adoption added for `Order`, `Invoice`, and `Payment` with service-layer write path updates, safe backfill, consistency-validation, and composite-FK integrity migrations, Prisma schema/documentation refresh, and seed data updates.
