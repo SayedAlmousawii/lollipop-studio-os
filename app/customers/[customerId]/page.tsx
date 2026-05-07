@@ -9,9 +9,11 @@ import {
   History,
   Pencil,
   Phone,
+  Plus,
   UserRound,
 } from "lucide-react";
 import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
+import { ChildFormDialog } from "@/components/customers/child-form-dialog";
 import { CustomerEditDialog } from "@/components/customers/customer-edit-dialog";
 import { CustomerStatusBadge } from "@/components/customers/customer-status-badge";
 import { PageContainer } from "@/components/layout/page-container";
@@ -160,17 +162,22 @@ function HeaderMetric({
 function Section({
   title,
   icon,
+  action,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <Card>
-      <CardHeader className="flex-row items-center gap-2 space-y-0">
-        {icon}
-        <CardTitle className="text-base">{title}</CardTitle>
+      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
+        <div className="flex items-center gap-2">
+          {icon}
+          <CardTitle className="text-base">{title}</CardTitle>
+        </div>
+        {action}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
@@ -209,7 +216,22 @@ function InfoItem({ label, value }: { label: string; value: string }) {
 
 function ChildrenPreview({ customer }: { customer: CustomerProfile }) {
   return (
-    <Section title="Children" icon={<Baby className="h-4 w-4" />}>
+    <Section
+      title="Children"
+      icon={<Baby className="h-4 w-4" />}
+      action={
+        <ChildFormDialog
+          customerId={customer.id}
+          mode="create"
+          trigger={
+            <Button size="sm" variant="outline">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Child
+            </Button>
+          }
+        />
+      }
+    >
       {customer.children.length > 0 ? (
         <div className="divide-y divide-border rounded-md border border-border">
           {customer.children.map((child) => (
@@ -217,24 +239,31 @@ function ChildrenPreview({ customer }: { customer: CustomerProfile }) {
               key={child.id}
               className="flex items-center justify-between gap-4 px-4 py-3"
             >
-              <p className="text-sm font-medium text-text-primary">
-                {child.name}
-              </p>
-              <p className="text-sm text-text-secondary">
-                DOB {child.dateOfBirth}
-              </p>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-text-primary">
+                  {child.name}
+                </p>
+                <p className="text-sm text-text-secondary">
+                  DOB {child.dateOfBirth}
+                </p>
+              </div>
+              <ChildFormDialog
+                customerId={customer.id}
+                mode="edit"
+                child={child}
+                trigger={
+                  <Button size="sm" variant="ghost">
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Edit
+                  </Button>
+                }
+              />
             </div>
           ))}
         </div>
       ) : (
         <EmptyState text="No children linked yet." />
       )}
-      {customer.childrenCount > customer.children.length ? (
-        <p className="mt-3 text-xs text-text-muted">
-          Showing {customer.children.length} of {customer.childrenCount} linked
-          children.
-        </p>
-      ) : null}
     </Section>
   );
 }

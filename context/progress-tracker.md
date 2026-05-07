@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 39 follow-up implemented.
-- Current goal: review the customer edit dialog from both the customers list and customer profile page.
+- Current phase: Feature 40 implemented.
+- Current goal: review child add/edit from the customer profile page.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -37,8 +37,10 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order completion is service-guarded by pickup recording, finished production sections, and settled payment or an explicit admin override reason.
 - Customer edit opens in a dialog from the customers list and customer profile page, and updates only Customer model fields: name, phone, status, and notes.
 - Customer profiles are read-first hubs that show core contact context, linked children, bookings, orders, and recent booking/order history without owning invoice, payment, or workflow controls.
+- Customer profiles now support child add/edit dialogs using the existing Child model fields: name and optional date of birth.
 
 ## Recent Milestones
+- Feature 40: child management added inside `/customers/[customerId]` with service-layer create/update methods, Zod validation, profile revalidation, full child list rendering, and inline add/edit dialogs.
 - Customer edit dialog hydration fix: `CustomersTable` now runs as a Client Component so dropdown/dialog event handlers are created on the client side instead of crossing the server/client boundary.
 - Feature 39 follow-up: Customer editing now uses a popup dialog from both `/customers` and `/customers/[customerId]`, reusing the shared customer form with dialog cancel behavior; the old full-page `/customers/[customerId]/edit` route was removed.
 - Feature 39: Customer profile hub added at `/customers/[customerId]` with service-layer profile read model, summary metrics, contact and notes section, children preview, linked bookings/orders tables, recent history, and next-action links to edit customer or create a booking.
@@ -70,6 +72,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Manually test adding and editing children from `/customers/[customerId]`, including required-name validation and optional date-of-birth clearing.
 - Manually test the customer edit dialog from the customers list and the profile page, including duplicate phone validation and successful save return paths.
 - Manually review `/customers/[customerId]` in-app against customers with and without linked children, bookings, and orders.
 - Manually submit the `/customers/new` form in-app against the target database, including a duplicate phone case.
@@ -105,6 +108,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Assumptions: Saving from the customers list returns to `/customers`; saving from the profile returns to that customer profile; duplicate phone and field validation continue to render inside the dialog.
 - Hydration fix: `src/components/customers/customers-table.tsx` is now a Client Component so the dropdown edit-dialog trigger keeps its event handlers on the client side.
 - Validation: `npm run build`, `npx tsc --noEmit`, `npm run lint`, and `git diff --check` completed successfully.
+
+## Feature 40 Implementation Notes
+- Files modified: `app/customers/[customerId]/page.tsx`, `app/customers/actions.ts`, `src/modules/customers/customer.schema.ts`, `src/modules/customers/customer.service.ts`, `src/modules/customers/customer.types.ts`, `context/progress-tracker.md`.
+- Files created: `src/components/customers/child-form-dialog.tsx`.
+- Assumptions: Child management stays inside the customer profile; date of birth remains optional and can be cleared; children are ordered newest-first and returned as customer-owned records for future booking selectors.
+- Validation: `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `git diff --check` completed successfully.
 
 ## Feature 36 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `src/components/customers/customers-filters.tsx`, `src/components/customers/customers-table.tsx`, `app/bookings/new/page.tsx`, `src/components/bookings/new-booking-form.tsx`, `context/progress-tracker.md`.
