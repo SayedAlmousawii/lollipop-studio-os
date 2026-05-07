@@ -1,11 +1,52 @@
+import { CustomerStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import {
+  createCustomerSchema,
+  type CreateCustomerInput,
+} from "./customer.schema";
 import type { Customer } from "./customer.types";
 
-export async function getCustomers(): Promise<Customer[]> {
+export interface CustomerFilters {
+  search?: string;
+  status?: CustomerStatus;
+}
+
+const CUSTOMER_STATUS_FILTERS = new Set<CustomerStatus>([
+  CustomerStatus.ACTIVE,
+  CustomerStatus.INACTIVE,
+]);
+
+export class CustomerPhoneConflictError extends Error {
+  constructor() {
+    super("A customer with this phone number already exists.");
+    this.name = "CustomerPhoneConflictError";
+  }
+}
+
+export function parseCustomerFilters(filters: {
+  search?: string | string[];
+  status?: string | string[];
+}): CustomerFilters {
+  const search = singleValue(filters.search)?.trim();
+  const status = singleValue(filters.status);
+
+  return {
+    search: search ? search : undefined,
+    status:
+      status && CUSTOMER_STATUS_FILTERS.has(status as CustomerStatus)
+        ? (status as CustomerStatus)
+        : undefined,
+  };
+}
+
+export async function getCustomers(
+  filters: CustomerFilters = {}
+): Promise<Customer[]> {
   const rows = await withRetry(
     () =>
       db.customer.findMany({
+        where: buildCustomersWhere(filters),
         include: {
           _count: { select: { children: true, bookings: true } },
           bookings: {
@@ -32,6 +73,56 @@ export async function getCustomers(): Promise<Customer[]> {
   }));
 }
 
+export async function createCustomer(
+  input: CreateCustomerInput
+): Promise<{ id: string }> {
+  const data = createCustomerSchema.parse(input);
+
+  try {
+    return await db.customer.create({
+      data: {
+        name: data.name,
+        phone: data.phone,
+        notes: data.notes,
+        status: CustomerStatus.ACTIVE,
+      },
+      select: { id: true },
+    });
+  } catch (error) {
+    if (isUniquePhoneConflict(error)) {
+      throw new CustomerPhoneConflictError();
+    }
+    throw error;
+  }
+}
+
+function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInput {
+  const search = filters.search;
+  const searchClause = search
+    ? {
+        OR: [
+          {
+            name: {
+              contains: search,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+          {
+            phone: {
+              contains: search,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ],
+      }
+    : undefined;
+
+  return {
+    ...(searchClause ?? {}),
+    ...(filters.status ? { status: filters.status } : {}),
+  };
+}
+
 function formatSessionDate(date: Date): string {
   if (!(date instanceof Date) || isNaN(date.getTime())) {
     return "—";
@@ -42,4 +133,20 @@ function formatSessionDate(date: Date): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
+}
+
+function singleValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function isUniquePhoneConflict(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  return error.code === "P2002" && isPhoneTarget(error.meta?.target);
+}
+
+function isPhoneTarget(target: unknown): boolean {
+  return Array.isArray(target) && target.includes("phone");
 }

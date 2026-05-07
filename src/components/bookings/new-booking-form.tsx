@@ -37,6 +37,7 @@ interface NewBookingFormProps {
   packages: { id: string; name: string; price: string }[];
   photographers: { id: string; name: string }[];
   departments: { id: string; name: string; code: string }[];
+  initialCustomerId?: string;
 }
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
@@ -58,12 +59,19 @@ function FieldError({ messages }: { messages?: string[] }) {
 interface CustomerComboboxProps {
   customers: Customer[];
   error?: string[];
+  initialCustomerId?: string;
 }
 
-function CustomerCombobox({ customers, error }: CustomerComboboxProps) {
+function CustomerCombobox({
+  customers,
+  error,
+  initialCustomerId,
+}: CustomerComboboxProps) {
+  const initialCustomer =
+    customers.find((customer) => customer.id === initialCustomerId) ?? null;
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<Customer | null>(null);
+  const [query, setQuery] = useState(initialCustomer?.name ?? "");
+  const [selected, setSelected] = useState<Customer | null>(initialCustomer);
   const [activeIndex, setActiveIndex] = useState(-1);
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +192,7 @@ export function NewBookingForm({
   packages,
   photographers,
   departments,
+  initialCustomerId,
 }: NewBookingFormProps) {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [state, formAction] = useActionState<ActionState, FormData>(
@@ -213,6 +222,7 @@ export function NewBookingForm({
         <CustomerCombobox
           customers={customers}
           error={state.errors?.customerId}
+          initialCustomerId={initialCustomerId}
         />
       </div>
 
