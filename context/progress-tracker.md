@@ -16,6 +16,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Booking edits now use `departmentId` instead of free-text department values.
 - New booking job numbers use `StudioDepartment.code`; the old hardcoded department-name mapping is retired.
 - Job number generation now self-heals if `identifier_sequences` falls behind existing canonical `Job.jobNumber` rows.
+- Development workflow reset now clears canonical `Job` rows in addition to bookings/orders/invoices/payments and sequence state, so test data resets also restart job-number allocation.
 - Order package and add-on edits now sync the active order invoice total, paid amount, remaining balance, and status in the same transaction.
 - Existing invoice payments remain append-only; financial order edits recalculate invoice math without overwriting payment records.
 - Upgrade commission integration is represented by a service-layer hook for future commission persistence.
@@ -49,6 +50,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 42: canonical `Job` ownership added with `Booking.jobId`, safe booking backfill migration, transactional job creation during new booking writes, booking-customer sync into the canonical job row, and updated schema documentation for the new relationship.
 - Feature 44: identifier cleanup removed booking/order public IDs from active UI/search/read models, switched invoice references to `invoiceNumber`/`jobNumber`, and left the transitional schema fields intact for compatibility.
 - Feature 44 bugfix: new booking creation now submits `sessionType` explicitly and job-number generation advances from existing `jobs.jobNumber` values when the sequence table is empty or stale.
+- Development workflow reset bugfix: the reset service now deletes canonical `Job` rows too, so resetting workflow test data also resets subsequent `jobNumber` allocation.
 - Feature 41: customer internal notes surfaced as a dedicated profile section with preserved line breaks and a focused edit action using the existing persisted customer update dialog.
 - Feature 40: child management added inside `/customers/[customerId]` with service-layer create/update methods, Zod validation, profile revalidation, full child list rendering, and inline add/edit dialogs.
 - Customer edit dialog hydration fix: `CustomersTable` now runs as a Client Component so dropdown/dialog event handlers are created on the client side instead of crossing the server/client boundary.
