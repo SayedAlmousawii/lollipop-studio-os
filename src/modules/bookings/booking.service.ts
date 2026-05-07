@@ -1,6 +1,8 @@
 import {
   BookingStatus,
   InvoiceStatus,
+  OrderActivityType,
+  OrderStatus,
   PaymentType,
   Prisma,
   UserRole,
@@ -16,16 +18,19 @@ import {
   generateJobNumber,
   generatePublicId,
 } from "@/modules/identifiers/identifier.service";
+import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
 import {
+  recordBasePaymentSchema,
   recordBookingDepositSchema,
   updateBookingStatusSchema,
   updateBookingSchema,
   type CreateBookingInput,
+  type RecordBasePaymentInput,
   type RecordBookingDepositInput,
   type UpdateBookingStatusInput,
   type UpdateBookingInput,
@@ -103,11 +108,14 @@ export interface BookingDetail {
   }>;
   canEdit: boolean;
   canRecordDeposit: boolean;
+  canRecordBasePayment: boolean;
+  packagePriceAmount: number;
+  depositPaidAmount: number;
 }
 
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
-  [BookingStatus.CONFIRMED]: [BookingStatus.COMPLETED, BookingStatus.CANCELLED],
+  [BookingStatus.CONFIRMED]: [BookingStatus.CANCELLED],
   [BookingStatus.COMPLETED]: [],
   [BookingStatus.CANCELLED]: [],
   [BookingStatus.NO_SHOW]: [],
@@ -160,7 +168,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
         where,
         include: {
           customer: { select: { name: true } },
-          package: { select: { name: true } },
+          package: { select: { name: true, price: true } },
           department: { select: { name: true } },
           assignedPhotographer: { select: { name: true } },
           invoices: {
@@ -172,7 +180,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
               id: true,
               payments: {
                 where: { paymentType: PaymentType.DEPOSIT },
-                select: { id: true },
+                select: { id: true, amount: true },
                 take: 1,
               },
             },
@@ -195,6 +203,8 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
     status: mapBookingStatus(row.status),
     paymentStatus: mapDepositStatus(row.invoices),
     assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
+    packagePriceAmount: row.package?.price?.toNumber() ?? 0,
+    depositPaidAmount: row.invoices[0]?.payments?.[0]?.amount?.toNumber() ?? 0,
   }));
 }
 
@@ -451,7 +461,7 @@ export async function recordBookingDeposit(
   return withRetry(
     () =>
       db.$transaction(async (tx) => {
-        await lockBookingForDeposit(tx, data.bookingId);
+        await lockBookingForUpdate(tx, data.bookingId);
 
         const booking = await tx.booking.findUnique({
           where: { id: data.bookingId },
@@ -505,6 +515,102 @@ export async function recordBookingDeposit(
         return payment;
       }),
     "Failed to record booking deposit",
+    2
+  );
+}
+
+export async function recordBasePaymentAndComplete(
+  input: RecordBasePaymentInput
+): Promise<{ orderId: string }> {
+  const data = recordBasePaymentSchema.parse(input);
+
+  return withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        await lockBookingForUpdate(tx, data.bookingId);
+
+        const booking = await tx.booking.findUnique({
+          where: { id: data.bookingId },
+          select: {
+            id: true,
+            status: true,
+            invoices: {
+              orderBy: { createdAt: "asc" },
+              select: {
+                id: true,
+                status: true,
+              },
+              take: 1,
+            },
+          },
+        });
+
+        if (!booking) {
+          throw new Error("Booking not found");
+        }
+        if (booking.status !== BookingStatus.CONFIRMED) {
+          throw new Error(
+            "Base payment can only be recorded for confirmed bookings"
+          );
+        }
+
+        const invoice =
+          booking.invoices[0] ??
+          (await createInvoiceForBookingWithClient(tx, booking.id));
+        if (invoice.status === InvoiceStatus.DRAFT) {
+          await issueInvoiceWithClient(tx, invoice.id);
+        }
+
+        const payment = await recordPaymentWithClient(tx, invoice.id, {
+          amount: data.amount,
+          method: data.method,
+          paymentType: PaymentType.BASE,
+          notes: data.notes,
+        });
+
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.COMPLETED },
+        });
+
+        const order = await createOrderFromBookingWithClient(
+          tx,
+          booking.id,
+          OrderStatus.WAITING_SELECTION
+        );
+
+        await recordOrderActivity(tx, {
+          orderId: order.id,
+          type: OrderActivityType.PAYMENT_RECEIVED,
+          title: "Base payment recorded",
+          description: `${new Prisma.Decimal(data.amount).toFixed(3)} KD base payment recorded before selection opened.`,
+          metadata: {
+            bookingId: booking.id,
+            invoiceId: invoice.id,
+            paymentId: payment.id,
+            amount: new Prisma.Decimal(data.amount).toFixed(3),
+            method: data.method,
+            paymentType: PaymentType.BASE,
+            notes: data.notes ?? null,
+          },
+        });
+
+        await recordOrderActivity(tx, {
+          orderId: order.id,
+          type: OrderActivityType.NOTE_ADDED,
+          title: "Booking completed",
+          description:
+            "Booking moved from Confirmed to Completed after the base payment was recorded.",
+          metadata: {
+            bookingId: booking.id,
+            previousStatus: BookingStatus.CONFIRMED,
+            nextStatus: BookingStatus.COMPLETED,
+          },
+        });
+
+        return { orderId: order.id };
+      }),
+    "Failed to record base payment",
     2
   );
 }
@@ -563,7 +669,7 @@ async function validateBookingReferences(
   }
 }
 
-async function lockBookingForDeposit(
+async function lockBookingForUpdate(
   client: Prisma.TransactionClient,
   bookingId: string
 ): Promise<void> {
@@ -613,9 +719,10 @@ const editableBookingInclude = {
     take: 1,
     select: {
       id: true,
+      status: true,
       payments: {
         where: { paymentType: PaymentType.DEPOSIT },
-        select: { id: true },
+        select: { id: true, amount: true },
         take: 1,
       },
     },
@@ -795,6 +902,9 @@ function mapBookingDetail(
   row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
 ): BookingDetail {
   const hasDeposit = hasDepositPayment(row.invoices);
+  const depositPaidAmount =
+    row.invoices[0]?.payments?.[0]?.amount?.toNumber() ?? 0;
+  const packagePriceAmount = row.package?.price?.toNumber() ?? 0;
 
   return {
     id: row.id,
@@ -820,6 +930,9 @@ function mapBookingDetail(
       row.status !== BookingStatus.CANCELLED &&
       row.status !== BookingStatus.NO_SHOW,
     canRecordDeposit: row.status === BookingStatus.PENDING && !hasDeposit,
+    canRecordBasePayment: row.status === BookingStatus.CONFIRMED,
+    packagePriceAmount,
+    depositPaidAmount,
   };
 }
 

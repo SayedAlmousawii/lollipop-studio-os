@@ -69,6 +69,7 @@ export interface OrderDetail extends Order {
 
 export interface OrderSelectionWorkflow {
   orderId: string;
+  orderStatus: OrderStatusLabel;
   finalPackageId: string;
   originalPackageName: string;
   finalPackageName: string;
