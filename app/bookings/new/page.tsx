@@ -7,7 +7,9 @@ import { getCustomers } from "@/modules/customers/customer.service";
 import { getActiveStudioDepartments } from "@/modules/departments/studio-department.service";
 import { getPackages } from "@/modules/packages/package.service";
 
-export default async function NewBookingPage() {
+export default async function NewBookingPage(props: PageProps<"/bookings/new">) {
+  const { customerId } = await props.searchParams;
+  const requestedCustomerId = Array.isArray(customerId) ? customerId[0] : customerId;
   const [allCustomers, allPackages, photographers, departments] = await Promise.all([
     getCustomers(),
     getPackages(),
@@ -16,6 +18,9 @@ export default async function NewBookingPage() {
   ]);
 
   const customers = allCustomers.map((c) => ({ id: c.id, name: c.fullName }));
+  const initialCustomerId = customers.some((c) => c.id === requestedCustomerId)
+    ? requestedCustomerId
+    : undefined;
   const packages = allPackages
     .filter((p) => p.status === "Active")
     .map((p) => ({ id: p.id, name: p.name, price: p.price }));
@@ -49,6 +54,7 @@ export default async function NewBookingPage() {
             packages={packages}
             photographers={photographers}
             departments={departments}
+            initialCustomerId={initialCustomerId}
           />
         </div>
       </div>

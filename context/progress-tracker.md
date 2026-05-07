@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 35 implemented and review fixes applied.
-- Current goal: verify the base payment gate no longer has a completion bypass and that base-payment completion writes the expected order activity trail.
+- Current phase: Feature 36 implemented.
+- Current goal: review the Customers list URL filters, row action navigation, and New Booking customer preselection in-app.
 
 ## Key State
 - `publicId` and `jobNumber` are separate concepts.
@@ -37,6 +37,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order completion is service-guarded by pickup recording, finished production sections, and settled payment or an explicit admin override reason.
 
 ## Recent Milestones
+- Feature 36: Customers list filters are now URL-driven and server-rendered. `search` matches customer name or phone, `status` accepts only ACTIVE/INACTIVE, row actions link to profile and new booking routes, edit is explicitly disabled as coming soon, empty customer results show a clear state, and `/bookings/new?customerId=...` preselects a valid customer without changing booking workflow rules.
 - Feature 35 review follow-up: bound booking id server-side in the base payment action, added row locking to the base payment transaction, blocked selection updates for cancelled orders, and made the auto-calculated amount field explicitly read-only in the UI.
 - Feature 35 follow-up: base payment amount is now read-only in the booking detail and bookings list modals so staff records the service-computed remaining balance without editing it.
 - Feature 35 follow-up: added `Record Base Payment` to the bookings list row menu for confirmed bookings only, reusing the same prefilled remaining-balance modal path as the booking detail page.
@@ -62,12 +63,18 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Build Feature 39 customer profile route so the new `View Profile` customer row action has a full destination UI.
 - Review the Delivery workflow tab in-app, including payment override handling and production-complete blockers.
 - Review the Production workflow tab in-app, including early-start warnings and ready-for-pickup handoff into Delivery.
 - Review the Editing workflow tab in-app, including base-payment blocked and approved-to-production paths.
 - Review the public ID and job-number implementation against the latest gap-review notes.
 - Confirm any remaining department/backfill edge cases for legacy booking data.
 - Keep new work aligned with the current schema and service-layer workflow rules.
+
+## Feature 36 Implementation Notes
+- Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `src/components/customers/customers-filters.tsx`, `src/components/customers/customers-table.tsx`, `app/bookings/new/page.tsx`, `src/components/bookings/new-booking-form.tsx`, `context/progress-tracker.md`.
+- Assumptions: Customer edit remains unavailable in this unit because no `/customers/[customerId]/edit` route exists yet; `View Profile` intentionally links to the future customer detail route defined by the feature spec; booking preselection only seeds the customer combobox and does not alter booking validation or workflow behavior.
+- Validation: `npx tsc --noEmit`, `npm run lint`, and `npm run build` completed successfully.
 
 ## Feature 33 Implementation Notes
 - Files modified: `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/page.tsx`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/orders/order.schema.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`.

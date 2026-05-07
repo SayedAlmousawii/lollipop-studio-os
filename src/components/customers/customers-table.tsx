@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -75,14 +76,32 @@ export function CustomersTable({ customers }: CustomersTableProps) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem>View Profile</DropdownMenuItem>
-                    <DropdownMenuItem>New Booking</DropdownMenuItem>
-                    <DropdownMenuItem>Edit Customer</DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/customers/${customer.id}`}>View Profile</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/bookings/new?customerId=${customer.id}`}>
+                        New Booking
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      Edit Customer (coming soon)
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
             </TableRow>
           ))}
+          {customers.length === 0 ? (
+            <TableRow>
+              <TableCell
+                colSpan={7}
+                className="h-24 text-center text-sm text-text-secondary"
+              >
+                No customers match these filters.
+              </TableCell>
+            </TableRow>
+          ) : null}
         </TableBody>
       </Table>
     </div>

@@ -3,10 +3,14 @@ import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
 import { CustomersFilters } from "@/components/customers/customers-filters";
 import { CustomersTable } from "@/components/customers/customers-table";
-import { getCustomers } from "@/modules/customers/customer.service";
+import {
+  getCustomers,
+  parseCustomerFilters,
+} from "@/modules/customers/customer.service";
 
-export default async function CustomersPage() {
-  const customers = await getCustomers();
+export default async function CustomersPage(props: PageProps<"/customers">) {
+  const filters = parseCustomerFilters(await props.searchParams);
+  const customers = await getCustomers(filters);
 
   return (
     <PageContainer>
@@ -28,7 +32,10 @@ export default async function CustomersPage() {
         </div>
 
         {/* Filters */}
-        <CustomersFilters />
+        <CustomersFilters
+          currentSearch={filters.search ?? ""}
+          currentStatus={filters.status ?? "all"}
+        />
 
         {/* Table */}
         <CustomersTable customers={customers} />
