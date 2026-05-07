@@ -6,9 +6,9 @@ _Generated: 2026-05-07 | Source: `prisma/schema.prisma` | Updated for the canoni
 
 ## Summary
 
-The database has **14 models** and **14 enums** running on PostgreSQL via Prisma ORM. The schema covers the full studio workflow: customer and children management, canonical job ownership, booking scheduling, photography session themes, package selection, order lifecycle (selection → editing → production → delivery), invoicing with adjustment chains, and payment recording.
+The database has **15 models** and **14 enums** running on PostgreSQL via Prisma ORM. The schema covers the full studio workflow: customer and children management, canonical job ownership, booking scheduling, photography session themes, package selection, order lifecycle (selection → editing → production → delivery), invoicing with adjustment chains, and payment recording.
 
-The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and now also carries its own `jobId` FK back to the canonical job. `Invoice` and `Payment` similarly point back to the same job thread for downstream joins while the order still aggregates the post-session workflow state: high-level workflow statuses, editing timestamps, section-level production statuses, delivery timestamps/override fields, assigned editor, NAS folder path, and financial references (invoices, activities). Booking, order, and invoice public IDs still exist in the schema for compatibility, but active staff-facing reads and searches now use `jobNumber` / `invoiceNumber` instead.
+The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and now also carries its own `jobId` FK back to the canonical job. `Invoice` and `Payment` similarly point back to the same job thread for downstream joins while the order now aggregates the post-session workflow state excluding editing-specific fields. Editing assignment, timestamps, revision counts, and approval/handoff state now live on a dedicated `EditingJob` row linked one-to-one to `Order` and `Job`. Booking, order, and invoice public IDs still exist in the schema for compatibility, but active staff-facing reads and searches now use `jobNumber` / `invoiceNumber` instead.
 
 `Customer.id` is intentionally denormalized into `Order` to allow direct customer-scoped queries without joining through `Booking`.
 
@@ -125,18 +125,8 @@ erDiagram
         json addOns
         OrderStatus status
         OrderSelectionStatus selectionStatus
-        OrderEditingStatus editingStatus
         OrderProductionStatus productionStatus
         OrderDeliveryStatus deliveryStatus
-        string assignedEditorId FK
-        datetime editingAssignedAt
-        datetime editingStartedAt
-        datetime editingCompletedAt
-        datetime customerApprovedAt
-        datetime sentToProductionAt
-        int editedPhotoCount
-        int revisionCount
-        datetime estimatedEditingCompletionAt
         OrderProductionSectionStatus productionAlbumDesignStatus
         OrderProductionSectionStatus productionPrintingStatus
         OrderProductionSectionStatus productionAssemblyStatus
@@ -152,6 +142,25 @@ erDiagram
         string deliveryPickupNotes
         string deliveryOverrideReason
         string nasFolderPath
+        string notes
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    EditingJob {
+        string id PK
+        string jobId FK UK
+        string orderId FK UK
+        string assignedEditorId FK
+        OrderEditingStatus status
+        int editedPhotoCount
+        int revisionCount
+        datetime editingAssignedAt
+        datetime editingStartedAt
+        datetime editingCompletedAt
+        datetime customerApprovedAt
+        datetime sentToProductionAt
+        datetime estimatedEditingCompletionAt
         string notes
         datetime createdAt
         datetime updatedAt
@@ -222,6 +231,7 @@ erDiagram
 
     Job ||--o| Booking : "anchors"
     Job ||--o| Order : "anchors"
+    Job ||--o| EditingJob : "anchors"
     Job ||--o{ Invoice : "owns"
     Job ||--o{ Payment : "owns"
     Booking }o--|| StudioDepartment : "held at"
@@ -234,7 +244,8 @@ erDiagram
     Order }o--|| Booking : "generated from"
     Order }o--o| Package : "original package"
     Order }o--o| Package : "final package"
-    Order }o--o| User : "assigned editor"
+    Order ||--o| EditingJob : "owns"
+    EditingJob }o--o| User : "assigned editor"
     Order ||--o{ OrderActivity : "has"
     Order ||--o{ Invoice : "invoiced on"
     User ||--o{ OrderActivity : "attributed to"
@@ -252,8 +263,9 @@ erDiagram
 - **Job ownership**: `Job.customerId` is the canonical customer owner for the job thread. Booking creation now creates the job and attaches it transactionally, while the transitional `Booking.jobNumber` string remains stored for compatibility reads. `Order`, `Invoice`, and `Payment` now also keep canonical `jobId` links for downstream joins, and the older booking/order/invoice public IDs are no longer used in active staff-facing flows.
 - **Booking → Package**: A booking may reference a package at time of booking (optional). The actual final package used can differ and is tracked on the `Order` as `finalPackageId`.
 - **Order → Package (×2)**: An order records both the package originally booked (`originalPackageId`) and the package the customer ends up with after any upgrades (`finalPackageId`).
-- **Order workflow state**: `Order` now stores both top-level workflow enums and deeper phase metadata directly on the row: editing assignment/start/completion fields, approval and handoff timestamps, section-level production statuses, ready-for-pickup timestamps, pickup/completion metadata, and manual delivery override reason fields.
-- **Order → User (editor)**: An editor staff member can be assigned to an order for the editing phase.
+- **Order workflow state**: `Order` now stores the high-level workflow enums plus section-level production, delivery, and fulfillment metadata directly on the row. Editing assignment, progress, revision, approval, and handoff state live on `EditingJob`.
+- **Order → EditingJob**: Each order owns one editing job row for the editing phase.
+- **EditingJob → User (editor)**: An editor staff member can be assigned to an editing job.
 - **Booking → User (photographer)**: A photographer staff member can be assigned to a booking.
 - **Invoice → Order / Booking**: An invoice can be associated with either an order or a booking (or both — schema allows it). Customer is always required on an invoice.
 - **Invoice → Invoice (self-ref)**: An invoice can be an adjustment of another invoice via `parentInvoiceId`, enabling invoice amendment chains.

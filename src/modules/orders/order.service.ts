@@ -137,7 +137,13 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   const summary = mapOrderRow(row);
   const includedPhotoCount = row.finalPackage?.photoCount ?? row.originalPackage?.photoCount ?? null;
   const selectedPhotoCount = row.selectedPhotoCount ?? null;
-  const workflowStatus = mapWorkflowStatus(row);
+  const editingStatus = row.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
+  const workflowStatus = mapWorkflowStatus({
+    selectionStatus: row.selectionStatus,
+    editingStatus,
+    productionStatus: row.productionStatus,
+    deliveryStatus: row.deliveryStatus,
+  });
 
   return {
     ...summary,
@@ -320,7 +326,11 @@ export async function getOrderEditingWorkflowById(
         db.order.findUnique({
           where: { id: orderId },
           include: {
-            assignedEditor: { select: { id: true, name: true } },
+            editingJob: {
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
+              },
+            },
             originalPackage: { select: { photoCount: true } },
             finalPackage: { select: { photoCount: true } },
             invoices: {
@@ -358,7 +368,11 @@ export async function getOrderProductionWorkflowById(
         select: {
           id: true,
           status: true,
-          editingStatus: true,
+          editingJob: {
+            select: {
+              status: true,
+            },
+          },
           productionStatus: true,
           deliveryStatus: true,
           productionAlbumDesignStatus: true,
@@ -467,7 +481,11 @@ export async function updateOrderEditingWorkflow(
         const order = await tx.order.findUnique({
           where: { id: orderId },
           include: {
-            assignedEditor: { select: { id: true, name: true } },
+            editingJob: {
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
+              },
+            },
             invoices: {
               select: {
                 payments: {
@@ -492,6 +510,25 @@ export async function updateOrderEditingWorkflow(
 
         const basePaymentVerified = hasBasePayment(order.invoices);
         const now = new Date();
+        let editingJob = order.editingJob;
+        if (!editingJob) {
+          editingJob = await tx.editingJob.create({
+            data: {
+              jobId: order.jobId,
+              orderId: order.id,
+            },
+            include: {
+              assignedEditor: { select: { id: true, name: true } },
+            },
+          });
+        }
+        const previousEditingStatus = editingJob.status;
+        const previousAssignedEditorId = editingJob.assignedEditorId;
+        const previousAssignedEditorName = editingJob.assignedEditor?.name ?? null;
+        const previousEditedPhotoCount = editingJob.editedPhotoCount;
+        const previousRevisionCount = editingJob.revisionCount;
+        const previousEstimatedEditingCompletionAt =
+          editingJob.estimatedEditingCompletionAt;
 
         switch (data.action) {
           case "assignEditor": {
@@ -507,39 +544,42 @@ export async function updateOrderEditingWorkflow(
             }
 
             const nextStatus =
-              order.editingStatus === OrderEditingStatus.NOT_STARTED
+              previousEditingStatus === OrderEditingStatus.NOT_STARTED
                 ? OrderEditingStatus.ASSIGNED
-                : order.editingStatus;
-            if (nextStatus !== order.editingStatus) {
+                : previousEditingStatus;
+            if (nextStatus !== previousEditingStatus) {
               assertWorkflowTransition(
                 "editingStatus",
-                order.editingStatus,
+                previousEditingStatus,
                 nextStatus
               );
             }
 
-            await tx.order.update({
-              where: { id: orderId },
+            editingJob = await tx.editingJob.update({
+              where: { orderId: order.id },
               data: {
                 assignedEditorId: editor.id,
                 editingAssignedAt: now,
                 estimatedEditingCompletionAt:
-                  data.estimatedEditingCompletionAt ?? order.estimatedEditingCompletionAt,
-                editingStatus: nextStatus,
+                  data.estimatedEditingCompletionAt ?? previousEstimatedEditingCompletionAt,
+                status: nextStatus,
+              },
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
               },
             });
 
             await recordOrderActivity(tx, {
               orderId,
               type: OrderActivityType.EDITOR_ASSIGNED,
-              title: order.assignedEditorId ? "Editor reassigned" : "Editor assigned",
+              title: previousAssignedEditorId ? "Editor reassigned" : "Editor assigned",
               description: `${editor.name} was assigned to editing.`,
               metadata: {
-                previousEditorId: order.assignedEditorId,
-                previousEditorName: order.assignedEditor?.name ?? null,
+                previousEditorId: previousAssignedEditorId,
+                previousEditorName: previousAssignedEditorName,
                 nextEditorId: editor.id,
                 nextEditorName: editor.name,
-                previousStatus: order.editingStatus,
+                previousStatus: previousEditingStatus,
                 nextStatus,
                 estimatedEditingCompletionAt:
                   data.estimatedEditingCompletionAt?.toISOString() ?? null,
@@ -549,25 +589,39 @@ export async function updateOrderEditingWorkflow(
           }
 
           case "markStarted": {
-            assertEditingReadyToStart(order, basePaymentVerified);
+            assertEditingReadyToStart(
+              {
+                selectionStatus: order.selectionStatus,
+                assignedEditorId: previousAssignedEditorId,
+              },
+              basePaymentVerified
+            );
             assertWorkflowTransition(
               "editingStatus",
-              order.editingStatus,
+              previousEditingStatus,
               OrderEditingStatus.IN_PROGRESS
             );
+            editingJob = await tx.editingJob.update({
+              where: { orderId: order.id },
+              data: {
+                status: OrderEditingStatus.IN_PROGRESS,
+                editingStartedAt: editingJob.editingStartedAt ?? now,
+                editedPhotoCount: data.editedPhotoCount ?? previousEditedPhotoCount,
+                estimatedEditingCompletionAt:
+                  data.estimatedEditingCompletionAt ?? previousEstimatedEditingCompletionAt,
+              },
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
+              },
+            });
             await tx.order.update({
               where: { id: orderId },
               data: {
-                editingStatus: OrderEditingStatus.IN_PROGRESS,
-                editingStartedAt: order.editingStartedAt ?? now,
-                editedPhotoCount: data.editedPhotoCount ?? order.editedPhotoCount,
-                estimatedEditingCompletionAt:
-                  data.estimatedEditingCompletionAt ?? order.estimatedEditingCompletionAt,
                 status: OrderStatus.EDITING,
               },
             });
             await recordEditingStatusActivity(tx, orderId, {
-              previousStatus: order.editingStatus,
+              previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.IN_PROGRESS,
               title: "Editing started",
             });
@@ -577,21 +631,24 @@ export async function updateOrderEditingWorkflow(
           case "requestRevision": {
             assertWorkflowTransition(
               "editingStatus",
-              order.editingStatus,
+              previousEditingStatus,
               OrderEditingStatus.REVISION_REQUESTED
             );
-            await tx.order.update({
-              where: { id: orderId },
+            editingJob = await tx.editingJob.update({
+              where: { orderId: order.id },
               data: {
-                editingStatus: OrderEditingStatus.REVISION_REQUESTED,
+                status: OrderEditingStatus.REVISION_REQUESTED,
                 revisionCount: { increment: 1 },
+              },
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
               },
             });
             await recordEditingStatusActivity(tx, orderId, {
-              previousStatus: order.editingStatus,
+              previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.REVISION_REQUESTED,
               title: "Revision requested",
-              metadata: { nextRevisionCount: order.revisionCount + 1 },
+              metadata: { nextRevisionCount: previousRevisionCount + 1 },
             });
             break;
           }
@@ -599,19 +656,22 @@ export async function updateOrderEditingWorkflow(
           case "markComplete": {
             assertWorkflowTransition(
               "editingStatus",
-              order.editingStatus,
+              previousEditingStatus,
               OrderEditingStatus.AWAITING_APPROVAL
             );
-            await tx.order.update({
-              where: { id: orderId },
+            editingJob = await tx.editingJob.update({
+              where: { orderId: order.id },
               data: {
-                editingStatus: OrderEditingStatus.AWAITING_APPROVAL,
+                status: OrderEditingStatus.AWAITING_APPROVAL,
                 editingCompletedAt: now,
-                editedPhotoCount: data.editedPhotoCount ?? order.editedPhotoCount,
+                editedPhotoCount: data.editedPhotoCount ?? previousEditedPhotoCount,
+              },
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
               },
             });
             await recordEditingStatusActivity(tx, orderId, {
-              previousStatus: order.editingStatus,
+              previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.AWAITING_APPROVAL,
               title: "Editing marked complete",
             });
@@ -621,18 +681,21 @@ export async function updateOrderEditingWorkflow(
           case "markApproved": {
             assertWorkflowTransition(
               "editingStatus",
-              order.editingStatus,
+              previousEditingStatus,
               OrderEditingStatus.APPROVED
             );
-            await tx.order.update({
-              where: { id: orderId },
+            editingJob = await tx.editingJob.update({
+              where: { orderId: order.id },
               data: {
-                editingStatus: OrderEditingStatus.APPROVED,
+                status: OrderEditingStatus.APPROVED,
                 customerApprovedAt: now,
+              },
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
               },
             });
             await recordEditingStatusActivity(tx, orderId, {
-              previousStatus: order.editingStatus,
+              previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.APPROVED,
               title: "Customer approved editing",
             });
@@ -642,7 +705,7 @@ export async function updateOrderEditingWorkflow(
           case "sendToProduction": {
             assertWorkflowTransition(
               "editingStatus",
-              order.editingStatus,
+              previousEditingStatus,
               OrderEditingStatus.COMPLETED
             );
             assertWorkflowTransition(
@@ -650,17 +713,25 @@ export async function updateOrderEditingWorkflow(
               order.productionStatus,
               OrderProductionStatus.IN_PROGRESS
             );
+            editingJob = await tx.editingJob.update({
+              where: { orderId: order.id },
+              data: {
+                status: OrderEditingStatus.COMPLETED,
+                sentToProductionAt: now,
+              },
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
+              },
+            });
             await tx.order.update({
               where: { id: orderId },
               data: {
-                editingStatus: OrderEditingStatus.COMPLETED,
                 productionStatus: OrderProductionStatus.IN_PROGRESS,
-                sentToProductionAt: now,
                 status: OrderStatus.PRODUCTION,
               },
             });
             await recordEditingStatusActivity(tx, orderId, {
-              previousStatus: order.editingStatus,
+              previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.COMPLETED,
               title: "Editing sent to production",
             });
@@ -700,7 +771,11 @@ export async function updateOrderProductionWorkflow(
           select: {
             id: true,
             status: true,
-            editingStatus: true,
+            editingJob: {
+              select: {
+                status: true,
+              },
+            },
             productionStatus: true,
             deliveryStatus: true,
             productionAlbumDesignStatus: true,
@@ -1007,9 +1082,14 @@ export async function updateOrderWorkflowStatus(
           where: { id: orderId },
           select: {
             id: true,
+            jobId: true,
             status: true,
             selectionStatus: true,
-            editingStatus: true,
+            editingJob: {
+              select: {
+                status: true,
+              },
+            },
             productionStatus: true,
             deliveryStatus: true,
           },
@@ -1021,6 +1101,7 @@ export async function updateOrderWorkflowStatus(
         if (order.status === OrderStatus.CANCELLED) {
           throw new Error("Cancelled orders cannot be moved through workflow");
         }
+        const editingStatus = order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
         if (data.selectionStatus) {
           assertWorkflowTransition(
             "selectionStatus",
@@ -1031,7 +1112,7 @@ export async function updateOrderWorkflowStatus(
         if (data.editingStatus) {
           assertWorkflowTransition(
             "editingStatus",
-            order.editingStatus,
+            editingStatus,
             data.editingStatus
           );
         }
@@ -1050,14 +1131,40 @@ export async function updateOrderWorkflowStatus(
           );
         }
 
-        await tx.order.update({
-          where: { id: orderId },
-          data,
-        });
+        const orderData: Prisma.OrderUpdateInput = {};
+        if (data.selectionStatus) {
+          orderData.selectionStatus = data.selectionStatus;
+        }
+        if (data.productionStatus) {
+          orderData.productionStatus = data.productionStatus;
+        }
+        if (data.deliveryStatus) {
+          orderData.deliveryStatus = data.deliveryStatus;
+        }
+        if (Object.keys(orderData).length > 0) {
+          await tx.order.update({
+            where: { id: orderId },
+            data: orderData,
+          });
+        }
+
+        if (data.editingStatus) {
+          await tx.editingJob.upsert({
+            where: { orderId },
+            update: {
+              status: data.editingStatus,
+            },
+            create: {
+              jobId: order.jobId,
+              orderId,
+              status: data.editingStatus,
+            },
+          });
+        }
 
         await recordWorkflowActivities(tx, orderId, {
           selectionStatus: order.selectionStatus,
-          editingStatus: order.editingStatus,
+          editingStatus,
           productionStatus: order.productionStatus,
           deliveryStatus: order.deliveryStatus,
         }, data);
@@ -1108,6 +1215,14 @@ export async function createOrderFromBookingWithClient(
     throw new Error("Booking package is required to create an order");
   }
   if (booking.order) {
+    await client.editingJob.upsert({
+      where: { orderId: booking.order.id },
+      update: {},
+      create: {
+        jobId: booking.jobId,
+        orderId: booking.order.id,
+      },
+    });
     await client.invoice.updateMany({
       where: {
         bookingId: booking.id,
@@ -1129,6 +1244,11 @@ export async function createOrderFromBookingWithClient(
       finalPackageId: booking.package.id,
       selectedPhotoCount: 0,
       status: initialStatus,
+      editingJob: {
+        create: {
+          jobId: booking.jobId,
+        },
+      },
     },
     select: { id: true },
   });
@@ -1252,6 +1372,11 @@ function fetchOrderByIdWithClient(
         select: {
           name: true,
           photoCount: true,
+        },
+      },
+      editingJob: {
+        select: {
+          status: true,
         },
       },
       invoices: {
@@ -1422,10 +1547,12 @@ function mapPaymentStatus(
   return "Partially paid";
 }
 
-function mapWorkflowStatus(row: Pick<
-  OrderDetailRow,
-  "selectionStatus" | "editingStatus" | "productionStatus" | "deliveryStatus"
->): Pick<OrderDetail, "selectionStatus" | "editingStatus" | "productionStatus" | "deliveryStatus"> {
+function mapWorkflowStatus(row: {
+  selectionStatus: OrderSelectionStatus;
+  editingStatus: OrderEditingStatus;
+  productionStatus: OrderProductionStatus;
+  deliveryStatus: OrderDeliveryStatus;
+}): Pick<OrderDetail, "selectionStatus" | "editingStatus" | "productionStatus" | "deliveryStatus"> {
   return {
     selectionStatus: ORDER_SELECTION_STATUS_LABELS[row.selectionStatus],
     editingStatus: ORDER_EDITING_STATUS_LABELS[row.editingStatus],
@@ -1883,18 +2010,20 @@ function mapOrderEditingWorkflow(
   order: {
     id: string;
     selectionStatus: OrderSelectionStatus;
-    editingStatus: OrderEditingStatus;
+    editingJob: {
+      assignedEditorId: string | null;
+      assignedEditor: { id: string; name: string } | null;
+      status: OrderEditingStatus;
+      editingAssignedAt: Date | null;
+      editingStartedAt: Date | null;
+      editingCompletedAt: Date | null;
+      customerApprovedAt: Date | null;
+      sentToProductionAt: Date | null;
+      editedPhotoCount: number;
+      revisionCount: number;
+      estimatedEditingCompletionAt: Date | null;
+    } | null;
     productionStatus: OrderProductionStatus;
-    assignedEditorId: string | null;
-    assignedEditor: { id: string; name: string } | null;
-    editingAssignedAt: Date | null;
-    editingStartedAt: Date | null;
-    editingCompletedAt: Date | null;
-    customerApprovedAt: Date | null;
-    sentToProductionAt: Date | null;
-    editedPhotoCount: number;
-    revisionCount: number;
-    estimatedEditingCompletionAt: Date | null;
     selectedPhotoCount: number | null;
     originalPackage: { photoCount: number } | null;
     finalPackage: { photoCount: number } | null;
@@ -1902,6 +2031,18 @@ function mapOrderEditingWorkflow(
   },
   editors: OrderEditorOption[]
 ): OrderEditingWorkflow {
+  const editingJob = order.editingJob;
+  const editingStatus = editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
+  const assignedEditorId = editingJob?.assignedEditorId ?? null;
+  const assignedEditor = editingJob?.assignedEditor ?? null;
+  const editingAssignedAt = editingJob?.editingAssignedAt ?? null;
+  const editingStartedAt = editingJob?.editingStartedAt ?? null;
+  const editingCompletedAt = editingJob?.editingCompletedAt ?? null;
+  const customerApprovedAt = editingJob?.customerApprovedAt ?? null;
+  const sentToProductionAt = editingJob?.sentToProductionAt ?? null;
+  const editedPhotoCount = editingJob?.editedPhotoCount ?? 0;
+  const revisionCount = editingJob?.revisionCount ?? 0;
+  const estimatedEditingCompletionAt = editingJob?.estimatedEditingCompletionAt ?? null;
   const targetPhotoCount =
     order.selectedPhotoCount ??
     order.finalPackage?.photoCount ??
@@ -1909,53 +2050,53 @@ function mapOrderEditingWorkflow(
     0;
   const progressPercent =
     targetPhotoCount > 0
-      ? Math.min(Math.round((order.editedPhotoCount / targetPhotoCount) * 100), 100)
+      ? Math.min(Math.round((editedPhotoCount / targetPhotoCount) * 100), 100)
       : 0;
   const basePaymentVerified = hasBasePayment(order.invoices);
 
   return {
     orderId: order.id,
-    assignedEditorId: order.assignedEditorId,
-    assignedEditorName: order.assignedEditor?.name ?? "Unassigned",
-    assignedAt: order.editingAssignedAt ? formatDateTime(order.editingAssignedAt) : null,
-    editingStatus: ORDER_EDITING_STATUS_LABELS[order.editingStatus],
+    assignedEditorId,
+    assignedEditorName: assignedEditor?.name ?? "Unassigned",
+    assignedAt: editingAssignedAt ? formatDateTime(editingAssignedAt) : null,
+    editingStatus: ORDER_EDITING_STATUS_LABELS[editingStatus],
     productionStatus: ORDER_PRODUCTION_STATUS_LABELS[order.productionStatus],
     progressPercent,
-    editedPhotoCount: order.editedPhotoCount,
+    editedPhotoCount,
     targetPhotoCount,
-    revisionCount: order.revisionCount,
-    revisionState: resolveRevisionState(order.editingStatus, order.revisionCount),
-    approvalState: resolveApprovalState(order.editingStatus),
-    estimatedCompletionDate: order.estimatedEditingCompletionAt
-      ? formatDate(order.estimatedEditingCompletionAt)
+    revisionCount,
+    revisionState: resolveRevisionState(editingStatus, revisionCount),
+    approvalState: resolveApprovalState(editingStatus),
+    estimatedCompletionDate: estimatedEditingCompletionAt
+      ? formatDate(estimatedEditingCompletionAt)
       : null,
-    estimatedCompletionDateInput: order.estimatedEditingCompletionAt
-      ? formatDateInput(order.estimatedEditingCompletionAt)
+    estimatedCompletionDateInput: estimatedEditingCompletionAt
+      ? formatDateInput(estimatedEditingCompletionAt)
       : "",
-    startedAt: order.editingStartedAt ? formatDateTime(order.editingStartedAt) : null,
-    completedAt: order.editingCompletedAt ? formatDateTime(order.editingCompletedAt) : null,
-    customerApprovedAt: order.customerApprovedAt
-      ? formatDateTime(order.customerApprovedAt)
+    startedAt: editingStartedAt ? formatDateTime(editingStartedAt) : null,
+    completedAt: editingCompletedAt ? formatDateTime(editingCompletedAt) : null,
+    customerApprovedAt: customerApprovedAt
+      ? formatDateTime(customerApprovedAt)
       : null,
-    sentToProductionAt: order.sentToProductionAt
-      ? formatDateTime(order.sentToProductionAt)
+    sentToProductionAt: sentToProductionAt
+      ? formatDateTime(sentToProductionAt)
       : null,
     basePaymentVerified,
-    canAssignEditor: order.editingStatus !== OrderEditingStatus.COMPLETED,
+    canAssignEditor: editingStatus !== OrderEditingStatus.COMPLETED,
     canMarkStarted:
       basePaymentVerified &&
       order.selectionStatus === OrderSelectionStatus.COMPLETED &&
-      Boolean(order.assignedEditorId) &&
+      Boolean(assignedEditorId) &&
       (
-        order.editingStatus === OrderEditingStatus.ASSIGNED ||
-        order.editingStatus === OrderEditingStatus.REVISION_REQUESTED
+        editingStatus === OrderEditingStatus.ASSIGNED ||
+        editingStatus === OrderEditingStatus.REVISION_REQUESTED
       ),
-    canRequestRevision: order.editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
+    canRequestRevision: editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
     canMarkComplete:
-      order.editingStatus === OrderEditingStatus.IN_PROGRESS ||
-      order.editingStatus === OrderEditingStatus.REVISION_REQUESTED,
-    canMarkApproved: order.editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
-    canSendToProduction: order.editingStatus === OrderEditingStatus.APPROVED,
+      editingStatus === OrderEditingStatus.IN_PROGRESS ||
+      editingStatus === OrderEditingStatus.REVISION_REQUESTED,
+    canMarkApproved: editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
+    canSendToProduction: editingStatus === OrderEditingStatus.APPROVED,
     editorOptions: editors,
   };
 }
@@ -1992,7 +2133,9 @@ function resolveApprovalState(status: OrderEditingStatus): string {
 type ProductionOrderState = {
   id: string;
   status: OrderStatus;
-  editingStatus: OrderEditingStatus;
+  editingJob: {
+    status: OrderEditingStatus;
+  } | null;
   productionStatus: OrderProductionStatus;
   deliveryStatus: OrderDeliveryStatus;
   productionAlbumDesignStatus: OrderProductionSectionStatus;
@@ -2068,7 +2211,7 @@ function mapOrderProductionWorkflow(order: ProductionOrderState): OrderProductio
     orderId: order.id,
     productionStatus: ORDER_PRODUCTION_STATUS_LABELS[order.productionStatus],
     deliveryStatus: ORDER_DELIVERY_STATUS_LABELS[order.deliveryStatus],
-    editingStatus: ORDER_EDITING_STATUS_LABELS[order.editingStatus],
+    editingStatus: ORDER_EDITING_STATUS_LABELS[order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED],
     readyAt: order.productionReadyAt ? formatDateTime(order.productionReadyAt) : null,
     readinessWarning: resolveProductionReadinessWarning(order),
     canUpdateProduction,
@@ -2192,7 +2335,7 @@ function productionSection(input: {
 
 function resolveProductionReadinessWarning(order: ProductionOrderState): string | null {
   if (
-    order.editingStatus !== OrderEditingStatus.COMPLETED &&
+    order.editingJob?.status !== OrderEditingStatus.COMPLETED &&
     order.productionStatus !== OrderProductionStatus.READY_FOR_PICKUP
   ) {
     return "Editing is not marked completed yet. Admin-first mode allows production progress, but this is early.";
@@ -2384,16 +2527,16 @@ function productionSectionUpdate(
     title: input.title,
     description: input.description,
     metadata: {
-      field: input.field,
-      previousStatus: input.previousStatus,
-      nextStatus: input.nextStatus,
-      previousProductionStatus: order.productionStatus,
-      nextProductionStatus: input.productionStatus,
-      earlyProduction:
-        order.editingStatus !== OrderEditingStatus.COMPLETED &&
-        order.editingStatus !== OrderEditingStatus.APPROVED,
-    },
-  };
+        field: input.field,
+        previousStatus: input.previousStatus,
+        nextStatus: input.nextStatus,
+        previousProductionStatus: order.productionStatus,
+        nextProductionStatus: input.productionStatus,
+        earlyProduction:
+        (order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED) !== OrderEditingStatus.COMPLETED &&
+        (order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED) !== OrderEditingStatus.APPROVED,
+      },
+    };
 }
 
 function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkflow {
