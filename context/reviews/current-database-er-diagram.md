@@ -122,7 +122,7 @@ erDiagram
         string originalPackageId FK
         string finalPackageId FK
         int selectedPhotoCount
-        json addOns
+        json addOns "deprecated - no longer source of truth"
         OrderStatus status
         OrderSelectionStatus selectionStatus
         OrderDeliveryStatus deliveryStatus
@@ -130,11 +130,24 @@ erDiagram
         datetime customerNotifiedAt
         datetime pickedUpAt
         datetime deliveryCompletedAt
-        string deliveryCompletedBy
+        string deliveryCompletedById FK "nullable - active actor reference"
+        string deliveryCompletedBy "legacy fallback only - not active source of truth"
         string deliveryPickupNotes
         string deliveryOverrideReason
         string nasFolderPath
         string notes
+        datetime createdAt
+        datetime updatedAt
+    }
+
+    OrderAddOn {
+        string id PK
+        string orderId FK
+        string addOnOptionId FK "nullable"
+        string nameSnapshot
+        decimal priceSnapshot
+        int quantity
+        string notes "nullable"
         datetime createdAt
         datetime updatedAt
     }
@@ -259,8 +272,11 @@ erDiagram
     Order }o--o| Package : "final package"
     Order ||--o| EditingJob : "owns"
     Order ||--o| ProductionJob : "owns"
+    Order }o--o| User : "delivery completed by"
     EditingJob }o--o| User : "assigned editor"
     Order ||--o{ OrderActivity : "has"
+    Order ||--o{ OrderAddOn : "has"
+    OrderAddOnOption o|--o{ OrderAddOn : "snapshots"
     Order ||--o{ Invoice : "invoiced on"
     User ||--o{ OrderActivity : "attributed to"
 
@@ -280,6 +296,7 @@ erDiagram
 - **Order workflow state**: `Order` keeps the commercial and delivery hub state, while production workflow persistence now lives on `ProductionJob` and editing workflow persistence lives on `EditingJob`.
 - **Order → EditingJob**: Each order owns one editing job row for the editing phase.
 - **Order → ProductionJob**: Each order owns one production job row for the current V1 production workflow, including section-level progress and readiness timestamps.
+- **Order → User (delivery actor)**: When an order is completed through the delivery workflow, `Order.deliveryCompletedById` records the FK of the staff member who performed completion. The legacy `Order.deliveryCompletedBy` free-text field is retained only as a non-authoritative fallback for orders completed before this FK was introduced.
 - **EditingJob → User (editor)**: An editor staff member can be assigned to an editing job.
 - **Booking → User (photographer)**: A photographer staff member can be assigned to a booking.
 - **Invoice → Order / Booking**: An invoice can be associated with either an order or a booking (or both — schema allows it). Customer is always required on an invoice.
@@ -295,8 +312,8 @@ erDiagram
 
 | Item | Status | Detail |
 |---|---|---|
-| `Order.addOns` (JSON) | **Uncertain FK** | Field stores add-on data as raw JSON. Likely references `OrderAddOnOption` IDs, but no database-level FK exists. Schema does not enforce referential integrity here. |
-| `Order.deliveryCompletedBy` | **Uncertain type** | Declared as `String?` with no FK relation. Could be a free-text name or a User ID. Not modeled as a formal FK to `User`. |
+| `Order.addOns` (JSON) | **Deprecated** | Field is kept for transition compatibility but is no longer the active source of truth. Structured `OrderAddOn` rows are now written and read instead. Will be removed in a future cleanup migration. |
+| `Order.deliveryCompletedBy` | **Legacy fallback** | Retained as a non-authoritative field for orders completed before the FK migration. New completions write `deliveryCompletedById` (FK to `User`) instead. Read model prefers the FK-backed name; falls back to this string only if the FK is null. |
 | `Invoice.orderId` + `Invoice.bookingId` | **Ambiguous scope** | Both fields are optional, so an invoice can be linked to an order, a booking, both, or neither. The business rule governing which combination is valid is not enforced at the schema level. |
 | `Invoice.parentInvoiceId` self-reference | **Depth unknown** | The schema supports an unlimited chain of invoice adjustments. No maximum depth or circular-reference guard is enforced. |
 | `BookingTheme` cascade | **Confirmed** | `onDelete: Cascade` is set — themes are hard-deleted when their booking is deleted. No equivalent cascade exists on `Order`, `Invoice`, or `Payment`. |
@@ -307,8 +324,8 @@ erDiagram
 
 - Remove the transitional `Booking.publicId`, `Order.publicId`, and `Invoice.publicId` fields once the remaining compatibility dependencies are gone and the schema cleanup is approved.
 - Continue the downstream transition to canonical `Job` ownership by moving reads and reports toward `jobId` joins, then retire propagated job-number compatibility fields once all workflow paths use the existing `Job` relation.
-- Replace `Order.addOns` JSON field with a proper join table to `OrderAddOnOption` to enforce referential integrity and enable querying by add-on.
-- Formalize `Order.deliveryCompletedBy` as a nullable FK to `User` if it represents a staff member.
+- Drop the deprecated `Order.addOns` JSON field once all compatibility paths confirm the structured `OrderAddOn` rows are stable.
+- Drop `Order.deliveryCompletedBy` (free-text legacy field) once all pre-migration delivery completions are confirmed reconciled or no longer needed.
 - Clarify (and possibly enforce via constraint or application rule) whether an `Invoice` should link to an `Order`, a `Booking`, or both simultaneously.
 - Add a depth limit or flat-adjustment model to prevent unbounded `Invoice` adjustment chains.
 - Consider cascade rules for `Order`, `Invoice`, and `Payment` consistent with `BookingTheme`'s cascade behavior.

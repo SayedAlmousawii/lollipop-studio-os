@@ -146,7 +146,7 @@ export async function updateDeliveryWorkflowAction(
   const parsed = updateOrderDeliveryWorkflowSchema.safeParse({
     action: formData.get("action"),
     pickupNotes: formData.get("pickupNotes") || undefined,
-    completedBy: formData.get("completedBy") || undefined,
+    completedById: formData.get("completedById") || undefined,
     allowPaymentOverride: formData.get("allowPaymentOverride") === "true",
     overrideReason: formData.get("overrideReason") || undefined,
   });

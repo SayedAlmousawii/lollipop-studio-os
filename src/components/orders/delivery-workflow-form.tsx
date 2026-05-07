@@ -16,7 +16,6 @@ import {
 } from "@/app/orders/[orderId]/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type {
@@ -101,15 +100,22 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="completedBy">Completed by</Label>
-                <Input
-                  id="completedBy"
-                  name="completedBy"
-                  defaultValue={delivery.completedBy}
-                  placeholder="Staff name"
-                  aria-invalid={state.errors?.completedBy?.length ? true : undefined}
-                />
-                <FieldError messages={state.errors?.completedBy} />
+                <Label htmlFor="completedById">Completed by</Label>
+                <select
+                  id="completedById"
+                  name="completedById"
+                  defaultValue={delivery.completedById ?? ""}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  aria-invalid={state.errors?.completedById?.length ? true : undefined}
+                >
+                  <option value="">Select staff member</option>
+                  {delivery.staffOptions.map((staff) => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.name}
+                    </option>
+                  ))}
+                </select>
+                <FieldError messages={state.errors?.completedById} />
               </div>
 
               {delivery.requiresPaymentOverride ? (
