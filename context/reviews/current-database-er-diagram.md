@@ -1,6 +1,6 @@
 # Current Database ER Diagram
 
-_Generated: 2026-05-07 | Source: `prisma/schema.prisma` | Updated for the canonical `Job` entity and `Booking.jobId`._
+_Generated: 2026-05-07 | Source: `prisma/schema.prisma` | Updated for invoice ownership integrity._
 
 ---
 
@@ -8,7 +8,7 @@ _Generated: 2026-05-07 | Source: `prisma/schema.prisma` | Updated for the canoni
 
 The database has **16 models** and **14 enums** running on PostgreSQL via Prisma ORM. The schema covers the full studio workflow: customer and children management, canonical job ownership, booking scheduling, photography session themes, package selection, order lifecycle (selection → editing → production → delivery), invoicing with adjustment chains, and payment recording.
 
-The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and now also carries its own `jobId` FK back to the canonical job. `Invoice` and `Payment` similarly point back to the same job thread for downstream joins while post-session workflow ownership is being split into dedicated sub-entities. Editing assignment, timestamps, revision counts, and approval/handoff state live on `EditingJob`, while production status, section progress, and pickup readiness now live on `ProductionJob`, both linked one-to-one to `Order` and `Job`. Booking, order, and invoice public IDs still exist in the schema for compatibility, but active staff-facing reads and searches now use `jobNumber` / `invoiceNumber` instead.
+The central workflow thread now starts at `Job`, which owns the immutable operational `jobNumber` and links first to `Booking`. `Order` remains the downstream operational hub created one-to-one from a booking and now also carries its own `jobId` FK back to the canonical job. `Invoice` and `Payment` similarly point back to the same job thread for downstream joins, with invoice ownership anchored by the customer-owned `Job` and optional booking/order workflow context validated when present. Editing assignment, timestamps, revision counts, and approval/handoff state live on `EditingJob`, while production status, section progress, and pickup readiness now live on `ProductionJob`, both linked one-to-one to `Order` and `Job`. Booking, order, and invoice public IDs still exist in the schema for compatibility, but active staff-facing reads and searches now use `jobNumber` / `invoiceNumber` instead.
 
 `Customer.id` is intentionally denormalized into `Order` to allow direct customer-scoped queries without joining through `Booking`.
 
@@ -299,11 +299,11 @@ erDiagram
 - **Order → User (delivery actor)**: When an order is completed through the delivery workflow, `Order.deliveryCompletedById` records the FK of the staff member who performed completion. The legacy `Order.deliveryCompletedBy` free-text field is retained only as a non-authoritative fallback for orders completed before this FK was introduced.
 - **EditingJob → User (editor)**: An editor staff member can be assigned to an editing job.
 - **Booking → User (photographer)**: A photographer staff member can be assigned to a booking.
-- **Invoice → Order / Booking**: An invoice can be associated with either an order or a booking (or both — schema allows it). Customer is always required on an invoice.
+- **Invoice ownership and context**: Every invoice belongs to one customer-owned job thread through required `jobId` + `customerId` anchors. `bookingId` and `orderId` remain nullable workflow-context links for session invoices, but composite FK constraints validate that any linked booking/order belongs to the same job and customer. Current session workflow uses one rolling primary invoice that starts at booking and attaches to the order when the order exists.
 - **Invoice → Invoice (self-ref)**: An invoice can be an adjustment of another invoice via `parentInvoiceId`, enabling invoice amendment chains.
 - **Invoice → Payment**: Each invoice can have multiple payment records against it, each recording the amount, method (CASH / KNET / LINK), and payment type (DEPOSIT, BASE, UPGRADE, ADDON, OTHER).
 - **Order → OrderActivity**: Every significant state change on an order is logged as an activity record, optionally attributed to a staff user through nullable `userId`.
-- **OrderAddOnOption**: A standalone reference/catalogue table. Add-ons selected for an order are stored as JSON in `Order.addOns` — no formal FK enforced.
+- **OrderAddOnOption**: A standalone reference/catalogue table. Add-ons selected for an order are now persisted as structured `OrderAddOn` rows (the canonical source of truth), each optionally referencing an `OrderAddOnOption` via nullable FK. The legacy `Order.addOns` JSON field is retained for transition compatibility only and is no longer the active store — see the deprecation note in Unclear or Uncertain Relationships.
 - **IdentifierSequence**: A standalone sequence table used to generate scoped, year-prefixed public IDs (e.g., booking and order public identifiers). No FK relations.
 
 ---
@@ -314,7 +314,7 @@ erDiagram
 |---|---|---|
 | `Order.addOns` (JSON) | **Deprecated** | Field is kept for transition compatibility but is no longer the active source of truth. Structured `OrderAddOn` rows are now written and read instead. Will be removed in a future cleanup migration. |
 | `Order.deliveryCompletedBy` | **Legacy fallback** | Retained as a non-authoritative field for orders completed before the FK migration. New completions write `deliveryCompletedById` (FK to `User`) instead. Read model prefers the FK-backed name; falls back to this string only if the FK is null. |
-| `Invoice.orderId` + `Invoice.bookingId` | **Ambiguous scope** | Both fields are optional, so an invoice can be linked to an order, a booking, both, or neither. The business rule governing which combination is valid is not enforced at the schema level. |
+| `Invoice.orderId` + `Invoice.bookingId` | **Clarified context** | Both fields remain optional so future non-session invoices can exist without booking/order context. When present, composite FKs validate they match the invoice `jobId` and `customerId`; order-linked invoices must also carry booking context. |
 | `Invoice.parentInvoiceId` self-reference | **Depth unknown** | The schema supports an unlimited chain of invoice adjustments. No maximum depth or circular-reference guard is enforced. |
 | `BookingTheme` cascade | **Confirmed** | `onDelete: Cascade` is set — themes are hard-deleted when their booking is deleted. No equivalent cascade exists on `Order`, `Invoice`, or `Payment`. |
 
@@ -326,7 +326,7 @@ erDiagram
 - Continue the downstream transition to canonical `Job` ownership by moving reads and reports toward `jobId` joins, then retire propagated job-number compatibility fields once all workflow paths use the existing `Job` relation.
 - Drop the deprecated `Order.addOns` JSON field once all compatibility paths confirm the structured `OrderAddOn` rows are stable.
 - Drop `Order.deliveryCompletedBy` (free-text legacy field) once all pre-migration delivery completions are confirmed reconciled or no longer needed.
-- Clarify (and possibly enforce via constraint or application rule) whether an `Invoice` should link to an `Order`, a `Booking`, or both simultaneously.
+- Add explicit `JobType` / job categorization before introducing future voucher, retail, or standalone sales invoice flows.
 - Add a depth limit or flat-adjustment model to prevent unbounded `Invoice` adjustment chains.
 - Consider cascade rules for `Order`, `Invoice`, and `Payment` consistent with `BookingTheme`'s cascade behavior.
 

@@ -3,13 +3,15 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 48 implemented.
-- Current goal: deploy the deliveryCompletedById FK migration and verify.
+- Current phase: Feature 49 implemented.
+- Current goal: validate invoice concurrency review fixes.
 
 ## Key State
 - `jobNumber` is the sole staff-facing operational identifier.
 - Canonical `Job` rows now own immutable `jobNumber` values; `Booking.jobId` is required and is the source-of-truth booking attachment.
 - `Order`, `Invoice`, and `Payment` now also carry canonical `jobId` links back to `Job` for downstream joins; the transitional booking/order/invoice public IDs remain only for compatibility storage, not active staff-facing reads.
+- Invoice ownership is anchored by required `customerId` + `jobId`; `bookingId` and `orderId` remain nullable workflow context links that are validated when present.
+- Session workflow invoices use one rolling primary invoice that starts at booking and attaches to the order when the order exists; duplicate primary workflow invoices are blocked by service validation and partial unique indexes.
 - `EditingJob` now owns editing assignment, progress, revision, and approval/handoff state; the old order-level editing fields were removed from the read/write path.
 - `ProductionJob` now owns production status, section progress, and pickup-readiness timestamps; the old order-level production fields were removed from the read/write path.
 - `Order.deliveryCompletedById` (FK to `User`) is now the active delivery actor reference; `Order.deliveryCompletedBy` (free-text) is retained as a non-authoritative legacy fallback only.
@@ -52,6 +54,10 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 49 concurrency review fix: invoice financial-edit updates now use a lock-guarded write, and workflow invoice creation recovers from duplicate-create races by re-reading the winning invoice.
+- Feature 49 locked-invoice guard: primary workflow invoice normalization now refuses to attach an `orderId` to locked invoices.
+- Feature 49 follow-up: primary workflow invoice reuse now updates with an unlocked predicate and aborts cleanly if the invoice locks between lookup and reuse.
+- Feature 49: invoice ownership integrity tightened around customer-owned job threads; booking/order invoice context is normalized and composite-FK validated when present; rolling booking/order invoice reuse is enforced in service paths.
 - Feature 47: structured `OrderAddOn` table added with snapshot fields; JSON backfill migration; all service-layer add-on reads/writes switched to structured rows; `Order.addOns` JSON deprecated; ER diagram updated.
 - Feature 45: editing workflow extraction moved assignment, timestamps, progress, revision count, and approval/handoff state into a dedicated `EditingJob` row with a backfill migration and service-layer read/write updates.
 - Feature 46: production workflow extraction moved production status, section progress, and pickup-readiness data into a dedicated `ProductionJob` row with a backfill migration and service-layer read/write updates.
@@ -93,6 +99,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: booking deposit recording implemented through invoice + payment creation in one transaction.
 
 ## Open Follow-Ups
+- Consider adding explicit job categorization (`SESSION`, `VOUCHER`, `RETAIL`, `OTHER`) before future voucher or standalone sales invoice flows.
 - Review whether any remaining reads should be switched from `jobNumber` to canonical `jobId` joins in a later cleanup unit.
 - Manually test editing internal notes from `/customers/[customerId]`, including line breaks, clearing notes, and refresh persistence.
 - Manually test adding and editing children from `/customers/[customerId]`, including required-name validation and optional date-of-birth clearing.
@@ -111,6 +118,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Files created: `prisma/migrations/20260507020000_downstream_jobid_adoption/migration.sql`, `prisma/migrations/20260507021000_downstream_jobid_consistency_validation/migration.sql`, `prisma/migrations/20260507022000_downstream_jobid_composite_integrity/migration.sql`.
 - Assumptions: `Order.jobId` remains a one-to-one canonical link because each booking/job still produces a single active order in the current workflow; downstream invoice/payment rows can share the same job through many-to-one links.
 - Validation: `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check` completed successfully. Review follow-ups also passed `npx prisma format`, `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npx prisma migrate deploy`, `npm run build`, `npx prisma migrate status`, and `git diff --check`.
+
+## Feature 49 Implementation Notes
+- Files modified: `context/feature-specs/49-invoice-ownership-integrity.md`, `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`, `prisma/schema.prisma`, `src/modules/invoices/invoice.service.ts`, `src/modules/orders/order.service.ts`.
+- Files created: `prisma/migrations/20260508030000_invoice_ownership_integrity/migration.sql`.
+- Assumptions: `Job` is the canonical customer-owned invoice thread; `bookingId` and `orderId` remain optional so future voucher/retail invoices can exist without session workflow context; current session invoices continue as one rolling primary invoice.
+- Validation: `npx prisma format`, `npx prisma validate`, `npx prisma generate`, `npx tsc --noEmit`, `npx prisma migrate deploy`, `npm run lint`, `npm run build`, and `npx prisma migrate status` completed successfully.
 
 ## Feature 37 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `context/progress-tracker.md`.
