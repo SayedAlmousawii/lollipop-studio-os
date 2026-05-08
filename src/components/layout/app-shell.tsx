@@ -1,12 +1,18 @@
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
+import { requireCurrentAppUser } from "@/lib/auth";
 
 interface AppShellProps {
   children: React.ReactNode;
   pageTitle?: string;
 }
 
-export function AppShell({ children, pageTitle = "Dashboard" }: AppShellProps) {
+export async function AppShell({
+  children,
+  pageTitle = "Dashboard",
+}: AppShellProps) {
+  await requireCurrentAppUser();
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />

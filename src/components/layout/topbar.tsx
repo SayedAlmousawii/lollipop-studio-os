@@ -1,4 +1,5 @@
-import { Bell, User } from "lucide-react";
+import { UserButton } from "@clerk/nextjs";
+import { Bell } from "lucide-react";
 import { DevResetWorkflowButton } from "./dev-reset-workflow-button";
 
 interface TopbarProps {
@@ -25,13 +26,9 @@ export function Topbar({ pageTitle }: TopbarProps) {
           <Bell className="h-4 w-4" />
         </button>
 
-        <button
-          type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-accent-soft hover:text-text-primary"
-          aria-label="User menu"
-        >
-          <User className="h-4 w-4" />
-        </button>
+        <div className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-accent-soft">
+          <UserButton />
+        </div>
       </div>
     </header>
   );

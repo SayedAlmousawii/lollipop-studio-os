@@ -23,9 +23,9 @@ async function main() {
   // Users
   const [admin, manager, receptionist, photographer, editor] = await Promise.all([
     prisma.user.upsert({
-      where: { email: "admin@studio-os.local" },
+      where: { email: "admin+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Admin", email: "admin@studio-os.local", role: UserRole.ADMIN },
+      create: { name: "Admin", email: "admin+clerk_test@lollipopstudioos.dev", role: UserRole.ADMIN },
     }),
     prisma.user.upsert({
       where: { email: "manager@studio-os.local" },

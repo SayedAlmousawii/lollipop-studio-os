@@ -3,11 +3,15 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 49 implemented.
-- Current goal: validate invoice concurrency review fixes.
+- Current phase: Feature 50 implemented.
+- Current goal: verify Clerk auth gate and linked admin account locally.
 
 ## Key State
 - `jobNumber` is the sole staff-facing operational identifier.
+- Clerk now owns authentication/session state; Prisma `User` remains the source of truth for Studio OS staff role and internal identity.
+- `User.clerkId` is the nullable unique long-term link between a Clerk user and one Studio OS staff user.
+- Dashboard/app routes are protected by the Next.js 16 `proxy.ts` convention; `/sign-in` is the only intended public app route.
+- Server-side auth/app-user lookup is centralized in `src/lib/auth`, with first local linking by matching Clerk primary email to an unlinked Prisma user.
 - Canonical `Job` rows now own immutable `jobNumber` values; `Booking.jobId` is required and is the source-of-truth booking attachment.
 - `Order`, `Invoice`, and `Payment` now also carry canonical `jobId` links back to `Job` for downstream joins; the transitional booking/order/invoice public IDs remain only for compatibility storage, not active staff-facing reads.
 - Invoice ownership is anchored by required `customerId` + `jobId`; `bookingId` and `orderId` remain nullable workflow context links that are validated when present.
@@ -54,6 +58,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 50: Clerk auth and staff identity foundation added with `@clerk/nextjs`, `ClerkProvider`, Next.js 16 `proxy.ts`, Clerk sign-in route, topbar `UserButton`, nullable unique `User.clerkId`, centralized server-only auth helpers, and email-based first local app-user linking.
 - Feature 49 concurrency review fix: invoice financial-edit updates now use a lock-guarded write, and workflow invoice creation recovers from duplicate-create races by re-reading the winning invoice.
 - Feature 49 locked-invoice guard: primary workflow invoice normalization now refuses to attach an `orderId` to locked invoices.
 - Feature 49 follow-up: primary workflow invoice reuse now updates with an unlocked predicate and aborts cleanly if the invoice locks between lookup and reuse.
@@ -124,6 +129,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Files created: `prisma/migrations/20260508030000_invoice_ownership_integrity/migration.sql`.
 - Assumptions: `Job` is the canonical customer-owned invoice thread; `bookingId` and `orderId` remain optional so future voucher/retail invoices can exist without session workflow context; current session invoices continue as one rolling primary invoice.
 - Validation: `npx prisma format`, `npx prisma validate`, `npx prisma generate`, `npx tsc --noEmit`, `npx prisma migrate deploy`, `npm run lint`, `npm run build`, and `npx prisma migrate status` completed successfully.
+
+## Feature 50 Implementation Notes
+- Files modified: `.env.example`, `app/layout.tsx`, `context/progress-tracker.md`, `context/reviews/current-database-er-diagram.md`, `package-lock.json`, `package.json`, `prisma/schema.prisma`, `src/components/layout/app-shell.tsx`, `src/components/layout/topbar.tsx`.
+- Files created: `app/sign-in/[[...sign-in]]/page.tsx`, `proxy.ts`, `prisma/migrations/20260509010000_user_clerk_identity_link/migration.sql`, `src/lib/auth/current-user.ts`, `src/lib/auth/index.ts`.
+- Assumptions: the first local Clerk admin should use the seeded `admin+clerk_test@lollipopstudioos.dev` email with Clerk's development verification code, or another existing seeded staff email, so the helper can link that unlinked Prisma user on first authenticated lookup.
+- Validation: `npx prisma format`, `npx prisma generate`, `npx prisma validate`, `npx tsc --noEmit`, `npx prisma migrate deploy`, `npm run lint`, `npm run build`, and `npx prisma migrate status` completed successfully. Runtime smoke: `/sign-in` returned 200; signed-out `/bookings` was intercepted by Clerk as signed-out in dev mode.
 
 ## Feature 37 Implementation Notes
 - Files modified: `app/customers/page.tsx`, `src/modules/customers/customer.service.ts`, `context/progress-tracker.md`.
