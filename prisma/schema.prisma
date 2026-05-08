@@ -136,10 +136,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedBookings      Booking[]       @relation("AssignedPhotographer")
-  assignedEditingJobs   EditingJob[]    @relation("AssignedEditor")
-  orderActivities       OrderActivity[]
-  deliveryCompletions   Order[]         @relation("DeliveryCompletedBy")
+  assignedBookings    Booking[]       @relation("AssignedPhotographer")
+  assignedEditingJobs EditingJob[]    @relation("AssignedEditor")
+  orderActivities     OrderActivity[]
+  deliveryCompletions Order[]         @relation("DeliveryCompletedBy")
 
   @@map("users")
 }
@@ -177,6 +177,7 @@ model Job {
   invoices      Invoice[]
   payments      Payment[]
 
+  @@unique([id, customerId])
   @@index([customerId])
   @@map("jobs")
 }
@@ -268,6 +269,7 @@ model Booking {
   invoices             Invoice[]
 
   @@unique([id, jobId])
+  @@unique([id, jobId, customerId])
   @@index([departmentId])
   @@map("bookings")
 }
@@ -315,19 +317,20 @@ model Order {
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
 
-  job                    Job             @relation(fields: [jobId], references: [id])
-  booking                Booking         @relation(fields: [bookingId, jobId], references: [id, jobId])
-  customer               Customer        @relation(fields: [customerId], references: [id])
-  deliveryCompletedByUser User?          @relation("DeliveryCompletedBy", fields: [deliveryCompletedById], references: [id])
-  editingJob             EditingJob?
-  productionJob          ProductionJob?
-  originalPackage        Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
-  finalPackage           Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
-  invoices               Invoice[]
-  activities             OrderActivity[]
-  orderAddOns            OrderAddOn[]
+  job                     Job             @relation(fields: [jobId], references: [id])
+  booking                 Booking         @relation(fields: [bookingId, jobId], references: [id, jobId])
+  customer                Customer        @relation(fields: [customerId], references: [id])
+  deliveryCompletedByUser User?           @relation("DeliveryCompletedBy", fields: [deliveryCompletedById], references: [id])
+  editingJob              EditingJob?
+  productionJob           ProductionJob?
+  originalPackage         Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
+  finalPackage            Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
+  invoices                Invoice[]
+  activities              OrderActivity[]
+  orderAddOns             OrderAddOn[]
 
   @@unique([id, jobId])
+  @@unique([id, bookingId, jobId, customerId])
   @@unique([bookingId, jobId])
   @@index([jobNumber])
   @@map("orders")
@@ -405,15 +408,15 @@ model OrderActivity {
 }
 
 model OrderAddOn {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   orderId       String
   addOnOptionId String?
   nameSnapshot  String
-  priceSnapshot Decimal   @db.Decimal(10, 3)
-  quantity      Int       @default(1)
+  priceSnapshot Decimal  @db.Decimal(10, 3)
+  quantity      Int      @default(1)
   notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   order       Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   addOnOption OrderAddOnOption? @relation(fields: [addOnOptionId], references: [id], onDelete: SetNull)
@@ -444,9 +447,9 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  job           Job       @relation(fields: [jobId], references: [id])
-  order         Order?    @relation(fields: [orderId, jobId], references: [id, jobId])
-  booking       Booking?  @relation(fields: [bookingId, jobId], references: [id, jobId])
+  job           Job       @relation(fields: [jobId, customerId], references: [id, customerId])
+  order         Order?    @relation(fields: [orderId, bookingId, jobId, customerId], references: [id, bookingId, jobId, customerId])
+  booking       Booking?  @relation(fields: [bookingId, jobId, customerId], references: [id, jobId, customerId])
   customer      Customer  @relation(fields: [customerId], references: [id])
   parentInvoice Invoice?  @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
   adjustments   Invoice[] @relation("InvoiceAdjustments")

@@ -60,12 +60,6 @@ export async function createInvoiceForOrderWithClient(
       customer: { select: { id: true } },
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
-      invoices: {
-        where: { parentInvoiceId: null },
-        select: { id: true, status: true },
-        orderBy: { createdAt: "asc" },
-        take: 1,
-      },
       orderAddOns: {
         select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
@@ -73,7 +67,11 @@ export async function createInvoiceForOrderWithClient(
     },
   });
   if (!order) throw new Error("Order not found");
-  const existingInvoice = order.invoices[0];
+  const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
+    orderId: order.id,
+    bookingId: order.bookingId,
+    jobId: order.jobId,
+  });
   if (existingInvoice) return existingInvoice;
 
   const packageAmount = order.finalPackage?.price ?? order.originalPackage?.price;
@@ -130,20 +128,6 @@ export async function syncOrderInvoiceForFinancialEdit(
       customer: { select: { id: true } },
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
-      invoices: {
-        where: { parentInvoiceId: null },
-        select: {
-          id: true,
-          invoiceNumber: true,
-          totalAmount: true,
-          paidAmount: true,
-          remainingAmount: true,
-          status: true,
-          isLocked: true,
-        },
-        orderBy: { createdAt: "asc" },
-        take: 1,
-      },
       orderAddOns: {
         select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
@@ -154,6 +138,29 @@ export async function syncOrderInvoiceForFinancialEdit(
 
   const packagePrice = order.finalPackage?.price ?? order.originalPackage?.price;
   if (!packagePrice) throw new Error("Order has no package price");
+
+  const existingWorkflowInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
+    orderId: order.id,
+    bookingId: order.bookingId,
+    jobId: order.jobId,
+  });
+  const existingInvoice = existingWorkflowInvoice
+    ? await client.invoice.findUnique({
+        where: { id: existingWorkflowInvoice.id },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          status: true,
+          isLocked: true,
+        },
+      })
+    : null;
+  if (existingWorkflowInvoice && !existingInvoice) {
+    throw new Error("Invoice not found after ownership normalization");
+  }
 
   const nextAddOns = mapOrderAddOnRows(order.orderAddOns);
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
@@ -171,8 +178,6 @@ export async function syncOrderInvoiceForFinancialEdit(
   const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
   const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
   const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
-  const existingInvoice = order.invoices[0] ?? null;
-
   if (existingInvoice?.isLocked) {
     throw new Error("Locked invoices cannot be recalculated from order edits");
   }
@@ -188,9 +193,9 @@ export async function syncOrderInvoiceForFinancialEdit(
     ? await client.invoice.update({
         where: { id: existingInvoice.id },
         data: { totalAmount: targetTotalAmount },
-      select: {
-        id: true,
-        invoiceNumber: true,
+        select: {
+          id: true,
+          invoiceNumber: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -245,9 +250,17 @@ export async function createInvoiceForBookingWithClient(
     include: {
       customer: { select: { id: true } },
       package: { select: { price: true } },
+      order: { select: { id: true } },
     },
   });
   if (!booking) throw new Error("Booking not found");
+
+  const existingInvoice = await findPrimaryWorkflowInvoiceForBooking(client, {
+    bookingId: booking.id,
+    orderId: booking.order?.id ?? null,
+    jobId: booking.jobId,
+  });
+  if (existingInvoice) return existingInvoice;
 
   const totalAmount = booking.package?.price;
   if (!totalAmount) throw new Error("Booking has no package price");
@@ -258,6 +271,7 @@ export async function createInvoiceForBookingWithClient(
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
       jobId: booking.jobId,
       jobNumber: booking.jobNumber,
+      orderId: booking.order?.id ?? null,
       bookingId: booking.id,
       customerId: booking.customer.id,
       ...invoiceNumberData,
@@ -442,6 +456,26 @@ async function createSyncedOrderInvoice(
     totalAmount: Prisma.Decimal;
   }
 ) {
+  const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
+    orderId: data.orderId,
+    bookingId: data.bookingId,
+    jobId: data.jobId,
+  });
+  if (existingInvoice) {
+    return client.invoice.update({
+      where: { id: existingInvoice.id },
+      data: { totalAmount: data.totalAmount },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        totalAmount: true,
+        paidAmount: true,
+        remainingAmount: true,
+        status: true,
+      },
+    });
+  }
+
   const invoiceNumberData = await generateInvoiceNumber(client);
   return client.invoice.create({
     data: {
@@ -465,6 +499,73 @@ async function createSyncedOrderInvoice(
       status: true,
     },
   });
+}
+
+async function findPrimaryWorkflowInvoiceForBooking(
+  client: DbClient,
+  input: {
+    bookingId: string;
+    orderId: string | null;
+    jobId: string;
+  }
+): Promise<{ id: string; status: InvoiceStatus } | null> {
+  const invoices = await client.invoice.findMany({
+    where: {
+      parentInvoiceId: null,
+      jobId: input.jobId,
+      OR: [
+        { bookingId: input.bookingId },
+        ...(input.orderId ? [{ orderId: input.orderId }] : []),
+      ],
+    },
+    select: { id: true, status: true, orderId: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return normalizePrimaryWorkflowInvoice(client, invoices, input.orderId);
+}
+
+async function findPrimaryWorkflowInvoiceForOrder(
+  client: DbClient,
+  input: {
+    orderId: string;
+    bookingId: string;
+    jobId: string;
+  }
+): Promise<{ id: string; status: InvoiceStatus } | null> {
+  const invoices = await client.invoice.findMany({
+    where: {
+      parentInvoiceId: null,
+      jobId: input.jobId,
+      OR: [{ orderId: input.orderId }, { bookingId: input.bookingId }],
+    },
+    select: { id: true, status: true, orderId: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return normalizePrimaryWorkflowInvoice(client, invoices, input.orderId);
+}
+
+async function normalizePrimaryWorkflowInvoice(
+  client: DbClient,
+  invoices: Array<{ id: string; status: InvoiceStatus; orderId: string | null }>,
+  orderId: string | null
+): Promise<{ id: string; status: InvoiceStatus } | null> {
+  if (invoices.length === 0) return null;
+  if (invoices.length > 1) {
+    throw new Error("Duplicate primary workflow invoices found for this job");
+  }
+
+  const invoice = invoices[0];
+  if (orderId && !invoice.orderId) {
+    return client.invoice.update({
+      where: { id: invoice.id },
+      data: { orderId },
+      select: { id: true, status: true },
+    });
+  }
+
+  return { id: invoice.id, status: invoice.status };
 }
 
 function mapOrderAddOnRows(

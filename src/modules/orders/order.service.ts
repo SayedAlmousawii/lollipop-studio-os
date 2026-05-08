@@ -1313,6 +1313,7 @@ export async function createOrderFromBookingWithClient(
     await client.invoice.updateMany({
       where: {
         bookingId: booking.id,
+        jobId: booking.jobId,
         orderId: null,
       },
       data: { orderId: booking.order.id },
@@ -1361,6 +1362,7 @@ export async function createOrderFromBookingWithClient(
   await client.invoice.updateMany({
     where: {
       bookingId: booking.id,
+      jobId: booking.jobId,
       orderId: null,
     },
     data: { orderId: order.id },
