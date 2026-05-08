@@ -33,6 +33,44 @@ export interface OrderInvoiceSyncSummary {
   createdInvoice: boolean;
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
+}
+
+async function updateUnlockedInvoiceTotal(
+  client: DbClient,
+  id: string,
+  totalAmount: Prisma.Decimal
+) {
+  const updateResult = await client.invoice.updateMany({
+    where: { id, isLocked: false },
+    data: { totalAmount },
+  });
+  if (updateResult.count === 0) {
+    throw new Error("Invoice is locked or not found");
+  }
+
+  const invoice = await client.invoice.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      totalAmount: true,
+      paidAmount: true,
+      remainingAmount: true,
+      status: true,
+    },
+  });
+  if (!invoice) {
+    throw new Error("Invoice not found after update");
+  }
+
+  return invoice;
+}
+
 export async function createInvoiceForOrder(orderId: string): Promise<{ id: string }> {
   return withRetry(
     () => db.$transaction((tx) => createInvoiceForOrderWithClient(tx, orderId)),
@@ -87,21 +125,35 @@ export async function createInvoiceForOrderWithClient(
     .plus(extraPhotoCharge);
 
   const invoiceNumberData = await generateInvoiceNumber(client);
-  const invoice = await client.invoice.create({
-    data: {
-      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
-      jobId: order.jobId,
-      jobNumber: order.jobNumber,
+  let invoice: { id: string; status: InvoiceStatus };
+  try {
+    invoice = await client.invoice.create({
+      data: {
+        publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+        jobId: order.jobId,
+        jobNumber: order.jobNumber,
+        orderId: order.id,
+        bookingId: order.bookingId,
+        customerId: order.customer.id,
+        ...invoiceNumberData,
+        totalAmount,
+        remainingAmount: totalAmount,
+        status: InvoiceStatus.DRAFT,
+      },
+      select: { id: true, status: true },
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+
+    const racedInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
       orderId: order.id,
       bookingId: order.bookingId,
-      customerId: order.customer.id,
-      ...invoiceNumberData,
-      totalAmount,
-      remainingAmount: totalAmount,
-      status: InvoiceStatus.DRAFT,
-    },
-    select: { id: true, status: true },
-  });
+      jobId: order.jobId,
+    });
+    if (!racedInvoice) throw error;
+
+    return racedInvoice;
+  }
 
   await recordOrderActivity(client, {
     orderId: order.id,
@@ -190,18 +242,7 @@ export async function syncOrderInvoiceForFinancialEdit(
   const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
 
   const invoice = existingInvoice
-    ? await client.invoice.update({
-        where: { id: existingInvoice.id },
-        data: { totalAmount: targetTotalAmount },
-        select: {
-          id: true,
-          invoiceNumber: true,
-          totalAmount: true,
-          paidAmount: true,
-          remainingAmount: true,
-          status: true,
-        },
-      })
+    ? await updateUnlockedInvoiceTotal(client, existingInvoice.id, targetTotalAmount)
     : await createSyncedOrderInvoice(client, {
         orderId: order.id,
         bookingId: order.bookingId,
@@ -266,21 +307,34 @@ export async function createInvoiceForBookingWithClient(
   if (!totalAmount) throw new Error("Booking has no package price");
 
   const invoiceNumberData = await generateInvoiceNumber(client);
-  return client.invoice.create({
-    data: {
-      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
-      jobId: booking.jobId,
-      jobNumber: booking.jobNumber,
-      orderId: booking.order?.id ?? null,
+  try {
+    return await client.invoice.create({
+      data: {
+        publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+        jobId: booking.jobId,
+        jobNumber: booking.jobNumber,
+        orderId: booking.order?.id ?? null,
+        bookingId: booking.id,
+        customerId: booking.customer.id,
+        ...invoiceNumberData,
+        totalAmount,
+        remainingAmount: totalAmount,
+        status: InvoiceStatus.DRAFT,
+      },
+      select: { id: true, status: true },
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+
+    const racedInvoice = await findPrimaryWorkflowInvoiceForBooking(client, {
       bookingId: booking.id,
-      customerId: booking.customer.id,
-      ...invoiceNumberData,
-      totalAmount,
-      remainingAmount: totalAmount,
-      status: InvoiceStatus.DRAFT,
-    },
-    select: { id: true, status: true },
-  });
+      orderId: booking.order?.id ?? null,
+      jobId: booking.jobId,
+    });
+    if (!racedInvoice) throw error;
+
+    return racedInvoice;
+  }
 }
 
 export async function getInvoices({
@@ -489,28 +543,56 @@ async function createSyncedOrderInvoice(
   }
 
   const invoiceNumberData = await generateInvoiceNumber(client);
-  return client.invoice.create({
-    data: {
-      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
-      jobId: data.jobId,
-      jobNumber: data.jobNumber,
+  try {
+    return await client.invoice.create({
+      data: {
+        publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+        jobId: data.jobId,
+        jobNumber: data.jobNumber,
+        orderId: data.orderId,
+        bookingId: data.bookingId,
+        customerId: data.customerId,
+        ...invoiceNumberData,
+        totalAmount: data.totalAmount,
+        remainingAmount: data.totalAmount,
+        status: InvoiceStatus.DRAFT,
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        totalAmount: true,
+        paidAmount: true,
+        remainingAmount: true,
+        status: true,
+      },
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error;
+
+    const racedInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
       orderId: data.orderId,
       bookingId: data.bookingId,
-      customerId: data.customerId,
-      ...invoiceNumberData,
-      totalAmount: data.totalAmount,
-      remainingAmount: data.totalAmount,
-      status: InvoiceStatus.DRAFT,
-    },
-    select: {
-      id: true,
-      invoiceNumber: true,
-      totalAmount: true,
-      paidAmount: true,
-      remainingAmount: true,
-      status: true,
-    },
-  });
+      jobId: data.jobId,
+    });
+    if (!racedInvoice) throw error;
+
+    const refreshedInvoice = await client.invoice.findUnique({
+      where: { id: racedInvoice.id },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        totalAmount: true,
+        paidAmount: true,
+        remainingAmount: true,
+        status: true,
+      },
+    });
+    if (!refreshedInvoice) {
+      throw new Error("Invoice not found after duplicate-create recovery");
+    }
+
+    return refreshedInvoice;
+  }
 }
 
 async function findPrimaryWorkflowInvoiceForBooking(
