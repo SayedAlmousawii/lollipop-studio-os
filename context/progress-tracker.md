@@ -54,6 +54,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 49 follow-up: primary workflow invoice reuse now updates with an unlocked predicate and aborts cleanly if the invoice locks between lookup and reuse.
 - Feature 49: invoice ownership integrity tightened around customer-owned job threads; booking/order invoice context is normalized and composite-FK validated when present; rolling booking/order invoice reuse is enforced in service paths.
 - Feature 47: structured `OrderAddOn` table added with snapshot fields; JSON backfill migration; all service-layer add-on reads/writes switched to structured rows; `Order.addOns` JSON deprecated; ER diagram updated.
 - Feature 45: editing workflow extraction moved assignment, timestamps, progress, revision count, and approval/handoff state into a dedicated `EditingJob` row with a backfill migration and service-layer read/write updates.

@@ -462,9 +462,16 @@ async function createSyncedOrderInvoice(
     jobId: data.jobId,
   });
   if (existingInvoice) {
-    return client.invoice.update({
-      where: { id: existingInvoice.id },
+    const updateResult = await client.invoice.updateMany({
+      where: { id: existingInvoice.id, isLocked: false },
       data: { totalAmount: data.totalAmount },
+    });
+    if (updateResult.count === 0) {
+      throw new Error("Invoice is locked or not found");
+    }
+
+    const refreshedInvoice = await client.invoice.findUnique({
+      where: { id: existingInvoice.id },
       select: {
         id: true,
         invoiceNumber: true,
@@ -474,6 +481,11 @@ async function createSyncedOrderInvoice(
         status: true,
       },
     });
+    if (!refreshedInvoice) {
+      throw new Error("Invoice not found after update");
+    }
+
+    return refreshedInvoice;
   }
 
   const invoiceNumberData = await generateInvoiceNumber(client);
