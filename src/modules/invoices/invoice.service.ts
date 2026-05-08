@@ -570,11 +570,23 @@ async function normalizePrimaryWorkflowInvoice(
 
   const invoice = invoices[0];
   if (orderId && !invoice.orderId) {
-    return client.invoice.update({
-      where: { id: invoice.id },
+    const updateResult = await client.invoice.updateMany({
+      where: { id: invoice.id, isLocked: false },
       data: { orderId },
+    });
+    if (updateResult.count === 0) {
+      throw new Error("Invoice is locked or not found");
+    }
+
+    const updatedInvoice = await client.invoice.findUnique({
+      where: { id: invoice.id },
       select: { id: true, status: true },
     });
+    if (!updatedInvoice) {
+      throw new Error("Invoice not found after update");
+    }
+
+    return updatedInvoice;
   }
 
   return { id: invoice.id, status: invoice.status };

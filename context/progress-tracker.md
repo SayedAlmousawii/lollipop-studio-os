@@ -4,7 +4,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ## Now
 - Current phase: Feature 49 implemented.
-- Current goal: review and commit invoice ownership integrity changes.
+- Current goal: validate and push locked invoice normalization guard.
 
 ## Key State
 - `jobNumber` is the sole staff-facing operational identifier.
@@ -54,6 +54,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 49 locked-invoice guard: primary workflow invoice normalization now refuses to attach an `orderId` to locked invoices.
 - Feature 49 follow-up: primary workflow invoice reuse now updates with an unlocked predicate and aborts cleanly if the invoice locks between lookup and reuse.
 - Feature 49: invoice ownership integrity tightened around customer-owned job threads; booking/order invoice context is normalized and composite-FK validated when present; rolling booking/order invoice reuse is enforced in service paths.
 - Feature 47: structured `OrderAddOn` table added with snapshot fields; JSON backfill migration; all service-layer add-on reads/writes switched to structured rows; `Order.addOns` JSON deprecated; ER diagram updated.
