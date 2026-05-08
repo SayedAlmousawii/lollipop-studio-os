@@ -28,24 +28,40 @@ async function main() {
       create: { name: "Admin", email: "admin+clerk_test@lollipopstudioos.dev", role: UserRole.ADMIN },
     }),
     prisma.user.upsert({
-      where: { email: "manager@studio-os.local" },
+      where: { email: "manager+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Sara Al-Manager", email: "manager@studio-os.local", role: UserRole.MANAGER },
+      create: {
+        name: "Sara Al-Manager",
+        email: "manager+clerk_test@lollipopstudioos.dev",
+        role: UserRole.MANAGER,
+      },
     }),
     prisma.user.upsert({
-      where: { email: "reception@studio-os.local" },
+      where: { email: "reception+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Noor Al-Anazi", email: "reception@studio-os.local", role: UserRole.RECEPTIONIST },
+      create: {
+        name: "Noor Al-Anazi",
+        email: "reception+clerk_test@lollipopstudioos.dev",
+        role: UserRole.RECEPTIONIST,
+      },
     }),
     prisma.user.upsert({
-      where: { email: "photo@studio-os.local" },
+      where: { email: "photo+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Khalid Al-Photo", email: "photo@studio-os.local", role: UserRole.PHOTOGRAPHER },
+      create: {
+        name: "Khalid Al-Photo",
+        email: "photo+clerk_test@lollipopstudioos.dev",
+        role: UserRole.PHOTOGRAPHER,
+      },
     }),
     prisma.user.upsert({
-      where: { email: "editor@studio-os.local" },
+      where: { email: "editor+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Mona Al-Edit", email: "editor@studio-os.local", role: UserRole.EDITOR },
+      create: {
+        name: "Mona Al-Edit",
+        email: "editor+clerk_test@lollipopstudioos.dev",
+        role: UserRole.EDITOR,
+      },
     }),
   ]);
 

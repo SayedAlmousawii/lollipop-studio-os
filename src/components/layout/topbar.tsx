@@ -27,7 +27,13 @@ export function Topbar({ pageTitle }: TopbarProps) {
         </button>
 
         <div className="flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-accent-soft">
-          <UserButton />
+          <UserButton
+            appearance={{
+              elements: {
+                userButtonAvatarBox: "h-9 w-9",
+              },
+            }}
+          />
         </div>
       </div>
     </header>
