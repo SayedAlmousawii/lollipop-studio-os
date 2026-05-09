@@ -18,7 +18,7 @@ This file tracks the explicit permission-guarded actions implemented in Feature 
 ## Current Role To Permission Map
 
 This is the current app-level authorization map implemented in
-[src/lib/permissions/index.ts](/Users/bo3li/Desktop/lollipop-studio-os/src/lib/permissions/index.ts).
+[src/lib/permissions/index.ts](src/lib/permissions/index.ts).
 
 ### Admin
 
@@ -119,59 +119,59 @@ This is the current app-level authorization map implemented in
 
 - `updateBookingStatusAction`
   Permission: `booking:status-update`
-  File: [app/bookings/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/bookings/actions.ts)
+  File: [app/bookings/actions.ts](app/bookings/actions.ts)
 
 - `recordDepositAction`
   Permission: `payment:create`
-  File: [app/bookings/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/bookings/actions.ts)
+  File: [app/bookings/actions.ts](app/bookings/actions.ts)
   Notes: May create or reuse the needed booking invoice internally before recording the deposit.
 
 - `recordBasePaymentAndCompleteAction`
   Permission: `payment:create`
-  File: [app/bookings/[bookingId]/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/bookings/[bookingId]/actions.ts)
+  File: [app/bookings/[bookingId]/actions.ts](app/bookings/[bookingId]/actions.ts)
   Notes: May create or reuse the needed booking invoice internally before recording the base payment.
 
 ### Invoices And Payments
 
 - `createOrderInvoiceAction`
   Permission: `invoice:create`
-  File: [app/orders/[orderId]/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/orders/[orderId]/actions.ts)
+  File: [app/orders/[orderId]/actions.ts](app/orders/[orderId]/actions.ts)
   Notes: Direct standalone invoice creation for an order.
 
 - `issueInvoiceAction`
   Permission: `invoice:issue`
-  File: [app/invoices/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/invoices/actions.ts)
+  File: [app/invoices/actions.ts](app/invoices/actions.ts)
 
 - `closeInvoiceAction`
   Permission: `invoice:close`
-  File: [app/invoices/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/invoices/actions.ts)
+  File: [app/invoices/actions.ts](app/invoices/actions.ts)
 
 - `recordPaymentAction`
   Permission: `payment:create`
-  File: [app/invoices/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/invoices/actions.ts)
+  File: [app/invoices/actions.ts](app/invoices/actions.ts)
   Notes: Records payment against an existing invoice; does not use the standalone create-invoice action.
 
 - `createAdjustmentInvoiceAction`
   Permission: `invoice:adjustment-create`
-  File: [app/invoices/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/invoices/actions.ts)
+  File: [app/invoices/actions.ts](app/invoices/actions.ts)
 
 ### Order Financial Mutations
 
 - `updateSelectionWorkflowAction`
   Permission: `order:financial-update`
-  File: [app/orders/[orderId]/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/orders/[orderId]/actions.ts)
+  File: [app/orders/[orderId]/actions.ts](app/orders/[orderId]/actions.ts)
   Notes: Covers package changes, extra-photo pricing impact, add-on pricing impact, and invoice-syncing order edits done through the selection workflow.
 
 - `updateOrderAction`
   Permission: `order:financial-update`
-  File: [app/orders/[orderId]/edit/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/orders/[orderId]/edit/actions.ts)
+  File: [app/orders/[orderId]/edit/actions.ts](app/orders/[orderId]/edit/actions.ts)
   Notes: Covers direct financially meaningful order edits such as final package changes, selected photo count changes, add-on changes, and notes recorded alongside the edit flow.
 
 ### Delivery Workflow
 
 - `updateDeliveryWorkflowAction`
   Permission depends on action:
-  File: [app/orders/[orderId]/actions.ts](/Users/bo3li/Desktop/lollipop-studio-os/app/orders/[orderId]/actions.ts)
+  File: [app/orders/[orderId]/actions.ts](app/orders/[orderId]/actions.ts)
 
 - `prepareForPickup`
   Permission: `delivery:update`

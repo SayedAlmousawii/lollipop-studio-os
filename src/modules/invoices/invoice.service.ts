@@ -518,10 +518,14 @@ export async function closeInvoice(
             id: true,
             invoiceNumber: true,
             orderId: true,
+            isLocked: true,
           },
         });
         if (!invoice) {
           throw new Error("Invoice not found");
+        }
+        if (invoice.isLocked) {
+          throw new Error("Invoice is already locked");
         }
 
         await tx.invoice.update({

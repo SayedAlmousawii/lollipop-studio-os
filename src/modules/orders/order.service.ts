@@ -2807,10 +2807,7 @@ function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkf
       order.status !== OrderStatus.CANCELLED &&
       order.status !== OrderStatus.DELIVERED &&
       order.deliveryStatus === OrderDeliveryStatus.PICKED_UP &&
-      completionBlockers.every(
-        (blocker) =>
-          blocker === "Payment needs manager/admin override before completion."
-      ),
+      completionBlockers.every((blocker) => blocker === PAYMENT_OVERRIDE_BLOCKER),
   };
 }
 
@@ -3023,7 +3020,7 @@ function resolveDeliveryUpdate(
       const invoiceSummary = summarizeInvoices(order.invoices);
       const paymentSettled =
         invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
-      const completedById = actorContext.actorUserId ?? input.completedById?.trim();
+      const completedById = actorContext.actorUserId;
       if (!completedById) {
         throw new Error("A linked authenticated staff user is required to complete delivery");
       }
@@ -3090,13 +3087,15 @@ function resolveDeliveryUpdate(
   }
 }
 
+const PAYMENT_OVERRIDE_BLOCKER = "Payment needs manager/admin override before completion." as const;
+
 function resolveDeliveryCompletionBlockers(
   order: DeliveryOrderState,
   paymentSettled: boolean
 ): string[] {
   const blockers: string[] = [];
   if (!paymentSettled) {
-    blockers.push("Payment needs manager/admin override before completion.");
+    blockers.push(PAYMENT_OVERRIDE_BLOCKER);
   }
   if (!isProductionReadyForDelivery(order)) {
     blockers.push("Production must be ready and all production sections must be complete.");
