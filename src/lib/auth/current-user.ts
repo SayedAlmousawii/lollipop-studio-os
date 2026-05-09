@@ -112,9 +112,7 @@ export const requireCurrentAppUser = cache(async () => {
   const appUser = await getCurrentAppUser();
 
   if (!appUser) {
-    throw new Error(
-      "Signed-in Clerk user is not linked to a Studio OS staff user.",
-    );
+    redirect("/unauthorized");
   }
 
   return appUser;
