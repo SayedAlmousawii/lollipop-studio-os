@@ -55,7 +55,7 @@ The deposit and base-payment flows create an invoice internally as a side effect
 ### Reservation
 **Who:** Scheduling and coordination staff.
 **Intent:** Manages the booking calendar, confirms availability, assigns photographers to sessions.
-**Restricted from:** All financial operations, editing, production, delivery.
+**Restricted from:** All financial operations, editing, delivery. Temporarily holds `workflow:production-update` (see note below).
 **Rationale:** Reservation's job is scheduling only. They have no financial or workflow responsibility beyond getting the right photographer to the right session.
 
 ---
@@ -63,7 +63,7 @@ The deposit and base-payment flows create an invoice internally as a side effect
 ### Photographer
 **Who:** Session photographer.
 **Intent:** Executes the shoot. In the system, they are primarily a data subject (assigned to sessions, linked to commissions) rather than a data actor. Their workflow-update permissions are still being defined.
-**Restricted from:** All financial operations, invoice management, editing, production, commission management.
+**Restricted from:** All financial operations, invoice management, editing, commission management. Temporarily holds `workflow:production-update` (see note below).
 **Rationale:** Photographers do not own any system workflow in V1 — their access is limited to their assigned session context.
 **Open decision:** Whether photographers need any write access (e.g. marking a session complete, adding notes) is not yet decided. Defer until photographer-specific views are built.
 
@@ -72,8 +72,8 @@ The deposit and base-payment flows create an invoice internally as a side effect
 ### Editor
 **Who:** Photo editing staff.
 **Intent:** Drives the editing workflow — assigns themselves or is assigned to a job, updates edit status, manages the revision loop through to customer approval.
-**Restricted from:** All financial operations, booking management, production, commission management, delivery.
-**Rationale:** Editors own editing and nothing else. They do not touch money or production.
+**Restricted from:** All financial operations, booking management, commission management, delivery. Temporarily holds `workflow:production-update` (see note below).
+**Rationale:** Editors own editing. They do not touch money or delivery. Production access is a temporary broad grant pending ownership definition.
 
 ---
 
@@ -148,13 +148,13 @@ Sidebar filtering, page-level information hiding, and assigned-only views (photo
 A `NODE_ENV === "development"` role switcher flowing through the same permission helper. Useful once role testing becomes repetitive. Must not be UI-only — it must override at the helper level to be meaningful.
 
 **Clerk webhook sync**
-Handles deletion and external changes made directly in the Clerk dashboard. When a staff member is removed from Clerk, a `user.deleted` webhook fires and the system should deactivate the matching Prisma record. Also covers `user.updated` for email changes. Not needed until admin user management is built, but required before production to avoid stale records for departed staff.
+Handles deletion and external changes made directly in the Clerk dashboard. When a staff member is removed from Clerk, a `user.deleted` webhook fires and the system should set `User.active = false` on the matching Prisma record. Also covers `user.updated` for email changes. Not needed until admin user management is built, but required before production to avoid stale records for departed staff. The soft-delete schema foundation (`User.active`) is now in place.
 
 **Admin user management UI**
 An admin page to invite and manage staff accounts. The flow: admin enters name, email, and role → system sends a Clerk invitation (not a created password — the user sets their own via email link) → on first sign-in the Prisma `User` record is already created with `clerkId` set. This replaces the current manual two-system setup (Clerk dashboard + Prisma Studio). Not currently scheduled in the build plan — belongs in a late phase after core operations are stable.
 
-**Soft-delete on `User` records**
-Before webhook sync or admin management is built, add an `active Boolean @default(true)` field to the Prisma `User` model. Deactivated staff are blocked from the app but their historical audit trail (actorUserId on payments, invoices, workflow changes) is preserved. Without this, the only way to block a departed staff member is to delete their Clerk account — which leaves orphaned `actorUserId` references in audit records with no resolvable user.
+**Soft-delete on `User` records** — schema foundation done
+`User.active Boolean @default(true)` is in the schema and migrated. Deactivated staff are blocked at `requireCurrentAppUser()` with a redirect to `/unauthorized`. Historical audit trail (actorUserId on payments, invoices, workflow changes) is preserved. Admin UI for deactivating/reactivating users is deferred to Feature 65.
 
 ---
 

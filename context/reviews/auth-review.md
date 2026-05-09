@@ -23,6 +23,7 @@
 - [x] Permission checks wired into all sensitive server actions: booking status, payments, invoice issue/close/adjustment, order financial updates, delivery workflow, editing workflow, production workflow
 - [x] `app/(dashboard)/layout.tsx` calls `requireCurrentAppUser()` as defense-in-depth behind `proxy.ts`
 - [x] `app/unauthorized.tsx` created — renders when an unlinked Clerk user hits the auth gate
+- [x] `User.active` field exists — deactivated staff are blocked at `requireCurrentAppUser()` without losing audit history
 
 ---
 
@@ -30,7 +31,7 @@
 
 ### Request-Level Gate (every HTTP request)
 
-```
+```text
 Incoming Request
        │
        ▼
@@ -52,7 +53,7 @@ Incoming Request
 
 ### First Sign-In: Auto-Link Flow
 
-```
+```text
 Clerk session exists, userId known
        │
        ▼
@@ -82,7 +83,7 @@ Clerk session exists, userId known
 
 ### Server Action: Auth + Authorization Flow
 
-```
+```text
 Server Action called (e.g. issueInvoiceAction)
        │
        ▼
@@ -102,7 +103,7 @@ Server Action called (e.g. issueInvoiceAction)
        │
        ├─ clerkId lookup in Prisma
        │
-       │  Not linked? → throw Error (unlinked user)
+       │  Not linked or inactive? → redirect /unauthorized
        │
        ▼
   CurrentAppUser resolved

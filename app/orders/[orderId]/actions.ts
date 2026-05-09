@@ -111,10 +111,11 @@ export async function updateEditingWorkflowAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
+  const appUser = await requireCurrentAppUserPermission(
+    PERMISSIONS.WORKFLOW_EDITING_UPDATE
+  );
+
   try {
-    const appUser = await requireCurrentAppUserPermission(
-      PERMISSIONS.WORKFLOW_EDITING_UPDATE
-    );
     await updateOrderEditingWorkflow(orderId, parsed.data, {
       actorUserId: appUser.id,
     });
@@ -142,10 +143,11 @@ export async function updateProductionWorkflowAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
+  const appUser = await requireCurrentAppUserPermission(
+    PERMISSIONS.WORKFLOW_PRODUCTION_UPDATE
+  );
+
   try {
-    const appUser = await requireCurrentAppUserPermission(
-      PERMISSIONS.WORKFLOW_PRODUCTION_UPDATE
-    );
     await updateOrderProductionWorkflow(orderId, parsed.data, {
       actorUserId: appUser.id,
     });

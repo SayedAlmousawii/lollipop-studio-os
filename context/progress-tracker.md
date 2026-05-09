@@ -3,10 +3,11 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 51b implemented.
-- Current goal: all auth/permission gaps from Feature 50–51 review are closed; ready for workflow guard hardening or next unit.
+- Current phase: Feature 51c implemented. Auth foundation (50, 51, 51b, 51c) is complete. Ready to move to Phase 2 — workflow guard hardening (Feature 52).
+- Remaining open auth gaps (non-blocking, deferred): server-action error propagation inconsistency (`issueInvoiceAction`/`closeInvoiceAction` throw unguarded — Gap #3 in auth-review.md); `requirePermission` throws `new Error()` instead of `unauthorized()` (Gap #4); `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8).
 
 ## Key State
+- `User.active Boolean @default(true)` exists in schema and DB; deactivated staff are blocked at `requireCurrentAppUser()` with a redirect to `/unauthorized`; audit history is preserved.
 - `jobNumber` is the sole staff-facing operational identifier.
 - Clerk now owns authentication/session state; Prisma `User` remains the source of truth for Studio OS staff role and internal identity.
 - `User.clerkId` is the nullable unique long-term link between a Clerk user and one Studio OS staff user.
@@ -66,6 +67,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 51c: soft-delete foundation — `User.active` added to schema and migrated; `requireCurrentAppUser()` redirects inactive users to `/unauthorized`; review docs updated.
 - Feature 51b: auth hardening and permission completion — `app/unauthorized.tsx` created; dashboard layout guard added; unlinked-user crash replaced with redirect; `RECEPTIONIST` granted `invoice:create`; `workflow:editing-update` and `workflow:production-update` added with role assignments; both workflow actions now require permission instead of auth-only.
 - Feature 51: shared permission guard foundation added under `src/lib/permissions`; sensitive booking, invoice, payment, order-financial, and delivery server actions now require linked app-user authorization; actor-aware service signatures now propagate `actorUserId` into order activity and delivery completion writes.
 - Feature 50: Clerk auth and staff identity foundation added with `@clerk/nextjs`, `ClerkProvider`, Next.js 16 `proxy.ts`, Clerk sign-in route, topbar `UserButton`, nullable unique `User.clerkId`, centralized server-only auth helpers, and email-based first local app-user linking.
@@ -239,6 +241,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Use the relevant feature spec or review doc for detail.
 - Validate with the smallest command set needed for the change.
 - Prefer `build`, `lint`, and migration checks when schema/workflow changes are involved.
+
+## Feature 51c Implementation Notes
+- Files modified: `prisma/schema.prisma`, `src/lib/auth/current-user.ts`, `context/reviews/auth-review.md`, `context/reviews/role-permissions-design.md`, `context/reviews/current-database-er-diagram.md`, `context/progress-tracker.md`.
+- Files created: `prisma/migrations/20260510010000_user_soft_delete_active_field/migration.sql`.
+- Assumptions: migration was applied directly via `prisma db execute` and marked applied via `prisma migrate resolve --applied` due to a pre-existing shadow database issue with `20260505020000_invoice_number_sequence`; all 5 existing users confirmed `active = true` after migration.
+- Validation: `npx prisma generate`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, and `npx prisma migrate status` completed successfully.
 
 ## Feature 51b Implementation Notes
 - Files created: `app/unauthorized.tsx`.

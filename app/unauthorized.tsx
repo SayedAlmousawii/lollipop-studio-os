@@ -8,7 +8,7 @@ export default function UnauthorizedPage() {
         You are signed in but do not have permission to access this page.
       </p>
       <Link
-        href="/orders"
+        href="/"
         className="text-sm font-medium text-primary underline-offset-4 hover:underline"
       >
         Return to Dashboard
