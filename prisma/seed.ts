@@ -92,6 +92,16 @@ async function normalizeSeededUserEmails() {
         });
       }
 
+      if (
+        clerkTestUser.clerkId &&
+        legacyUser.clerkId &&
+        clerkTestUser.clerkId !== legacyUser.clerkId
+      ) {
+        throw new Error(
+          `Cannot merge seeded users "${legacyEmail}" and "${clerkTestEmail}" because both are linked to different Clerk users.`,
+        );
+      }
+
       await tx.user.delete({ where: { id: legacyUser.id } });
     });
   }
