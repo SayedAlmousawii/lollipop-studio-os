@@ -3,8 +3,8 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 51c implemented. Auth foundation (50, 51, 51b, 51c) is complete. Ready to move to Phase 2 — workflow guard hardening (Feature 52).
-- Remaining open auth gaps (non-blocking, deferred): server-action error propagation inconsistency (`issueInvoiceAction`/`closeInvoiceAction` throw unguarded — Gap #3 in auth-review.md); `requirePermission` throws `new Error()` instead of `unauthorized()` (Gap #4); `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8).
+- Current phase: Auth foundation complete (50, 51, 51b, 51c + gap fixes). Ready to move to Phase 2 — workflow guard hardening (Feature 52).
+- Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
 - `User.active Boolean @default(true)` exists in schema and DB; deactivated staff are blocked at `requireCurrentAppUser()` with a redirect to `/unauthorized`; audit history is preserved.
@@ -67,6 +67,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Auth gap fixes: `requirePermission` now calls `unauthorized()` instead of throwing a generic `Error`; `recordPaymentAction` re-throws Next.js framework errors so they are never swallowed by the catch block; auth-review.md rating raised to 9/10.
 - Feature 51c: soft-delete foundation — `User.active` added to schema and migrated; `requireCurrentAppUser()` redirects inactive users to `/unauthorized`; review docs updated.
 - Feature 51b: auth hardening and permission completion — `app/unauthorized.tsx` created; dashboard layout guard added; unlinked-user crash replaced with redirect; `RECEPTIONIST` granted `invoice:create`; `workflow:editing-update` and `workflow:production-update` added with role assignments; both workflow actions now require permission instead of auth-only.
 - Feature 51: shared permission guard foundation added under `src/lib/permissions`; sensitive booking, invoice, payment, order-financial, and delivery server actions now require linked app-user authorization; actor-aware service signatures now propagate `actorUserId` into order activity and delivery completion writes.
