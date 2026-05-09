@@ -13,6 +13,7 @@ const appUserSelect = {
   name: true,
   email: true,
   role: true,
+  active: true,
 } satisfies Prisma.UserSelect;
 
 export type CurrentAppUser = Prisma.UserGetPayload<{
@@ -111,7 +112,7 @@ export const requireCurrentAppUser = cache(async () => {
 
   const appUser = await getCurrentAppUser();
 
-  if (!appUser) {
+  if (!appUser || !appUser.active) {
     redirect("/unauthorized");
   }
 

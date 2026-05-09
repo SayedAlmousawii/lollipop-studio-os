@@ -24,6 +24,7 @@ erDiagram
         string name
         string email UK
         UserRole role
+        boolean active
         datetime createdAt
         datetime updatedAt
     }
