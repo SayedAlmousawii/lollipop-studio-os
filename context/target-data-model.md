@@ -23,25 +23,19 @@ The ideal V1 schema should follow these rules:
 4. Avoid duplicated business truth when a derived source already exists
 5. Preserve traceability for all sensitive actions
 6. Keep V1 practical and not over-engineered
-7. Keep raw database IDs internal-only and use staff-friendly public identifiers for operations
+7. Keep raw database IDs internal-only and use staff-friendly workflow identifiers for operations
 
-## Public Identifier Direction
+## Workflow Identifier Direction
 
-The ideal V1 schema should distinguish between internal primary keys and human-friendly operational identifiers.
+The ideal V1 schema should distinguish between internal primary keys and canonical workflow identifiers.
 
 - Keep raw `id` fields as internal database keys only
-- Add record-level public identifiers for staff-facing display, search, and references
-- Add one shared immutable `jobNumber` to link the full workflow across booking, order, invoice, payment, and downstream jobs
-
-**Suggested roles**
-- `publicId`: identifies one specific record such as a booking, order, invoice, or payment
-- `jobNumber`: identifies the entire customer job/workflow thread
-
-**Suggested behavior**
+- Keep `jobNumber` as the canonical shared workflow identifier across booking, order, invoice, payment, and downstream jobs
 - Generate `jobNumber` when the booking is created
 - Keep `jobNumber` immutable for the life of the workflow
+- Create a canonical `Job` row when the booking is created, then attach related booking/order/invoice/payment/workflow rows through `jobId`
 - Carry the same `jobNumber` into the related order, invoice, payment, editing job, production job, and commission records when applicable
-- Allow staff to search and cross-reference by both the record `publicId` and the shared `jobNumber`
+- Allow staff to search and cross-reference by `jobNumber`
 
 **Suggested format**
 - Department/year/sequence format such as `NB-2026-00124`
@@ -124,15 +118,32 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 - frame
 - digital files
 
-### 6. AddOnDefinition
+### Canonical Job
+
+**Purpose:** immutable workflow thread anchor
+
+**Core fields**
+- `id`
+- `jobNumber`
+- `customerId`
+- `createdAt`
+- `updatedAt`
+
+**Notes**
+- Booking creation should create the canonical job row first, then attach booking/order and downstream workflow records through `jobId`
+- `jobNumber` remains the staff-facing operational identifier for the whole workflow thread
+
+### 6. OrderAddOnOption
 
 **Purpose:** reusable add-on catalog
 
 **Core fields**
 - `id`
 - `name`
+- `category`
 - `price`
 - `isActive`
+- `sortOrder`
 - `description`
 
 ### 7. Booking
@@ -141,8 +152,8 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 
 **Core fields**
 - `id`
-- `publicId`
 - `jobNumber`
+- `jobId`
 - `customerId`
 - `packageId`
 - `sessionDate`
@@ -157,7 +168,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 **Important notes**
 - Do not use `depositPaid` as a separate source of truth if deposit state can be derived from payments
 - Booking owns scheduling and assignment, not final order pricing
-- Booking is the lifecycle entry point for generating the shared `jobNumber`
+- Booking is the lifecycle entry point for generating the shared `jobNumber`, but the canonical `Job` row should own the workflow thread through `jobId`
 
 ### 8. BookingTheme
 
@@ -178,8 +189,8 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 
 **Core fields**
 - `id`
-- `publicId`
 - `jobNumber`
+- `jobId`
 - `bookingId` unique
 - `customerId`
 - `originalPackageId`
@@ -195,6 +206,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 - `bookingId` stays 1:1 with order
 - `synologyPath` supports the manual V1 storage-link requirement
 - Order inherits the immutable `jobNumber` from its source booking
+- Order should retain the canonical `jobId` from the source job thread
 
 ### 10. OrderAddOn
 
@@ -203,7 +215,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 **Core fields**
 - `id`
 - `orderId`
-- `addOnDefinitionId` nullable
+- `addOnOptionId` nullable
 - `nameSnapshot`
 - `priceSnapshot`
 - `quantity`
@@ -238,6 +250,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 - `id`
 - `publicId`
 - `jobNumber`
+- `jobId`
 - `orderId`
 - `bookingId`
 - `customerId`
@@ -261,7 +274,8 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 **Important notes**
 - Keep explicit invoice classification instead of inferring from creation order
 - Denormalized amounts are acceptable if recalculated consistently
-- `invoiceNumber` remains the finance-facing invoice sequence; it should not replace record `publicId` or shared `jobNumber`
+- `invoiceNumber` remains the finance-facing invoice sequence; it should not replace shared `jobNumber`
+- `publicId` remains the invoice record identifier used alongside `invoiceNumber` and `jobNumber`
 
 ### 13. Payment
 
@@ -271,6 +285,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 - `id`
 - `publicId`
 - `jobNumber`
+- `jobId`
 - `invoiceId`
 - `amount`
 - `method`
@@ -289,6 +304,8 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 
 **Important notes**
 - Payment should inherit `jobNumber` from the linked booking/order chain so finance activity remains traceable to the same operational job
+- Payment should also retain `jobId` from the linked workflow thread
+- `publicId` remains the payment receipt identifier used alongside `jobNumber`
 
 ### 14. EditingJob
 
@@ -296,6 +313,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 
 **Core fields**
 - `id`
+- `jobId`
 - `jobNumber`
 - `orderId`
 - `assignedEditorId` nullable
@@ -320,6 +338,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 
 **Core fields**
 - `id`
+- `jobId`
 - `jobNumber`
 - `orderId`
 - `jobType`
@@ -347,6 +366,7 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 
 **Core fields**
 - `id`
+- `jobId`
 - `jobNumber`
 - `orderId`
 - `userId`
@@ -389,6 +409,14 @@ The ideal V1 schema should distinguish between internal primary keys and human-f
 ## Core Relationships
 
 ```text
+Job (1)
+ └── Booking (1)
+      └── Order (1)
+           ├── Invoices (N)
+           │    └── Payments (N)
+           ├── EditingJobs (N, usually 1 active chain)
+           ├── ProductionJobs (N)
+           └── Commissions (N)
 Customer (1)
  ├── Children (N)
  ├── Bookings (N)
@@ -410,6 +438,7 @@ Customer (1)
 
 ### Booking module owns
 - customer booking link
+- job thread creation
 - package at booking time
 - date/time
 - session type
@@ -420,6 +449,7 @@ Customer (1)
 
 ### Orders module owns
 - order lifecycle
+- job-thread attachment
 - original vs final package
 - selected photo count
 - chosen add-ons
@@ -428,6 +458,7 @@ Customer (1)
 ### Invoices and payments module owns
 - invoice totals
 - payment records
+- job-thread linkage
 - deposit/base/upgrade/add-on payment classification
 - invoice locking and closure
 
