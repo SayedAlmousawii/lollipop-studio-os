@@ -193,21 +193,9 @@ export function requirePermission(appUser, permission) {
 
 ---
 
-### 7. `ClerkProvider` is inside `<body>` instead of wrapping `<html>`
+### 7. ~~`ClerkProvider` placement~~ — NOT A GAP
 
-[layout.tsx:22-24](../../app/layout.tsx#L22) — `ClerkProvider` wraps only the body content. The recommended placement wraps `<html>` to avoid potential hydration edge cases with Clerk's context propagation.
-
-```tsx
-export default function RootLayout({ children }) {
-  return (
-    <ClerkProvider dynamic>
-      <html lang="en" className={`${inter.variable} h-full`}>
-        <body className="h-full antialiased">{children}</body>
-      </html>
-    </ClerkProvider>
-  )
-}
-```
+The Clerk skill template and official pattern places `ClerkProvider` inside `<body>`, not wrapping `<html>`. The current `app/layout.tsx` is correct. This gap was a documentation error — no code change needed.
 
 ---
 
