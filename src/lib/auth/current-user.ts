@@ -43,19 +43,27 @@ export const getCurrentClerkUser = cache(async () => {
 });
 
 export const getCurrentAppUser = cache(async (): Promise<CurrentAppUser | null> => {
-  const clerkUser = await getCurrentClerkUser();
+  const session = await getCurrentClerkSession();
 
-  if (!clerkUser) {
+  if (!session) {
     return null;
   }
 
+  // Fast path: user already linked — no Clerk API call needed
   const linkedUser = await db.user.findUnique({
-    where: { clerkId: clerkUser.id },
+    where: { clerkId: session.userId },
     select: appUserSelect,
   });
 
   if (linkedUser) {
     return linkedUser;
+  }
+
+  // First sign-in only: fetch full Clerk user to link by email
+  const clerkUser = await currentUser();
+
+  if (!clerkUser) {
+    return null;
   }
 
   const primaryEmail = clerkUser.primaryEmailAddress?.emailAddress;
