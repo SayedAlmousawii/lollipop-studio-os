@@ -19,33 +19,139 @@ if (!url) throw new Error("DATABASE_URL is not set");
 
 const prisma = new PrismaClient({ adapter: new PrismaPg(url) });
 
+const SEEDED_USER_EMAIL_NORMALIZATIONS = [
+  {
+    legacyEmail: "admin@studio-os.local",
+    clerkTestEmail: "admin+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "manager@studio-os.local",
+    clerkTestEmail: "manager+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "reception@studio-os.local",
+    clerkTestEmail: "reception+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "photo@studio-os.local",
+    clerkTestEmail: "photo+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "editor@studio-os.local",
+    clerkTestEmail: "editor+clerk_test@lollipopstudioos.dev",
+  },
+] as const;
+
+async function normalizeSeededUserEmails() {
+  for (const { legacyEmail, clerkTestEmail } of SEEDED_USER_EMAIL_NORMALIZATIONS) {
+    const [legacyUser, clerkTestUser] = await Promise.all([
+      prisma.user.findUnique({ where: { email: legacyEmail } }),
+      prisma.user.findUnique({ where: { email: clerkTestEmail } }),
+    ]);
+
+    if (!legacyUser) {
+      continue;
+    }
+
+    if (!clerkTestUser) {
+      await prisma.user.update({
+        where: { id: legacyUser.id },
+        data: { email: clerkTestEmail },
+      });
+      continue;
+    }
+
+    if (legacyUser.id === clerkTestUser.id) {
+      continue;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await Promise.all([
+        tx.booking.updateMany({
+          where: { assignedPhotographerId: legacyUser.id },
+          data: { assignedPhotographerId: clerkTestUser.id },
+        }),
+        tx.editingJob.updateMany({
+          where: { assignedEditorId: legacyUser.id },
+          data: { assignedEditorId: clerkTestUser.id },
+        }),
+        tx.order.updateMany({
+          where: { deliveryCompletedById: legacyUser.id },
+          data: { deliveryCompletedById: clerkTestUser.id },
+        }),
+        tx.orderActivity.updateMany({
+          where: { userId: legacyUser.id },
+          data: { userId: clerkTestUser.id },
+        }),
+      ]);
+
+      if (!clerkTestUser.clerkId && legacyUser.clerkId) {
+        await tx.user.update({
+          where: { id: clerkTestUser.id },
+          data: { clerkId: legacyUser.clerkId },
+        });
+      }
+
+      if (
+        clerkTestUser.clerkId &&
+        legacyUser.clerkId &&
+        clerkTestUser.clerkId !== legacyUser.clerkId
+      ) {
+        throw new Error(
+          `Cannot merge seeded users "${legacyEmail}" and "${clerkTestEmail}" because both are linked to different Clerk users.`,
+        );
+      }
+
+      await tx.user.delete({ where: { id: legacyUser.id } });
+    });
+  }
+}
+
 async function main() {
+  await normalizeSeededUserEmails();
+
   // Users
   const [admin, manager, receptionist, photographer, editor] = await Promise.all([
     prisma.user.upsert({
-      where: { email: "admin@studio-os.local" },
+      where: { email: "admin+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Admin", email: "admin@studio-os.local", role: UserRole.ADMIN },
+      create: { name: "Admin", email: "admin+clerk_test@lollipopstudioos.dev", role: UserRole.ADMIN },
     }),
     prisma.user.upsert({
-      where: { email: "manager@studio-os.local" },
+      where: { email: "manager+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Sara Al-Manager", email: "manager@studio-os.local", role: UserRole.MANAGER },
+      create: {
+        name: "Sara Al-Manager",
+        email: "manager+clerk_test@lollipopstudioos.dev",
+        role: UserRole.MANAGER,
+      },
     }),
     prisma.user.upsert({
-      where: { email: "reception@studio-os.local" },
+      where: { email: "reception+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Noor Al-Anazi", email: "reception@studio-os.local", role: UserRole.RECEPTIONIST },
+      create: {
+        name: "Noor Al-Anazi",
+        email: "reception+clerk_test@lollipopstudioos.dev",
+        role: UserRole.RECEPTIONIST,
+      },
     }),
     prisma.user.upsert({
-      where: { email: "photo@studio-os.local" },
+      where: { email: "photo+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Khalid Al-Photo", email: "photo@studio-os.local", role: UserRole.PHOTOGRAPHER },
+      create: {
+        name: "Khalid Al-Photo",
+        email: "photo+clerk_test@lollipopstudioos.dev",
+        role: UserRole.PHOTOGRAPHER,
+      },
     }),
     prisma.user.upsert({
-      where: { email: "editor@studio-os.local" },
+      where: { email: "editor+clerk_test@lollipopstudioos.dev" },
       update: {},
-      create: { name: "Mona Al-Edit", email: "editor@studio-os.local", role: UserRole.EDITOR },
+      create: {
+        name: "Mona Al-Edit",
+        email: "editor+clerk_test@lollipopstudioos.dev",
+        role: UserRole.EDITOR,
+      },
     }),
   ]);
 
