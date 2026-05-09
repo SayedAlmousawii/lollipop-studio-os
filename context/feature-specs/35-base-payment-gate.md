@@ -10,7 +10,6 @@ Enforce the base payment gate: before an order can enter photo selection, staff 
 - `context/architecture-summary.md`
 - `context/feature-specs/21-deposit-recording.md`
 - `context/feature-specs/29-tabbed-order-hub-ui-shell.md`
-- `context/reviews/base-payment-gate-plan.md`
 
 ---
 
