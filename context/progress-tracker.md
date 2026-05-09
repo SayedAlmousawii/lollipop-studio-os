@@ -3,15 +3,19 @@
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
 ## Now
-- Current phase: Feature 51 implemented.
-- Current goal: extend permission coverage from the shared server-side guard layer into additional sensitive mutations as new units land.
+- Current phase: Feature 51b implemented.
+- Current goal: all auth/permission gaps from Feature 50–51 review are closed; ready for workflow guard hardening or next unit.
 
 ## Key State
 - `jobNumber` is the sole staff-facing operational identifier.
 - Clerk now owns authentication/session state; Prisma `User` remains the source of truth for Studio OS staff role and internal identity.
 - `User.clerkId` is the nullable unique long-term link between a Clerk user and one Studio OS staff user.
 - Sensitive server actions now authorize through a shared `src/lib/permissions` layer backed by Prisma app-user roles rather than ad hoc Clerk-only checks.
-- The first centralized permission map now covers booking status updates, payment recording, invoice creation/issue/close/adjustment creation, financially meaningful order edits, delivery workflow updates, delivery completion, and delivery payment overrides.
+- The centralized permission map covers booking status updates, payment recording, invoice creation/issue/close/adjustment creation, financially meaningful order edits, delivery workflow updates, delivery completion, delivery payment overrides, editing workflow updates, and production workflow updates.
+- `RECEPTIONIST` now holds `invoice:create` explicitly (resolves implicit invoice creation debt).
+- Dashboard layout calls `requireCurrentAppUser()` as defense-in-depth behind `proxy.ts`.
+- Unlinked Clerk users are redirected to `/unauthorized` instead of crashing with a 500.
+- `app/unauthorized.tsx` exists and renders an access-denied page.
 - High-risk server actions now pass `actorUserId` into service-layer financial and workflow operations so order activity writes and delivery completion attribution can use the signed-in Prisma user.
 - Delivery completion now attributes the completing actor to the authenticated linked staff user instead of trusting a manually selected completion actor when auth context is available.
 - Dashboard/app routes are protected by the Next.js 16 `proxy.ts` convention; `/sign-in` is the only intended public app route.
@@ -62,6 +66,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Customer profiles now show internal notes as a dedicated persisted staff context section, edited through the existing customer update flow.
 
 ## Recent Milestones
+- Feature 51b: auth hardening and permission completion — `app/unauthorized.tsx` created; dashboard layout guard added; unlinked-user crash replaced with redirect; `RECEPTIONIST` granted `invoice:create`; `workflow:editing-update` and `workflow:production-update` added with role assignments; both workflow actions now require permission instead of auth-only.
 - Feature 51: shared permission guard foundation added under `src/lib/permissions`; sensitive booking, invoice, payment, order-financial, and delivery server actions now require linked app-user authorization; actor-aware service signatures now propagate `actorUserId` into order activity and delivery completion writes.
 - Feature 50: Clerk auth and staff identity foundation added with `@clerk/nextjs`, `ClerkProvider`, Next.js 16 `proxy.ts`, Clerk sign-in route, topbar `UserButton`, nullable unique `User.clerkId`, centralized server-only auth helpers, and email-based first local app-user linking.
 - Feature 49 concurrency review fix: invoice financial-edit updates now use a lock-guarded write, and workflow invoice creation recovers from duplicate-create races by re-reading the winning invoice.
@@ -234,6 +239,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Use the relevant feature spec or review doc for detail.
 - Validate with the smallest command set needed for the change.
 - Prefer `build`, `lint`, and migration checks when schema/workflow changes are involved.
+
+## Feature 51b Implementation Notes
+- Files created: `app/unauthorized.tsx`.
+- Files modified: `app/(dashboard)/layout.tsx`, `app/orders/[orderId]/actions.ts`, `src/lib/auth/current-user.ts`, `src/lib/permissions/index.ts`, `context/reviews/auth-review.md`, `context/reviews/role-permissions-design.md`, `context/progress-tracker.md`.
+- Assumptions: `workflow:production-update` is granted broadly (all roles except `ACCOUNTANT`) as a temporary stance while production workflow ownership is still undefined.
+- Validation: `npx tsc --noEmit`, `npm run lint`, and `npm run build` completed successfully.
 
 ## Feature 51 Implementation Notes
 - Files modified: `app/bookings/[bookingId]/actions.ts`, `app/bookings/actions.ts`, `app/invoices/actions.ts`, `app/orders/[orderId]/actions.ts`, `app/orders/[orderId]/edit/actions.ts`, `context/progress-tracker.md`, `src/components/orders/delivery-workflow-form.tsx`, `src/lib/auth/index.ts`, `src/modules/bookings/booking.service.ts`, `src/modules/invoices/invoice.service.ts`, `src/modules/orders/order.service.ts`, `src/modules/orders/order.types.ts`, `src/modules/payments/payment.service.ts`.

@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireCurrentAppUser } from "@/lib/auth";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -113,7 +112,9 @@ export async function updateEditingWorkflowAction(
   }
 
   try {
-    const appUser = await requireCurrentAppUser();
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.WORKFLOW_EDITING_UPDATE
+    );
     await updateOrderEditingWorkflow(orderId, parsed.data, {
       actorUserId: appUser.id,
     });
@@ -142,7 +143,9 @@ export async function updateProductionWorkflowAction(
   }
 
   try {
-    const appUser = await requireCurrentAppUser();
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.WORKFLOW_PRODUCTION_UPDATE
+    );
     await updateOrderProductionWorkflow(orderId, parsed.data, {
       actorUserId: appUser.id,
     });
