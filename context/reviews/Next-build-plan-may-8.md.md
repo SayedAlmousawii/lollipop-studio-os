@@ -158,6 +158,44 @@ Future examples:
 
 ---
 
+## Feature 51b - Auth Hardening And Permission Completion
+
+### Summary
+Close the remaining open gaps from Features 50–51 before moving to workflow guard hardening.
+
+### Status
+✅ Implemented
+
+### What Was Done
+- Created `app/unauthorized.tsx` for the Next.js 16 unauthorized special file
+- Added auth guard to `app/(dashboard)/layout.tsx` for defense-in-depth
+- Replaced unlinked-user crash with a redirect to `/unauthorized` in `src/lib/auth/current-user.ts`
+- Granted `invoice:create` to `RECEPTIONIST` to resolve the permission model honesty gap
+- Added `workflow:editing-update` and `workflow:production-update` permission keys with role assignments
+- Wired `updateEditingWorkflowAction` and `updateProductionWorkflowAction` with proper permission checks
+
+---
+
+## Feature 51c - User Soft-Delete Foundation
+
+### Summary
+Add an `active` boolean field to the Prisma `User` model to support staff deactivation without data loss.
+
+### Purpose
+When a staff member leaves, their Clerk account can be removed to block sign-in. But their Prisma `User` record must remain intact to preserve historical audit references — `actorUserId` on payments, invoices, and workflow changes points back to this record. Without soft-delete, the only options are hard deletion (breaks audit history) or leaving the record active (misleading in staff lists).
+
+### Core Rules
+- add `active Boolean @default(true)` to the `User` model
+- `requireCurrentAppUser()` should check `active` and redirect to `/unauthorized` if false
+- deactivated users retain all historical records and audit references
+- no UI for deactivation yet — this is schema and helper foundation only
+- do not add staff management screens in this unit
+
+### Note
+This is a prerequisite for the admin user management UI and Clerk webhook sync planned in Phase 7.
+
+---
+
 # Phase 2 - Workflow Guard Hardening
 
 ## Goal
@@ -440,6 +478,70 @@ This should wait until the studio is confident that delivery should be a hard fi
 
 ---
 
+# Phase 7 - Production Hardening And Staff Management
+
+## Goal
+
+Prepare the system for real multi-user production use. This phase adds the staff management infrastructure that was not needed during development but becomes essential before handing the system to a full team.
+
+This phase should begin after the core operating system is complete and stable.
+
+---
+
+## Feature 65 - Staff Deactivation UI
+
+### Summary
+Add an admin interface for deactivating and reactivating staff accounts.
+
+### Purpose
+Feature 51c adds the schema foundation. This feature surfaces it — admins can deactivate a departed staff member from within the app without going to Prisma Studio or the Clerk dashboard.
+
+### Core Rules
+- deactivation removes app access immediately (active check in `requireCurrentAppUser()`)
+- deactivated users remain in the database with all historical records intact
+- reactivation restores access without needing to re-link Clerk
+
+---
+
+## Feature 66 - Admin Invite And User Management UI
+
+### Summary
+Add an admin page where staff accounts can be created via invitation and assigned a role.
+
+### Purpose
+Currently adding a staff member requires manually creating a Clerk user and a Prisma `User` record separately and hoping the emails match for auto-link. This replaces that process with a single admin action.
+
+### Intended Flow
+- admin enters name, email, and role
+- system sends a Clerk invitation email (user sets their own password via the link)
+- system creates the Prisma `User` record with `clerkId` already set at invite time
+- on first sign-in the user is fully linked with no auto-link dance needed
+
+### Core Rules
+- use Clerk's invitation API, not `createUser` — staff should set their own credentials
+- Prisma `User` record is created at invite time, not on first sign-in
+- role is assigned at creation, editable by admin later
+- do not allow self-registration — invite-only is intentional for an internal tool
+
+---
+
+## Feature 67 - Clerk Webhook Sync
+
+### Summary
+Handle Clerk lifecycle events (`user.deleted`, `user.updated`) to keep the Prisma `User` table in sync with the Clerk directory.
+
+### Purpose
+If a staff member's Clerk account is deleted directly from the Clerk dashboard (outside the admin UI), the Prisma record remains active and could appear in assignment lists or audit queries. Webhooks close this gap.
+
+### Core Rules
+- use the `svix` package to verify webhook signatures before processing
+- `user.deleted` → deactivate the matching Prisma `User` (`active = false`)
+- `user.updated` → sync email changes if the email field changes in Clerk
+- do not hard-delete Prisma records from webhook events — deactivate only
+- webhook endpoint: `app/api/webhooks/clerk/route.ts`
+
+---
+
 # Recommended Priority Order
 
 ## Highest Priority
@@ -465,6 +567,9 @@ This should wait until the studio is confident that delivery should be a hard fi
 14. Customer credit ledger
 15. Advanced negative adjustment logic
 16. Delivery-time automatic invoice closure
+17. Staff deactivation UI
+18. Admin invite and user management UI
+19. Clerk webhook sync
 
 ---
 
