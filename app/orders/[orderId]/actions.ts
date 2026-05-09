@@ -2,6 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { requireCurrentAppUser } from "@/lib/auth";
+import {
+  PERMISSIONS,
+  requireCurrentAppUserPermission,
+} from "@/lib/permissions";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
 import {
   updateOrderDeliveryWorkflowSchema,
@@ -33,7 +38,10 @@ export type UpdateDeliveryActionState = {
 };
 
 export async function createOrderInvoiceAction(orderId: string): Promise<void> {
-  const invoice = await createInvoiceForOrder(orderId);
+  const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_CREATE);
+  const invoice = await createInvoiceForOrder(orderId, {
+    actorUserId: appUser.id,
+  });
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/invoices");
@@ -66,7 +74,12 @@ export async function updateSelectionWorkflowAction(
   }
 
   try {
-    await updateOrderSelectionWorkflow(orderId, parsed.data);
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    await updateOrderSelectionWorkflow(orderId, parsed.data, {
+      actorUserId: appUser.id,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update selection workflow";
@@ -100,7 +113,10 @@ export async function updateEditingWorkflowAction(
   }
 
   try {
-    await updateOrderEditingWorkflow(orderId, parsed.data);
+    const appUser = await requireCurrentAppUser();
+    await updateOrderEditingWorkflow(orderId, parsed.data, {
+      actorUserId: appUser.id,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update editing workflow";
@@ -126,7 +142,10 @@ export async function updateProductionWorkflowAction(
   }
 
   try {
-    await updateOrderProductionWorkflow(orderId, parsed.data);
+    const appUser = await requireCurrentAppUser();
+    await updateOrderProductionWorkflow(orderId, parsed.data, {
+      actorUserId: appUser.id,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update production workflow";
@@ -156,7 +175,19 @@ export async function updateDeliveryWorkflowAction(
   }
 
   try {
-    await updateOrderDeliveryWorkflow(orderId, parsed.data);
+    const basePermission =
+      parsed.data.action === "completeOrder"
+        ? PERMISSIONS.DELIVERY_COMPLETE
+        : PERMISSIONS.DELIVERY_UPDATE;
+    const appUser = await requireCurrentAppUserPermission(basePermission);
+
+    if (parsed.data.allowPaymentOverride) {
+      await requireCurrentAppUserPermission(PERMISSIONS.DELIVERY_PAYMENT_OVERRIDE);
+    }
+
+    await updateOrderDeliveryWorkflow(orderId, parsed.data, {
+      actorUserId: appUser.id,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update delivery workflow";

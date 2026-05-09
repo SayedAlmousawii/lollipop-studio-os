@@ -1,4 +1,5 @@
 import { OrderActivityType, Prisma } from "@prisma/client";
+import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
@@ -11,10 +12,14 @@ type DbClient = typeof db | Prisma.TransactionClient;
 
 export async function recordPayment(
   invoiceId: string,
-  data: RecordPaymentInput
+  data: RecordPaymentInput,
+  actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   return withRetry(
-    () => db.$transaction((tx) => recordPaymentWithClient(tx, invoiceId, data)),
+    () =>
+      db.$transaction((tx) =>
+        recordPaymentWithClient(tx, invoiceId, data, actorContext)
+      ),
     "Failed to record payment"
   );
 }
@@ -22,7 +27,8 @@ export async function recordPayment(
 export async function recordPaymentWithClient(
   client: DbClient,
   invoiceId: string,
-  data: RecordPaymentInput
+  data: RecordPaymentInput,
+  actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
@@ -60,6 +66,7 @@ export async function recordPaymentWithClient(
   if (invoice.orderId) {
     await recordOrderActivity(client, {
       orderId: invoice.orderId,
+      userId: actorContext.actorUserId ?? null,
       type: OrderActivityType.PAYMENT_RECEIVED,
       title: "Payment received",
       description: `${new Prisma.Decimal(data.amount).toFixed(3)} KD payment recorded.`,

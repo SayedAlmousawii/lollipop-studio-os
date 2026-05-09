@@ -10,6 +10,10 @@ import {
 import { createAdjustmentInvoiceSchema } from "@/modules/invoices/invoice.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import { recordPayment } from "@/modules/payments/payment.service";
+import {
+  PERMISSIONS,
+  requireCurrentAppUserPermission,
+} from "@/lib/permissions";
 
 export type RecordPaymentActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -17,13 +21,15 @@ export type RecordPaymentActionState = {
 };
 
 export async function issueInvoiceAction(invoiceId: string): Promise<void> {
-  await issueInvoice(invoiceId);
+  const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_ISSUE);
+  await issueInvoice(invoiceId, { actorUserId: appUser.id });
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${invoiceId}`);
 }
 
 export async function closeInvoiceAction(invoiceId: string): Promise<void> {
-  await closeInvoice(invoiceId);
+  const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_CLOSE);
+  await closeInvoice(invoiceId, { actorUserId: appUser.id });
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${invoiceId}`);
 }
@@ -47,7 +53,8 @@ export async function recordPaymentAction(
   }
 
   try {
-    await recordPayment(invoiceId, parsed.data);
+    const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
+    await recordPayment(invoiceId, parsed.data, { actorUserId: appUser.id });
     revalidatePath("/invoices");
     revalidatePath(`/invoices/${invoiceId}`);
     return { success: "Payment recorded." };
@@ -71,7 +78,12 @@ export async function createAdjustmentInvoiceAction(
     throw new Error("Invalid adjustment invoice details");
   }
 
-  const invoice = await createAdjustmentInvoice(parentInvoiceId, parsed.data);
+  const appUser = await requireCurrentAppUserPermission(
+    PERMISSIONS.INVOICE_ADJUSTMENT_CREATE
+  );
+  const invoice = await createAdjustmentInvoice(parentInvoiceId, parsed.data, {
+    actorUserId: appUser.id,
+  });
   revalidatePath("/invoices");
   redirect(`/invoices/${invoice.id}`);
 }

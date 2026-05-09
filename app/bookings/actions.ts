@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  PERMISSIONS,
+  requireCurrentAppUserPermission,
+} from "@/lib/permissions";
+import {
   recordBookingDepositSchema,
   updateBookingStatusSchema,
 } from "@/modules/bookings/booking.schema";
@@ -33,7 +37,12 @@ export async function updateBookingStatusAction(
   }
 
   try {
-    await updateBookingStatus(parsed.data.bookingId, parsed.data.nextStatus);
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.BOOKING_STATUS_UPDATE
+    );
+    await updateBookingStatus(parsed.data.bookingId, parsed.data.nextStatus, {
+      actorUserId: appUser.id,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update booking status";
@@ -64,7 +73,10 @@ export async function recordDepositAction(
   }
 
   try {
-    await recordBookingDeposit(parsed.data);
+    const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
+    await recordBookingDeposit(parsed.data, {
+      actorUserId: appUser.id,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to record deposit";

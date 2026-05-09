@@ -155,12 +155,6 @@ export interface OrderDeliveryWorkflow {
   canRecordNotification: boolean;
   canMarkPickedUp: boolean;
   canCompleteOrder: boolean;
-  staffOptions: OrderStaffOption[];
-}
-
-export interface OrderStaffOption {
-  id: string;
-  name: string;
 }
 
 export interface OrderProductionSection {

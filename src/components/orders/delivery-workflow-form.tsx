@@ -99,24 +99,9 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
               <CardTitle className="text-base">Completion</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="completedById">Completed by</Label>
-                <select
-                  id="completedById"
-                  name="completedById"
-                  defaultValue={delivery.completedById ?? ""}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  aria-invalid={state.errors?.completedById?.length ? true : undefined}
-                >
-                  <option value="">Select staff member</option>
-                  {delivery.staffOptions.map((staff) => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.name}
-                    </option>
-                  ))}
-                </select>
-                <FieldError messages={state.errors?.completedById} />
-              </div>
+              <p className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
+                Completion will be attributed to your signed-in staff account.
+              </p>
 
               {delivery.requiresPaymentOverride ? (
                 <div className="space-y-3 rounded-md border border-border bg-surface-soft p-3">
@@ -128,7 +113,7 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                       checked={allowOverride}
                       onChange={(event) => setAllowOverride(event.target.checked)}
                     />
-                    Allow admin payment override
+                    Allow manager/admin payment override
                   </label>
                   <div className="space-y-2">
                     <Label htmlFor="overrideReason">Override reason</Label>
