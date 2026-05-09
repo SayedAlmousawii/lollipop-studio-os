@@ -1,4 +1,5 @@
 import { InvoiceStatus, OrderActivityType, Prisma } from "@prisma/client";
+import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
@@ -71,9 +72,15 @@ async function updateUnlockedInvoiceTotal(
   return invoice;
 }
 
-export async function createInvoiceForOrder(orderId: string): Promise<{ id: string }> {
+export async function createInvoiceForOrder(
+  orderId: string,
+  actorContext: ActorContext = {}
+): Promise<{ id: string }> {
   return withRetry(
-    () => db.$transaction((tx) => createInvoiceForOrderWithClient(tx, orderId)),
+    () =>
+      db.$transaction((tx) =>
+        createInvoiceForOrderWithClient(tx, orderId, actorContext)
+      ),
     "Failed to create invoice"
   );
 }
@@ -90,7 +97,8 @@ export async function createInvoiceForBooking(
 
 export async function createInvoiceForOrderWithClient(
   client: DbClient,
-  orderId: string
+  orderId: string,
+  actorContext: ActorContext = {}
 ): Promise<{ id: string; status: InvoiceStatus }> {
   const order = await client.order.findUnique({
     where: { id: orderId },
@@ -157,6 +165,7 @@ export async function createInvoiceForOrderWithClient(
 
   await recordOrderActivity(client, {
     orderId: order.id,
+    userId: actorContext.actorUserId ?? null,
     type: OrderActivityType.INVOICE_ADJUSTED,
     title: "Invoice created",
     description: "Invoice was created for the order.",
@@ -440,17 +449,38 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
   };
 }
 
-export async function issueInvoice(id: string): Promise<void> {
+export async function issueInvoice(
+  id: string,
+  actorContext: ActorContext = {}
+): Promise<void> {
   await withRetry(
-    () => issueInvoiceWithClient(db, id),
+    () =>
+      db.$transaction((tx) => issueInvoiceWithClient(tx, id, actorContext)),
     "Failed to issue invoice"
   );
 }
 
 export async function issueInvoiceWithClient(
   client: DbClient,
-  id: string
+  id: string,
+  actorContext: ActorContext = {}
 ): Promise<void> {
+  const invoice = await client.invoice.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      orderId: true,
+      isLocked: true,
+    },
+  });
+  if (!invoice) {
+    throw new Error("Invoice not found");
+  }
+  if (invoice.isLocked) {
+    throw new Error("Invoice is locked or not found");
+  }
+
   const result = await client.invoice.updateMany({
     where: { id, isLocked: false },
     data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
@@ -458,14 +488,66 @@ export async function issueInvoiceWithClient(
   if (result.count === 0) {
     throw new Error("Invoice is locked or not found");
   }
+
+  if (invoice.orderId) {
+    await recordOrderActivity(client, {
+      orderId: invoice.orderId,
+      userId: actorContext.actorUserId ?? null,
+      type: OrderActivityType.INVOICE_ADJUSTED,
+      title: "Invoice issued",
+      description: `Invoice ${invoice.invoiceNumber} was issued.`,
+      metadata: {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: InvoiceStatus.ISSUED,
+      },
+    });
+  }
 }
 
-export async function closeInvoice(id: string): Promise<void> {
+export async function closeInvoice(
+  id: string,
+  actorContext: ActorContext = {}
+): Promise<void> {
   await withRetry(
     () =>
-      db.invoice.update({
-        where: { id },
-        data: { status: InvoiceStatus.CLOSED, isLocked: true, closedAt: new Date() },
+      db.$transaction(async (tx) => {
+        const invoice = await tx.invoice.findUnique({
+          where: { id },
+          select: {
+            id: true,
+            invoiceNumber: true,
+            orderId: true,
+          },
+        });
+        if (!invoice) {
+          throw new Error("Invoice not found");
+        }
+
+        await tx.invoice.update({
+          where: { id },
+          data: {
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            closedAt: new Date(),
+          },
+        });
+
+        if (invoice.orderId) {
+          await recordOrderActivity(tx, {
+            orderId: invoice.orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Invoice closed",
+            description: `Invoice ${invoice.invoiceNumber} was closed and locked.`,
+            metadata: {
+              invoiceId: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              status: InvoiceStatus.CLOSED,
+              locked: true,
+            },
+          });
+        }
       }),
     "Failed to close invoice"
   );
@@ -725,7 +807,8 @@ async function calculateExtraPhotoCharge(
 
 export async function createAdjustmentInvoice(
   parentInvoiceId: string,
-  data: CreateAdjustmentInvoiceInput
+  data: CreateAdjustmentInvoiceInput,
+  actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   return withRetry(
     () =>
@@ -769,6 +852,7 @@ export async function createAdjustmentInvoice(
         if (parent.orderId) {
           await recordOrderActivity(tx, {
             orderId: parent.orderId,
+            userId: actorContext.actorUserId ?? null,
             type: OrderActivityType.INVOICE_ADJUSTED,
             title: "Adjustment invoice created",
             description: "Adjustment invoice was created from a locked invoice.",

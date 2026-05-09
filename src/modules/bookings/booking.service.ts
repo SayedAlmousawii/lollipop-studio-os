@@ -7,6 +7,7 @@ import {
   Prisma,
   UserRole,
 } from "@prisma/client";
+import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import {
@@ -403,7 +404,8 @@ export async function updateBooking(
 
 export async function updateBookingStatus(
   bookingId: string,
-  nextStatus: UpdateBookingStatusInput["nextStatus"]
+  nextStatus: UpdateBookingStatusInput["nextStatus"],
+  actorContext: ActorContext = {}
 ) {
   const data = updateBookingStatusSchema.parse({ bookingId, nextStatus });
 
@@ -453,7 +455,12 @@ export async function updateBookingStatus(
         });
 
         if (data.nextStatus === BookingStatus.COMPLETED) {
-          await createOrderFromBookingWithClient(tx, data.bookingId);
+          await createOrderFromBookingWithClient(
+            tx,
+            data.bookingId,
+            OrderStatus.ACTIVE,
+            actorContext
+          );
         }
 
         return updatedBooking;
@@ -464,7 +471,8 @@ export async function updateBookingStatus(
 }
 
 export async function recordBookingDeposit(
-  input: RecordBookingDepositInput
+  input: RecordBookingDepositInput,
+  actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   const data = recordBookingDepositSchema.parse(input);
 
@@ -515,7 +523,7 @@ export async function recordBookingDeposit(
           method: data.method,
           paymentType: PaymentType.DEPOSIT,
           reference: data.reference,
-        });
+        }, actorContext);
 
         await tx.booking.update({
           where: { id: booking.id },
@@ -530,7 +538,8 @@ export async function recordBookingDeposit(
 }
 
 export async function recordBasePaymentAndComplete(
-  input: RecordBasePaymentInput
+  input: RecordBasePaymentInput,
+  actorContext: ActorContext = {}
 ): Promise<{ orderId: string }> {
   const data = recordBasePaymentSchema.parse(input);
 
@@ -576,7 +585,7 @@ export async function recordBasePaymentAndComplete(
           method: data.method,
           paymentType: PaymentType.BASE,
           notes: data.notes,
-        });
+        }, actorContext);
 
         await tx.booking.update({
           where: { id: booking.id },
@@ -586,11 +595,13 @@ export async function recordBasePaymentAndComplete(
         const order = await createOrderFromBookingWithClient(
           tx,
           booking.id,
-          OrderStatus.WAITING_SELECTION
+          OrderStatus.WAITING_SELECTION,
+          actorContext
         );
 
         await recordOrderActivity(tx, {
           orderId: order.id,
+          userId: actorContext.actorUserId ?? null,
           type: OrderActivityType.PAYMENT_RECEIVED,
           title: "Base payment recorded",
           description: `${new Prisma.Decimal(data.amount).toFixed(3)} KD base payment recorded before selection opened.`,
@@ -607,6 +618,7 @@ export async function recordBasePaymentAndComplete(
 
         await recordOrderActivity(tx, {
           orderId: order.id,
+          userId: actorContext.actorUserId ?? null,
           type: OrderActivityType.NOTE_ADDED,
           title: "Booking completed",
           description:

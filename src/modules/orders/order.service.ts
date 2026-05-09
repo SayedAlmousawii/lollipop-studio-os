@@ -11,6 +11,7 @@ import {
   Prisma,
   UserRole,
 } from "@prisma/client";
+import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
@@ -403,28 +404,23 @@ export async function getOrderProductionWorkflowById(
 export async function getOrderDeliveryWorkflowById(
   orderId: string
 ): Promise<OrderDeliveryWorkflow | null> {
-  const [order, staffRows] = await withRetry(
+  const order = await withRetry(
     () =>
-      Promise.all([
-        db.order.findUnique({
-          where: { id: orderId },
-          select: deliveryOrderSelect,
-        }),
-        db.user.findMany({
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        }),
-      ]),
+      db.order.findUnique({
+        where: { id: orderId },
+        select: deliveryOrderSelect,
+      }),
     "Failed to fetch delivery workflow"
   );
 
   if (!order) return null;
-  return mapOrderDeliveryWorkflow(order, staffRows);
+  return mapOrderDeliveryWorkflow(order);
 }
 
 export async function updateOrderSelectionWorkflow(
   orderId: string,
-  input: UpdateOrderSelectionWorkflowInput
+  input: UpdateOrderSelectionWorkflowInput,
+  actorContext: ActorContext = {}
 ): Promise<OrderSelectionWorkflow> {
   const orderForGuard = await db.order.findUnique({
     where: { id: orderId },
@@ -451,7 +447,7 @@ export async function updateOrderSelectionWorkflow(
     selectedPhotos,
     addOns: pricedAddOns,
     notes: data.notes,
-  });
+  }, actorContext);
 
   if (data.completeSelection) {
     const order = await db.order.findUnique({
@@ -462,11 +458,11 @@ export async function updateOrderSelectionWorkflow(
     if (order.selectionStatus === OrderSelectionStatus.PENDING) {
       await updateOrderWorkflowStatus(orderId, {
         selectionStatus: OrderSelectionStatus.IN_PROGRESS,
-      });
+      }, actorContext);
     }
     await updateOrderWorkflowStatus(orderId, {
       selectionStatus: OrderSelectionStatus.COMPLETED,
-    });
+    }, actorContext);
   } else {
     const order = await db.order.findUnique({
       where: { id: orderId },
@@ -475,7 +471,7 @@ export async function updateOrderSelectionWorkflow(
     if (order?.selectionStatus === OrderSelectionStatus.PENDING) {
       await updateOrderWorkflowStatus(orderId, {
         selectionStatus: OrderSelectionStatus.IN_PROGRESS,
-      });
+      }, actorContext);
     }
   }
 
@@ -486,7 +482,8 @@ export async function updateOrderSelectionWorkflow(
 
 export async function updateOrderEditingWorkflow(
   orderId: string,
-  input: UpdateOrderEditingWorkflowInput
+  input: UpdateOrderEditingWorkflowInput,
+  actorContext: ActorContext = {}
 ): Promise<OrderEditingWorkflow> {
   const data = updateOrderEditingWorkflowSchema.parse(input);
 
@@ -589,6 +586,7 @@ export async function updateOrderEditingWorkflow(
 
             await recordOrderActivity(tx, {
               orderId,
+              userId: actorContext.actorUserId ?? null,
               type: OrderActivityType.EDITOR_ASSIGNED,
               title: previousAssignedEditorId ? "Editor reassigned" : "Editor assigned",
               description: `${editor.name} was assigned to editing.`,
@@ -642,7 +640,7 @@ export async function updateOrderEditingWorkflow(
               previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.IN_PROGRESS,
               title: "Editing started",
-            });
+            }, actorContext);
             break;
           }
 
@@ -667,7 +665,7 @@ export async function updateOrderEditingWorkflow(
               nextStatus: OrderEditingStatus.REVISION_REQUESTED,
               title: "Revision requested",
               metadata: { nextRevisionCount: previousRevisionCount + 1 },
-            });
+            }, actorContext);
             break;
           }
 
@@ -692,7 +690,7 @@ export async function updateOrderEditingWorkflow(
               previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.AWAITING_APPROVAL,
               title: "Editing marked complete",
-            });
+            }, actorContext);
             break;
           }
 
@@ -716,7 +714,7 @@ export async function updateOrderEditingWorkflow(
               previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.APPROVED,
               title: "Customer approved editing",
-            });
+            }, actorContext);
             break;
           }
 
@@ -766,9 +764,10 @@ export async function updateOrderEditingWorkflow(
               previousStatus: previousEditingStatus,
               nextStatus: OrderEditingStatus.COMPLETED,
               title: "Editing sent to production",
-            });
+            }, actorContext);
             await recordOrderActivity(tx, {
               orderId,
+              userId: actorContext.actorUserId ?? null,
               type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
               title: "Production started",
               metadata: {
@@ -791,7 +790,8 @@ export async function updateOrderEditingWorkflow(
 
 export async function updateOrderProductionWorkflow(
   orderId: string,
-  input: UpdateOrderProductionWorkflowInput
+  input: UpdateOrderProductionWorkflowInput,
+  actorContext: ActorContext = {}
 ): Promise<OrderProductionWorkflow> {
   const data = updateOrderProductionWorkflowSchema.parse(input);
 
@@ -855,6 +855,7 @@ export async function updateOrderProductionWorkflow(
 
         await recordOrderActivity(tx, {
           orderId,
+          userId: actorContext.actorUserId ?? null,
           type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
           title: next.title,
           description: next.description,
@@ -864,6 +865,7 @@ export async function updateOrderProductionWorkflow(
         if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
           await recordOrderActivity(tx, {
             orderId,
+            userId: actorContext.actorUserId ?? null,
             type: OrderActivityType.DELIVERY_STATUS_CHANGED,
             title: "Delivery readiness updated",
             description: "Order is ready for customer pickup.",
@@ -886,7 +888,8 @@ export async function updateOrderProductionWorkflow(
 
 export async function updateOrderDeliveryWorkflow(
   orderId: string,
-  input: UpdateOrderDeliveryWorkflowInput
+  input: UpdateOrderDeliveryWorkflowInput,
+  actorContext: ActorContext = {}
 ): Promise<OrderDeliveryWorkflow> {
   const data = updateOrderDeliveryWorkflowSchema.parse(input);
 
@@ -903,7 +906,7 @@ export async function updateOrderDeliveryWorkflow(
         }
         assertDeliveryWorkflowWritable(order.status);
 
-        const next = resolveDeliveryUpdate(order, data);
+        const next = resolveDeliveryUpdate(order, data, actorContext);
         const previousProductionStatus = getProductionStatus(order);
         if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
           assertWorkflowTransition(
@@ -937,6 +940,7 @@ export async function updateOrderDeliveryWorkflow(
 
         await recordOrderActivity(tx, {
           orderId,
+          userId: actorContext.actorUserId ?? null,
           type: OrderActivityType.DELIVERY_STATUS_CHANGED,
           title: next.title,
           description: next.description,
@@ -946,11 +950,12 @@ export async function updateOrderDeliveryWorkflow(
         if (next.completed) {
           await recordOrderActivity(tx, {
             orderId,
+            userId: actorContext.actorUserId ?? null,
             type: OrderActivityType.ORDER_COMPLETED,
             title: "Order completed",
             description: "Order was completed through the delivery workflow.",
             metadata: {
-              completedById: data.completedById?.trim() ?? null,
+              completedById: next.completedById ?? null,
               completedAt: new Date().toISOString(),
               paymentOverrideUsed: next.paymentOverrideUsed,
               overrideReason: data.overrideReason?.trim() ?? null,
@@ -981,7 +986,8 @@ export async function getEditableOrderById(
 
 export async function updateOrder(
   orderId: string,
-  input: UpdateOrderInput
+  input: UpdateOrderInput,
+  actorContext: ActorContext = {}
 ): Promise<EditableOrder> {
   const data = updateOrderSchema.parse(input);
 
@@ -1063,6 +1069,7 @@ export async function updateOrder(
         if (order.finalPackageId !== data.finalPackageId) {
           await recordOrderActivity(tx, {
             orderId,
+            userId: actorContext.actorUserId ?? null,
             type: OrderActivityType.PACKAGE_CHANGED,
             title: "Package changed",
             description: `${order.finalPackage?.name ?? order.originalPackage?.name ?? "Package"} changed to ${selectedPackage.name}.`,
@@ -1080,6 +1087,7 @@ export async function updateOrder(
         if (!areAddOnsEqual(previousAddOns, data.addOns)) {
           await recordOrderActivity(tx, {
             orderId,
+            userId: actorContext.actorUserId ?? null,
             type: OrderActivityType.ADD_ON_CHANGED,
             title: "Add-ons changed",
             description: "Order add-ons were updated.",
@@ -1094,6 +1102,7 @@ export async function updateOrder(
         if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
           await recordOrderActivity(tx, {
             orderId,
+            userId: actorContext.actorUserId ?? null,
             type: OrderActivityType.INVOICE_ADJUSTED,
             title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
             description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
@@ -1115,6 +1124,7 @@ export async function updateOrder(
         if (previousNotes !== nextNotes && nextNotes) {
           await recordOrderActivity(tx, {
             orderId,
+            userId: actorContext.actorUserId ?? null,
             type: OrderActivityType.NOTE_ADDED,
             title: "Note updated",
             description: "Order notes were updated.",
@@ -1138,7 +1148,8 @@ export async function updateOrder(
 
 export async function updateOrderWorkflowStatus(
   orderId: string,
-  input: UpdateOrderWorkflowInput
+  input: UpdateOrderWorkflowInput,
+  actorContext: ActorContext = {}
 ): Promise<OrderDetail> {
   const data = updateOrderWorkflowSchema.parse(input);
 
@@ -1246,7 +1257,7 @@ export async function updateOrderWorkflowStatus(
           productionStatus:
             order.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus),
           deliveryStatus: order.deliveryStatus,
-        }, data);
+        }, data, actorContext);
 
         return fetchOrderByIdWithClient(tx, orderId);
       }),
@@ -1261,10 +1272,14 @@ export async function updateOrderWorkflowStatus(
 }
 
 export async function createOrderFromBooking(
-  bookingId: string
+  bookingId: string,
+  actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   return withRetry(
-    () => db.$transaction((tx) => createOrderFromBookingWithClient(tx, bookingId)),
+    () =>
+      db.$transaction((tx) =>
+        createOrderFromBookingWithClient(tx, bookingId, OrderStatus.ACTIVE, actorContext)
+      ),
     "Failed to create order from booking",
     2
   );
@@ -1273,7 +1288,8 @@ export async function createOrderFromBooking(
 export async function createOrderFromBookingWithClient(
   client: OrderWriteClient,
   bookingId: string,
-  initialStatus: OrderStatus = OrderStatus.ACTIVE
+  initialStatus: OrderStatus = OrderStatus.ACTIVE,
+  actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   const booking = await client.booking.findUnique({
     where: { id: bookingId },
@@ -1348,6 +1364,7 @@ export async function createOrderFromBookingWithClient(
 
   await recordOrderActivity(client, {
     orderId: order.id,
+    userId: actorContext.actorUserId ?? null,
     type: OrderActivityType.ORDER_CREATED,
     title: "Order created",
     description: "Order was created from the completed booking.",
@@ -2337,6 +2354,7 @@ type DeliveryWorkflowUpdate = {
   description: string;
   metadata: Prisma.InputJsonObject;
   completed?: boolean;
+  completedById?: string;
   paymentOverrideUsed?: boolean;
 };
 
@@ -2737,10 +2755,7 @@ function productionSectionUpdate(
   };
 }
 
-function mapOrderDeliveryWorkflow(
-  order: DeliveryOrderState,
-  staffRows: Array<{ id: string; name: string }>
-): OrderDeliveryWorkflow {
+function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkflow {
   const invoiceSummary = summarizeInvoices(order.invoices);
   const paymentSettled =
     invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
@@ -2762,7 +2777,6 @@ function mapOrderDeliveryWorkflow(
     completedAt: order.deliveryCompletedAt ? formatDateTime(order.deliveryCompletedAt) : null,
     completedById: order.deliveryCompletedById ?? null,
     completedBy: order.deliveryCompletedByUser?.name ?? order.deliveryCompletedBy ?? "",
-    staffOptions: staffRows,
     pickupNotes: order.deliveryPickupNotes ?? "",
     overrideReason: order.deliveryOverrideReason ?? "",
     completionBlockers,
@@ -2793,7 +2807,10 @@ function mapOrderDeliveryWorkflow(
       order.status !== OrderStatus.CANCELLED &&
       order.status !== OrderStatus.DELIVERED &&
       order.deliveryStatus === OrderDeliveryStatus.PICKED_UP &&
-      completionBlockers.every((blocker) => blocker === "Payment needs admin override before completion."),
+      completionBlockers.every(
+        (blocker) =>
+          blocker === "Payment needs manager/admin override before completion."
+      ),
   };
 }
 
@@ -2877,7 +2894,8 @@ function assertDeliveryWorkflowWritable(status: OrderStatus): void {
 
 function resolveDeliveryUpdate(
   order: DeliveryOrderState,
-  input: UpdateOrderDeliveryWorkflowInput
+  input: UpdateOrderDeliveryWorkflowInput,
+  actorContext: ActorContext = {}
 ): DeliveryWorkflowUpdate {
   const now = new Date();
   const pickupNotes = input.pickupNotes?.trim() || null;
@@ -3005,18 +3023,22 @@ function resolveDeliveryUpdate(
       const invoiceSummary = summarizeInvoices(order.invoices);
       const paymentSettled =
         invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
-      const completedById = input.completedById?.trim();
+      const completedById = actorContext.actorUserId ?? input.completedById?.trim();
       if (!completedById) {
-        throw new Error("Completed by is required");
+        throw new Error("A linked authenticated staff user is required to complete delivery");
       }
 
       const overrideReason = input.overrideReason?.trim();
       const paymentOverrideUsed = !paymentSettled;
       if (paymentOverrideUsed && !input.allowPaymentOverride) {
-        throw new Error("Payment must be settled or explicitly overridden by admin");
+        throw new Error(
+          "Payment must be settled or explicitly overridden by an authorized manager or admin"
+        );
       }
       if (paymentOverrideUsed && !overrideReason) {
-        throw new Error("Admin override reason is required when payment is not settled");
+        throw new Error(
+          "Override reason is required when payment is not settled"
+        );
       }
 
       return {
@@ -3061,6 +3083,7 @@ function resolveDeliveryUpdate(
           pickupNotesUpdated: Boolean(pickupNotes),
         },
         completed: true,
+        completedById,
         paymentOverrideUsed,
       };
     }
@@ -3073,7 +3096,7 @@ function resolveDeliveryCompletionBlockers(
 ): string[] {
   const blockers: string[] = [];
   if (!paymentSettled) {
-    blockers.push("Payment needs admin override before completion.");
+    blockers.push("Payment needs manager/admin override before completion.");
   }
   if (!isProductionReadyForDelivery(order)) {
     blockers.push("Production must be ready and all production sections must be complete.");
@@ -3144,10 +3167,12 @@ async function recordEditingStatusActivity(
     nextStatus: OrderEditingStatus;
     title: string;
     metadata?: Prisma.InputJsonObject;
-  }
+  },
+  actorContext: ActorContext = {}
 ): Promise<void> {
   await recordOrderActivity(client, {
     orderId,
+    userId: actorContext.actorUserId ?? null,
     type: OrderActivityType.EDITING_STATUS_CHANGED,
     title: input.title,
     metadata: {
@@ -3168,11 +3193,13 @@ async function recordWorkflowActivities(
     productionStatus: OrderProductionStatus;
     deliveryStatus: OrderDeliveryStatus;
   },
-  next: UpdateOrderWorkflowInput
+  next: UpdateOrderWorkflowInput,
+  actorContext: ActorContext = {}
 ): Promise<void> {
   if (next.selectionStatus && next.selectionStatus !== previous.selectionStatus) {
     await recordOrderActivity(client, {
       orderId,
+      userId: actorContext.actorUserId ?? null,
       type:
         next.selectionStatus === OrderSelectionStatus.COMPLETED
           ? OrderActivityType.SELECTION_COMPLETED
@@ -3192,6 +3219,7 @@ async function recordWorkflowActivities(
   if (next.editingStatus && next.editingStatus !== previous.editingStatus) {
     await recordOrderActivity(client, {
       orderId,
+      userId: actorContext.actorUserId ?? null,
       type:
         next.editingStatus === OrderEditingStatus.ASSIGNED
           ? OrderActivityType.EDITOR_ASSIGNED
@@ -3211,6 +3239,7 @@ async function recordWorkflowActivities(
   if (next.productionStatus && next.productionStatus !== previous.productionStatus) {
     await recordOrderActivity(client, {
       orderId,
+      userId: actorContext.actorUserId ?? null,
       type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
       title: "Production status changed",
       metadata: {
@@ -3224,6 +3253,7 @@ async function recordWorkflowActivities(
   if (next.deliveryStatus && next.deliveryStatus !== previous.deliveryStatus) {
     await recordOrderActivity(client, {
       orderId,
+      userId: actorContext.actorUserId ?? null,
       type: OrderActivityType.DELIVERY_STATUS_CHANGED,
       title: "Delivery status changed",
       metadata: {
@@ -3236,6 +3266,7 @@ async function recordWorkflowActivities(
     if (next.deliveryStatus === OrderDeliveryStatus.COMPLETED) {
       await recordOrderActivity(client, {
         orderId,
+        userId: actorContext.actorUserId ?? null,
         type: OrderActivityType.ORDER_COMPLETED,
         title: "Order completed",
         metadata: {

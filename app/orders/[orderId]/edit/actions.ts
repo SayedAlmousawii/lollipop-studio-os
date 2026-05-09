@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import {
+  PERMISSIONS,
+  requireCurrentAppUserPermission,
+} from "@/lib/permissions";
 import { updateOrderSchema } from "@/modules/orders/order.schema";
 import { updateOrder } from "@/modules/orders/order.service";
 
@@ -38,7 +42,12 @@ export async function updateOrderAction(
   }
 
   try {
-    await updateOrder(orderId, parsed.data);
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    await updateOrder(orderId, parsed.data, {
+      actorUserId: appUser.id,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update order";
     return { errors: { _global: [message] } };

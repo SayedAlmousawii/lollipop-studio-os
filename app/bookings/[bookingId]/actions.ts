@@ -1,6 +1,10 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import {
+  PERMISSIONS,
+  requireCurrentAppUserPermission,
+} from "@/lib/permissions";
 import { recordBasePaymentSchema } from "@/modules/bookings/booking.schema";
 import { recordBasePaymentAndComplete } from "@/modules/bookings/booking.service";
 
@@ -26,7 +30,10 @@ export async function recordBasePaymentAndCompleteAction(
 
   let orderId: string;
   try {
-    const result = await recordBasePaymentAndComplete(parsed.data);
+    const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
+    const result = await recordBasePaymentAndComplete(parsed.data, {
+      actorUserId: appUser.id,
+    });
     orderId = result.orderId;
   } catch (error) {
     const message =
