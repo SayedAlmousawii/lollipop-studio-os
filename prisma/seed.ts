@@ -19,7 +19,87 @@ if (!url) throw new Error("DATABASE_URL is not set");
 
 const prisma = new PrismaClient({ adapter: new PrismaPg(url) });
 
+const SEEDED_USER_EMAIL_NORMALIZATIONS = [
+  {
+    legacyEmail: "admin@studio-os.local",
+    clerkTestEmail: "admin+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "manager@studio-os.local",
+    clerkTestEmail: "manager+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "reception@studio-os.local",
+    clerkTestEmail: "reception+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "photo@studio-os.local",
+    clerkTestEmail: "photo+clerk_test@lollipopstudioos.dev",
+  },
+  {
+    legacyEmail: "editor@studio-os.local",
+    clerkTestEmail: "editor+clerk_test@lollipopstudioos.dev",
+  },
+] as const;
+
+async function normalizeSeededUserEmails() {
+  for (const { legacyEmail, clerkTestEmail } of SEEDED_USER_EMAIL_NORMALIZATIONS) {
+    const [legacyUser, clerkTestUser] = await Promise.all([
+      prisma.user.findUnique({ where: { email: legacyEmail } }),
+      prisma.user.findUnique({ where: { email: clerkTestEmail } }),
+    ]);
+
+    if (!legacyUser) {
+      continue;
+    }
+
+    if (!clerkTestUser) {
+      await prisma.user.update({
+        where: { id: legacyUser.id },
+        data: { email: clerkTestEmail },
+      });
+      continue;
+    }
+
+    if (legacyUser.id === clerkTestUser.id) {
+      continue;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await Promise.all([
+        tx.booking.updateMany({
+          where: { assignedPhotographerId: legacyUser.id },
+          data: { assignedPhotographerId: clerkTestUser.id },
+        }),
+        tx.editingJob.updateMany({
+          where: { assignedEditorId: legacyUser.id },
+          data: { assignedEditorId: clerkTestUser.id },
+        }),
+        tx.order.updateMany({
+          where: { deliveryCompletedById: legacyUser.id },
+          data: { deliveryCompletedById: clerkTestUser.id },
+        }),
+        tx.orderActivity.updateMany({
+          where: { userId: legacyUser.id },
+          data: { userId: clerkTestUser.id },
+        }),
+      ]);
+
+      if (!clerkTestUser.clerkId && legacyUser.clerkId) {
+        await tx.user.update({
+          where: { id: clerkTestUser.id },
+          data: { clerkId: legacyUser.clerkId },
+        });
+      }
+
+      await tx.user.delete({ where: { id: legacyUser.id } });
+    });
+  }
+}
+
 async function main() {
+  await normalizeSeededUserEmails();
+
   // Users
   const [admin, manager, receptionist, photographer, editor] = await Promise.all([
     prisma.user.upsert({
