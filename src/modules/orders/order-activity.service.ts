@@ -51,7 +51,9 @@ export async function recordGuardBlockedActivity(
       metadata: {
         attemptedAction: input.attemptedAction,
         reason: input.reason,
-        ...(input.metadata as object | undefined),
+        ...(typeof input.metadata === "object" && input.metadata !== null && !Array.isArray(input.metadata)
+          ? input.metadata
+          : {}),
       },
     },
   });

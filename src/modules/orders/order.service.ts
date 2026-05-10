@@ -840,13 +840,13 @@ export async function updateOrderProductionWorkflow(
         try {
           next = resolveProductionUpdate(order, data.action);
         } catch (err) {
-          if (err instanceof Error) {
+          if (err instanceof WorkflowGuardError) {
             await recordGuardBlockedActivity({
               orderId,
               userId: actorContext.actorUserId,
               attemptedAction: data.action,
               reason: err.message,
-              metadata: { action: data.action },
+              metadata: { guardCode: err.code, action: data.action },
             });
           }
           throw err;
@@ -2741,7 +2741,8 @@ function resolveProductionUpdate(
         editingStatus !== OrderEditingStatus.APPROVED &&
         editingStatus !== OrderEditingStatus.COMPLETED
       ) {
-        throw new Error(
+        throw new WorkflowGuardError(
+          "EDITING_INCOMPLETE",
           "Production cannot be marked ready for pickup until editing is approved or completed"
         );
       }
@@ -2751,7 +2752,8 @@ function resolveProductionUpdate(
         getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
           OrderProductionSectionStatus.COMPLETED
       ) {
-        throw new Error(
+        throw new WorkflowGuardError(
+          "ALBUM_DESIGN_INCOMPLETE",
           "Album design must be completed before assembly can contribute to production readiness"
         );
       }
