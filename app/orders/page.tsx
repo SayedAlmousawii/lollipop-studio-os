@@ -1,11 +1,18 @@
 import { PageContainer } from "@/components/layout/page-container";
 import { OrdersFilters } from "@/components/orders/orders-filters";
 import { OrdersTable } from "@/components/orders/orders-table";
-import { getOrders, parseOrderFilters } from "@/modules/orders/order.service";
+import {
+  getOrderFilterEditorOptions,
+  getOrders,
+  parseOrderFilters,
+} from "@/modules/orders/order.service";
 
 export default async function OrdersPage(props: PageProps<"/orders">) {
   const filters = parseOrderFilters(await props.searchParams);
-  const orders = await getOrders(filters);
+  const [orders, editorOptions] = await Promise.all([
+    getOrders(filters),
+    getOrderFilterEditorOptions(),
+  ]);
 
   return (
     <PageContainer>
@@ -21,7 +28,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           </div>
         </div>
 
-        <OrdersFilters />
+        <OrdersFilters currentFilters={filters} editorOptions={editorOptions} />
 
         <OrdersTable orders={orders} />
       </div>

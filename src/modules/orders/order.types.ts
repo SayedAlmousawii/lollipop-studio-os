@@ -27,6 +27,9 @@ export interface OrderFilters {
   search?: string;
   orderStatus?: OrderStatusFilter;
   invoiceStatus?: InvoiceStatusFilter;
+  sessionDateFrom?: string;
+  sessionDateTo?: string;
+  editorId?: string;
 }
 
 export interface Order {
