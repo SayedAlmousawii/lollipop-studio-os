@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   CirclePlay,
   ClipboardCheck,
+  CreditCard,
   Forward,
   RotateCcw,
   UserPen,
@@ -25,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { RecordUpgradePaymentDialog } from "@/components/orders/record-upgrade-payment-dialog";
 import type { OrderEditingWorkflow } from "@/modules/orders/order.types";
 
 interface EditingWorkflowFormProps {
@@ -50,9 +52,30 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
         </p>
       ) : null}
 
-      {!editing.basePaymentVerified ? (
+      {editing.outstandingBalanceLabel ? (
+        <div className="flex flex-col gap-3 rounded-md bg-warning-soft px-4 py-3 text-sm text-warning sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            Outstanding balance of {editing.outstandingBalanceLabel} must be paid before
+            editing can start.
+          </p>
+          {editing.invoiceId && editing.outstandingBalanceAmount ? (
+            <RecordUpgradePaymentDialog
+              orderId={editing.orderId}
+              invoiceId={editing.invoiceId}
+              defaultAmount={editing.outstandingBalanceAmount}
+              trigger={
+                <Button type="button" variant="outline" size="sm">
+                  <CreditCard className="h-4 w-4" />
+                  Record Upgrade Payment
+                </Button>
+              }
+            />
+          ) : null}
+        </div>
+      ) : !editing.basePaymentVerified ? (
         <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
-          Base package payment is not recorded yet. Editing can be assigned, but it cannot start until the base payment exists.
+          Base package payment is not recorded yet. Editing can be assigned, but it cannot
+          start until the base payment exists.
         </p>
       ) : null}
 

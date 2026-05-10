@@ -426,7 +426,9 @@ export async function getOrderEditingWorkflowById(
             originalPackage: { select: { photoCount: true } },
             finalPackage: { select: { photoCount: true } },
             invoices: {
+              where: { parentInvoiceId: null },
               select: {
+                id: true,
                 remainingAmount: true,
                 payments: {
                   where: { paymentType: PaymentType.BASE },
@@ -434,6 +436,8 @@ export async function getOrderEditingWorkflowById(
                   take: 1,
                 },
               },
+              orderBy: { createdAt: "asc" },
+              take: 1,
             },
           },
         }),
@@ -582,13 +586,17 @@ export async function updateOrderEditingWorkflow(
               select: productionJobSelect,
             },
             invoices: {
+              where: { parentInvoiceId: null },
               select: {
+                remainingAmount: true,
                 payments: {
                   where: { paymentType: PaymentType.BASE },
                   select: { id: true },
                   take: 1,
                 },
               },
+              orderBy: { createdAt: "asc" },
+              take: 1,
             },
           },
         });
@@ -604,6 +612,10 @@ export async function updateOrderEditingWorkflow(
         }
 
         const basePaymentVerified = hasBasePayment(order.invoices);
+        const outstandingBalance = order.invoices.reduce(
+          (sum, invoice) => sum.plus(invoice.remainingAmount),
+          zeroMoney()
+        );
         const now = new Date();
         let editingJob = order.editingJob;
         if (!editingJob) {
@@ -703,7 +715,8 @@ export async function updateOrderEditingWorkflow(
                 selectionStatus: order.selectionStatus,
                 assignedEditorId: previousAssignedEditorId,
               },
-              basePaymentVerified
+              basePaymentVerified,
+              outstandingBalance
             );
             assertWorkflowTransition(
               "editingStatus",
@@ -2365,6 +2378,7 @@ function mapOrderEditingWorkflow(
     originalPackage: { photoCount: number } | null;
     finalPackage: { photoCount: number } | null;
     invoices: Array<{
+      id: string;
       remainingAmount: Prisma.Decimal;
       payments: Array<{ id: string }>;
     }>;
@@ -2402,6 +2416,7 @@ function mapOrderEditingWorkflow(
 
   return {
     orderId: order.id,
+    invoiceId: order.invoices[0]?.id ?? null,
     assignedEditorId,
     assignedEditorName: assignedEditor?.name ?? "Unassigned",
     assignedAt: editingAssignedAt ? formatDateTime(editingAssignedAt) : null,
@@ -2428,14 +2443,16 @@ function mapOrderEditingWorkflow(
       ? formatDateTime(sentToProductionAt)
       : null,
     basePaymentVerified,
+    outstandingBalanceAmount: outstandingBalance.gt(0)
+      ? outstandingBalance.toNumber()
+      : null,
     outstandingBalanceLabel: outstandingBalance.gt(0)
       ? formatMoney(outstandingBalance)
       : null,
-    canAssignEditor:
-      editingStatus !== OrderEditingStatus.COMPLETED &&
-      outstandingBalance.lte(0),
+    canAssignEditor: editingStatus !== OrderEditingStatus.COMPLETED,
     canMarkStarted:
       basePaymentVerified &&
+      outstandingBalance.lte(0) &&
       order.selectionStatus === OrderSelectionStatus.COMPLETED &&
       Boolean(assignedEditorId) &&
       (
@@ -3319,13 +3336,17 @@ function assertEditingReadyToStart(
     selectionStatus: OrderSelectionStatus;
     assignedEditorId: string | null;
   },
-  basePaymentVerified: boolean
+  basePaymentVerified: boolean,
+  outstandingBalance: Prisma.Decimal
 ): void {
   if (order.selectionStatus !== OrderSelectionStatus.COMPLETED) {
     throw new Error("Editing cannot start until selection is completed");
   }
   if (!basePaymentVerified) {
     throw new Error("Editing cannot start until base package payment is recorded");
+  }
+  if (outstandingBalance.gt(0)) {
+    throw new Error("Editing cannot start until the outstanding invoice balance is paid");
   }
   if (!order.assignedEditorId) {
     throw new Error("Assign an editor before starting editing");
