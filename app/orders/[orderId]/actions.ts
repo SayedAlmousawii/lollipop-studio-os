@@ -8,6 +8,7 @@ import {
   requireCurrentAppUserPermission,
 } from "@/lib/permissions";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
+import { getInvoiceById } from "@/modules/invoices/invoice.service";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import { recordPayment } from "@/modules/payments/payment.service";
 import {
@@ -148,8 +149,9 @@ export async function recordUpgradePaymentAction(
   _prev: RecordUpgradePaymentActionState,
   formData: FormData
 ): Promise<RecordUpgradePaymentActionState> {
+  const submittedAmount = formData.get("amount");
   const parsed = recordPaymentSchema.safeParse({
-    amount: formData.get("amount"),
+    amount: submittedAmount,
     method: formData.get("method"),
     paymentType: PaymentType.UPGRADE,
     reference: formData.get("reference") || undefined,
@@ -162,7 +164,29 @@ export async function recordUpgradePaymentAction(
 
   try {
     const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
-    await recordPayment(invoiceId, parsed.data, { actorUserId: appUser.id });
+    const invoice = await getInvoiceById(invoiceId);
+    if (!invoice) {
+      return { errors: { _global: ["Invoice not found."] } };
+    }
+
+    const serverAmount = Number(invoice.remainingAmount.replace(/[^\d.-]/g, ""));
+    if (!Number.isFinite(serverAmount) || serverAmount <= 0) {
+      return {
+        errors: {
+          _global: ["No outstanding balance remains on this invoice."],
+        },
+      };
+    }
+
+    if (parsed.data.amount.toFixed(3) !== serverAmount.toFixed(3)) {
+      return {
+        errors: {
+          _global: ["Outstanding balance changed. Please reopen the payment dialog and try again."],
+        },
+      };
+    }
+
+    await recordPayment(invoiceId, { ...parsed.data, amount: serverAmount }, { actorUserId: appUser.id });
   } catch (error) {
     if (error instanceof Error && "digest" in error) throw error;
     const message =

@@ -20,7 +20,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Invoice payments are append-only; financial order edits recalculate totals without overwriting payment records.
 - Extra selected photos are a per-photo service-computed add-on charge using the database-backed extra-photo add-on option.
 - `Order.addOns` JSON is deprecated; `OrderAddOn` rows with snapshot fields are the active source of truth.
-- Editing start requires: selection complete + editor assigned + `PaymentType.BASE` payment recorded on order-linked invoice.
+- Editing start requires: selection complete + editor assigned + full invoice balance settled; assignment stays allowed while any outstanding balance is surfaced in-tab with an upgrade-payment modal.
 - Order completion requires: pickup recorded + production status READY_FOR_PICKUP or COMPLETED + settled payment or explicit admin override reason.
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
