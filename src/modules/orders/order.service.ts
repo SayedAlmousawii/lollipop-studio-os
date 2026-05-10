@@ -11,6 +11,7 @@ import {
   Prisma,
   UserRole,
 } from "@prisma/client";
+import { addDays } from "date-fns";
 import type { ActorContext } from "@/lib/auth";
 import { hasPermission, PERMISSIONS, type Permission } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
@@ -2391,7 +2392,7 @@ function mapOrderEditingWorkflow(
       : null,
     estimatedCompletionDateInput: estimatedEditingCompletionAt
       ? formatDateInput(estimatedEditingCompletionAt)
-      : "",
+      : formatDateInput(addDays(new Date(), 14)),
     startedAt: editingStartedAt ? formatDateTime(editingStartedAt) : null,
     completedAt: editingCompletedAt ? formatDateTime(editingCompletedAt) : null,
     customerApprovedAt: customerApprovedAt
@@ -3029,7 +3030,8 @@ function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkf
       order.status !== OrderStatus.DELIVERED &&
       (
         order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP ||
-        order.deliveryStatus === OrderDeliveryStatus.CUSTOMER_NOTIFIED
+        order.deliveryStatus === OrderDeliveryStatus.CUSTOMER_NOTIFIED ||
+        order.deliveryStatus === OrderDeliveryStatus.PICKED_UP
      ),
   };
 }
@@ -3161,7 +3163,8 @@ function resolveDeliveryUpdate(
     case "markPickedUp": {
       if (
         order.deliveryStatus !== OrderDeliveryStatus.READY_FOR_PICKUP &&
-        order.deliveryStatus !== OrderDeliveryStatus.CUSTOMER_NOTIFIED
+        order.deliveryStatus !== OrderDeliveryStatus.CUSTOMER_NOTIFIED &&
+        order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP
       ) {
         throw new Error("Pickup can only be recorded after delivery is ready");
       }
