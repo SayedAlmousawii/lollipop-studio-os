@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 54 in progress; 54a (editing queue), 54b (production queue), 54c (booking no-show UI), and 54d (orders date+editor filters) complete. Sub-unit 54e remains. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,6 +25,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 54e: Orders list now includes a prominent "Ready for Pickup" quick filter that sets `orderStatus=READY` in the URL using the existing orders filter flow.
 - Feature 54d: Orders list now supports URL-driven session date range and assigned-editor filters, now using a reusable shadcn-style calendar range picker over the same `sessionDateFrom` / `sessionDateTo` query params plus active ADMIN/EDITOR dropdown options.
 - Feature 54c: Confirmed bookings now expose a destructive "Record No-Show" action with confirmation, preserve a distinct `No-Show` label, and automatically close+lock any existing primary booking invoice when the no-show transition is confirmed.
 - Feature 54b: Added a production queue page so signed-in users with access can see in-flight production orders from the main app navigation.
