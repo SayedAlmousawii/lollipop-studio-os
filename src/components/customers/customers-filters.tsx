@@ -46,7 +46,7 @@ export function CustomersFilters({
         <label htmlFor="customers-search" className="sr-only">Search customers</label>
         <Input
           id="customers-search"
-          placeholder="Search by name or phone..."
+          placeholder="Search by phone or name..."
           className="pl-9"
           value={search}
           onChange={(event) => updateFilter("search", event.target.value)}

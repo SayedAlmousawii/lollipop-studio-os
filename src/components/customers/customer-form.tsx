@@ -101,31 +101,34 @@ function CustomerFields({
 
   return (
     <>
-      <div className="space-y-2">
-        <Label htmlFor="name">Full name</Label>
-        <Input
-          id="name"
-          name="name"
-          defaultValue={state.values?.name ?? ""}
-          disabled={pending}
-          aria-invalid={state.errors?.name?.length ? true : undefined}
-          autoComplete="name"
-        />
-        <FieldError messages={state.errors?.name} />
-      </div>
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="name">Full name</Label>
+          <Input
+            id="name"
+            name="name"
+            defaultValue={state.values?.name ?? ""}
+            disabled={pending}
+            aria-invalid={state.errors?.name?.length ? true : undefined}
+            autoComplete="name"
+          />
+          <FieldError messages={state.errors?.name} />
+        </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="phone">Phone number</Label>
-        <Input
-          id="phone"
-          name="phone"
-          defaultValue={state.values?.phone ?? ""}
-          disabled={pending}
-          aria-invalid={state.errors?.phone?.length ? true : undefined}
-          autoComplete="tel"
-          inputMode="tel"
-        />
-        <FieldError messages={state.errors?.phone} />
+        <div className="space-y-2">
+          <Label htmlFor="phone">Phone number *</Label>
+          <Input
+            id="phone"
+            name="phone"
+            defaultValue={state.values?.phone ?? ""}
+            disabled={pending}
+            aria-invalid={state.errors?.phone?.length ? true : undefined}
+            autoComplete="tel"
+            inputMode="tel"
+            required
+          />
+          <FieldError messages={state.errors?.phone} />
+        </div>
       </div>
 
       {showStatus ? (

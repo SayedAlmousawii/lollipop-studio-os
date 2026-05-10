@@ -1,19 +1,27 @@
 import { z } from "zod";
 import { CustomerStatus } from "@prisma/client";
 
+const customerPhoneSchema = z
+  .string()
+  .trim()
+  .min(1, "Phone number is required")
+  .regex(/^\+?[\d\s\-().]+$/, "Enter a valid phone number")
+  .transform((value) => value.replace(/[\s\-().]/g, ""))
+  .pipe(
+    z
+      .string()
+      .min(7, "Phone number is too short")
+      .max(15, "Phone number is too long")
+      .regex(/^\+?\d+$/, "Enter a valid phone number")
+  );
+
 export const createCustomerSchema = z.object({
   name: z
     .string()
     .trim()
     .min(1, "Full name is required")
     .max(120, "Full name must be 120 characters or fewer"),
-  phone: z
-    .string()
-    .trim()
-    .min(5, "Phone number is required")
-    .max(32, "Phone number must be 32 characters or fewer")
-    .regex(/^[+\d\s()-]+$/, "Enter a valid phone number")
-    .transform((value) => value.replace(/[\s()-]/g, "")),
+  phone: customerPhoneSchema,
   notes: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z

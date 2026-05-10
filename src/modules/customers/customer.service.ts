@@ -92,8 +92,9 @@ export async function getCustomers(
       }),
     "Failed to fetch customers"
   );
+  const orderedRows = prioritizeCustomers(rows, filters.search);
 
-  return rows.map((row) => ({
+  return orderedRows.map((row) => ({
     id: row.id,
     fullName: row.name,
     phone: row.phone,
@@ -359,17 +360,22 @@ export async function updateChild(
 
 function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInput {
   const search = filters.search;
+  const normalizedPhoneSearch = normalizePhoneSearch(search);
   const searchClause = search
     ? {
         OR: [
+          ...(normalizedPhoneSearch
+            ? [
+                {
+                  phone: {
+                    contains: normalizedPhoneSearch,
+                    mode: Prisma.QueryMode.insensitive,
+                  },
+                },
+              ]
+            : []),
           {
             name: {
-              contains: search,
-              mode: Prisma.QueryMode.insensitive,
-            },
-          },
-          {
-            phone: {
               contains: search,
               mode: Prisma.QueryMode.insensitive,
             },
@@ -382,6 +388,77 @@ function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInpu
     ...(searchClause ?? {}),
     ...(filters.status ? { status: filters.status } : {}),
   };
+}
+
+function prioritizeCustomers<
+  T extends {
+    name: string;
+    phone: string;
+    createdAt: Date;
+  },
+>(rows: T[], search?: string): T[] {
+  if (!search) {
+    return rows;
+  }
+
+  return [...rows].sort((left, right) => {
+    const scoreDifference =
+      customerSearchScore(left, search) - customerSearchScore(right, search);
+
+    if (scoreDifference !== 0) {
+      return scoreDifference;
+    }
+
+    return right.createdAt.getTime() - left.createdAt.getTime();
+  });
+}
+
+function customerSearchScore(
+  customer: { name: string; phone: string },
+  search: string
+): number {
+  const normalizedPhone = normalizePhoneSearch(customer.phone);
+  const normalizedSearch = normalizePhoneSearch(search);
+  const normalizedName = customer.name.trim().toLowerCase();
+  const normalizedTextSearch = search.trim().toLowerCase();
+
+  if (normalizedPhone && normalizedSearch) {
+    if (normalizedPhone === normalizedSearch) {
+      return 0;
+    }
+    if (normalizedPhone.startsWith(normalizedSearch)) {
+      return 1;
+    }
+    if (normalizedPhone.includes(normalizedSearch)) {
+      return 2;
+    }
+  }
+
+  if (normalizedName === normalizedTextSearch) {
+    return 3;
+  }
+  if (normalizedName.startsWith(normalizedTextSearch)) {
+    return 4;
+  }
+  if (normalizedName.includes(normalizedTextSearch)) {
+    return 5;
+  }
+
+  return 6;
+}
+
+function normalizePhoneSearch(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!/^\+?[\d\s\-().]+$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const normalized = trimmed.replace(/[\s\-().]/g, "");
+  return normalized && normalized !== "+" ? normalized : undefined;
 }
 
 function formatSessionDate(date: Date): string {
