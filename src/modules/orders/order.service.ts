@@ -944,12 +944,12 @@ export async function updateOrderDeliveryWorkflow(
             await recordGuardBlockedActivity({
               orderId,
               userId: actorContext.actorUserId,
-              attemptedAction: "completeOrder",
+              attemptedAction: data.action,
               reason: err.message,
               metadata: {
                 guardCode: err.code,
-                allowPaymentOverride: data.action === "completeOrder" ? data.allowPaymentOverride : undefined,
-                overrideReasonProvided: Boolean(data.action === "completeOrder" && data.overrideReason?.trim()),
+                allowPaymentOverride: data.allowPaymentOverride,
+                overrideReasonProvided: Boolean(data.overrideReason?.trim()),
               },
             });
           }
