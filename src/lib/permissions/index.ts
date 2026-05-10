@@ -1,6 +1,7 @@
 import "server-only";
 
 import { UserRole } from "@prisma/client";
+import { unauthorized } from "next/navigation";
 
 import { requireCurrentAppUser, type CurrentAppUser } from "@/lib/auth";
 
@@ -52,21 +53,6 @@ const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   ],
 };
 
-const PERMISSION_LABELS: Record<Permission, string> = {
-  [PERMISSIONS.BOOKING_STATUS_UPDATE]: "update booking statuses",
-  [PERMISSIONS.PAYMENT_CREATE]: "record payments",
-  [PERMISSIONS.INVOICE_CREATE]: "create invoices",
-  [PERMISSIONS.INVOICE_ISSUE]: "issue invoices",
-  [PERMISSIONS.INVOICE_CLOSE]: "lock or close invoices",
-  [PERMISSIONS.INVOICE_ADJUSTMENT_CREATE]: "create adjustment invoices",
-  [PERMISSIONS.ORDER_FINANCIAL_UPDATE]: "change financially meaningful order details",
-  [PERMISSIONS.DELIVERY_UPDATE]: "update delivery workflow",
-  [PERMISSIONS.DELIVERY_COMPLETE]: "complete delivery",
-  [PERMISSIONS.DELIVERY_PAYMENT_OVERRIDE]: "override unsettled delivery payments",
-  [PERMISSIONS.WORKFLOW_EDITING_UPDATE]: "update editing workflow",
-  [PERMISSIONS.WORKFLOW_PRODUCTION_UPDATE]: "update production workflow",
-};
-
 export function hasPermission(
   appUser: Pick<CurrentAppUser, "role">,
   permission: Permission
@@ -82,7 +68,7 @@ export function requirePermission(
     return;
   }
 
-  throw new Error(`You do not have permission to ${PERMISSION_LABELS[permission]}.`);
+  unauthorized();
 }
 
 export async function requireCurrentAppUserPermission(

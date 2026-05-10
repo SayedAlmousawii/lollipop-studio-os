@@ -59,6 +59,7 @@ export async function recordPaymentAction(
     revalidatePath(`/invoices/${invoiceId}`);
     return { success: "Payment recorded." };
   } catch (error) {
+    if (error instanceof Error && "digest" in error) throw error;
     const message =
       error instanceof Error ? error.message : "Unable to record payment";
     return { errors: { _global: [message] } };

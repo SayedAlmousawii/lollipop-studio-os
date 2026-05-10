@@ -153,31 +153,15 @@ Server Action called (e.g. issueInvoiceAction)
 
 ---
 
-### 3. Inconsistent error propagation in server actions
+### 3. ~~Inconsistent error propagation in server actions~~ — RESOLVED
 
-`issueInvoiceAction` and `closeInvoiceAction` in [invoices/actions.ts](../../app/invoices/actions.ts) call `requireCurrentAppUserPermission` outside a try/catch. An unauthorized user causes an unhandled throw — a 500 in production, not a graceful action error.
-
-Compare to `recordPaymentAction` in the same file, which wraps everything in try/catch and returns `{ errors: { _global: [message] } }`.
-
-**Fix:** Wrap the permission call in the same try/catch pattern used by other actions in that file, or establish a consistent convention (e.g. all actions that return void throw unguarded, all actions that return state wrap in try/catch).
+`requirePermission` now calls `unauthorized()` (a Next.js framework throw) instead of a generic `Error`. `issueInvoiceAction` and `closeInvoiceAction` return void and have no try/catch, so `unauthorized()` propagates naturally to Next.js and renders `unauthorized.tsx`. `recordPaymentAction`'s catch block was updated to re-throw any error with a `digest` property, so Next.js framework throws (`unauthorized()`, `redirect()`) are never swallowed.
 
 ---
 
-### 4. Permission system throws `new Error()` instead of `unauthorized()`
+### 4. ~~Permission system throws `new Error()` instead of `unauthorized()`~~ — RESOLVED
 
-[permissions/index.ts:73](../../src/lib/permissions/index.ts#L73) throws a generic `Error`. Next.js 16 has `unauthorized()` from `next/navigation` that triggers the `unauthorized.tsx` special file and returns a proper 401 response.
-
-Once `app/unauthorized.tsx` is created (see below), update `requirePermission` to call `unauthorized()` instead of throwing, so the framework handles the response correctly.
-
-```ts
-import { unauthorized } from 'next/navigation'
-
-export function requirePermission(appUser, permission) {
-  if (!hasPermission(appUser, permission)) {
-    unauthorized()
-  }
-}
-```
+`requirePermission` in [permissions/index.ts](../../src/lib/permissions/index.ts) now calls `unauthorized()` from `next/navigation`. Next.js handles the response correctly and renders `unauthorized.tsx` with a proper 401. `PERMISSION_LABELS` was removed since it only existed to format the old error message.
 
 ---
 
@@ -232,12 +216,10 @@ These items from the original plan are explicitly out of scope until later:
 
 ---
 
-## Rating: 8.5 / 10
+## Rating: 9 / 10
 
-The architecture is correct and the patterns are sound. Identity and authorization are cleanly separated. Named permission constants, composable auth helpers, actor threading, the auto-link mechanism, defense-in-depth layout guard, and graceful unlinked-user handling are all solid.
+The architecture is correct and the patterns are sound. Identity and authorization are cleanly separated. Named permission constants, composable auth helpers, actor threading, the auto-link mechanism, defense-in-depth layout guard, graceful unlinked/inactive-user handling, and proper Next.js 16 `unauthorized()` integration are all solid.
 
-Remaining open gaps:
+Remaining open gap:
 
-- Error propagation is inconsistent across server actions (Gap #3 — `issueInvoiceAction`/`closeInvoiceAction` still throw unguarded)
-- `requirePermission` still throws `new Error()` rather than calling `unauthorized()` (Gap #4)
-- `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8)
+- `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8) — deferred
