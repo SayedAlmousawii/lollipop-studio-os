@@ -19,6 +19,10 @@ import {
   updateOrderProductionWorkflow,
   updateOrderSelectionWorkflow,
 } from "@/modules/orders/order.service";
+import {
+  WorkflowGuardError,
+  type WorkflowGuardErrorCode,
+} from "@/modules/orders/order.errors";
 
 export type UpdateSelectionActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -34,6 +38,7 @@ export type UpdateProductionActionState = {
 
 export type UpdateDeliveryActionState = {
   errors?: Partial<Record<string, string[]>>;
+  errorCode?: WorkflowGuardErrorCode;
 };
 
 export async function createOrderInvoiceAction(orderId: string): Promise<void> {
@@ -196,7 +201,8 @@ export async function updateDeliveryWorkflowAction(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update delivery workflow";
-    return { errors: { _global: [message] } };
+    const errorCode = error instanceof WorkflowGuardError ? error.code : undefined;
+    return { errors: { _global: [message] }, ...(errorCode ? { errorCode } : {}) };
   }
 
   revalidatePath("/orders");

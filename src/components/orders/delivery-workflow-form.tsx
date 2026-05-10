@@ -3,10 +3,12 @@
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
+  AlertTriangle,
   Bell,
   CheckCircle2,
   ClipboardCheck,
   PackageCheck,
+  RefreshCw,
   ShieldAlert,
   Truck,
 } from "lucide-react";
@@ -99,9 +101,18 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
               <CardTitle className="text-base">Completion</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
-                Completion will be attributed to your signed-in staff account.
-              </p>
+              {state.errorCode === "ACTOR_MISSING" ? (
+                <div className="flex items-start gap-2 rounded-md border border-danger bg-danger-soft px-3 py-2 text-sm text-danger">
+                  <RefreshCw className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    Your session could not be verified. Please reload the page or sign out and sign back in, then try again.
+                  </span>
+                </div>
+              ) : (
+                <p className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
+                  Completion will be attributed to your signed-in staff account.
+                </p>
+              )}
 
               {delivery.requiresPaymentOverride ? (
                 <div className="space-y-3 rounded-md border border-border bg-surface-soft p-3">
@@ -115,6 +126,12 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                     />
                     Allow manager/admin payment override
                   </label>
+                  {state.errorCode === "PAYMENT_OVERRIDE_NOT_ALLOWED" ? (
+                    <div className="flex items-start gap-2 text-sm text-danger">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>Check the box above to authorize the payment override before completing.</span>
+                    </div>
+                  ) : null}
                   <div className="space-y-2">
                     <Label htmlFor="overrideReason">Override reason</Label>
                     <Textarea
@@ -123,9 +140,18 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                       defaultValue={delivery.overrideReason}
                       rows={3}
                       disabled={!allowOverride}
-                      aria-invalid={state.errors?.overrideReason?.length ? true : undefined}
+                      aria-invalid={
+                        state.errors?.overrideReason?.length ||
+                        state.errorCode === "PAYMENT_OVERRIDE_REASON_MISSING"
+                          ? true
+                          : undefined
+                      }
                     />
-                    <FieldError messages={state.errors?.overrideReason} />
+                    {state.errorCode === "PAYMENT_OVERRIDE_REASON_MISSING" ? (
+                      <FieldError messages={["A reason is required when overriding payment — explain why the order is complete without full payment."]} />
+                    ) : (
+                      <FieldError messages={state.errors?.overrideReason} />
+                    )}
                   </div>
                 </div>
               ) : null}
