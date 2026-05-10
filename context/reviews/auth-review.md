@@ -113,10 +113,13 @@ Server Action called (e.g. issueInvoiceAction)
        │
   ROLE_PERMISSIONS[appUser.role].includes(permission)?
        │
-  ┌────┴──────────────────────┐
-  │ NO → throw Error          │  ← surfaces as action error to UI
-  │      (permission denied)  │
-  └────┬──────────────────────┘
+  ┌────┴──────────────────────────────────────────────────────────────────┐
+  │ NO → requirePermission calls unauthorized()                           │
+  │      unauthorized() is a Next.js framework throw; propagates to       │
+  │      Next.js and renders unauthorized.tsx (401) — never swallowed     │
+  │      by issueInvoiceAction, closeInvoiceAction (no try/catch);        │
+  │      recordPaymentAction re-throws any error with a digest property   │
+  └────┬──────────────────────────────────────────────────────────────────┘
        │ YES
        ▼
   service(data, { actorUserId: appUser.id })

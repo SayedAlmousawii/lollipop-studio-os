@@ -14,7 +14,7 @@ System structure, module boundaries, storage model, auth/roles, and invariants f
 | Frontend | Next.js + React (TypeScript) |
 | Styling | Tailwind CSS |
 | Database | PostgreSQL via Prisma |
-| Auth | Auth.js / Clerk / custom JWT |
+| Auth | Clerk (`@clerk/nextjs`) |
 | File Storage | Synology NAS (manual folder link in V1) |
 | Payments | Manual recording in V1 |
 | Notifications | Manual/template in V1 |
@@ -127,4 +127,4 @@ Read `architecture-context.md` when:
 ---
 
 ## Recommended Usage
-**Always read this summary** before starting any implementation unit.
+**Read when working on data structure, module boundaries, roles/permissions, or integration decisions.**
