@@ -124,6 +124,7 @@ enum OrderActivityType {
   DELIVERY_STATUS_CHANGED
   ORDER_COMPLETED
   NOTE_ADDED
+  GUARD_BLOCKED
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────

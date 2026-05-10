@@ -12,6 +12,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
+import { hasPermission, PERMISSIONS, type Permission } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -29,6 +30,7 @@ import {
 } from "./order.constants";
 import {
   getOrderActivityTimeline,
+  recordGuardBlockedActivity,
   recordOrderActivity,
 } from "./order-activity.service";
 import {
@@ -89,6 +91,13 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
   "PAID",
   "CLOSED",
 ]);
+
+function assertActorPermission(actorContext: ActorContext, permission: Permission): void {
+  if (!actorContext.actorRole) return;
+  if (!hasPermission({ role: actorContext.actorRole }, permission)) {
+    throw new Error(`Permission denied: ${permission}`);
+  }
+}
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
@@ -487,6 +496,7 @@ export async function updateOrderEditingWorkflow(
   actorContext: ActorContext = {}
 ): Promise<OrderEditingWorkflow> {
   const data = updateOrderEditingWorkflowSchema.parse(input);
+  assertActorPermission(actorContext, PERMISSIONS.WORKFLOW_EDITING_UPDATE);
 
   await withRetry(
     () =>
@@ -808,6 +818,7 @@ export async function updateOrderProductionWorkflow(
   actorContext: ActorContext = {}
 ): Promise<OrderProductionWorkflow> {
   const data = updateOrderProductionWorkflowSchema.parse(input);
+  assertActorPermission(actorContext, PERMISSIONS.WORKFLOW_PRODUCTION_UPDATE);
 
   await withRetry(
     () =>
@@ -835,7 +846,22 @@ export async function updateOrderProductionWorkflow(
         }
         assertProductionWorkflowWritable(order.status);
 
-        const next = resolveProductionUpdate(order, data.action);
+        let next: ReturnType<typeof resolveProductionUpdate>;
+        try {
+          next = resolveProductionUpdate(order, data.action);
+        } catch (err) {
+          if (err instanceof WorkflowGuardError) {
+            await recordGuardBlockedActivity({
+              orderId,
+              userId: actorContext.actorUserId,
+              attemptedAction: data.action,
+              reason: err.message,
+              metadata: { guardCode: err.code, action: data.action },
+            });
+          }
+          throw err;
+        }
+
         const previousProductionStatus = getProductionStatus(order);
         if (next.productionStatus && next.productionStatus !== previousProductionStatus) {
           assertWorkflowTransition(
@@ -892,7 +918,9 @@ export async function updateOrderProductionWorkflow(
           });
         }
       }),
-    "Failed to update production workflow"
+    "Failed to update production workflow",
+    3,
+    (err) => !(err instanceof WorkflowGuardError)
   );
 
   const workflow = await getOrderProductionWorkflowById(orderId);
@@ -906,6 +934,13 @@ export async function updateOrderDeliveryWorkflow(
   actorContext: ActorContext = {}
 ): Promise<OrderDeliveryWorkflow> {
   const data = updateOrderDeliveryWorkflowSchema.parse(input);
+  assertActorPermission(actorContext, PERMISSIONS.DELIVERY_UPDATE);
+  if (data.action === "completeOrder") {
+    assertActorPermission(actorContext, PERMISSIONS.DELIVERY_COMPLETE);
+  }
+  if (data.allowPaymentOverride) {
+    assertActorPermission(actorContext, PERMISSIONS.DELIVERY_PAYMENT_OVERRIDE);
+  }
 
   await withRetry(
     () =>
@@ -920,7 +955,26 @@ export async function updateOrderDeliveryWorkflow(
         }
         assertDeliveryWorkflowWritable(order.status);
 
-        const next = resolveDeliveryUpdate(order, data, actorContext);
+        let next: ReturnType<typeof resolveDeliveryUpdate>;
+        try {
+          next = resolveDeliveryUpdate(order, data, actorContext);
+        } catch (err) {
+          if (err instanceof WorkflowGuardError) {
+            await recordGuardBlockedActivity({
+              orderId,
+              userId: actorContext.actorUserId,
+              attemptedAction: data.action,
+              reason: err.message,
+              metadata: {
+                guardCode: err.code,
+                allowPaymentOverride: data.allowPaymentOverride,
+                overrideReasonProvided: Boolean(data.overrideReason?.trim()),
+              },
+            });
+          }
+          throw err;
+        }
+
         const previousProductionStatus = getProductionStatus(order);
         if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
           assertWorkflowTransition(
@@ -2706,7 +2760,8 @@ function resolveProductionUpdate(
         editingStatus !== OrderEditingStatus.APPROVED &&
         editingStatus !== OrderEditingStatus.COMPLETED
       ) {
-        throw new Error(
+        throw new WorkflowGuardError(
+          "EDITING_INCOMPLETE",
           "Production cannot be marked ready for pickup until editing is approved or completed"
         );
       }
@@ -2716,7 +2771,8 @@ function resolveProductionUpdate(
         getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
           OrderProductionSectionStatus.COMPLETED
       ) {
-        throw new Error(
+        throw new WorkflowGuardError(
+          "ALBUM_DESIGN_INCOMPLETE",
           "Album design must be completed before assembly can contribute to production readiness"
         );
       }
