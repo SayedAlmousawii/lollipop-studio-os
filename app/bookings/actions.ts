@@ -41,7 +41,7 @@ export async function updateBookingStatusAction(
       PERMISSIONS.BOOKING_STATUS_UPDATE
     );
     await updateBookingStatus(parsed.data.bookingId, parsed.data.nextStatus, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
   } catch (error) {
     const message =
@@ -75,7 +75,7 @@ export async function recordDepositAction(
   try {
     const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
     await recordBookingDeposit(parsed.data, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
   } catch (error) {
     const message =

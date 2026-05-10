@@ -44,7 +44,7 @@ export type UpdateDeliveryActionState = {
 export async function createOrderInvoiceAction(orderId: string): Promise<void> {
   const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_CREATE);
   const invoice = await createInvoiceForOrder(orderId, {
-    actorUserId: appUser.id,
+    actorUserId: appUser.id, actorRole: appUser.role,
   });
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
@@ -82,7 +82,7 @@ export async function updateSelectionWorkflowAction(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
     await updateOrderSelectionWorkflow(orderId, parsed.data, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
   } catch (error) {
     const message =
@@ -122,7 +122,7 @@ export async function updateEditingWorkflowAction(
 
   try {
     await updateOrderEditingWorkflow(orderId, parsed.data, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
   } catch (error) {
     const message =
@@ -154,7 +154,7 @@ export async function updateProductionWorkflowAction(
 
   try {
     await updateOrderProductionWorkflow(orderId, parsed.data, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
   } catch (error) {
     const message =
@@ -196,7 +196,7 @@ export async function updateDeliveryWorkflowAction(
     }
 
     await updateOrderDeliveryWorkflow(orderId, parsed.data, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
   } catch (error) {
     const message =

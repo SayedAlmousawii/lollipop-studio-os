@@ -46,7 +46,7 @@ export async function updateOrderAction(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
     await updateOrder(orderId, parsed.data, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to update order";

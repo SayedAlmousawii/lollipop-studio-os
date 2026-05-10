@@ -23,7 +23,7 @@ export default async function DashboardPage() {
             />
             <StatCard
               title="Revenue Today"
-              value={`SAR ${stats.revenueToday.toLocaleString()}`}
+              value={`KD ${stats.revenueToday.toLocaleString()}`}
               subtext="Payments received today"
               icon={<DollarSign size={18} />}
             />

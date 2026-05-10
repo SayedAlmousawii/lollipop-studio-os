@@ -83,7 +83,7 @@ export async function createAdjustmentInvoiceAction(
     PERMISSIONS.INVOICE_ADJUSTMENT_CREATE
   );
   const invoice = await createAdjustmentInvoice(parentInvoiceId, parsed.data, {
-    actorUserId: appUser.id,
+    actorUserId: appUser.id, actorRole: appUser.role,
   });
   revalidatePath("/invoices");
   redirect(`/invoices/${invoice.id}`);

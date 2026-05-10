@@ -1,6 +1,7 @@
 export type OrderStatusLabel =
   | "Active"
   | "Waiting Selection"
+  | "Selection Completed"
   | "Editing"
   | "Production"
   | "Ready"
@@ -13,6 +14,7 @@ export type OrderPaymentStatusLabel = "Pending" | "Partially paid" | "Paid" | "O
 export type OrderStatusFilter =
   | "ACTIVE"
   | "WAITING_SELECTION"
+  | "SELECTION_COMPLETED"
   | "EDITING"
   | "PRODUCTION"
   | "READY"
@@ -286,4 +288,13 @@ export interface OrderFinancialSummary {
   paidAmount: string;
   balanceDue: string;
   payments: OrderPaymentStage[];
+}
+
+export interface EditingQueueItem {
+  id: string;
+  jobNumber: string;
+  customerName: string;
+  sessionDate: string;
+  editingStatus: string;
+  assignedEditorName: string;
 }

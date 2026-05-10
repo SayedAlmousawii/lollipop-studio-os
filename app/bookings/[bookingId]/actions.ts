@@ -32,7 +32,7 @@ export async function recordBasePaymentAndCompleteAction(
   try {
     const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
     const result = await recordBasePaymentAndComplete(parsed.data, {
-      actorUserId: appUser.id,
+      actorUserId: appUser.id, actorRole: appUser.role,
     });
     orderId = result.orderId;
   } catch (error) {

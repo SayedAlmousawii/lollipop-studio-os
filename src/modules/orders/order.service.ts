@@ -49,6 +49,7 @@ import {
 } from "./order.schema";
 import type {
   EditableOrder,
+  EditingQueueItem,
   InvoiceStatusFilter,
   InvoiceStatusLabel,
   Order,
@@ -77,6 +78,7 @@ import type {
 const ORDER_STATUS_FILTERS = new Set<OrderStatusFilter>([
   "ACTIVE",
   "WAITING_SELECTION",
+  "SELECTION_COMPLETED",
   "EDITING",
   "PRODUCTION",
   "READY",
@@ -132,6 +134,14 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
   );
 
   return rows.map(mapOrderRow);
+}
+
+export async function getEditingQueue(): Promise<EditingQueueItem[]> {
+  const rows = await withRetry(
+    () => fetchEditingQueue(),
+    "Failed to fetch editing queue"
+  );
+  return rows.map(mapEditingQueueRow);
 }
 
 export async function getOrderById(orderId: string): Promise<OrderDetail | null> {
@@ -1285,6 +1295,12 @@ export async function updateOrderWorkflowStatus(
         const orderData: Prisma.OrderUpdateInput = {};
         if (data.selectionStatus) {
           orderData.selectionStatus = data.selectionStatus;
+          if (
+            data.selectionStatus === OrderSelectionStatus.COMPLETED &&
+            order.status === OrderStatus.WAITING_SELECTION
+          ) {
+            orderData.status = OrderStatus.SELECTION_COMPLETED;
+          }
         }
         if (data.productionStatus) {
           await tx.productionJob.upsert({
@@ -1703,6 +1719,8 @@ function mapOrderStatus(status: OrderStatus): OrderStatusLabel {
       return "Active";
     case OrderStatus.WAITING_SELECTION:
       return "Waiting Selection";
+    case OrderStatus.SELECTION_COMPLETED:
+      return "Selection Completed";
     case OrderStatus.EDITING:
       return "Editing";
     case OrderStatus.PRODUCTION:
@@ -1713,6 +1731,8 @@ function mapOrderStatus(status: OrderStatus): OrderStatusLabel {
       return "Delivered";
     case OrderStatus.CANCELLED:
       return "Cancelled";
+    default:
+      throw new Error(`Unhandled OrderStatus: ${status as string}`);
   }
 }
 
@@ -3503,5 +3523,37 @@ export async function getOrderFinancialSummary(
     paidAmount: formatMoney(invoiceSummary.paidAmount),
     balanceDue: formatMoney(invoiceSummary.remainingAmount),
     payments,
+  };
+}
+
+async function fetchEditingQueue() {
+  return db.order.findMany({
+    where: { status: { in: [OrderStatus.SELECTION_COMPLETED, OrderStatus.EDITING] } },
+    include: {
+      customer: { select: { name: true } },
+      booking: { select: { sessionDate: true } },
+      editingJob: {
+        select: {
+          status: true,
+          assignedEditor: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+type EditingQueueRow = Awaited<ReturnType<typeof fetchEditingQueue>>[number];
+
+function mapEditingQueueRow(row: EditingQueueRow): EditingQueueItem {
+  return {
+    id: row.id,
+    jobNumber: row.jobNumber,
+    customerName: row.customer.name,
+    sessionDate: formatDate(row.booking.sessionDate),
+    editingStatus: row.editingJob
+      ? ORDER_EDITING_STATUS_LABELS[row.editingJob.status]
+      : ORDER_EDITING_STATUS_LABELS[OrderEditingStatus.NOT_STARTED],
+    assignedEditorName: row.editingJob?.assignedEditor?.name ?? "—",
   };
 }
