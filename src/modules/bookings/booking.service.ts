@@ -92,6 +92,7 @@ export interface BookingDetail {
   jobNumber: string;
   customerName: string;
   sessionDate: string;
+  sessionTime: string;
   sessionType: string;
   packageName: string;
   packagePriceLabel: string;
@@ -196,6 +197,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),
+    sessionTime: row.sessionTime,
     department: row.department.name,
     package: row.package?.name ?? "—",
     status: mapBookingStatus(row.status),
@@ -274,6 +276,7 @@ export async function createBookingInDb(
             customerId: data.customerId,
             packageId: data.packageId,
             sessionDate: data.sessionDate,
+            sessionTime: data.sessionTime,
             sessionType: data.sessionType,
             departmentId: data.departmentId,
             assignedPhotographerId:
@@ -382,6 +385,7 @@ export async function updateBooking(
             customerId: data.customerId,
             packageId: data.packageId,
             sessionDate: data.date,
+            sessionTime: data.sessionTime,
             sessionType: data.sessionType,
             departmentId: data.departmentId,
             assignedPhotographerId:
@@ -914,7 +918,7 @@ function mapEditableBooking(
     packageName: row.package?.name ?? "—",
     packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
     sessionDate: formatInputDate(row.sessionDate),
-    sessionTime: formatInputTime(row.sessionDate),
+    sessionTime: row.sessionTime,
     sessionType: row.sessionType,
     departmentId: row.department.id,
     department: row.department.name,
@@ -947,6 +951,7 @@ function mapBookingDetail(
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
     sessionDate: formatSessionDate(row.sessionDate),
+    sessionTime: row.sessionTime,
     sessionType: formatEnum(row.sessionType),
     packageName: row.package?.name ?? "—",
     packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
@@ -991,10 +996,6 @@ function hasDepositPayment(
 
 function formatInputDate(date: Date): string {
   return date.toISOString().slice(0, 10);
-}
-
-function formatInputTime(date: Date): string {
-  return date.toISOString().slice(11, 16);
 }
 
 function formatPrice(value: { toFixed(dp: number): string }): string {

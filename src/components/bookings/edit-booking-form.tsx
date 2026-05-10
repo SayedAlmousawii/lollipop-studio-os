@@ -240,16 +240,17 @@ export function EditBookingForm({
             <FieldError messages={state.errors?.date} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="time">Time</Label>
+            <Label htmlFor="sessionTime">Time</Label>
             <Input
-              id="time"
-              name="time"
+              id="sessionTime"
+              name="sessionTime"
               type="time"
               defaultValue={booking.sessionTime}
               disabled={!booking.canEdit}
-              aria-invalid={state.errors?.time?.length ? true : undefined}
+              required
+              aria-invalid={state.errors?.sessionTime?.length ? true : undefined}
             />
-            <FieldError messages={state.errors?.time} />
+            <FieldError messages={state.errors?.sessionTime} />
           </div>
         </div>
       </Section>

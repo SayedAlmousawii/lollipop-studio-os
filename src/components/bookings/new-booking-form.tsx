@@ -261,6 +261,18 @@ export function NewBookingForm({
       </div>
 
       <div className="space-y-1.5">
+        <Label htmlFor="sessionTime">Session Time</Label>
+        <Input
+          id="sessionTime"
+          name="sessionTime"
+          type="time"
+          className="w-full"
+          required
+        />
+        <FieldError messages={state.errors?.sessionTime} />
+      </div>
+
+      <div className="space-y-1.5">
         <Label htmlFor="departmentId">Department</Label>
         <input type="hidden" name="departmentId" value={selectedDepartmentId} />
         <Select

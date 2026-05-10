@@ -255,6 +255,7 @@ model Booking {
   customerId             String
   packageId              String?
   sessionDate            DateTime
+  sessionTime            String
   sessionType            SessionType
   departmentId           String
   status                 BookingStatus @default(PENDING)
