@@ -2,6 +2,7 @@ import { InvoiceStatus, OrderActivityType, Prisma } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
@@ -364,7 +365,7 @@ export async function getInvoices({
         skip: (safePage - 1) * safePageSize,
         take: safePageSize,
         include: {
-          customer: { select: { name: true } },
+          customer: { select: { phone: true } },
           order: { select: { jobNumber: true } },
           booking: { select: { jobNumber: true } },
         },
@@ -377,7 +378,7 @@ export async function getInvoices({
     id: row.id,
     jobNumber: row.jobNumber,
     invoiceNumber: row.invoiceNumber,
-    customerName: row.customer.name,
+    customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
     bookingId: row.bookingId,
     referenceLabel: formatInvoiceReference(row.jobNumber),
@@ -396,7 +397,7 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
       db.invoice.findUnique({
         where: { id },
         include: {
-          customer: { select: { name: true } },
+          customer: { select: { phone: true } },
           order: { select: { jobNumber: true } },
           booking: { select: { jobNumber: true } },
           parentInvoice: { select: { id: true, invoiceNumber: true } },
@@ -416,7 +417,7 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
     id: row.id,
     jobNumber: row.jobNumber,
     invoiceNumber: row.invoiceNumber,
-    customerName: row.customer.name,
+    customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
     bookingId: row.bookingId,
     referenceLabel: formatInvoiceReference(row.jobNumber),
@@ -878,12 +879,9 @@ export async function createAdjustmentInvoice(
 function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput | undefined {
   const trimmed = search?.trim();
   if (!trimmed) return undefined;
+  const normalizedPhone = normalizePhoneSearch(trimmed);
   const identifierFilter = {
     startsWith: trimmed,
-    mode: Prisma.QueryMode.insensitive,
-  };
-  const customerNameFilter = {
-    contains: trimmed,
     mode: Prisma.QueryMode.insensitive,
   };
 
@@ -891,9 +889,36 @@ function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput
     OR: [
       { jobNumber: identifierFilter },
       { invoiceNumber: identifierFilter },
-      { customer: { is: { name: customerNameFilter } } },
+      ...(normalizedPhone
+        ? [
+            {
+              customer: {
+                is: {
+                  phone: {
+                    contains: normalizedPhone,
+                    mode: Prisma.QueryMode.insensitive,
+                  },
+                },
+              },
+            },
+          ]
+        : []),
     ],
   };
+}
+
+function normalizePhoneSearch(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!/^\+?[\d\s\-().]+$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const normalized = trimmed.replace(/[\s\-().]/g, "");
+  return normalized && normalized !== "+" ? normalized : undefined;
 }
 
 async function generateInvoiceNumber(client: DbClient): Promise<InvoiceNumberData> {

@@ -79,8 +79,6 @@ export function EditBookingForm({
     FormData
   >(updateBookingAction.bind(null, booking.id), {});
 
-  const selectedCustomer =
-    customers.find((customer) => customer.id === selectedCustomerId) ?? null;
   const selectedPackage =
     packageOptions.find((item) => item.id === selectedPackageId) ?? null;
   const saveDisabled =
@@ -97,7 +95,7 @@ export function EditBookingForm({
             Edit Booking
           </h1>
           <p className="mt-1 text-sm text-text-secondary">
-            {selectedCustomer?.name ?? booking.customerName}
+            {booking.customerPhone}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -135,7 +133,7 @@ export function EditBookingForm({
       <Section title="Booking Summary">
         <InfoGrid
           items={[
-            ["Customer name", booking.customerName],
+            ["Customer phone", booking.customerPhone],
             [
               "Current package",
               `${booking.packageName}${

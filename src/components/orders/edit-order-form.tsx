@@ -76,7 +76,7 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
         <div>
           <h1 className="text-[28px] font-semibold text-text-primary">Edit Order</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            {order.customerName} · {selectedPackage?.name ?? "No package selected"}
+            {order.customerPhone} · {selectedPackage?.name ?? "No package selected"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -114,7 +114,7 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
       <Section title="Order Summary">
         <InfoGrid
           items={[
-            ["Customer name", order.customerName],
+            ["Customer phone", order.customerPhone],
             ["Booking date", order.bookingDate],
             ["Original package", order.originalPackage?.name ?? "—"],
             ["Current final package", order.finalPackage?.name ?? order.originalPackage?.name ?? "—"],

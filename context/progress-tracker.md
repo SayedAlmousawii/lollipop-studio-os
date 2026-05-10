@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 55d complete; next is 55e. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 55e complete; next is 55f. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,6 +25,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Follow-up: bookings, orders, and invoices tables/pages now use customer phone as the primary displayed identifier and search target.
+- Feature 55e: Phone number required on all customer saves; search prioritizes phone.
 - Feature 55d: Editing start now requires full payment; assignment stays allowed, outstanding balance is surfaced in-tab with an upgrade-payment modal.
 - Feature 55c: Deliverables card on overview tab; package description surfaced in selection tab.
 - Feature 55b follow-up: Delivery completion transitions now stay on the dedicated pickup-completes path, while legacy `PICKED_UP` orders retain a valid route to close.

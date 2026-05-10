@@ -35,8 +35,8 @@ export function CustomersTable({ customers }: CustomersTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
-            <TableHead className="text-text-secondary">Full Name</TableHead>
             <TableHead className="text-text-secondary">Phone</TableHead>
+            <TableHead className="text-text-secondary">Full Name</TableHead>
             <TableHead className="text-text-secondary">Children</TableHead>
             <TableHead className="text-text-secondary">Total Bookings</TableHead>
             <TableHead className="text-text-secondary">Last Session</TableHead>
@@ -52,11 +52,11 @@ export function CustomersTable({ customers }: CustomersTableProps) {
               key={customer.id}
               className="border-border hover:bg-surface-soft"
             >
-              <TableCell className="font-medium text-text-primary">
-                {customer.fullName}
+              <TableCell className="font-semibold tabular-nums text-text-primary">
+                {customer.phone}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
-                {customer.phone}
+                {customer.fullName}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {customer.childrenCount}
