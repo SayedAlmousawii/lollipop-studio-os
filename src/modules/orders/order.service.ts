@@ -12,6 +12,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
+import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
@@ -976,7 +977,9 @@ export async function updateOrderDeliveryWorkflow(
           });
         }
       }),
-    "Failed to update delivery workflow"
+    "Failed to update delivery workflow",
+    3,
+    (err) => !(err instanceof WorkflowGuardError)
   );
 
   const workflow = await getOrderDeliveryWorkflowById(orderId);
@@ -3088,18 +3091,23 @@ function resolveDeliveryUpdate(
         invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
       const completedById = actorContext.actorUserId;
       if (!completedById) {
-        throw new Error("A linked authenticated staff user is required to complete delivery");
+        throw new WorkflowGuardError(
+          "ACTOR_MISSING",
+          "A linked authenticated staff user is required to complete delivery"
+        );
       }
 
       const overrideReason = input.overrideReason?.trim();
       const paymentOverrideUsed = !paymentSettled;
       if (paymentOverrideUsed && !input.allowPaymentOverride) {
-        throw new Error(
+        throw new WorkflowGuardError(
+          "PAYMENT_OVERRIDE_NOT_ALLOWED",
           "Payment must be settled or explicitly overridden by an authorized manager or admin"
         );
       }
       if (paymentOverrideUsed && !overrideReason) {
-        throw new Error(
+        throw new WorkflowGuardError(
+          "PAYMENT_OVERRIDE_REASON_MISSING",
           "Override reason is required when payment is not settled"
         );
       }
