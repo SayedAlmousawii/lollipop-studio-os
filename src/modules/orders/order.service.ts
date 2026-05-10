@@ -810,111 +810,106 @@ export async function updateOrderProductionWorkflow(
 ): Promise<OrderProductionWorkflow> {
   const data = updateOrderProductionWorkflowSchema.parse(input);
 
-  const PRODUCTION_GUARD_MESSAGES = [
-    "Production cannot be marked ready for pickup until editing is approved or completed",
-    "Album design must be completed before assembly can contribute to production readiness",
-  ];
-
-  try {
-    await withRetry(
-      () =>
-        db.$transaction(async (tx) => {
-          const order = await tx.order.findUnique({
-            where: { id: orderId },
-            select: {
-              id: true,
-              status: true,
-              jobId: true,
-              editingJob: {
-                select: {
-                  status: true,
-                },
-              },
-              deliveryStatus: true,
-              productionJob: {
-                select: productionJobSelect,
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: {
+            id: true,
+            status: true,
+            jobId: true,
+            editingJob: {
+              select: {
+                status: true,
               },
             },
-          });
-
-          if (!order) {
-            throw new Error("Order not found");
-          }
-          assertProductionWorkflowWritable(order.status);
-
-          const next = resolveProductionUpdate(order, data.action);
-          const previousProductionStatus = getProductionStatus(order);
-          if (next.productionStatus && next.productionStatus !== previousProductionStatus) {
-            assertWorkflowTransition(
-              "productionStatus",
-              previousProductionStatus,
-              next.productionStatus
-            );
-          }
-          if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
-            assertWorkflowTransition(
-              "deliveryStatus",
-              order.deliveryStatus,
-              next.deliveryStatus
-            );
-          }
-
-          await tx.order.update({
-            where: { id: orderId },
-            data: next.orderData.order,
-          });
-
-          await tx.productionJob.upsert({
-            where: { orderId: order.id },
-            update: next.orderData.productionJob,
-            create: {
-              jobId: order.jobId,
-              orderId: order.id,
-              ...next.orderData.productionJob,
+            deliveryStatus: true,
+            productionJob: {
+              select: productionJobSelect,
             },
-          });
+          },
+        });
 
+        if (!order) {
+          throw new Error("Order not found");
+        }
+        assertProductionWorkflowWritable(order.status);
+
+        let next: ReturnType<typeof resolveProductionUpdate>;
+        try {
+          next = resolveProductionUpdate(order, data.action);
+        } catch (err) {
+          if (err instanceof Error) {
+            await recordGuardBlockedActivity({
+              orderId,
+              userId: actorContext.actorUserId,
+              attemptedAction: data.action,
+              reason: err.message,
+              metadata: { action: data.action },
+            });
+          }
+          throw err;
+        }
+
+        const previousProductionStatus = getProductionStatus(order);
+        if (next.productionStatus && next.productionStatus !== previousProductionStatus) {
+          assertWorkflowTransition(
+            "productionStatus",
+            previousProductionStatus,
+            next.productionStatus
+          );
+        }
+        if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
+          assertWorkflowTransition(
+            "deliveryStatus",
+            order.deliveryStatus,
+            next.deliveryStatus
+          );
+        }
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: next.orderData.order,
+        });
+
+        await tx.productionJob.upsert({
+          where: { orderId: order.id },
+          update: next.orderData.productionJob,
+          create: {
+            jobId: order.jobId,
+            orderId: order.id,
+            ...next.orderData.productionJob,
+          },
+        });
+
+        await recordOrderActivity(tx, {
+          orderId,
+          userId: actorContext.actorUserId ?? null,
+          type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
+          title: next.title,
+          description: next.description,
+          metadata: next.metadata,
+        });
+
+        if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
           await recordOrderActivity(tx, {
             orderId,
             userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.PRODUCTION_STATUS_CHANGED,
-            title: next.title,
-            description: next.description,
-            metadata: next.metadata,
+            type: OrderActivityType.DELIVERY_STATUS_CHANGED,
+            title: "Delivery readiness updated",
+            description: "Order is ready for customer pickup.",
+            metadata: {
+              field: "deliveryStatus",
+              previousStatus: order.deliveryStatus,
+              nextStatus: next.deliveryStatus,
+              source: "production",
+            },
           });
-
-          if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
-            await recordOrderActivity(tx, {
-              orderId,
-              userId: actorContext.actorUserId ?? null,
-              type: OrderActivityType.DELIVERY_STATUS_CHANGED,
-              title: "Delivery readiness updated",
-              description: "Order is ready for customer pickup.",
-              metadata: {
-                field: "deliveryStatus",
-                previousStatus: order.deliveryStatus,
-                nextStatus: next.deliveryStatus,
-                source: "production",
-              },
-            });
-          }
-        }),
-      "Failed to update production workflow",
-      3,
-      (err) => !(err instanceof Error && PRODUCTION_GUARD_MESSAGES.includes(err.message))
-    );
-  } catch (err) {
-    if (err instanceof Error && PRODUCTION_GUARD_MESSAGES.includes(err.message)) {
-      await recordGuardBlockedActivity({
-        orderId,
-        userId: actorContext.actorUserId,
-        attemptedAction: data.action,
-        reason: err.message,
-        metadata: { action: data.action },
-      });
-    }
-    throw err;
-  }
+        }
+      }),
+    "Failed to update production workflow"
+  );
 
   const workflow = await getOrderProductionWorkflowById(orderId);
   if (!workflow) throw new Error("Order not found after production update");
@@ -928,97 +923,99 @@ export async function updateOrderDeliveryWorkflow(
 ): Promise<OrderDeliveryWorkflow> {
   const data = updateOrderDeliveryWorkflowSchema.parse(input);
 
-  try {
-    await withRetry(
-      () =>
-        db.$transaction(async (tx) => {
-          const order = await tx.order.findUnique({
-            where: { id: orderId },
-            select: deliveryOrderSelect,
-          });
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          select: deliveryOrderSelect,
+        });
 
-          if (!order) {
-            throw new Error("Order not found");
-          }
-          assertDeliveryWorkflowWritable(order.status);
+        if (!order) {
+          throw new Error("Order not found");
+        }
+        assertDeliveryWorkflowWritable(order.status);
 
-          const next = resolveDeliveryUpdate(order, data, actorContext);
-          const previousProductionStatus = getProductionStatus(order);
-          if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
-            assertWorkflowTransition(
-              "deliveryStatus",
-              order.deliveryStatus,
-              next.deliveryStatus
-            );
-          }
-          if (next.productionStatus && next.productionStatus !== previousProductionStatus) {
-            assertWorkflowTransition(
-              "productionStatus",
-              previousProductionStatus,
-              next.productionStatus
-            );
-          }
-
-          await tx.order.update({
-            where: { id: orderId },
-            data: next.orderData.order,
-          });
-
-          await tx.productionJob.upsert({
-            where: { orderId: order.id },
-            update: next.orderData.productionJob,
-            create: {
-              jobId: order.jobId,
-              orderId: order.id,
-              ...next.orderData.productionJob,
-            },
-          });
-
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.DELIVERY_STATUS_CHANGED,
-            title: next.title,
-            description: next.description,
-            metadata: next.metadata,
-          });
-
-          if (next.completed) {
-            await recordOrderActivity(tx, {
+        let next: ReturnType<typeof resolveDeliveryUpdate>;
+        try {
+          next = resolveDeliveryUpdate(order, data, actorContext);
+        } catch (err) {
+          if (err instanceof WorkflowGuardError) {
+            await recordGuardBlockedActivity({
               orderId,
-              userId: actorContext.actorUserId ?? null,
-              type: OrderActivityType.ORDER_COMPLETED,
-              title: "Order completed",
-              description: "Order was completed through the delivery workflow.",
+              userId: actorContext.actorUserId,
+              attemptedAction: "completeOrder",
+              reason: err.message,
               metadata: {
-                completedById: next.completedById ?? null,
-                completedAt: new Date().toISOString(),
-                paymentOverrideUsed: next.paymentOverrideUsed,
-                overrideReason: data.overrideReason?.trim() ?? null,
+                guardCode: err.code,
+                allowPaymentOverride: data.action === "completeOrder" ? data.allowPaymentOverride : undefined,
+                overrideReasonProvided: Boolean(data.action === "completeOrder" && data.overrideReason?.trim()),
               },
             });
           }
-        }),
-      "Failed to update delivery workflow",
-      3,
-      (err) => !(err instanceof WorkflowGuardError)
-    );
-  } catch (err) {
-    if (err instanceof WorkflowGuardError) {
-      await recordGuardBlockedActivity({
-        orderId,
-        userId: actorContext.actorUserId,
-        attemptedAction: "completeOrder",
-        reason: err.message,
-        metadata: {
-          guardCode: err.code,
-          allowPaymentOverride: data.action === "completeOrder" ? data.allowPaymentOverride : undefined,
-          overrideReasonProvided: Boolean(data.action === "completeOrder" && data.overrideReason?.trim()),
-        },
-      });
-    }
-    throw err;
-  }
+          throw err;
+        }
+
+        const previousProductionStatus = getProductionStatus(order);
+        if (next.deliveryStatus && next.deliveryStatus !== order.deliveryStatus) {
+          assertWorkflowTransition(
+            "deliveryStatus",
+            order.deliveryStatus,
+            next.deliveryStatus
+          );
+        }
+        if (next.productionStatus && next.productionStatus !== previousProductionStatus) {
+          assertWorkflowTransition(
+            "productionStatus",
+            previousProductionStatus,
+            next.productionStatus
+          );
+        }
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: next.orderData.order,
+        });
+
+        await tx.productionJob.upsert({
+          where: { orderId: order.id },
+          update: next.orderData.productionJob,
+          create: {
+            jobId: order.jobId,
+            orderId: order.id,
+            ...next.orderData.productionJob,
+          },
+        });
+
+        await recordOrderActivity(tx, {
+          orderId,
+          userId: actorContext.actorUserId ?? null,
+          type: OrderActivityType.DELIVERY_STATUS_CHANGED,
+          title: next.title,
+          description: next.description,
+          metadata: next.metadata,
+        });
+
+        if (next.completed) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.ORDER_COMPLETED,
+            title: "Order completed",
+            description: "Order was completed through the delivery workflow.",
+            metadata: {
+              completedById: next.completedById ?? null,
+              completedAt: new Date().toISOString(),
+              paymentOverrideUsed: next.paymentOverrideUsed,
+              overrideReason: data.overrideReason?.trim() ?? null,
+            },
+          });
+        }
+      }),
+    "Failed to update delivery workflow",
+    3,
+    (err) => !(err instanceof WorkflowGuardError)
+  );
 
   const workflow = await getOrderDeliveryWorkflowById(orderId);
   if (!workflow) throw new Error("Order not found after delivery update");
