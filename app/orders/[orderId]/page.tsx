@@ -301,6 +301,14 @@ function EditingTab({
 }
 
 function OverviewTab({ order }: { order: OrderDetail }) {
+  const selectedPhotoCountLabel =
+    order.selectedPhotoCount.trim().length > 0 ? order.selectedPhotoCount : "—";
+  const extraPhotoCountValue = Number.parseInt(order.extraPhotoCount, 10);
+  const selectedPhotosLabel =
+    Number.isFinite(extraPhotoCountValue) && extraPhotoCountValue > 0
+      ? `${selectedPhotoCountLabel} (${extraPhotoCountValue} extra)`
+      : selectedPhotoCountLabel;
+
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="space-y-4">
@@ -341,12 +349,7 @@ function OverviewTab({ order }: { order: OrderDetail }) {
               items={[
                 ["Package", order.finalPackageName],
                 ["Photo limit", order.includedPhotoCount],
-                [
-                  "Selected photos",
-                  order.extraPhotoCount === "0"
-                    ? order.selectedPhotoCount
-                    : `${order.selectedPhotoCount} (${order.extraPhotoCount} extra)`,
-                ],
+                ["Selected photos", selectedPhotosLabel],
                 [
                   "Add-ons",
                   order.addonsSummary === "—" ? "None selected" : order.addonsSummary,

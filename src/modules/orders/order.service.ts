@@ -363,6 +363,8 @@ export async function getOrderSelectionWorkflowById(
   const extraPhotoOption = await getExtraPhotoAddOnOption();
   const extraPhotoCharge = extraPhotoOption.price.mul(extraPhotoCount);
   const selectionAddOnTotal = manualAddOnTotal.plus(extraPhotoCharge);
+  const packageDescription =
+    order.finalPackage?.description ?? order.originalPackage?.description ?? null;
 
   return {
     orderId: order.id,
@@ -371,7 +373,9 @@ export async function getOrderSelectionWorkflowById(
     originalPackageName: order.originalPackage?.name ?? "—",
     finalPackageName: currentPackage.name,
     packageDescription:
-      order.finalPackage?.description ?? order.originalPackage?.description ?? null,
+      packageDescription !== null && packageDescription.trim().length > 0
+        ? packageDescription.trim()
+        : null,
     selectedPhotos,
     includedPhotoCount,
     extraPhotoCount,
@@ -423,6 +427,7 @@ export async function getOrderEditingWorkflowById(
             finalPackage: { select: { photoCount: true } },
             invoices: {
               select: {
+                remainingAmount: true,
                 payments: {
                   where: { paymentType: PaymentType.BASE },
                   select: { id: true },
@@ -2359,7 +2364,10 @@ function mapOrderEditingWorkflow(
     selectedPhotoCount: number | null;
     originalPackage: { photoCount: number } | null;
     finalPackage: { photoCount: number } | null;
-    invoices: Array<{ payments: Array<{ id: string }> }>;
+    invoices: Array<{
+      remainingAmount: Prisma.Decimal;
+      payments: Array<{ id: string }>;
+    }>;
   },
   editors: OrderEditorOption[]
 ): OrderEditingWorkflow {
@@ -2385,6 +2393,10 @@ function mapOrderEditingWorkflow(
       ? Math.min(Math.round((editedPhotoCount / targetPhotoCount) * 100), 100)
       : 0;
   const basePaymentVerified = hasBasePayment(order.invoices);
+  const outstandingBalance = order.invoices.reduce(
+    (sum, invoice) => sum.plus(invoice.remainingAmount),
+    zeroMoney()
+  );
   const productionStatus =
     order.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
 
@@ -2416,7 +2428,12 @@ function mapOrderEditingWorkflow(
       ? formatDateTime(sentToProductionAt)
       : null,
     basePaymentVerified,
-    canAssignEditor: editingStatus !== OrderEditingStatus.COMPLETED,
+    outstandingBalanceLabel: outstandingBalance.gt(0)
+      ? formatMoney(outstandingBalance)
+      : null,
+    canAssignEditor:
+      editingStatus !== OrderEditingStatus.COMPLETED &&
+      outstandingBalance.lte(0),
     canMarkStarted:
       basePaymentVerified &&
       order.selectionStatus === OrderSelectionStatus.COMPLETED &&
