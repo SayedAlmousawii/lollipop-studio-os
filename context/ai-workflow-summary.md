@@ -81,16 +81,23 @@ When writing a new feature spec file, follow this structure and omit redundant c
 
 **Required sections (in order):**
 1. `## Goal` — one short paragraph, what this unit achieves
-2. `## Read First` — spec-specific context only (prior specs, review docs). Do NOT list `ai-workflow-summary.md` or `code-standards-summary.md` — they are default reads
+2. `## Read First` — spec-specific context only (prior specs, review docs, specific source files relevant to this unit). Do NOT list `ai-workflow-summary.md` or `code-standards-summary.md` — they are default reads
 3. `## Rules` — unit-specific constraints and guardrails
 4. `## Scope` — `### In Scope` and `### Out of Scope` lists
-5. `## Implementation Direction` — numbered steps with enough detail to remove ambiguity
+5. `## Implementation Direction` — describe the desired behavior and point to where in the codebase to look; do not write code or prescribe exact implementations
 6. `## Post-Implementation` — explicit list of docs to update after completion
 7. `## Acceptance Criteria` — specific, checkable conditions. Include `npm run build passes` and `npm run lint passes` as explicit checks
 
 **Do not include in specs:**
 - `agents.md` in Read First — always loaded as system context
 - `context/ai-workflow-summary.md` or `context/code-standards-summary.md` in Read First — already default reads
+
+**Implementation Direction guidelines:**
+- Describe *what behavior to produce* and *which functions or areas to read first* — not what code to write
+- Do not include code snippets — the agent must read the actual file and fit the fix into the existing patterns it finds there
+- Do not use line numbers as primary navigation — functions and logical areas are more stable than line numbers
+- Point to existing patterns in the codebase the agent should follow (e.g. "follow the same guard pattern used in X") — this keeps the fix consistent with what is already there
+- Explain the *why* behind constraints so the agent can make judgment calls in edge cases
 
 ---
 

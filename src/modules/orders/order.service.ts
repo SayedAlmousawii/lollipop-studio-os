@@ -527,15 +527,28 @@ export async function updateOrderEditingWorkflow(
         const now = new Date();
         let editingJob = order.editingJob;
         if (!editingJob) {
-          editingJob = await tx.editingJob.create({
-            data: {
-              jobId: order.jobId,
-              orderId: order.id,
-            },
-            include: {
-              assignedEditor: { select: { id: true, name: true } },
-            },
-          });
+          try {
+            editingJob = await tx.editingJob.create({
+              data: {
+                jobId: order.jobId,
+                orderId: order.id,
+              },
+              include: {
+                assignedEditor: { select: { id: true, name: true } },
+              },
+            });
+          } catch (error) {
+            const isP2002 =
+              error instanceof Prisma.PrismaClientKnownRequestError &&
+              error.code === "P2002";
+            if (!isP2002) throw error;
+            const existing = await tx.editingJob.findUnique({
+              where: { orderId: order.id },
+              include: { assignedEditor: { select: { id: true, name: true } } },
+            });
+            if (!existing) throw error;
+            editingJob = existing;
+          }
         }
         const previousEditingStatus = editingJob.status;
         const previousAssignedEditorId = editingJob.assignedEditorId;
@@ -2376,7 +2389,9 @@ function mapOrderProductionWorkflow(order: ProductionOrderState): OrderProductio
     canMarkReadyForPickup:
       canUpdateProduction &&
       productionStatus !== OrderProductionStatus.READY_FOR_PICKUP &&
-      productionStatus !== OrderProductionStatus.COMPLETED,
+      productionStatus !== OrderProductionStatus.COMPLETED &&
+      (order.editingJob?.status === OrderEditingStatus.APPROVED ||
+        order.editingJob?.status === OrderEditingStatus.COMPLETED),
     sections,
   };
 }
@@ -2494,14 +2509,15 @@ function productionSection(input: {
 }
 
 function resolveProductionReadinessWarning(order: ProductionOrderState): string | null {
-  const productionStatus = getProductionStatus(order);
+  const editingStatus = order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
   if (
-    order.editingJob?.status !== OrderEditingStatus.COMPLETED &&
-    productionStatus !== OrderProductionStatus.READY_FOR_PICKUP
+    editingStatus !== OrderEditingStatus.APPROVED &&
+    editingStatus !== OrderEditingStatus.COMPLETED
   ) {
-    return "Editing is not marked completed yet. Admin-first mode allows production progress, but this is early.";
+    return "Editing must be approved or completed before production can be marked ready for pickup.";
   }
 
+  const productionStatus = getProductionStatus(order);
   if (
     productionStatus === OrderProductionStatus.READY_FOR_PICKUP &&
     hasIncompleteProductionSections(order)
@@ -2651,7 +2667,16 @@ function resolveProductionUpdate(
           nextProductionStatus: inProgressStatus,
         },
       };
-    case "markProductionReadyForPickup":
+    case "markProductionReadyForPickup": {
+      const editingStatus = order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
+      if (
+        editingStatus !== OrderEditingStatus.APPROVED &&
+        editingStatus !== OrderEditingStatus.COMPLETED
+      ) {
+        throw new Error(
+          "Production cannot be marked ready for pickup until editing is approved or completed"
+        );
+      }
       return {
         orderData: {
           order: {
@@ -2685,6 +2710,7 @@ function resolveProductionUpdate(
           incompleteSectionsAtReady: hasIncompleteProductionSections(order),
         },
       };
+    }
   }
 }
 
@@ -3098,7 +3124,7 @@ function resolveDeliveryCompletionBlockers(
     blockers.push(PAYMENT_OVERRIDE_BLOCKER);
   }
   if (!isProductionReadyForDelivery(order)) {
-    blockers.push("Production must be ready and all production sections must be complete.");
+    blockers.push("Production must be ready for pickup or completed.");
   }
   if (order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP) {
     blockers.push("Pickup must be recorded before completion.");
@@ -3108,30 +3134,16 @@ function resolveDeliveryCompletionBlockers(
 
 function assertProductionReadyForDelivery(order: DeliveryOrderState): void {
   if (!isProductionReadyForDelivery(order)) {
-    throw new Error("Order cannot be completed until production is ready and all production sections are complete");
+    throw new Error("Order cannot be completed until production is ready for pickup or completed");
   }
 }
 
 function isProductionReadyForDelivery(order: DeliveryOrderState): boolean {
   const productionStatus = getProductionStatus(order);
   return (
-    (
-      productionStatus === OrderProductionStatus.READY_FOR_PICKUP ||
-      productionStatus === OrderProductionStatus.COMPLETED
-    ) &&
-    !hasIncompleteDeliveryProductionSections(order)
+    productionStatus === OrderProductionStatus.READY_FOR_PICKUP ||
+    productionStatus === OrderProductionStatus.COMPLETED
   );
-}
-
-function hasIncompleteDeliveryProductionSections(order: DeliveryOrderState): boolean {
-  return [
-    getProductionSectionStatus(order.productionJob, "albumDesignStatus"),
-    getProductionSectionStatus(order.productionJob, "printingStatus"),
-    getProductionSectionStatus(order.productionJob, "assemblyStatus"),
-    getProductionSectionStatus(order.productionJob, "vendorStatus"),
-    getProductionSectionStatus(order.productionJob, "framedPrintsStatus"),
-    getProductionSectionStatus(order.productionJob, "finalStatus"),
-  ].some((status) => status !== OrderProductionSectionStatus.COMPLETED);
 }
 
 function hasBasePayment(
