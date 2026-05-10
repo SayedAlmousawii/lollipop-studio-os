@@ -301,6 +301,14 @@ function EditingTab({
 }
 
 function OverviewTab({ order }: { order: OrderDetail }) {
+  const selectedPhotoCountLabel =
+    order.selectedPhotoCount.trim().length > 0 ? order.selectedPhotoCount : "—";
+  const extraPhotoCountValue = Number.parseInt(order.extraPhotoCount, 10);
+  const selectedPhotosLabel =
+    Number.isFinite(extraPhotoCountValue) && extraPhotoCountValue > 0
+      ? `${selectedPhotoCountLabel} (${extraPhotoCountValue} extra)`
+      : selectedPhotoCountLabel;
+
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="space-y-4">
@@ -329,6 +337,25 @@ function OverviewTab({ order }: { order: OrderDetail }) {
           </CardHeader>
           <CardContent>
             <WorkflowStrip steps={order.workflowSteps} compact />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Deliverables</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <InfoGrid
+              items={[
+                ["Package", order.finalPackageName],
+                ["Photo limit", order.includedPhotoCount],
+                ["Selected photos", selectedPhotosLabel],
+                [
+                  "Add-ons",
+                  order.addonsSummary === "—" ? "None selected" : order.addonsSummary,
+                ],
+              ]}
+            />
           </CardContent>
         </Card>
 
@@ -388,6 +415,7 @@ function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
             items={[
               ["Package", selection.finalPackageName],
               ["Package limit", String(selection.includedPhotoCount)],
+              ["Package includes", selection.packageDescription ?? "—"],
               ["Selected photos", String(selection.selectedPhotos)],
               ["Extra selected", String(selection.extraPhotoCount)],
             ]}
