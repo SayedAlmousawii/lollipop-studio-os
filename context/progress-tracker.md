@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 54 in progress; 54a (editing queue) and 54b (production queue) complete. Sub-units 54c–54e remain. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 54 in progress; 54a (editing queue), 54b (production queue), and 54c (booking no-show UI) complete. Sub-units 54d–54e remain. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,7 +25,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
-- Feature 54b: Production queue page at `/production` — `getProductionQueue()` service function, `ProductionQueueItem` type, `ProductionQueueTable` component; gated by `ORDER_READ` and shown in the sidebar for signed-in app users.
+- Feature 54c: Confirmed bookings now expose a destructive "Record No-Show" action with confirmation, preserve a distinct `No-Show` label, and automatically close+lock any existing primary booking invoice when the no-show transition is confirmed.
+- Feature 54b: Added a production queue page so signed-in users with access can see in-flight production orders from the main app navigation.
 - Feature 54a: Editing queue page at `/editing` — `getEditingQueue()` service function, `EditingQueueItem` type, `EditingQueueTable` component; gated by `WORKFLOW_EDITING_UPDATE` permission (EDITOR + ADMIN only).
 - Feature 54 (review): Operational page completion review — gap analysis across all 8 areas; sub-units 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), 54e (ready-for-pickup quick filter) defined in `context/reviews/feature-54-operational-review.md`.
 - Feature 52f: Service-layer permission enforcement — ActorContext extended with role; editing, production, and delivery workflow service functions now assert permissions independently of the call site.

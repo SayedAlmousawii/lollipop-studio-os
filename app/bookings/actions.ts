@@ -53,6 +53,7 @@ export async function updateBookingStatusAction(
   revalidatePath(`/bookings/${parsed.data.bookingId}`);
   revalidatePath("/calendar");
   revalidatePath("/orders");
+  revalidatePath("/invoices");
 
   return {};
 }
