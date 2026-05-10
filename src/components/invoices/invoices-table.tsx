@@ -31,7 +31,7 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Invoice Number</TableHead>
             <TableHead className="text-text-secondary">Job Number</TableHead>
-            <TableHead className="text-text-secondary">Customer</TableHead>
+            <TableHead className="text-text-secondary">Customer Phone</TableHead>
             <TableHead className="text-text-secondary">Reference</TableHead>
             <TableHead className="text-text-secondary">Total</TableHead>
             <TableHead className="text-text-secondary">Paid</TableHead>
@@ -58,8 +58,8 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
                 <TableCell className="text-sm font-medium text-text-primary">
                   {invoice.jobNumber}
                 </TableCell>
-                <TableCell className="text-sm text-text-primary">
-                  {invoice.customerName}
+                <TableCell className="text-sm tabular-nums text-text-primary">
+                  {invoice.customerPhone}
                 </TableCell>
                 <TableCell className="text-sm text-text-secondary">
                   {invoice.referenceLabel}

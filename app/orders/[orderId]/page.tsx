@@ -94,7 +94,7 @@ export default async function OrderDetailPage(
               </div>
               <div>
                 <h1 className="text-[28px] font-semibold text-text-primary">
-                  {order.customerName}
+                  {order.customerPhone}
                 </h1>
                 <p className="mt-1 text-sm text-text-secondary">
                   {order.sessionDateTime} · {order.sessionType} · {order.finalPackageName}
@@ -245,7 +245,7 @@ function DeliveryTab({
         <CardContent>
           <InfoGrid
             items={[
-              ["Customer", order.customerName],
+              ["Customer phone", order.customerPhone],
               ["Order status", order.orderStatus],
               ["Delivery status", delivery.deliveryStatus],
               ["Payment status", delivery.paymentStatus],
@@ -543,7 +543,7 @@ function RelatedRecords({ order }: { order: OrderDetail }) {
   const records: Array<[string, string, string | null]> = [
     ["Booking", order.bookingDate, `/bookings/${order.bookingId}`],
     ["Invoice", order.primaryInvoiceNumber ?? "No invoice", order.primaryInvoiceId ? `/invoices/${order.primaryInvoiceId}` : null],
-    ["Customer", order.customerName, null],
+    ["Customer phone", order.customerPhone, null],
     ["Package", order.finalPackageName, null],
   ];
 

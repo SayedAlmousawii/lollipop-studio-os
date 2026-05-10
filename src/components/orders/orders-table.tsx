@@ -29,7 +29,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
-            <TableHead className="text-text-secondary">Customer</TableHead>
+            <TableHead className="text-text-secondary">Customer Phone</TableHead>
             <TableHead className="text-text-secondary">Job Number</TableHead>
             <TableHead className="text-text-secondary">Booking Date</TableHead>
             <TableHead className="text-text-secondary">Original Package</TableHead>
@@ -51,8 +51,8 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               key={order.id}
               className="border-border hover:bg-surface-soft"
             >
-              <TableCell className="font-medium text-text-primary">
-                {order.customerName}
+              <TableCell className="font-medium tabular-nums text-text-primary">
+                {order.customerPhone}
               </TableCell>
               <TableCell className="text-sm font-medium text-text-primary">
                 {order.jobNumber}

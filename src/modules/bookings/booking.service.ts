@@ -22,6 +22,7 @@ import {
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
+import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
@@ -66,7 +67,7 @@ export interface EditableBooking {
   id: string;
   jobNumber: string;
   customerId: string;
-  customerName: string;
+  customerPhone: string;
   packageId: string;
   packageName: string;
   packagePriceLabel: string;
@@ -90,7 +91,7 @@ export interface EditableBooking {
 export interface BookingDetail {
   id: string;
   jobNumber: string;
-  customerName: string;
+  customerPhone: string;
   sessionDate: string;
   sessionTime: string;
   sessionType: string;
@@ -167,7 +168,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
       return db.booking.findMany({
         where,
         include: {
-          customer: { select: { name: true } },
+          customer: { select: { phone: true } },
           package: { select: { name: true, price: true } },
           department: { select: { name: true } },
           assignedPhotographer: { select: { name: true } },
@@ -195,7 +196,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
   return rows.map((row) => ({
     id: row.id,
     jobNumber: row.jobNumber,
-    customerName: row.customer.name,
+    customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
     department: row.department.name,
@@ -731,7 +732,7 @@ function validateStatusTransition(
 }
 
 const editableBookingInclude = {
-  customer: { select: { name: true } },
+  customer: { select: { name: true, phone: true } },
   package: {
     select: {
       id: true,
@@ -779,6 +780,7 @@ async function fetchEditableBookingById(bookingId: string) {
 
 function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
   const search = filters.search;
+  const normalizedPhone = normalizePhoneSearch(search);
   const searchClause = search
     ? (() => {
         const containsFilter = {
@@ -788,11 +790,20 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
 
         return {
           OR: [
-            {
-              customer: {
-                is: { name: containsFilter },
-              },
-            },
+            ...(normalizedPhone
+              ? [
+                  {
+                    customer: {
+                      is: {
+                        phone: {
+                          contains: normalizedPhone,
+                          mode: Prisma.QueryMode.insensitive,
+                        },
+                      },
+                    },
+                  },
+                ]
+              : []),
             { jobNumber: containsFilter },
             {
               package: {
@@ -913,7 +924,7 @@ function mapEditableBooking(
     id: row.id,
     jobNumber: row.jobNumber,
     customerId: row.customerId,
-    customerName: row.customer.name,
+    customerPhone: formatCustomerPhone(row.customer.phone),
     packageId: row.package?.id ?? "",
     packageName: row.package?.name ?? "—",
     packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
@@ -949,7 +960,7 @@ function mapBookingDetail(
   return {
     id: row.id,
     jobNumber: row.jobNumber,
-    customerName: row.customer.name,
+    customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
     sessionType: formatEnum(row.sessionType),
@@ -1017,6 +1028,20 @@ function emptyToNull(value: string | null | undefined): string | null {
 
 function singleValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizePhoneSearch(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!/^\+?[\d\s\-().]+$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const normalized = trimmed.replace(/[\s\-().]/g, "");
+  return normalized && normalized !== "+" ? normalized : undefined;
 }
 
 function startOfLocalDay(date: Date): Date {

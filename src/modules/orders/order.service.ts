@@ -18,6 +18,7 @@ import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
+import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { syncOrderInvoiceForFinancialEdit } from "@/modules/invoices/invoice.service";
@@ -1558,19 +1559,24 @@ async function fetchOrders(filters: OrderFilters) {
             : {}),
         }
       : undefined;
+  const normalizedPhone = normalizePhoneSearch(filters.search);
 
   const where: Prisma.OrderWhereInput = {
     ...(filters.search
       ? {
           OR: [
-            {
-              customer: {
-                name: {
-                  contains: filters.search,
-                  mode: "insensitive",
-                },
-              },
-            },
+            ...(normalizedPhone
+              ? [
+                  {
+                    customer: {
+                      phone: {
+                        contains: normalizedPhone,
+                        mode: Prisma.QueryMode.insensitive,
+                      },
+                    },
+                  },
+                ]
+              : []),
             {
               jobNumber: {
                 contains: filters.search,
@@ -1595,7 +1601,7 @@ async function fetchOrders(filters: OrderFilters) {
   return db.order.findMany({
     where,
     include: {
-      customer: { select: { name: true } },
+      customer: { select: { name: true, phone: true } },
       booking: {
         select: {
           sessionDate: true,
@@ -1642,7 +1648,7 @@ function fetchOrderByIdWithClient(
   return client.order.findUnique({
     where: { id: orderId },
     include: {
-      customer: { select: { name: true } },
+      customer: { select: { name: true, phone: true } },
       booking: {
         select: {
           sessionDate: true,
@@ -1695,7 +1701,7 @@ function fetchOrderByIdWithClient(
 }
 
 const editableOrderInclude = {
-  customer: { select: { name: true } },
+  customer: { select: { name: true, phone: true } },
   booking: { select: { sessionDate: true } },
   originalPackage: {
     select: {
@@ -1751,7 +1757,7 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
   return {
     id: row.id,
     jobNumber: row.jobNumber,
-    customerName: row.customer.name,
+    customerPhone: formatCustomerPhone(row.customer.phone),
     bookingDate: formatDate(row.booking.sessionDate),
     originalPackageName: row.originalPackage?.name ?? "—",
     finalPackageName: row.finalPackage?.name ?? row.originalPackage?.name ?? "—",
@@ -2068,6 +2074,20 @@ function singleValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function normalizePhoneSearch(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!/^\+?[\d\s\-().]+$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const normalized = trimmed.replace(/[\s\-().]/g, "");
+  return normalized && normalized !== "+" ? normalized : undefined;
+}
+
 function parseDateInput(value: string | undefined): string | undefined {
   if (!value) return undefined;
 
@@ -2117,7 +2137,7 @@ function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
 
   return {
     id: order.id,
-    customerName: order.customer.name,
+    customerPhone: formatCustomerPhone(order.customer.phone),
     bookingDate: formatDate(order.booking.sessionDate),
     originalPackage: order.originalPackage ? mapEditPackage(order.originalPackage) : null,
     finalPackage: order.finalPackage ? mapEditPackage(order.finalPackage) : null,

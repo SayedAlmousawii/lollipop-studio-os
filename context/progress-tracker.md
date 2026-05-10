@@ -25,6 +25,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Follow-up: bookings, orders, and invoices tables/pages now use customer phone as the primary displayed identifier and search target.
 - Feature 55e: Phone number required on all customer saves; search prioritizes phone.
 - Feature 55d: Editing start now requires full payment; assignment stays allowed, outstanding balance is surfaced in-tab with an upgrade-payment modal.
 - Feature 55c: Deliverables card on overview tab; package description surfaced in selection tab.

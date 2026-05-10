@@ -49,7 +49,7 @@ export function BookingsFilters({ packageOptions }: BookingsFiltersProps) {
         <label htmlFor="bookings-search" className="sr-only">Search bookings</label>
         <Input
           id="bookings-search"
-          placeholder="Search customer, booking ID, job number..."
+          placeholder="Search phone, booking ID, job number..."
           className="pl-9"
           value={search}
           onChange={(event) => updateFilter("search", event.target.value)}

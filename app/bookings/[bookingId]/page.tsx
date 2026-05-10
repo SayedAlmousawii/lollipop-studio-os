@@ -31,7 +31,7 @@ export default async function BookingDetailPage(
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-[28px] font-semibold text-text-primary">
-              {booking.customerName}
+              {booking.customerPhone}
             </h1>
             <p className="mt-1 text-sm text-text-secondary">
               Job {booking.jobNumber}
@@ -72,7 +72,7 @@ export default async function BookingDetailPage(
         <Section title="Booking Summary">
           <InfoGrid
             items={[
-              ["Customer", booking.customerName],
+              ["Customer phone", booking.customerPhone],
               ["Job number", booking.jobNumber],
               ["Session date", booking.sessionDate],
               ["Session time", booking.sessionTime],

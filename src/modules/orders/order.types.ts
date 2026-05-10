@@ -35,7 +35,7 @@ export interface OrderFilters {
 export interface Order {
   id: string;
   jobNumber: string;
-  customerName: string;
+  customerPhone: string;
   bookingDate: string;
   originalPackageName: string;
   finalPackageName: string;
@@ -243,7 +243,7 @@ export interface OrderEditPackage {
 
 export interface EditableOrder {
   id: string;
-  customerName: string;
+  customerPhone: string;
   bookingDate: string;
   originalPackage: OrderEditPackage | null;
   finalPackage: OrderEditPackage | null;

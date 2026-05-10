@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CustomerStatus } from "@prisma/client";
+import { formatCustomerPhone } from "./customer.utils";
 
 const customerPhoneSchema = z
   .string()
@@ -10,10 +11,23 @@ const customerPhoneSchema = z
   .pipe(
     z
       .string()
-      .min(7, "Phone number is too short")
-      .max(15, "Phone number is too long")
       .regex(/^\+?\d+$/, "Enter a valid phone number")
-  );
+      .refine(
+        (value) => {
+          const digits = value.replace(/^\+/, "").replace(/\D/g, "");
+          return digits.length >= 7;
+        },
+        "Phone number is too short"
+      )
+      .refine(
+        (value) => {
+          const digits = value.replace(/^\+/, "").replace(/\D/g, "");
+          return digits.length <= 15;
+        },
+        "Phone number is too long"
+      )
+  )
+  .transform((value) => formatCustomerPhone(value));
 
 export const createCustomerSchema = z.object({
   name: z

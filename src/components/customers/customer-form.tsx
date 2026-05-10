@@ -125,6 +125,7 @@ function CustomerFields({
             aria-invalid={state.errors?.phone?.length ? true : undefined}
             autoComplete="tel"
             inputMode="tel"
+            placeholder="e.g. +965 96669101"
             required
           />
           <FieldError messages={state.errors?.phone} />

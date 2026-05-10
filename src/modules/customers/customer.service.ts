@@ -14,6 +14,7 @@ import {
   updateCustomerSchema,
   type UpdateCustomerInput,
 } from "./customer.schema";
+import { formatCustomerPhone } from "./customer.utils";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { OrderStatusLabel } from "@/modules/orders/order.types";
 import type { Customer, CustomerProfile } from "./customer.types";
@@ -97,7 +98,7 @@ export async function getCustomers(
   return orderedRows.map((row) => ({
     id: row.id,
     fullName: row.name,
-    phone: row.phone,
+    phone: formatCustomerPhone(row.phone),
     childrenCount: row._count.children,
     totalBookings: row._count.bookings,
     lastSessionDate: row.bookings[0]
@@ -192,7 +193,7 @@ export async function getCustomerById(
   return {
     id: row.id,
     fullName: row.name,
-    phone: row.phone,
+    phone: formatCustomerPhone(row.phone),
     status: mapCustomerStatus(row.status),
     statusValue: row.status,
     notes: row.notes ?? "",
@@ -239,6 +240,7 @@ export async function getCustomerForEdit(
 
   return {
     ...row,
+    phone: formatCustomerPhone(row.phone),
     notes: row.notes ?? "",
   };
 }
@@ -423,10 +425,13 @@ function customerSearchScore(
   const normalizedTextSearch = search.trim().toLowerCase();
 
   if (normalizedPhone && normalizedSearch) {
-    if (normalizedPhone === normalizedSearch) {
+    const numericOnlyPhone = normalizedPhone.replace(/\D/g, "");
+    const numericOnlySearch = normalizedSearch.replace(/\D/g, "");
+
+    if (numericOnlyPhone === numericOnlySearch) {
       return 0;
     }
-    if (normalizedPhone.startsWith(normalizedSearch)) {
+    if (numericOnlyPhone.startsWith(numericOnlySearch)) {
       return 1;
     }
     if (normalizedPhone.includes(normalizedSearch)) {

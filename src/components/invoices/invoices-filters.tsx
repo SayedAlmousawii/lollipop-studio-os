@@ -27,7 +27,7 @@ export function InvoicesFilters() {
       <label htmlFor="invoices-search" className="sr-only">Search invoices</label>
       <Input
         id="invoices-search"
-        placeholder="Search invoice, job number, or customer..."
+        placeholder="Search invoice, job number, or phone..."
         className="pl-9"
         value={search}
         onChange={(event) => updateSearch(event.target.value)}
