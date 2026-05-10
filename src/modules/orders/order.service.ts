@@ -2428,7 +2428,10 @@ function buildProductionSections(
       status: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
       startAction: "markAssemblyStarted",
       completeAction: "markAssemblyCompleted",
-      canUpdateProduction,
+      canUpdateProduction:
+        canUpdateProduction &&
+        getProductionSectionStatus(order.productionJob, "albumDesignStatus") ===
+          OrderProductionSectionStatus.COMPLETED,
     }),
     productionSection({
       key: "vendor",
@@ -2517,6 +2520,15 @@ function resolveProductionReadinessWarning(order: ProductionOrderState): string 
     return "Editing must be approved or completed before production can be marked ready for pickup.";
   }
 
+  if (
+    getProductionSectionStatus(order.productionJob, "assemblyStatus") !==
+      OrderProductionSectionStatus.NOT_STARTED &&
+    getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
+      OrderProductionSectionStatus.COMPLETED
+  ) {
+    return "Album assembly is in progress but album design is not yet completed. Complete album design first.";
+  }
+
   const productionStatus = getProductionStatus(order);
   if (
     productionStatus === OrderProductionStatus.READY_FOR_PICKUP &&
@@ -2598,7 +2610,15 @@ function resolveProductionUpdate(
         title: "Sent to print",
         description: "Production was marked sent to print.",
       });
-    case "markAssemblyStarted":
+    case "markAssemblyStarted": {
+      if (
+        getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
+        OrderProductionSectionStatus.COMPLETED
+      ) {
+        throw new Error(
+          "Album assembly cannot be started until album design is completed"
+        );
+      }
       return productionSectionUpdate(order, {
         field: "assemblyStatus",
         previousStatus: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
@@ -2607,7 +2627,16 @@ function resolveProductionUpdate(
         title: "Album assembly started",
         description: "Album assembly was marked in progress.",
       });
-    case "markAssemblyCompleted":
+    }
+    case "markAssemblyCompleted": {
+      if (
+        getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
+        OrderProductionSectionStatus.COMPLETED
+      ) {
+        throw new Error(
+          "Album assembly cannot be completed until album design is completed"
+        );
+      }
       return productionSectionUpdate(order, {
         field: "assemblyStatus",
         previousStatus: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
@@ -2616,6 +2645,7 @@ function resolveProductionUpdate(
         title: "Album assembly completed",
         description: "Album assembly was marked completed.",
       });
+    }
     case "markVendorInProgress":
       return productionSectionUpdate(order, {
         field: "vendorStatus",
@@ -2675,6 +2705,16 @@ function resolveProductionUpdate(
       ) {
         throw new Error(
           "Production cannot be marked ready for pickup until editing is approved or completed"
+        );
+      }
+      if (
+        getProductionSectionStatus(order.productionJob, "assemblyStatus") !==
+          OrderProductionSectionStatus.NOT_STARTED &&
+        getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
+          OrderProductionSectionStatus.COMPLETED
+      ) {
+        throw new Error(
+          "Album design must be completed before assembly can contribute to production readiness"
         );
       }
       return {

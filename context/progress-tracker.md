@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 2 — Workflow guard hardening. Feature 52a complete; next is 52b (section dependency order enforcement). Feature 53 (deliverable-driven required sections) is deferred pending schema design review.
+- Current phase: Phase 2 — Workflow guard hardening. Feature 52b complete; next is 52c (typed errors + contextual UI). Feature 53 (deliverable-driven required sections) is deferred pending schema design review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,8 +25,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 52b: Section dependency order — albumDesign prerequisite enforced before assembly can start, complete, or contribute to READY_FOR_PICKUP.
 - Feature 52a: Production readiness guard — editing prerequisite for READY_FOR_PICKUP; delivery guard bug fix (removed all-sections check); duplicate EditingJob creation error handling.
-- Guard Review (unlisted step): Workflow guard audit complete — full inventory and 7 gaps (P1–P7) documented in context/reviews/workflow-guard-audit.md; Feature 52 enforcement units proposed.
+- Guard Review (unlisted step): Workflow guard audit complete — full inventory and 8 gaps (P1, P1b, P2a, P2b, P3–P6) documented in context/reviews/workflow-guard-audit.md; Feature 52 enforcement units proposed.
 - Feature 51c: Soft-delete foundation — `User.active` field added and migrated; inactive users redirected to `/unauthorized`.
 - Feature 51b: Auth hardening — `unauthorized.tsx`, dashboard guard, unlinked-user redirect, `RECEPTIONIST` invoice:create, editing/production permission gates.
 - Feature 51: Shared permission guard (`src/lib/permissions`); high-risk actions require linked app-user authorization; `actorUserId` propagated.
