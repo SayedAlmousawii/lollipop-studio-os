@@ -57,7 +57,7 @@ This unit implements P2a only.
 
 Only one dependency rule is in scope for this unit:
 
-```
+```text
 albumDesignStatus = COMPLETED  →  required before assemblyStatus can advance past NOT_STARTED
 ```
 
