@@ -298,3 +298,12 @@ export interface EditingQueueItem {
   editingStatus: string;
   assignedEditorName: string;
 }
+
+export interface ProductionQueueItem {
+  id: string;
+  jobNumber: string;
+  customerName: string;
+  sessionDate: string;
+  productionStatus: string;
+  sectionSummary: string;
+}

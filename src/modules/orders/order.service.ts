@@ -67,6 +67,7 @@ import type {
   OrderPaymentStage,
   OrderProductionAction,
   OrderProductionSection,
+  ProductionQueueItem,
   OrderProductionWorkflow,
   OrderSelectionPackageOption,
   OrderSelectionWorkflow,
@@ -142,6 +143,14 @@ export async function getEditingQueue(): Promise<EditingQueueItem[]> {
     "Failed to fetch editing queue"
   );
   return rows.map(mapEditingQueueRow);
+}
+
+export async function getProductionQueue(): Promise<ProductionQueueItem[]> {
+  const rows = await withRetry(
+    () => fetchProductionQueue(),
+    "Failed to fetch production queue"
+  );
+  return rows.map(mapProductionQueueRow);
 }
 
 export async function getOrderById(orderId: string): Promise<OrderDetail | null> {
@@ -3555,5 +3564,63 @@ function mapEditingQueueRow(row: EditingQueueRow): EditingQueueItem {
       ? ORDER_EDITING_STATUS_LABELS[row.editingJob.status]
       : ORDER_EDITING_STATUS_LABELS[OrderEditingStatus.NOT_STARTED],
     assignedEditorName: row.editingJob?.assignedEditor?.name ?? "—",
+  };
+}
+
+async function fetchProductionQueue() {
+  return db.order.findMany({
+    where: { status: OrderStatus.PRODUCTION },
+    include: {
+      customer: { select: { name: true } },
+      booking: { select: { sessionDate: true } },
+      editingJob: {
+        select: {
+          status: true,
+        },
+      },
+      productionJob: {
+        select: {
+          status: true,
+          albumDesignStatus: true,
+          printingStatus: true,
+          assemblyStatus: true,
+          vendorStatus: true,
+          framedPrintsStatus: true,
+          finalStatus: true,
+          productionStartedAt: true,
+          readyForPickupAt: true,
+          completedAt: true,
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+type ProductionQueueRow = Awaited<ReturnType<typeof fetchProductionQueue>>[number];
+
+function mapProductionQueueRow(row: ProductionQueueRow): ProductionQueueItem {
+  const productionStatus = getProductionStatus({
+    editingJob: row.editingJob,
+    productionJob: row.productionJob,
+    status: row.status,
+  });
+
+  const completedSections = [
+    row.productionJob?.albumDesignStatus,
+    row.productionJob?.printingStatus,
+    row.productionJob?.assemblyStatus,
+    row.productionJob?.vendorStatus,
+    row.productionJob?.framedPrintsStatus,
+    row.productionJob?.finalStatus,
+  ].filter((status) => status === OrderProductionSectionStatus.COMPLETED).length;
+
+  return {
+    id: row.id,
+    jobNumber: row.jobNumber,
+    customerName: row.customer.name,
+    sessionDate: formatDate(row.booking.sessionDate),
+    productionStatus: ORDER_PRODUCTION_STATUS_LABELS[productionStatus],
+    sectionSummary: `${completedSections} of 6 sections complete`,
   };
 }
