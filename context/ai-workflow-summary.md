@@ -75,5 +75,24 @@ Read `ai-workflow-rules.md` when:
 
 ---
 
+## Feature Spec Writing Rules
+
+When writing a new feature spec file, follow this structure and omit redundant content:
+
+**Required sections (in order):**
+1. `## Goal` — one short paragraph, what this unit achieves
+2. `## Read First` — spec-specific context only (prior specs, review docs). Do NOT list `ai-workflow-summary.md` or `code-standards-summary.md` — they are default reads
+3. `## Rules` — unit-specific constraints and guardrails
+4. `## Scope` — `### In Scope` and `### Out of Scope` lists
+5. `## Implementation Direction` — numbered steps with enough detail to remove ambiguity
+6. `## Post-Implementation` — explicit list of docs to update after completion
+7. `## Acceptance Criteria` — specific, checkable conditions. Include `npm run build passes` and `npm run lint passes` as explicit checks
+
+**Do not include in specs:**
+- `agents.md` in Read First — always loaded as system context
+- `context/ai-workflow-summary.md` or `context/code-standards-summary.md` in Read First — already default reads
+
+---
+
 ## Recommended Usage
 **Always read this summary** before starting any implementation unit.

@@ -9,9 +9,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Update only on blockers, completion of a concrete step, or a change in direction.
 - Keep each update to one short sentence unless clarification is needed.
 
-## Application Building Context
-
-## Rule 1: Minimal Context
+## Application Building Context — Rule 1: Minimal Context
 Do NOT read all project docs.
 Only read what is needed for the current task.
 
@@ -20,9 +18,9 @@ Only read what is needed for the current task.
 - context/code-standards-summary.md
 
 ## Read If Needed
-- ui-context-summary.md → UI work
-- architecture-summary.md → data / structure
-- project-overview-summary.md → feature intent
+- context/ui-context-summary.md → UI work
+- context/architecture-summary.md → data / structure
+- context/project-overview-summary.md → feature intent
 
 ## Task Rules
 - Follow the unit spec strictly
@@ -31,7 +29,11 @@ Only read what is needed for the current task.
 
 ## Data Rule
 - Do NOT modify database or backend unless specified.
-- Use mock data by default
+- Use mock data only for UI exploration. Real data integration requires explicit instruction.
 
 ## Progress
 - update progress-tracker automatically only during code implementation, if writing docs, skip update.
+
+## Git
+- Read context/git-conventions.md before any commit or PR.
+- Follow it for all commits, PR titles, and branch rules.
