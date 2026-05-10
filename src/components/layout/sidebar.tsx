@@ -23,6 +23,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface SidebarProps {
+  showProductionLink: boolean;
+}
+
 const NAV_SECTIONS = [
   {
     items: [{ label: "Dashboard", href: "/", icon: LayoutDashboard }],
@@ -42,7 +46,6 @@ const NAV_SECTIONS = [
       { label: "Sessions", href: "/sessions", icon: Camera },
       { label: "Selection", href: "/selection", icon: Image },
       { label: "Editing", href: "/editing", icon: PenLine },
-      { label: "Production", href: "/production", icon: Printer },
       { label: "Delivery", href: "/delivery", icon: Truck },
     ],
   },
@@ -62,8 +65,20 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-export function Sidebar() {
+export function Sidebar({ showProductionLink }: SidebarProps) {
   const pathname = usePathname();
+  const navSections = NAV_SECTIONS.map((section, index) =>
+    index === 2 && showProductionLink
+      ? {
+          ...section,
+          items: [
+            ...section.items.slice(0, 3),
+            { label: "Production", href: "/production", icon: Printer },
+            ...section.items.slice(3),
+          ],
+        }
+      : section
+  );
 
   return (
     <aside className="flex h-full w-60 flex-shrink-0 flex-col bg-sidebar">
@@ -79,7 +94,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-3">
-        {NAV_SECTIONS.map((section, si) => (
+        {navSections.map((section, si) => (
           <div key={si} className={cn("space-y-0.5", si > 0 && "mt-1 pt-1 border-t border-sidebar-border")}>
             {section.items.map((item) => {
               const active = isActive(pathname, item.href);

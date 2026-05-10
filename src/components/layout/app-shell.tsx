@@ -1,6 +1,7 @@
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { requireCurrentAppUser } from "@/lib/auth";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -11,11 +12,13 @@ export async function AppShell({
   children,
   pageTitle = "Dashboard",
 }: AppShellProps) {
-  await requireCurrentAppUser();
+  const appUser = await requireCurrentAppUser();
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
+      <Sidebar
+        showProductionLink={hasPermission(appUser, PERMISSIONS.ORDER_READ)}
+      />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar pageTitle={pageTitle} />
         <main className="flex-1 overflow-y-auto">{children}</main>
