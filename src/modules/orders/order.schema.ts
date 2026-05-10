@@ -83,10 +83,8 @@ export const updateOrderProductionWorkflowSchema = z.object({
 
 export const updateOrderDeliveryWorkflowSchema = z.object({
   action: z.enum([
-    "prepareForPickup",
     "recordCustomerNotification",
     "markPickedUp",
-    "completeOrder",
   ]),
   pickupNotes: z.string().trim().max(1000, "Pickup notes must be 1000 characters or fewer").optional(),
   completedById: z.string().trim().min(1, "Completed by is required").optional(),
