@@ -35,6 +35,7 @@ export interface Booking {
   jobNumber: string;
   customerName: string;
   sessionDate: string;
+  sessionTime: string;
   department: string;
   package: string;
   status: BookingStatus;
@@ -93,7 +94,7 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
         {booking.customerName}
       </TableCell>
       <TableCell className="text-sm text-text-secondary">
-        {booking.sessionDate}
+        {booking.sessionDate} · {booking.sessionTime}
       </TableCell>
       <TableCell className="text-sm text-text-secondary">
         {booking.department}

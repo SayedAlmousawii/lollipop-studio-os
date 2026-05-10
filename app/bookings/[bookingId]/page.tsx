@@ -75,6 +75,7 @@ export default async function BookingDetailPage(
               ["Customer", booking.customerName],
               ["Job number", booking.jobNumber],
               ["Session date", booking.sessionDate],
+              ["Session time", booking.sessionTime],
               ["Session type", booking.sessionType],
               [
                 "Package",

@@ -16,7 +16,7 @@ export async function updateBookingAction(
   formData: FormData
 ): Promise<UpdateBookingActionState> {
   const date = formData.get("date");
-  const time = formData.get("time");
+  const time = formData.get("sessionTime");
   const sessionDate = buildSessionDate(date, time);
 
   if (!sessionDate) {
@@ -27,6 +27,7 @@ export async function updateBookingAction(
     customerId: formData.get("customerId"),
     packageId: formData.get("packageId"),
     date: sessionDate,
+    sessionTime: formData.get("sessionTime"),
     departmentId: formData.get("departmentId"),
     assignedPhotographerId:
       formData.get("assignedPhotographerId") || undefined,
