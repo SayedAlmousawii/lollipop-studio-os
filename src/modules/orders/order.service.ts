@@ -11,6 +11,7 @@ import {
   Prisma,
   UserRole,
 } from "@prisma/client";
+import { addDays } from "date-fns";
 import type { ActorContext } from "@/lib/auth";
 import { hasPermission, PERMISSIONS, type Permission } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
@@ -319,7 +320,7 @@ export async function getOrderSelectionWorkflowById(
   const addOns = mapStructuredAddOns(order.orderAddOns);
   const includedPhotoCount =
     order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
-  const selectedPhotos = order.selectedPhotoCount ?? includedPhotoCount;
+  const selectedPhotos = order.selectedPhotoCount || includedPhotoCount;
   const extraPhotoCount = Math.max(selectedPhotos - includedPhotoCount, 0);
   const currentPackage =
     order.finalPackage ?? order.originalPackage ?? packageRows[0] ?? null;
@@ -345,7 +346,8 @@ export async function getOrderSelectionWorkflowById(
   });
   const recommendedPackage =
     packageOptions.find((option) => option.isRecommended) ?? null;
-  const packageUpgradeDifference = currentPackage.price.minus(recognizedPackageBaseline);
+  const originalPackagePrice = order.originalPackage?.price ?? currentPackage.price;
+  const packageUpgradeDifference = currentPackage.price.minus(originalPackagePrice);
   const extraPhotoOption = await getExtraPhotoAddOnOption();
   const extraPhotoCharge = extraPhotoOption.price.mul(extraPhotoCount);
   const selectionAddOnTotal = manualAddOnTotal.plus(extraPhotoCharge);
@@ -983,7 +985,7 @@ export async function updateOrderDeliveryWorkflow(
 ): Promise<OrderDeliveryWorkflow> {
   const data = updateOrderDeliveryWorkflowSchema.parse(input);
   assertActorPermission(actorContext, PERMISSIONS.DELIVERY_UPDATE);
-  if (data.action === "completeOrder") {
+  if (data.action === "markPickedUp") {
     assertActorPermission(actorContext, PERMISSIONS.DELIVERY_COMPLETE);
   }
   if (data.allowPaymentOverride) {
@@ -2390,7 +2392,7 @@ function mapOrderEditingWorkflow(
       : null,
     estimatedCompletionDateInput: estimatedEditingCompletionAt
       ? formatDateInput(estimatedEditingCompletionAt)
-      : "",
+      : formatDateInput(addDays(new Date(), 14)),
     startedAt: editingStartedAt ? formatDateTime(editingStartedAt) : null,
     completedAt: editingCompletedAt ? formatDateTime(editingCompletedAt) : null,
     customerApprovedAt: customerApprovedAt
@@ -3019,17 +3021,6 @@ function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkf
     overrideReason: order.deliveryOverrideReason ?? "",
     completionBlockers,
     requiresPaymentOverride: !paymentSettled,
-    canPrepareForPickup:
-      order.status !== OrderStatus.CANCELLED &&
-      order.status !== OrderStatus.DELIVERED &&
-      (
-        order.deliveryStatus === OrderDeliveryStatus.NOT_READY ||
-        (
-          order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP &&
-          !order.deliveryPreparedAt
-        )
-      ) &&
-      isProductionReadyForDelivery(order),
     canRecordNotification:
       order.status !== OrderStatus.CANCELLED &&
       order.status !== OrderStatus.DELIVERED &&
@@ -3039,13 +3030,9 @@ function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkf
       order.status !== OrderStatus.DELIVERED &&
       (
         order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP ||
-        order.deliveryStatus === OrderDeliveryStatus.CUSTOMER_NOTIFIED
-      ),
-    canCompleteOrder:
-      order.status !== OrderStatus.CANCELLED &&
-      order.status !== OrderStatus.DELIVERED &&
-      order.deliveryStatus === OrderDeliveryStatus.PICKED_UP &&
-      completionBlockers.every((blocker) => blocker === PAYMENT_OVERRIDE_BLOCKER),
+        order.deliveryStatus === OrderDeliveryStatus.CUSTOMER_NOTIFIED ||
+        order.deliveryStatus === OrderDeliveryStatus.PICKED_UP
+     ),
   };
 }
 
@@ -3137,41 +3124,6 @@ function resolveDeliveryUpdate(
   const productionStatus = getProductionStatus(order);
 
   switch (input.action) {
-    case "prepareForPickup": {
-      assertProductionReadyForDelivery(order);
-      return {
-        orderData: {
-          order: {
-            deliveryStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
-            deliveryPreparedAt: order.deliveryPreparedAt ?? now,
-            status: OrderStatus.READY,
-          },
-          productionJob: {
-            status: productionStatus,
-            albumDesignStatus: getProductionSectionStatus(order.productionJob, "albumDesignStatus"),
-            printingStatus: getProductionSectionStatus(order.productionJob, "printingStatus"),
-            assemblyStatus: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
-            vendorStatus: getProductionSectionStatus(order.productionJob, "vendorStatus"),
-            framedPrintsStatus: getProductionSectionStatus(order.productionJob, "framedPrintsStatus"),
-            finalStatus: getProductionSectionStatus(order.productionJob, "finalStatus"),
-            productionStartedAt: order.productionJob?.productionStartedAt ?? now,
-            readyForPickupAt: order.productionJob?.readyForPickupAt ?? now,
-            completedAt: order.productionJob?.completedAt ?? null,
-            updatedAt: now,
-          },
-        },
-        deliveryStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
-        title: "Prepared for pickup",
-        description: "Order was prepared for customer pickup.",
-        metadata: {
-          field: "deliveryStatus",
-          previousStatus: order.deliveryStatus,
-          nextStatus: OrderDeliveryStatus.READY_FOR_PICKUP,
-          preparedAt: (order.deliveryPreparedAt ?? now).toISOString(),
-        },
-      };
-    }
-
     case "recordCustomerNotification": {
       if (order.deliveryStatus !== OrderDeliveryStatus.READY_FOR_PICKUP) {
         throw new Error("Customer notification can only be recorded after pickup readiness");
@@ -3211,47 +3163,10 @@ function resolveDeliveryUpdate(
     case "markPickedUp": {
       if (
         order.deliveryStatus !== OrderDeliveryStatus.READY_FOR_PICKUP &&
-        order.deliveryStatus !== OrderDeliveryStatus.CUSTOMER_NOTIFIED
+        order.deliveryStatus !== OrderDeliveryStatus.CUSTOMER_NOTIFIED &&
+        order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP
       ) {
         throw new Error("Pickup can only be recorded after delivery is ready");
-      }
-      return {
-        orderData: {
-          order: {
-            deliveryStatus: OrderDeliveryStatus.PICKED_UP,
-            pickedUpAt: order.pickedUpAt ?? now,
-            deliveryPickupNotes: pickupNotes ?? order.deliveryPickupNotes,
-          },
-          productionJob: {
-            status: productionStatus,
-            albumDesignStatus: getProductionSectionStatus(order.productionJob, "albumDesignStatus"),
-            printingStatus: getProductionSectionStatus(order.productionJob, "printingStatus"),
-            assemblyStatus: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
-            vendorStatus: getProductionSectionStatus(order.productionJob, "vendorStatus"),
-            framedPrintsStatus: getProductionSectionStatus(order.productionJob, "framedPrintsStatus"),
-            finalStatus: getProductionSectionStatus(order.productionJob, "finalStatus"),
-            productionStartedAt: order.productionJob?.productionStartedAt ?? now,
-            readyForPickupAt: order.productionJob?.readyForPickupAt ?? now,
-            completedAt: order.productionJob?.completedAt ?? null,
-            updatedAt: now,
-          },
-        },
-        deliveryStatus: OrderDeliveryStatus.PICKED_UP,
-        title: "Order picked up",
-        description: "Customer pickup was recorded.",
-        metadata: {
-          field: "deliveryStatus",
-          previousStatus: order.deliveryStatus,
-          nextStatus: OrderDeliveryStatus.PICKED_UP,
-          pickedUpAt: (order.pickedUpAt ?? now).toISOString(),
-          pickupNotesUpdated: Boolean(pickupNotes),
-        },
-      };
-    }
-
-    case "completeOrder": {
-      if (order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP) {
-        throw new Error("Order completion requires recorded pickup");
       }
       assertProductionReadyForDelivery(order);
 
@@ -3285,6 +3200,7 @@ function resolveDeliveryUpdate(
         orderData: {
           order: {
             deliveryStatus: OrderDeliveryStatus.COMPLETED,
+            pickedUpAt: order.pickedUpAt ?? now,
             deliveryCompletedAt: order.deliveryCompletedAt ?? now,
             deliveryCompletedByUser: { connect: { id: completedById } },
             deliveryPickupNotes: pickupNotes ?? order.deliveryPickupNotes,
@@ -3307,14 +3223,15 @@ function resolveDeliveryUpdate(
         },
         deliveryStatus: OrderDeliveryStatus.COMPLETED,
         productionStatus: OrderProductionStatus.COMPLETED,
-        title: "Delivery completed",
-        description: "Order delivery was marked complete.",
+        title: "Order picked up",
+        description: "Customer pickup was recorded and the order was completed.",
         metadata: {
           field: "deliveryStatus",
           previousStatus: order.deliveryStatus,
           nextStatus: OrderDeliveryStatus.COMPLETED,
           previousProductionStatus: productionStatus,
           nextProductionStatus: OrderProductionStatus.COMPLETED,
+          pickedUpAt: (order.pickedUpAt ?? now).toISOString(),
           completedById,
           completedAt: (order.deliveryCompletedAt ?? now).toISOString(),
           paymentStatus: invoiceSummary.paymentStatus,
@@ -3330,7 +3247,7 @@ function resolveDeliveryUpdate(
   }
 }
 
-const PAYMENT_OVERRIDE_BLOCKER = "Payment needs manager/admin override before completion." as const;
+const PAYMENT_OVERRIDE_BLOCKER = "Payment needs manager/admin override before pickup completion." as const;
 
 function resolveDeliveryCompletionBlockers(
   order: DeliveryOrderState,
@@ -3342,9 +3259,6 @@ function resolveDeliveryCompletionBlockers(
   }
   if (!isProductionReadyForDelivery(order)) {
     blockers.push("Production must be ready for pickup or completed.");
-  }
-  if (order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP) {
-    blockers.push("Pickup must be recorded before completion.");
   }
   return blockers;
 }

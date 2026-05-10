@@ -30,6 +30,18 @@ interface SelectionWorkflowFormProps {
 }
 
 export function SelectionWorkflowForm({ selection }: SelectionWorkflowFormProps) {
+  const resetKey = [
+    selection.finalPackageId,
+    selection.extraPhotoCount,
+    selection.addOns
+      .map((addOn) => `${addOn.optionId ?? addOn.name}:${addOn.price}`)
+      .join("|"),
+  ].join("::");
+
+  return <SelectionWorkflowFormBody key={resetKey} selection={selection} />;
+}
+
+function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
   const [selectedPackageId, setSelectedPackageId] = useState(selection.finalPackageId);
   const [extraPhotos, setExtraPhotos] = useState(selection.extraPhotoCount);
   const [addOns, setAddOns] = useState<OrderAddOn[]>(
@@ -278,7 +290,11 @@ export function SelectionWorkflowForm({ selection }: SelectionWorkflowFormProps)
               />
               <ReadOnlyMetric
                 label="Package adjustment"
-                value={selectedPackage?.upgradeDifferenceLabel ?? selection.packageUpgradeDifference}
+                value={
+                  selectedPackage?.isCurrent
+                    ? selection.packageUpgradeDifference
+                    : (selectedPackage?.upgradeDifferenceLabel ?? selection.packageUpgradeDifference)
+                }
               />
             </CardContent>
           </Card>

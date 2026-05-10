@@ -5,9 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   AlertTriangle,
   Bell,
-  CheckCircle2,
   ClipboardCheck,
-  PackageCheck,
   RefreshCw,
   ShieldAlert,
   Truck,
@@ -70,7 +68,6 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
             <ReadOnlyMetric label="Production status" value={delivery.productionStatus} />
             <ReadOnlyMetric label="Payment status" value={delivery.paymentStatus} />
             <ReadOnlyMetric label="Ready for pickup" value={delivery.readyAt ?? "Not ready"} />
-            <ReadOnlyMetric label="Prepared" value={delivery.preparedAt ?? "Not prepared"} />
             <ReadOnlyMetric label="Customer notified" value={delivery.customerNotifiedAt ?? "Not notified"} />
             <ReadOnlyMetric label="Picked up" value={delivery.pickedUpAt ?? "Not recorded"} />
             <ReadOnlyMetric label="Completed" value={delivery.completedAt ?? "Not completed"} />
@@ -98,7 +95,7 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Completion</CardTitle>
+              <CardTitle className="text-base">Pickup Completion</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {state.errorCode === "ACTOR_MISSING" ? (
@@ -110,7 +107,7 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                 </div>
               ) : (
                 <p className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
-                  Completion will be attributed to your signed-in staff account.
+                  Recording pickup will also complete the order and attribute completion to your signed-in staff account.
                 </p>
               )}
 
@@ -129,7 +126,7 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                   {state.errorCode === "PAYMENT_OVERRIDE_NOT_ALLOWED" ? (
                     <div className="flex items-start gap-2 text-sm text-danger">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>Check the box above to authorize the payment override before completing.</span>
+                      <span>Check the box above to authorize the payment override before recording pickup.</span>
                     </div>
                   ) : null}
                   <div className="space-y-2">
@@ -148,7 +145,7 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                       }
                     />
                     {state.errorCode === "PAYMENT_OVERRIDE_REASON_MISSING" ? (
-                      <FieldError messages={["A reason is required when overriding payment — explain why the order is complete without full payment."]} />
+                      <FieldError messages={["A reason is required when overriding payment — explain why pickup is being completed without full payment."]} />
                     ) : (
                       <FieldError messages={state.errors?.overrideReason} />
                     )}
@@ -159,14 +156,6 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
           </Card>
 
           <div className="flex flex-wrap justify-end gap-2">
-            <DeliverySubmitButton
-              action="prepareForPickup"
-              disabled={!delivery.canPrepareForPickup}
-              variant="outline"
-            >
-              <PackageCheck className="h-4 w-4" />
-              Prepare
-            </DeliverySubmitButton>
             <DeliverySubmitButton
               action="recordCustomerNotification"
               disabled={!delivery.canRecordNotification}
@@ -181,13 +170,6 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
             >
               <ClipboardCheck className="h-4 w-4" />
               Picked up
-            </DeliverySubmitButton>
-            <DeliverySubmitButton
-              action="completeOrder"
-              disabled={!delivery.canCompleteOrder}
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              Complete
             </DeliverySubmitButton>
           </div>
         </div>

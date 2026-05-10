@@ -156,10 +156,8 @@ export interface OrderDeliveryWorkflow {
   overrideReason: string;
   completionBlockers: string[];
   requiresPaymentOverride: boolean;
-  canPrepareForPickup: boolean;
   canRecordNotification: boolean;
   canMarkPickedUp: boolean;
-  canCompleteOrder: boolean;
 }
 
 export interface OrderProductionSection {
@@ -189,10 +187,8 @@ export type OrderProductionAction =
   | "markProductionReadyForPickup";
 
 export type OrderDeliveryAction =
-  | "prepareForPickup"
   | "recordCustomerNotification"
-  | "markPickedUp"
-  | "completeOrder";
+  | "markPickedUp";
 
 export interface OrderEditorOption {
   id: string;

@@ -186,7 +186,7 @@ export async function updateDeliveryWorkflowAction(
 
   try {
     const basePermission =
-      parsed.data.action === "completeOrder"
+      parsed.data.action === "markPickedUp"
         ? PERMISSIONS.DELIVERY_COMPLETE
         : PERMISSIONS.DELIVERY_UPDATE;
     const appUser = await requireCurrentAppUserPermission(basePermission);
