@@ -177,6 +177,23 @@ export function OrdersFilters({
       >
         Reset filters
       </Button>
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={
+          orderStatus === "READY"
+            ? "border-success bg-success-soft text-success hover:bg-success-soft/80 hover:text-success"
+            : "border-border bg-surface-soft text-text-secondary hover:border-success hover:bg-success-soft hover:text-success"
+        }
+        onClick={() =>
+          updateFilter("orderStatus", orderStatus === "READY" ? "all" : "READY")
+        }
+        aria-pressed={orderStatus === "READY"}
+      >
+        Ready for Pickup
+      </Button>
     </div>
   );
 }
