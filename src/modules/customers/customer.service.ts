@@ -363,6 +363,9 @@ export async function updateChild(
 function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInput {
   const search = filters.search;
   const normalizedPhoneSearch = normalizePhoneSearch(search);
+  const formattedPhoneSearch = normalizedPhoneSearch
+    ? formatCustomerPhone(normalizedPhoneSearch)
+    : undefined;
   const searchClause = search
     ? {
         OR: [
@@ -374,6 +377,17 @@ function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInpu
                     mode: Prisma.QueryMode.insensitive,
                   },
                 },
+                ...(formattedPhoneSearch &&
+                formattedPhoneSearch !== normalizedPhoneSearch
+                  ? [
+                      {
+                        phone: {
+                          contains: formattedPhoneSearch,
+                          mode: Prisma.QueryMode.insensitive,
+                        },
+                      },
+                    ]
+                  : []),
               ]
             : []),
           {

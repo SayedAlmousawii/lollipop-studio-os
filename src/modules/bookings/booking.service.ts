@@ -790,6 +790,13 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
 
         return {
           OR: [
+            {
+              customer: {
+                is: {
+                  phone: containsFilter,
+                },
+              },
+            },
             ...(normalizedPhone
               ? [
                   {

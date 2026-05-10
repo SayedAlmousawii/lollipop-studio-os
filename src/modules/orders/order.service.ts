@@ -1565,6 +1565,14 @@ async function fetchOrders(filters: OrderFilters) {
     ...(filters.search
       ? {
           OR: [
+            {
+              customer: {
+                phone: {
+                  contains: filters.search,
+                  mode: Prisma.QueryMode.insensitive,
+                },
+              },
+            },
             ...(normalizedPhone
               ? [
                   {
