@@ -168,6 +168,13 @@ export async function recordUpgradePaymentAction(
     if (!invoice) {
       return { errors: { _global: ["Invoice not found."] } };
     }
+    if (invoice.orderId !== orderId) {
+      return {
+        errors: {
+          _global: ["Invoice does not belong to this order."],
+        },
+      };
+    }
 
     const serverAmount = Number(invoice.remainingAmount.replace(/[^\d.-]/g, ""));
     if (!Number.isFinite(serverAmount) || serverAmount <= 0) {
@@ -186,7 +193,7 @@ export async function recordUpgradePaymentAction(
       };
     }
 
-    await recordPayment(invoiceId, { ...parsed.data, amount: serverAmount }, { actorUserId: appUser.id });
+    await recordPayment(invoice.id, { ...parsed.data, amount: serverAmount }, { actorUserId: appUser.id });
   } catch (error) {
     if (error instanceof Error && "digest" in error) throw error;
     const message =
