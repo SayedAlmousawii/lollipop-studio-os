@@ -1,3 +1,7 @@
+**Status: Deferred — schema design needs review before implementation.**
+
+---
+
 ## Goal
 
 Encode which production sections are required for a given order based on its deliverables, and enforce that those sections are completed before production can be marked `READY_FOR_PICKUP`.
