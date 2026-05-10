@@ -114,7 +114,7 @@ export interface BookingDetail {
 
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
-  [BookingStatus.CONFIRMED]: [BookingStatus.CANCELLED],
+  [BookingStatus.CONFIRMED]: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW],
   [BookingStatus.COMPLETED]: [],
   [BookingStatus.CANCELLED]: [],
   [BookingStatus.NO_SHOW]: [],
@@ -417,13 +417,12 @@ export async function updateBookingStatus(
           select: {
             id: true,
             status: true,
+            jobId: true,
             invoices: {
-              where: {
-                payments: { some: { paymentType: PaymentType.DEPOSIT } },
-              },
-              take: 1,
+              where: { parentInvoiceId: null },
               select: {
                 id: true,
+                isLocked: true,
                 payments: {
                   where: { paymentType: PaymentType.DEPOSIT },
                   select: { id: true },
@@ -461,6 +460,22 @@ export async function updateBookingStatus(
             OrderStatus.ACTIVE,
             actorContext
           );
+        }
+
+        if (data.nextStatus === BookingStatus.NO_SHOW) {
+          await tx.invoice.updateMany({
+            where: {
+              bookingId: booking.id,
+              jobId: booking.jobId,
+              parentInvoiceId: null,
+              isLocked: false,
+            },
+            data: {
+              status: InvoiceStatus.CLOSED,
+              isLocked: true,
+              closedAt: new Date(),
+            },
+          });
         }
 
         return updatedBooking;
@@ -881,8 +896,9 @@ function mapBookingStatus(
     case "COMPLETED":
       return "Completed";
     case "CANCELLED":
-    case "NO_SHOW":
       return "Cancelled";
+    case "NO_SHOW":
+      return "No-Show";
   }
 }
 

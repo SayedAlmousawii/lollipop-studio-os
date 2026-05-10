@@ -1,10 +1,16 @@
-export type BookingStatus = "Pending" | "Confirmed" | "Completed" | "Cancelled";
+export type BookingStatus =
+  | "Pending"
+  | "Confirmed"
+  | "Completed"
+  | "Cancelled"
+  | "No-Show";
 
 const styles: Record<BookingStatus, string> = {
   Pending:   "bg-warning-soft text-warning",
   Confirmed: "bg-success-soft text-success",
   Completed: "bg-success-soft text-success",
   Cancelled: "bg-danger-soft text-danger",
+  "No-Show": "bg-info-soft text-info",
 };
 
 interface BookingStatusBadgeProps {

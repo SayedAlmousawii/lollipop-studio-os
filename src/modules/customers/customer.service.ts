@@ -436,8 +436,9 @@ function mapBookingStatus(status: BookingStatus): BookingStatusLabel {
     case BookingStatus.COMPLETED:
       return "Completed";
     case BookingStatus.CANCELLED:
-    case BookingStatus.NO_SHOW:
       return "Cancelled";
+    case BookingStatus.NO_SHOW:
+      return "No-Show";
     default:
       return assertUnreachableBookingStatus(status);
   }

@@ -19,14 +19,38 @@ interface BookingStatusActionsProps {
 }
 
 const STATUS_ACTIONS: Partial<
-  Record<BookingStatus, { label: string; nextStatus: PrismaBookingStatus }[]>
+  Record<
+    BookingStatus,
+    {
+      label: string;
+      nextStatus: PrismaBookingStatus;
+      confirmationMessage?: string;
+      isDestructive?: boolean;
+    }[]
+  >
 > = {
   Pending: [
     { label: "Confirm Booking", nextStatus: "CONFIRMED" },
-    { label: "Cancel Booking", nextStatus: "CANCELLED" },
+    {
+      label: "Cancel Booking",
+      nextStatus: "CANCELLED",
+      confirmationMessage: "Cancel this booking?",
+      isDestructive: true,
+    },
   ],
   Confirmed: [
-    { label: "Cancel Booking", nextStatus: "CANCELLED" },
+    {
+      label: "Record No-Show",
+      nextStatus: "NO_SHOW",
+      confirmationMessage: "Mark this booking as a no-show?",
+      isDestructive: true,
+    },
+    {
+      label: "Cancel Booking",
+      nextStatus: "CANCELLED",
+      confirmationMessage: "Cancel this booking?",
+      isDestructive: true,
+    },
   ],
 };
 
@@ -55,7 +79,8 @@ export function BookingStatusActions({
             <input type="hidden" name="nextStatus" value={action.nextStatus} />
             <StatusSubmitButton
               disabled={depositRequired}
-              isDestructive={action.nextStatus === "CANCELLED"}
+              isDestructive={action.isDestructive ?? false}
+              confirmationMessage={action.confirmationMessage}
             >
               {action.label}
             </StatusSubmitButton>
@@ -75,10 +100,12 @@ function StatusSubmitButton({
   children,
   disabled,
   isDestructive,
+  confirmationMessage,
 }: {
   children: ReactNode;
   disabled: boolean;
   isDestructive: boolean;
+  confirmationMessage?: string;
 }) {
   const { pending } = useFormStatus();
 
@@ -87,7 +114,11 @@ function StatusSubmitButton({
       type="submit"
       disabled={pending || disabled}
       onClick={(event) => {
-        if (isDestructive && !window.confirm("Cancel this booking?")) {
+        if (
+          isDestructive &&
+          confirmationMessage &&
+          !window.confirm(confirmationMessage)
+        ) {
           event.preventDefault();
         }
       }}
