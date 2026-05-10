@@ -11,7 +11,7 @@ Survey all main operational areas, document gaps that block daily staff use, and
 
 ## Read First
 
-- `context/reviews/Next-build-plan-may-8.md.md` — Phase 3 goals and scope framing
+- `context/reviews/Next-build-plan-may-8.md` — Phase 3 goals and scope framing
 - `src/modules/orders/order.types.ts` — `OrderFilters` interface (currently: search, orderStatus, invoiceStatus only)
 - `src/modules/orders/order.service.ts` — `getOrders()`, `parseOrderFilters()`, `fetchOrders()` — understand the filter pipeline before touching it
 - `src/components/bookings/booking-status-actions.tsx` — current status transition map (Pending → Confirm/Cancel; Confirmed → Cancel only)
@@ -205,7 +205,7 @@ After each sub-unit:
 - Mark files created/modified
 
 After all sub-units:
-- Update `context/reviews/Next-build-plan-may-8.md.md` — mark Feature 54 complete, update Phase 3 state
+- Update `context/reviews/Next-build-plan-may-8.md` — mark Feature 54 complete, update Phase 3 state
 
 ---
 

@@ -72,3 +72,7 @@ An invoice is locked when it is **closed** — staff clicks "Close Invoice" on t
 No current rule enforces this. Upgrade amount is calculated during selection. It should be collected before or at invoice close — but this is a business policy decision, not enforced by the system today.
 
 ---
+
+bookings/new bookings should include time/time pick
+
+pending booking cancel vs confirmed??
