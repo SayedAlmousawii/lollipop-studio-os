@@ -2,11 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { PaymentType } from "@prisma/client";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
 } from "@/lib/permissions";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
+import { recordPaymentSchema } from "@/modules/payments/payment.schema";
+import { recordPayment } from "@/modules/payments/payment.service";
 import {
   updateOrderDeliveryWorkflowSchema,
   updateOrderEditingWorkflowSchema,
@@ -29,6 +32,10 @@ export type UpdateSelectionActionState = {
 };
 
 export type UpdateEditingActionState = {
+  errors?: Partial<Record<string, string[]>>;
+};
+
+export type RecordUpgradePaymentActionState = {
   errors?: Partial<Record<string, string[]>>;
 };
 
@@ -133,6 +140,41 @@ export async function updateEditingWorkflowAction(
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   return {};
+}
+
+export async function recordUpgradePaymentAction(
+  orderId: string,
+  invoiceId: string,
+  _prev: RecordUpgradePaymentActionState,
+  formData: FormData
+): Promise<RecordUpgradePaymentActionState> {
+  const parsed = recordPaymentSchema.safeParse({
+    amount: formData.get("amount"),
+    method: formData.get("method"),
+    paymentType: PaymentType.UPGRADE,
+    reference: formData.get("reference") || undefined,
+    notes: formData.get("notes") || undefined,
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
+    await recordPayment(invoiceId, parsed.data, { actorUserId: appUser.id });
+  } catch (error) {
+    if (error instanceof Error && "digest" in error) throw error;
+    const message =
+      error instanceof Error ? error.message : "Unable to record upgrade payment";
+    return { errors: { _global: [message] } };
+  }
+
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath("/invoices");
+  revalidatePath(`/invoices/${invoiceId}`);
+  redirect(`/orders/${orderId}`);
 }
 
 export async function updateProductionWorkflowAction(

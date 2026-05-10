@@ -102,6 +102,7 @@ export interface OrderSelectionWorkflow {
 
 export interface OrderEditingWorkflow {
   orderId: string;
+  invoiceId: string | null;
   assignedEditorId: string | null;
   assignedEditorName: string;
   assignedAt: string | null;
@@ -120,6 +121,8 @@ export interface OrderEditingWorkflow {
   customerApprovedAt: string | null;
   sentToProductionAt: string | null;
   basePaymentVerified: boolean;
+  outstandingBalanceAmount: number | null;
+  outstandingBalanceLabel: string | null;
   canAssignEditor: boolean;
   canMarkStarted: boolean;
   canRequestRevision: boolean;
