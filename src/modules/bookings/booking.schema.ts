@@ -14,11 +14,15 @@ const bookingThemeSchema = z.object({
     .optional(),
 });
 
+const SESSION_TIME_REGEX = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
 export const createBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   packageId: z.string().min(1, "Package is required"),
   sessionDate: z.coerce.date({ error: "Session date is required" }),
-  sessionTime: z.string().regex(/^\d{2}:\d{2}$/, "Session time is required"),
+  sessionTime: z
+    .string()
+    .regex(SESSION_TIME_REGEX, "Session time must use HH:MM (00-23:00-59)"),
   departmentId: z.string().min(1, "Department is required"),
   assignedPhotographerId: z.preprocess(
     (value) => (value === "" ? undefined : value),
@@ -41,7 +45,9 @@ export const updateBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   packageId: z.string().min(1, "Package is required"),
   date: z.date({ error: "Session date is required" }),
-  sessionTime: z.string().regex(/^\d{2}:\d{2}$/, "Session time is required"),
+  sessionTime: z
+    .string()
+    .regex(SESSION_TIME_REGEX, "Session time must use HH:MM (00-23:00-59)"),
   departmentId: z.string().min(1, "Department is required"),
   assignedPhotographerId: z.preprocess(
     (value) => (value === "" ? undefined : value),
