@@ -977,7 +977,9 @@ export async function updateOrderDeliveryWorkflow(
           });
         }
       }),
-    "Failed to update delivery workflow"
+    "Failed to update delivery workflow",
+    3,
+    (err) => !(err instanceof WorkflowGuardError)
   );
 
   const workflow = await getOrderDeliveryWorkflowById(orderId);
