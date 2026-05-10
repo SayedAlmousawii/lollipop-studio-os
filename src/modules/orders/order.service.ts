@@ -110,10 +110,16 @@ export function parseOrderFilters(filters: {
   search?: string | string[];
   orderStatus?: string | string[];
   invoiceStatus?: string | string[];
+  sessionDateFrom?: string | string[];
+  sessionDateTo?: string | string[];
+  editorId?: string | string[];
 }): OrderFilters {
   const search = singleValue(filters.search)?.trim();
   const orderStatus = singleValue(filters.orderStatus);
   const invoiceStatus = singleValue(filters.invoiceStatus);
+  const sessionDateFrom = parseDateInput(singleValue(filters.sessionDateFrom));
+  const sessionDateTo = parseDateInput(singleValue(filters.sessionDateTo));
+  const editorId = singleValue(filters.editorId)?.trim();
 
   return {
     search: search ? search : undefined,
@@ -125,6 +131,9 @@ export function parseOrderFilters(filters: {
       invoiceStatus && INVOICE_STATUS_FILTERS.has(invoiceStatus as InvoiceStatusFilter)
         ? (invoiceStatus as InvoiceStatusFilter)
         : undefined,
+    sessionDateFrom,
+    sessionDateTo,
+    editorId: editorId ? editorId : undefined,
   };
 }
 
@@ -135,6 +144,26 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
   );
 
   return rows.map(mapOrderRow);
+}
+
+export async function getOrderFilterEditorOptions(): Promise<OrderEditorOption[]> {
+  const rows = await withRetry(
+    () =>
+      db.user.findMany({
+        where: {
+          active: true,
+          role: { in: [UserRole.ADMIN, UserRole.EDITOR] },
+        },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+    "Failed to fetch order filter editors"
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+  }));
 }
 
 export async function getEditingQueue(): Promise<EditingQueueItem[]> {
@@ -1484,6 +1513,18 @@ export async function createOrderFromBookingWithClient(
 }
 
 async function fetchOrders(filters: OrderFilters) {
+  const sessionDateFilter: Prisma.DateTimeFilter | undefined =
+    filters.sessionDateFrom || filters.sessionDateTo
+      ? {
+          ...(filters.sessionDateFrom
+            ? { gte: toUtcDateBoundary(filters.sessionDateFrom, "start") }
+            : {}),
+          ...(filters.sessionDateTo
+            ? { lte: toUtcDateBoundary(filters.sessionDateTo, "end") }
+            : {}),
+        }
+      : undefined;
+
   const where: Prisma.OrderWhereInput = {
     ...(filters.search
       ? {
@@ -1508,6 +1549,12 @@ async function fetchOrders(filters: OrderFilters) {
     ...(filters.orderStatus ? { status: filters.orderStatus } : {}),
     ...(filters.invoiceStatus
       ? { invoices: { some: { status: filters.invoiceStatus } } }
+      : {}),
+    ...(sessionDateFilter
+      ? { booking: { sessionDate: sessionDateFilter } }
+      : {}),
+    ...(filters.editorId
+      ? { editingJob: { assignedEditorId: filters.editorId } }
       : {}),
   };
 
@@ -1985,6 +2032,43 @@ function formatEnum(value: string): string {
 
 function singleValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function parseDateInput(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const [yearText, monthText, dayText] = trimmed.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
+function toUtcDateBoundary(value: string, boundary: "start" | "end"): Date {
+  const [yearText, monthText, dayText] = value.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+
+  return boundary === "start"
+    ? new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0))
+    : new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 }
 
 function zeroMoney(): Prisma.Decimal {

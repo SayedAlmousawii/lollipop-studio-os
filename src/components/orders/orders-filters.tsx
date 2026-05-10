@@ -2,7 +2,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Input } from "@/components/ui/input";
+import type { OrderEditorOption, OrderFilters } from "@/modules/orders/order.types";
 import {
   Select,
   SelectContent,
@@ -11,25 +14,76 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export function OrdersFilters() {
+interface OrdersFiltersProps {
+  currentFilters: OrderFilters;
+  editorOptions: OrderEditorOption[];
+}
+
+export function OrdersFilters({
+  currentFilters,
+  editorOptions,
+}: OrdersFiltersProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const search = searchParams.get("search") ?? "";
-  const orderStatus = searchParams.get("orderStatus") ?? "all";
-  const invoiceStatus = searchParams.get("invoiceStatus") ?? "all";
+  const search = searchParams.get("search") ?? currentFilters.search ?? "";
+  const orderStatus = searchParams.get("orderStatus") ?? currentFilters.orderStatus ?? "all";
+  const invoiceStatus =
+    searchParams.get("invoiceStatus") ?? currentFilters.invoiceStatus ?? "all";
+  const sessionDateFrom =
+    searchParams.get("sessionDateFrom") ?? currentFilters.sessionDateFrom ?? "";
+  const sessionDateTo = searchParams.get("sessionDateTo") ?? currentFilters.sessionDateTo ?? "";
+  const editorId = searchParams.get("editorId") ?? currentFilters.editorId ?? "all";
+  const hasActiveFilters = Boolean(
+    search ||
+      sessionDateFrom ||
+      sessionDateTo ||
+      orderStatus !== "all" ||
+      invoiceStatus !== "all" ||
+      editorId !== "all"
+  );
 
-  function updateFilter(
-    key: "search" | "orderStatus" | "invoiceStatus",
-    value: string
+  function updateFilters(
+    updates: Partial<
+      Record<
+        | "search"
+        | "orderStatus"
+        | "invoiceStatus"
+        | "sessionDateFrom"
+        | "sessionDateTo"
+        | "editorId",
+        string
+      >
+    >
   ) {
     const params = new URLSearchParams(searchParams.toString());
-    if (!value || value === "all") {
-      params.delete(key);
-    } else {
-      params.set(key, value);
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (!value?.trim() || value === "all") {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
     }
+
     const query = params.toString();
     router.replace(query ? `/orders?${query}` : "/orders");
+  }
+
+  function updateFilter(
+    key:
+      | "search"
+      | "orderStatus"
+      | "invoiceStatus"
+      | "sessionDateFrom"
+      | "sessionDateTo"
+      | "editorId",
+    value: string
+  ) {
+    updateFilters({ [key]: value });
+  }
+
+  function resetFilters() {
+    router.replace("/orders");
   }
 
   return (
@@ -57,6 +111,7 @@ export function OrdersFilters() {
           <SelectItem value="all">All Statuses</SelectItem>
           <SelectItem value="ACTIVE">Active</SelectItem>
           <SelectItem value="WAITING_SELECTION">Waiting Selection</SelectItem>
+          <SelectItem value="SELECTION_COMPLETED">Selection Completed</SelectItem>
           <SelectItem value="EDITING">Editing</SelectItem>
           <SelectItem value="PRODUCTION">Production</SelectItem>
           <SelectItem value="READY">Ready</SelectItem>
@@ -81,6 +136,47 @@ export function OrdersFilters() {
           <SelectItem value="CLOSED">Closed</SelectItem>
         </SelectContent>
       </Select>
+
+      <DateRangePicker
+        value={{
+          from: sessionDateFrom || undefined,
+          to: sessionDateTo || undefined,
+        }}
+        onChange={({ from, to }) => {
+          updateFilters({
+            sessionDateFrom: from ?? "",
+            sessionDateTo: to ?? "",
+          });
+        }}
+        placeholder="Session date range"
+        className="w-[300px]"
+      />
+
+      <Select
+        value={editorId}
+        onValueChange={(value) => updateFilter("editorId", value)}
+      >
+        <SelectTrigger className="w-48" aria-label="Filter by assigned editor">
+          <SelectValue placeholder="Assigned Editor" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Editors</SelectItem>
+          {editorOptions.map((editor) => (
+            <SelectItem key={editor.id} value={editor.id}>
+              {editor.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Button
+        type="button"
+        variant="outline"
+        onClick={resetFilters}
+        disabled={!hasActiveFilters}
+      >
+        Reset filters
+      </Button>
     </div>
   );
 }
