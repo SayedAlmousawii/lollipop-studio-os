@@ -60,7 +60,7 @@ export function EditingQueueTable({ items }: EditingQueueTableProps) {
                 colSpan={5}
                 className="h-24 text-center text-sm text-text-secondary"
               >
-                No orders are currently in editing.
+                No orders are currently in editing or awaiting editing.
               </TableCell>
             </TableRow>
           ) : null}

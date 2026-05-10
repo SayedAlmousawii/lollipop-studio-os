@@ -1732,7 +1732,7 @@ function mapOrderStatus(status: OrderStatus): OrderStatusLabel {
     case OrderStatus.CANCELLED:
       return "Cancelled";
     default:
-      return "Active";
+      throw new Error(`Unhandled OrderStatus: ${status as string}`);
   }
 }
 
@@ -3528,7 +3528,7 @@ export async function getOrderFinancialSummary(
 
 async function fetchEditingQueue() {
   return db.order.findMany({
-    where: { status: { in: ["SELECTION_COMPLETED", "EDITING"] } },
+    where: { status: { in: [OrderStatus.SELECTION_COMPLETED, OrderStatus.EDITING] } },
     include: {
       customer: { select: { name: true } },
       booking: { select: { sessionDate: true } },

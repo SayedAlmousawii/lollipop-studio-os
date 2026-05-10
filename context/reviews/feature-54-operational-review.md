@@ -85,23 +85,23 @@ Operationally complete: linked bookings/orders are visible and clickable, intern
 ### 54a — Editing Queue Page
 
 #### Goal
-Create a dedicated `/editing` page that shows all orders currently in the EDITING workflow stage, giving editors a single view of their active work.
+Create a dedicated `/editing` page that shows all orders currently awaiting or undergoing editing, giving editors and admins a single view of active editing work.
 
-#### Read First
-- `app/orders/page.tsx` and `src/components/orders/orders-table.tsx` — follow the same page + table + filters + server-action pattern
-- `src/modules/orders/order.service.ts` — `getOrders()` and `fetchOrders()`; use `orderStatus: "EDITING"` filter as the base; consider whether a dedicated `getEditingQueue()` wrapper adds value or if `getOrders({ orderStatus: "EDITING" })` is sufficient
-- `src/modules/orders/order.types.ts` — `Order` type returned by `getOrders()`
-
-#### Implementation Direction
-Create a new page at `app/editing/page.tsx` using the same server-component + table pattern as the orders list. The page pre-applies `orderStatus: "EDITING"` and shows a filtered subset of orders. Columns to display: job number, customer name, session date, editing sub-status (IN_PROGRESS / REVISION_IN_PROGRESS / APPROVED), assigned editor. Each row links to `/orders/[orderId]` and opens the order hub — the editing tab is the natural landing point but direct tab-hash navigation is optional. A simple filter for editing sub-status and assigned editor can reuse the `OrderFilters` extension from 54d if that unit runs first; otherwise the queue can launch with status-only display and no additional filters. Add a nav link to the sidebar/nav that is visible to EDITOR and ADMIN roles. Permissions: require `order:read` (already exists).
+#### Shipped
+- `/editing` page at `app/editing/page.tsx` using the same server-component + table pattern
+- `getEditingQueue()` service function queries `status IN (SELECTION_COMPLETED, EDITING)` — editors see both queued and active orders
+- `SELECTION_COMPLETED` added to `OrderStatus` enum; completing selection auto-advances `order.status` from `WAITING_SELECTION` to `SELECTION_COMPLETED`
+- Columns: Job Number (linked to order hub), Customer, Session Date, Editing Status, Assigned Editor
+- Gated by `WORKFLOW_EDITING_UPDATE` permission (EDITOR + ADMIN; RECEPTIONIST redirected)
 
 #### Acceptance Criteria
-- [ ] `/editing` page renders without error
-- [ ] Only orders with EDITING workflow status appear
-- [ ] Each row links to the correct order hub
-- [ ] Page is accessible to EDITOR and ADMIN roles; redirects RECEPTIONIST
-- [ ] `npm run build` passes
-- [ ] `npm run lint` passes
+- [x] `/editing` page renders without error
+- [x] Orders with `SELECTION_COMPLETED` or `EDITING` status appear; `WAITING_SELECTION` does not
+- [x] Completing selection automatically advances `order.status` to `SELECTION_COMPLETED`
+- [x] Each row links to the correct order hub
+- [x] Page is accessible to EDITOR and ADMIN roles; redirects RECEPTIONIST
+- [x] `npm run build` passes
+- [x] `npm run lint` passes
 
 ---
 

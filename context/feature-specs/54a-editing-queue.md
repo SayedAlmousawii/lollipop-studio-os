@@ -14,7 +14,7 @@ Create a dedicated `/editing` page that shows all orders currently awaiting or u
 
 ## Rules
 
-- No schema changes
+- Schema change limited to adding `SELECTION_COMPLETED` to the `OrderStatus` enum — no table changes
 - Business logic stays in service files; UI only calls server actions
 - Reuse existing page + table + server-action pattern from orders list
 - Do not add new packages

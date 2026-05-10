@@ -16,7 +16,7 @@ export default async function EditingPage() {
             Editing Queue
           </h1>
           <p className="mt-1 text-sm text-text-secondary">
-            Orders currently in the editing stage.
+            Orders with selection completed or currently in editing.
           </p>
         </div>
 
