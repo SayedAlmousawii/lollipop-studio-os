@@ -263,10 +263,22 @@ export async function getOrderSelectionWorkflowById(
           where: { id: orderId },
           include: {
             originalPackage: {
-              select: { id: true, name: true, price: true, photoCount: true },
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                photoCount: true,
+                description: true,
+              },
             },
             finalPackage: {
-              select: { id: true, name: true, price: true, photoCount: true },
+              select: {
+                id: true,
+                name: true,
+                price: true,
+                photoCount: true,
+                description: true,
+              },
             },
             invoices: {
               where: { parentInvoiceId: null },
@@ -358,6 +370,8 @@ export async function getOrderSelectionWorkflowById(
     finalPackageId: currentPackage.id,
     originalPackageName: order.originalPackage?.name ?? "—",
     finalPackageName: currentPackage.name,
+    packageDescription:
+      order.finalPackage?.description ?? order.originalPackage?.description ?? null,
     selectedPhotos,
     includedPhotoCount,
     extraPhotoCount,

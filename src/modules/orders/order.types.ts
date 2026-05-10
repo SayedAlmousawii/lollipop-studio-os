@@ -77,6 +77,7 @@ export interface OrderSelectionWorkflow {
   finalPackageId: string;
   originalPackageName: string;
   finalPackageName: string;
+  packageDescription: string | null;
   selectedPhotos: number;
   includedPhotoCount: number;
   extraPhotoCount: number;

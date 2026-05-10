@@ -334,6 +334,30 @@ function OverviewTab({ order }: { order: OrderDetail }) {
 
         <Card>
           <CardHeader>
+            <CardTitle className="text-base">Deliverables</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <InfoGrid
+              items={[
+                ["Package", order.finalPackageName],
+                ["Photo limit", order.includedPhotoCount],
+                [
+                  "Selected photos",
+                  order.extraPhotoCount === "0"
+                    ? order.selectedPhotoCount
+                    : `${order.selectedPhotoCount} (${order.extraPhotoCount} extra)`,
+                ],
+                [
+                  "Add-ons",
+                  order.addonsSummary === "—" ? "None selected" : order.addonsSummary,
+                ],
+              ]}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle className="text-base">Key Notes</CardTitle>
           </CardHeader>
           <CardContent>
@@ -388,6 +412,7 @@ function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
             items={[
               ["Package", selection.finalPackageName],
               ["Package limit", String(selection.includedPhotoCount)],
+              ["Package includes", selection.packageDescription ?? "—"],
               ["Selected photos", String(selection.selectedPhotos)],
               ["Extra selected", String(selection.extraPhotoCount)],
             ]}
