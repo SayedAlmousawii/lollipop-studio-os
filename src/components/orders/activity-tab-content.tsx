@@ -20,6 +20,7 @@ const ACTIVITY_TYPE_LABELS: Record<OrderActivityType, string> = {
   DELIVERY_STATUS_CHANGED: "Delivery Status Changed",
   ORDER_COMPLETED: "Order Completed",
   NOTE_ADDED: "Note Added",
+  GUARD_BLOCKED: "Action Blocked",
 };
 
 type FilterGroup = "all" | "financial" | "workflow" | "package";
@@ -41,6 +42,7 @@ const FILTER_GROUPS: { value: FilterGroup; label: string; types?: OrderActivityT
       "EDITING_STATUS_CHANGED",
       "PRODUCTION_STATUS_CHANGED",
       "DELIVERY_STATUS_CHANGED",
+      "GUARD_BLOCKED",
     ],
   },
   {
@@ -83,6 +85,8 @@ function activityToneClass(type: OrderActivityType): string {
     case "PACKAGE_CHANGED":
     case "ADD_ON_CHANGED":
       return "border-l-warning";
+    case "GUARD_BLOCKED":
+      return "border-l-destructive";
     default:
       return "border-l-border";
   }

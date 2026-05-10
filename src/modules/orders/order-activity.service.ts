@@ -1,4 +1,4 @@
-import type { OrderActivityType, Prisma } from "@prisma/client";
+import { OrderActivityType, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import type { OrderActivityTimelineItem } from "./order-activity.types";
@@ -26,6 +26,33 @@ export async function recordOrderActivity(
       title: input.title,
       description: input.description ?? null,
       metadata: input.metadata ?? {},
+    },
+  });
+}
+
+export interface RecordGuardBlockedInput {
+  orderId: string;
+  userId?: string | null;
+  attemptedAction: string;
+  reason: string;
+  metadata?: Prisma.InputJsonValue;
+}
+
+export async function recordGuardBlockedActivity(
+  input: RecordGuardBlockedInput
+): Promise<void> {
+  await db.orderActivity.create({
+    data: {
+      orderId: input.orderId,
+      userId: input.userId ?? null,
+      type: OrderActivityType.GUARD_BLOCKED,
+      title: "Action blocked by workflow guard",
+      description: input.reason,
+      metadata: {
+        attemptedAction: input.attemptedAction,
+        reason: input.reason,
+        ...(input.metadata as object | undefined),
+      },
     },
   });
 }
