@@ -1,4 +1,19 @@
 **Status: Deferred — schema design needs review before implementation.**
+postpone it
+
+Because currently:
+
+* packages themselves are not modeled with deliverables yet
+* only add-ons drive requirements
+* workflow rules are already becoming complex
+* you have not done full operational QA yet
+
+So adding deliverable-aware workflow now may be premature.
+
+------------------------------------------------------
+
+
+
 
 ---
 

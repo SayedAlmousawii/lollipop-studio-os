@@ -99,33 +99,29 @@ This phase should focus on practical guardrails that protect day-to-day operatio
 
 ---
 
-## Feature 52 - Workflow Guard Review
+## Guard Review ✅ Complete (review step — not a numbered feature spec)
 
-### Summary
-Audit all workflow transitions and identify missing service-layer enforcement.
+Audit completed 2026-05-10. Full inventory and gap analysis in `context/reviews/workflow-guard-audit.md`.
 
-### Purpose
-Make sure the system prevents obviously invalid state changes before adding more reporting or commission logic.
-
-### Examples
-- cannot complete delivery before production completion
-- cannot bypass required payment steps
-- cannot reopen finalized workflow incorrectly
-- cannot create duplicate workflow records
-- cannot perform sensitive workflow changes without permission
-
-### Important Note
-This should start as a review/inventory if the scope is large. Implement guard fixes as small follow-up units.
+Seven gaps identified (P1–P7). Implementation units below.
 
 ---
 
-## Feature 53 - Workflow Guard Enforcement
+## Feature 52 - Workflow Guard Enforcement
 
 ### Summary
 Implement the highest-value missing guards found in the review.
 
 ### Purpose
 Keep the app operationally trustworthy without trying to solve every rare edge case at once.
+
+### Units
+- **52a** — Add `editingStatus` check to delivery completion guard
+- **52b** — Per-section production state machine validation
+- **52c** — `WorkflowGuardError` typed error class
+- **52d** — Reusable error UI component *(style/design discussion required)*
+- **52e** — Audit-log failed guard blocks on high-risk transitions
+- **52f** — Service-layer permission enforcement *(deferred)*
 
 ### Core Rules
 - business rules live in service modules
