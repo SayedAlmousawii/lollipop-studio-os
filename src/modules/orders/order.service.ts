@@ -12,6 +12,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
+import { hasPermission, PERMISSIONS, type Permission } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -90,6 +91,13 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
   "PAID",
   "CLOSED",
 ]);
+
+function assertActorPermission(actorContext: ActorContext, permission: Permission): void {
+  if (!actorContext.actorRole) return;
+  if (!hasPermission({ role: actorContext.actorRole }, permission)) {
+    throw new Error(`Permission denied: ${permission}`);
+  }
+}
 
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
@@ -488,6 +496,7 @@ export async function updateOrderEditingWorkflow(
   actorContext: ActorContext = {}
 ): Promise<OrderEditingWorkflow> {
   const data = updateOrderEditingWorkflowSchema.parse(input);
+  assertActorPermission(actorContext, PERMISSIONS.WORKFLOW_EDITING_UPDATE);
 
   await withRetry(
     () =>
@@ -809,6 +818,7 @@ export async function updateOrderProductionWorkflow(
   actorContext: ActorContext = {}
 ): Promise<OrderProductionWorkflow> {
   const data = updateOrderProductionWorkflowSchema.parse(input);
+  assertActorPermission(actorContext, PERMISSIONS.WORKFLOW_PRODUCTION_UPDATE);
 
   await withRetry(
     () =>
@@ -908,7 +918,9 @@ export async function updateOrderProductionWorkflow(
           });
         }
       }),
-    "Failed to update production workflow"
+    "Failed to update production workflow",
+    3,
+    (err) => !(err instanceof WorkflowGuardError)
   );
 
   const workflow = await getOrderProductionWorkflowById(orderId);
@@ -922,6 +934,13 @@ export async function updateOrderDeliveryWorkflow(
   actorContext: ActorContext = {}
 ): Promise<OrderDeliveryWorkflow> {
   const data = updateOrderDeliveryWorkflowSchema.parse(input);
+  assertActorPermission(actorContext, PERMISSIONS.DELIVERY_UPDATE);
+  if (data.action === "completeOrder") {
+    assertActorPermission(actorContext, PERMISSIONS.DELIVERY_COMPLETE);
+  }
+  if (data.allowPaymentOverride) {
+    assertActorPermission(actorContext, PERMISSIONS.DELIVERY_PAYMENT_OVERRIDE);
+  }
 
   await withRetry(
     () =>
