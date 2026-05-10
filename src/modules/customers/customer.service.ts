@@ -455,6 +455,8 @@ function mapOrderStatus(status: OrderStatus): OrderStatusLabel {
       return "Active";
     case OrderStatus.WAITING_SELECTION:
       return "Waiting Selection";
+    case OrderStatus.SELECTION_COMPLETED:
+      return "Selection Completed";
     case OrderStatus.EDITING:
       return "Editing";
     case OrderStatus.PRODUCTION:

@@ -42,6 +42,7 @@ enum BookingStatus {
 enum OrderStatus {
   ACTIVE
   WAITING_SELECTION
+  SELECTION_COMPLETED
   EDITING
   PRODUCTION
   READY

@@ -89,7 +89,7 @@ Features 50, 51, 51b, 51c are fully implemented. Clerk owns auth/session; Prisma
 
 ---
 
-# Phase 2 - Workflow Guard Hardening
+# Phase 2 - Workflow Guard Hardening ✅ Complete
 
 ## Goal
 
@@ -122,6 +122,8 @@ Keep the app operationally trustworthy without trying to solve every rare edge c
 - **52d** — Reusable error UI component *(style/design discussion required)*
 - **52e** — Audit-log failed guard blocks on high-risk transitions
 - **52f** — Service-layer permission enforcement *(deferred)*
+
+> **Feature 53 deferred.** Planned guard work was scoped into 52 units or deferred pending further workflow review. Not blocking Phase 3.
 
 ### Core Rules
 - business rules live in service modules
