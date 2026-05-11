@@ -55,6 +55,8 @@ export function PhoneSalesSearch() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const skipNextSuggestionFetchRef = useRef(false);
+  const suggestionRequestTokenRef = useRef(0);
+  const selectionRequestTokenRef = useRef(0);
   const listboxId = useId();
   const activeState = selectedLookupState ?? state;
   const numericQuery = inputValue.replace(/\D/g, "");
@@ -83,6 +85,8 @@ export function PhoneSalesSearch() {
       clearTimeout(debounceRef.current);
     }
 
+    const requestToken = suggestionRequestTokenRef.current + 1;
+    suggestionRequestTokenRef.current = requestToken;
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
 
@@ -111,12 +115,20 @@ export function PhoneSalesSearch() {
           return response.json() as Promise<PhoneSuggestion[]>;
         })
         .then((data) => {
+          if (suggestionRequestTokenRef.current !== requestToken) {
+            return;
+          }
+
           setSuggestions(data);
           setHighlightedIndex(data.length > 0 ? 0 : -1);
           setHasSuggestionResponse(true);
           setShowDropdown(true);
         })
         .catch((error: unknown) => {
+          if (suggestionRequestTokenRef.current !== requestToken) {
+            return;
+          }
+
           if (error instanceof DOMException && error.name === "AbortError") {
             return;
           }
@@ -126,7 +138,10 @@ export function PhoneSalesSearch() {
           setHasSuggestionResponse(true);
         })
         .finally(() => {
-          if (abortControllerRef.current === controller) {
+          if (
+            suggestionRequestTokenRef.current === requestToken &&
+            abortControllerRef.current === controller
+          ) {
             setIsLoadingSuggestions(false);
           }
         });
@@ -136,6 +151,7 @@ export function PhoneSalesSearch() {
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
       }
+      suggestionRequestTokenRef.current += 1;
       abortControllerRef.current?.abort();
       abortControllerRef.current = null;
     };
@@ -184,6 +200,8 @@ export function PhoneSalesSearch() {
                 const nextValue = event.target.value;
                 const nextDigits = nextValue.replace(/\D/g, "");
 
+                suggestionRequestTokenRef.current += 1;
+                selectionRequestTokenRef.current += 1;
                 setInputValue(nextValue);
                 setSelectedLookupState(null);
                 setHasSuggestionResponse(false);
@@ -273,6 +291,8 @@ export function PhoneSalesSearch() {
   }
 
   function selectSuggestion(suggestion: PhoneSuggestion) {
+    const selectionRequestToken = selectionRequestTokenRef.current + 1;
+    selectionRequestTokenRef.current = selectionRequestToken;
     skipNextSuggestionFetchRef.current = true;
     setInputValue(suggestion.phone);
     closeDropdown();
@@ -282,6 +302,10 @@ export function PhoneSalesSearch() {
 
     startSelectionTransition(async () => {
       const result = await lookupDashboardSalesByCustomerId(suggestion.id);
+      if (selectionRequestTokenRef.current !== selectionRequestToken) {
+        return;
+      }
+
       setSelectedLookupState(result);
       setInputValue(result.phoneSearch || suggestion.phone);
     });

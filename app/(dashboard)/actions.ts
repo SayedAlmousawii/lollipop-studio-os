@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { getCurrentAppUser } from "@/lib/auth";
 import {
   getCustomerByPhone,
   getCustomerPhoneLookupById,
@@ -89,6 +90,16 @@ export async function lookupDashboardSalesByPhone(
 export async function lookupDashboardSalesByCustomerId(
   customerId: string
 ): Promise<DashboardPhoneLookupState> {
+  const appUser = await getCurrentAppUser();
+
+  if (!appUser || !appUser.active) {
+    return {
+      ...initialLookupState,
+      hasSearched: true,
+      errors: { _global: ["You must be signed in to search customers."] },
+    };
+  }
+
   const parsed = customerIdLookupSchema.safeParse({ customerId });
 
   if (!parsed.success) {
