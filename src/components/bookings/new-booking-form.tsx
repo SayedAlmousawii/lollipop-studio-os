@@ -7,8 +7,8 @@ import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TimePicker } from "@/components/ui/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -198,6 +198,7 @@ export function NewBookingForm({
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [selectedSessionType, setSelectedSessionType] = useState("");
   const [sessionDate, setSessionDate] = useState("");
+  const [sessionTime, setSessionTime] = useState("");
   const [state, formAction] = useActionState<ActionState, FormData>(
     createBooking,
     {}
@@ -269,12 +270,17 @@ export function NewBookingForm({
 
       <div className="space-y-1.5">
         <Label htmlFor="sessionTime">Session Time</Label>
-        <Input
-          id="sessionTime"
+        <input
+          type="hidden"
           name="sessionTime"
-          type="time"
+          value={sessionTime}
+        />
+        <TimePicker
+          id="sessionTime"
+          value={sessionTime}
+          onChange={(value) => setSessionTime(value ?? "")}
+          placeholder="Select time"
           className="w-full"
-          required
         />
         <FieldError messages={state.errors?.sessionTime} />
       </div>
