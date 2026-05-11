@@ -136,7 +136,8 @@ PackageItem
 ├── priceSnapshot   Decimal (10,3)   snapshot of Product.canonicalPrice at item-add time
 ├── sortOrder       Int @default(0)
 ├── createdAt / updatedAt
-└── @@index([packageId])
+├── @@index([packageId])
+└── @@unique([packageId, productId])   one row per product in a package; multiplicity is stored in quantity
 ```
 
 Updated `Package` model (additive changes only):

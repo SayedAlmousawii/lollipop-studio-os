@@ -50,6 +50,7 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
       productId: addOn.productId ?? findProductIdForAddOn(addOn, selection.addOnOptions),
     }))
   );
+  const unresolvedAddOnCount = addOns.filter((addOn) => !addOn.productId).length;
   const [state, formAction] = useActionState<UpdateSelectionActionState, FormData>(
     updateSelectionWorkflowAction.bind(null, selection.orderId),
     {}
@@ -67,10 +68,18 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
   const manualAddOnTotal = addOns.reduce((sum, addOn) => sum + addOn.price, 0);
   const selectionAddOnTotal = manualAddOnTotal + extraPhotoCharge;
   const isComplete = selection.selectionStatus === "Completed";
-  const saveDisabled = selection.invoiceLocked || selection.packageOptions.length === 0;
+  const saveDisabled =
+    selection.invoiceLocked ||
+    selection.packageOptions.length === 0 ||
+    unresolvedAddOnCount > 0;
 
   return (
     <form action={formAction} className="space-y-4">
+      <input
+        type="hidden"
+        name="unresolvedAddOnCount"
+        value={String(unresolvedAddOnCount)}
+      />
       {state.errors?._global ? (
         <p className="rounded-md bg-danger-soft px-4 py-3 text-sm text-danger">
           {state.errors._global[0]}
@@ -171,6 +180,11 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
               {addOns.length === 0 ? (
                 <p className="text-sm text-text-secondary">No add-ons added.</p>
               ) : null}
+              {unresolvedAddOnCount > 0 ? (
+                <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
+                  Resolve or remove every archived add-on row before saving this selection.
+                </p>
+              ) : null}
               {addOns.map((addOn, index) => (
                 <div key={index} className="grid gap-3 md:grid-cols-[1fr_160px_auto]">
                   <div className="space-y-2">
@@ -188,7 +202,10 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
                       }}
                       required
                     >
-                      <SelectTrigger id={`selection-add-on-option-${index}`}>
+                      <SelectTrigger
+                        id={`selection-add-on-option-${index}`}
+                        aria-invalid={!addOn.productId ? true : undefined}
+                      >
                         <SelectValue placeholder="Select add-on..." />
                       </SelectTrigger>
                       <SelectContent>
@@ -199,6 +216,11 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
                         ))}
                       </SelectContent>
                     </Select>
+                    {!addOn.productId ? (
+                      <p className="text-xs text-danger">
+                        This add-on could not be matched to an active product. Re-link it or remove it before saving.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor={`selection-add-on-price-${index}`}>Price</Label>
