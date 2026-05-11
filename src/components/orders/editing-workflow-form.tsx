@@ -17,6 +17,7 @@ import {
 } from "@/app/orders/[orderId]/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -38,6 +39,9 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
     editing.assignedEditorId ?? editing.editorOptions[0]?.id ?? ""
   );
   const [editedPhotoCount, setEditedPhotoCount] = useState(editing.editedPhotoCount);
+  const [estimatedEditingCompletionAt, setEstimatedEditingCompletionAt] = useState(
+    editing.estimatedCompletionDateInput ?? ""
+  );
   const [state, formAction] = useActionState<UpdateEditingActionState, FormData>(
     updateEditingWorkflowAction.bind(null, editing.orderId),
     {}
@@ -112,12 +116,16 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="estimatedEditingCompletionAt">Estimated completion</Label>
-                <Input
-                  id="estimatedEditingCompletionAt"
+                <input
+                  type="hidden"
                   name="estimatedEditingCompletionAt"
-                  type="date"
-                  defaultValue={editing.estimatedCompletionDateInput}
-                  disabled={!editing.canAssignEditor}
+                  value={estimatedEditingCompletionAt}
+                />
+                <DatePicker
+                  value={estimatedEditingCompletionAt}
+                  onChange={(value) => setEstimatedEditingCompletionAt(value ?? "")}
+                  placeholder="Select date"
+                  className={`w-full ${!editing.canAssignEditor ? "pointer-events-none opacity-50" : ""}`}
                 />
               </div>
               {!hasEditors ? (

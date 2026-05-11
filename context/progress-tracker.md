@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 55e complete; next is 55f. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 55g complete; Feature 55 is now complete across 55a (selection/delivery fixes), 55b (editing date default + session time), 55c (deliverables visibility), 55d (full-payment editing gate), 55e (customer phone enforcement), 55f (editing queue investigation), and 55g (date picker migration). Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,6 +25,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 55g: Migrated all raw date inputs to the shared DatePicker component across booking, editing workflow, invoice payment, and child forms.
+- Feature 55f: Editing queue investigation complete — current query returns `1` row in `19ms`, has no pagination, shows no N+1 pattern, and points to cold-start overhead as the present bottleneck with pagination as the likely future fix target.
 - Follow-up: bookings, orders, and invoices tables/pages now use customer phone as the primary displayed identifier and search target.
 - Feature 55e: Phone number required on all customer saves; search prioritizes phone.
 - Feature 55d: Editing start now requires full payment; assignment stays allowed, outstanding balance is surfaced in-tab with an upgrade-payment modal.
@@ -79,6 +81,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: Booking deposit recording via invoice + payment in one transaction.
 
 ## Open Follow-Ups
+- Write and implement `55f-fix` to add a targeted editing-queue performance fix, starting with pagination because the current query has no limit.
 - Consider adding explicit job categorization (`SESSION`, `VOUCHER`, `RETAIL`, `OTHER`) before future voucher or standalone sales invoice flows.
 - Review whether any remaining reads should be switched from `jobNumber` to canonical `jobId` joins in a later cleanup unit.
 - Manually test editing internal notes from `/customers/[customerId]`, including line breaks, clearing notes, and refresh persistence.

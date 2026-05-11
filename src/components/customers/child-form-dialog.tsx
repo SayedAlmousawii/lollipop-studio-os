@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useActionState, useId } from "react";
+import { useActionState, useId, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   createChild,
@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -68,7 +69,10 @@ export function ChildFormDialog({
             </p>
           ) : null}
 
-          <ChildFields state={state} />
+          <ChildFields
+            key={`${mode}-${child?.id ?? "new"}-${state.values?.dateOfBirth ?? ""}`}
+            state={state}
+          />
 
           <div className="flex items-center justify-end gap-3 pt-2">
             <DialogClose asChild>
@@ -89,6 +93,7 @@ function ChildFields({ state }: { state: ChildActionState }) {
   const fieldId = useId();
   const nameId = `${fieldId}-name`;
   const dateOfBirthId = `${fieldId}-date-of-birth`;
+  const [dateOfBirth, setDateOfBirth] = useState(state.values?.dateOfBirth ?? "");
 
   return (
     <>
@@ -107,13 +112,16 @@ function ChildFields({ state }: { state: ChildActionState }) {
 
       <div className="space-y-2">
         <Label htmlFor={dateOfBirthId}>Date of birth</Label>
-        <Input
-          id={dateOfBirthId}
+        <input
+          type="hidden"
           name="dateOfBirth"
-          type="date"
-          defaultValue={state.values?.dateOfBirth ?? ""}
-          disabled={pending}
-          aria-invalid={state.errors?.dateOfBirth?.length ? true : undefined}
+          value={dateOfBirth}
+        />
+        <DatePicker
+          value={dateOfBirth}
+          onChange={(value) => setDateOfBirth(value ?? "")}
+          placeholder="Select date"
+          className={`w-full ${pending ? "pointer-events-none opacity-50" : ""}`}
         />
         <FieldError messages={state.errors?.dateOfBirth} />
       </div>
