@@ -343,6 +343,7 @@ export interface POSWorkspace {
   extraPhotoUnitPrice: number;
   extraPhotoTotal: number;
   addOns: POSAddOn[];
+  addOnTotal: number;
   packageOptions: POSPackageOption[];
   productOptions: POSProductOption[];
   addOnCatalog: POSAddOnCatalogItem[];

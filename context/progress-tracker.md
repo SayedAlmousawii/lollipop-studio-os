@@ -26,6 +26,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ## Feature History
 - Feature 57a: POS route foundation — standalone `/orders/[orderId]/sales` layout with real order identity data, POS workspace service read model, skeleton commercial/financial sections, and order detail/list navigation entry points.
+- Feature 57b: POS package composition area — added structured package deliverable cards, visible pricing lines, upgrade pickers, locked-invoice blocking, service-layer package mutations, and durable package-item upgrade reconciliation.
 - Feature 56e follow-up: Corrected invoice snapshot timing so first payment no longer freezes order edits; non-delivered premature snapshots are cleared on recalculation, and invoices snapshot/lock at order delivery or explicit invoice close.
 - Feature 56e: Downstream adoption — order selection and overview now render structured package deliverables and bundle adjustments, paid add-ons are separated from included items, and order financials prefer immutable invoice line item snapshots when present.
 - Feature 56d: Invoice line item snapshots — added `InvoiceLineItem` / `InvoiceLineType`, immutable snapshot creation on invoice issue or first payment, `PACKAGE_UPGRADE` delta lines for package upgrades, and invoice detail reads with sorted line items.

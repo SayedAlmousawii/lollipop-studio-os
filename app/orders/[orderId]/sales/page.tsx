@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
-import { AlertCircle, Lock, PackageOpen, Plus, ReceiptText } from "lucide-react";
+import { AlertCircle, Lock, Plus, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { POSPackageComposition } from "@/components/orders/pos-package-composition";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 
@@ -16,70 +17,12 @@ export default async function SalesPage(
   return (
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
       <main className="space-y-5">
-        <PackageSkeleton workspace={workspace} />
+        <POSPackageComposition workspace={workspace} />
         <ActionsSkeleton workspace={workspace} />
         <AddOnsSkeleton workspace={workspace} />
       </main>
       <FinancialSidebar workspace={workspace} />
     </div>
-  );
-}
-
-function PackageSkeleton({ workspace }: { workspace: POSWorkspace }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <PackageOpen className="h-4 w-4 text-accent" />
-          Package Composition
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-medium text-text-primary">
-              {workspace.currentPackage?.name ?? "No package selected"}
-            </p>
-            <p className="text-sm text-text-secondary">
-              {workspace.includedPhotoCount} included photos · {workspace.currentPackage?.priceLabel ?? "0.000 KD"}
-            </p>
-          </div>
-          <Button variant="outline" disabled>
-            Upgrade Package
-          </Button>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          {workspace.packageItems.map((item) => (
-            <div key={item.id} className="rounded-md border border-border bg-surface-soft p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-text-primary">{item.productName}</p>
-                  <p className="mt-1 text-xs uppercase text-text-muted">{item.category}</p>
-                </div>
-                <Badge variant="outline" className="rounded-md">
-                  {item.quantity}x
-                </Badge>
-              </div>
-              <p className="mt-3 text-sm text-text-secondary">
-                {item.priceSnapshotLabel}
-              </p>
-            </div>
-          ))}
-          {workspace.packageItems.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
-              Structured package deliverables will appear here when available.
-            </div>
-          ) : null}
-        </div>
-
-        <div className="grid gap-3 border-t border-border pt-4 text-sm md:grid-cols-3">
-          <Readout label="Raw deliverables" value={formatKD(workspace.rawDeliverableTotal)} />
-          <Readout label="Bundle adjustment" value={formatSignedKD(workspace.bundleAdjustment)} />
-          <Readout label="Package price" value={workspace.currentPackage?.priceLabel ?? "0.000 KD"} />
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -100,7 +43,7 @@ function ActionsSkeleton({ workspace }: { workspace: POSWorkspace }) {
           </div>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          {["Add Album", "Add Canvas", "Add Prints", "Add Digital", "Upgrade Package"].map((label) => (
+          {["Add Album", "Add Canvas", "Add Prints", "Add Digital"].map((label) => (
             <Button key={label} variant="outline" disabled>
               {label}
             </Button>
@@ -140,6 +83,10 @@ function AddOnsSkeleton({ workspace }: { workspace: POSWorkspace }) {
 
 function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
+  const packageAmount = invoice?.packageBaseTotal ?? workspace.currentPackage?.price ?? 0;
+  const extraPhotoAmount = invoice?.extraPhotoTotal ?? workspace.extraPhotoTotal;
+  const addOnAmount = invoice?.addOnTotal ?? workspace.addOnTotal;
+  const totalAmount = invoice?.invoiceTotal ?? packageAmount + extraPhotoAmount + addOnAmount;
 
   return (
     <aside className="space-y-4 lg:sticky lg:top-4">
@@ -171,14 +118,10 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
           )}
 
           <div className="space-y-2 border-t border-border pt-4">
-            <MoneyRow label="Package" value={formatKD(invoice?.packageBaseTotal ?? workspace.currentPackage?.price ?? 0)} />
-            <MoneyRow label="Extra photos" value={formatKD(invoice?.extraPhotoTotal ?? workspace.extraPhotoTotal)} />
-            {invoice ? (
-              <>
-                <MoneyRow label="Add-ons" value={formatKD(invoice.addOnTotal)} />
-                <MoneyRow label="Total" value={formatKD(invoice.invoiceTotal)} strong />
-              </>
-            ) : null}
+            <MoneyRow label="Package" value={formatKD(packageAmount)} />
+            <MoneyRow label="Extra photos" value={formatKD(extraPhotoAmount)} />
+            <MoneyRow label="Add-ons" value={formatKD(addOnAmount)} />
+            <MoneyRow label="Total" value={formatKD(totalAmount)} strong />
           </div>
 
           {invoice ? (
@@ -190,15 +133,6 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
         </CardContent>
       </Card>
     </aside>
-  );
-}
-
-function Readout({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-text-muted">{label}</p>
-      <p className="mt-1 font-medium text-text-primary">{value}</p>
-    </div>
   );
 }
 
@@ -221,8 +155,4 @@ function MoneyRow({
 
 function formatKD(value: number): string {
   return `${value.toFixed(3)} KD`;
-}
-
-function formatSignedKD(value: number): string {
-  return `${value > 0 ? "+" : ""}${formatKD(value)}`;
 }

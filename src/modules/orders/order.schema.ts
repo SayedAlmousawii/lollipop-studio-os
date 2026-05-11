@@ -48,6 +48,15 @@ export const updateOrderSelectionWorkflowSchema = z.object({
   completeSelection: z.coerce.boolean().optional(),
 });
 
+export const updateOrderPackageSchema = z.object({
+  packageId: z.string().trim().min(1, "Package is required"),
+});
+
+export const upgradeOrderPackageItemSchema = z.object({
+  packageItemId: z.string().trim().min(1, "Package item is required"),
+  newProductId: z.string().trim().min(1, "Replacement product is required"),
+});
+
 export const updateOrderEditingWorkflowSchema = z.object({
   action: z.enum([
     "assignEditor",
@@ -95,6 +104,8 @@ export const updateOrderDeliveryWorkflowSchema = z.object({
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export type UpdateOrderWorkflowInput = z.infer<typeof updateOrderWorkflowSchema>;
 export type UpdateOrderSelectionWorkflowInput = z.infer<typeof updateOrderSelectionWorkflowSchema>;
+export type UpdateOrderPackageInput = z.infer<typeof updateOrderPackageSchema>;
+export type UpgradeOrderPackageItemInput = z.infer<typeof upgradeOrderPackageItemSchema>;
 export type UpdateOrderEditingWorkflowInput = z.infer<typeof updateOrderEditingWorkflowSchema>;
 export type UpdateOrderProductionWorkflowInput = z.infer<typeof updateOrderProductionWorkflowSchema>;
 export type UpdateOrderDeliveryWorkflowInput = z.infer<typeof updateOrderDeliveryWorkflowSchema>;

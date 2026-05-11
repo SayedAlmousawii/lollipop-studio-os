@@ -13,6 +13,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import { addDays } from "date-fns";
+import { cache } from "react";
 import type { ActorContext } from "@/lib/auth";
 import { hasPermission, PERMISSIONS, type Permission } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
@@ -45,12 +46,16 @@ import {
   updateOrderDeliveryWorkflowSchema,
   updateOrderProductionWorkflowSchema,
   updateOrderSelectionWorkflowSchema,
+  updateOrderPackageSchema,
+  upgradeOrderPackageItemSchema,
   updateOrderWorkflowSchema,
   type UpdateOrderInput,
   type UpdateOrderEditingWorkflowInput,
   type UpdateOrderDeliveryWorkflowInput,
+  type UpdateOrderPackageInput,
   type UpdateOrderProductionWorkflowInput,
   type UpdateOrderSelectionWorkflowInput,
+  type UpgradeOrderPackageItemInput,
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
 import type {
@@ -116,6 +121,12 @@ function assertActorPermission(actorContext: ActorContext, permission: Permissio
   if (!actorContext.actorRole) return;
   if (!hasPermission({ role: actorContext.actorRole }, permission)) {
     throw new Error(`Permission denied: ${permission}`);
+  }
+}
+
+function assertFinancialActorContext(actorContext: ActorContext): void {
+  if (!actorContext.actorUserId || !actorContext.actorRole) {
+    throw new Error("Missing actor context");
   }
 }
 
@@ -222,7 +233,9 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
   return mapOrderDetailRow(row);
 }
 
-export async function getPOSWorkspace(orderId: string): Promise<POSWorkspace | null> {
+export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
+  orderId: string
+): Promise<POSWorkspace | null> {
   const [order, packageRows, productRows, addOnCatalogRows, extraPhotoOption] =
     await withRetry(
       () =>
@@ -341,6 +354,7 @@ export async function getPOSWorkspace(orderId: string): Promise<POSWorkspace | n
     extraPhotoUnitPrice: extraPhotoOption.price.toNumber(),
     extraPhotoTotal: extraPhotoTotalDecimal.toNumber(),
     addOns,
+    addOnTotal: addOnTotal.toNumber(),
     packageOptions: mapPOSPackageOptions(packageRows, currentPackage),
     productOptions: productRows.map(mapPOSProductOption),
     addOnCatalog: addOnCatalogRows.map(mapPOSAddOnCatalogItem),
@@ -356,7 +370,7 @@ export async function getPOSWorkspace(orderId: string): Promise<POSWorkspace | n
         })
       : null,
   };
-}
+});
 
 function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   const summary = mapOrderRow(row);
@@ -748,6 +762,289 @@ export async function updateOrderSelectionWorkflow(
   const workflow = await getOrderSelectionWorkflowById(orderId);
   if (!workflow) throw new Error("Order not found after selection update");
   return workflow;
+}
+
+export async function updateOrderPackage(
+  orderId: string,
+  input: UpdateOrderPackageInput,
+  actorContext: ActorContext
+): Promise<POSWorkspace> {
+  const data = updateOrderPackageSchema.parse(input);
+  assertFinancialActorContext(actorContext);
+  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const [order, selectedPackage] = await Promise.all([
+          tx.order.findUnique({
+            where: { id: orderId },
+            include: {
+              originalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
+              finalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
+              invoices: {
+                where: { parentInvoiceId: null },
+                select: { id: true, isLocked: true },
+                orderBy: { createdAt: "asc" },
+                take: 1,
+              },
+              orderAddOns: {
+                select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+                orderBy: { createdAt: "asc" },
+              },
+            },
+          }),
+          tx.package.findUnique({
+            where: { id: data.packageId },
+            select: { id: true, name: true, price: true, isActive: true },
+          }),
+        ]);
+
+        if (!order) throw new Error("Order not found");
+        if (order.status === OrderStatus.DELIVERED) {
+          throw new Error("Delivered orders cannot be edited");
+        }
+        if (order.invoices[0]?.isLocked) {
+          throw new Error("Invoice is locked. Use the adjustment flow before changing package composition.");
+        }
+        if (!selectedPackage || !selectedPackage.isActive) {
+          throw new Error("Selected package is not available");
+        }
+
+        const previousPackage = order.finalPackage ?? order.originalPackage;
+        if (!previousPackage) throw new Error("Order has no package price");
+        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const previousIncludedPhotoCount = previousPackage.photoCount;
+
+        await tx.orderAddOn.deleteMany({
+          where: {
+            orderId,
+            packageItemId: { not: null },
+          },
+        });
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: { finalPackage: { connect: { id: selectedPackage.id } } },
+        });
+
+        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
+          orderId,
+          previousPackagePrice: previousPackage.price,
+          previousAddOns,
+          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousIncludedPhotoCount,
+        });
+
+        await syncUpgradeCommissionForOrder(tx, {
+          orderId,
+          upgradeAmount: invoiceSummary.packageAdjustmentAmount,
+        });
+
+        if (previousPackage.id !== selectedPackage.id) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.PACKAGE_CHANGED,
+            title: "Package changed",
+            description: `${previousPackage.name} changed to ${selectedPackage.name}.`,
+            metadata: {
+              previousPackageId: previousPackage.id,
+              previousPackageName: previousPackage.name,
+              nextPackageId: selectedPackage.id,
+              nextPackageName: selectedPackage.name,
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              recognizedPackageBaseline: invoiceSummary.recognizedPackageBaseline.toFixed(3),
+            },
+          });
+        }
+
+        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
+            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
+            metadata: {
+              invoiceId: invoiceSummary.invoiceId,
+              invoiceNumber: invoiceSummary.invoiceNumber,
+              totalAmount: invoiceSummary.totalAmount,
+              paidAmount: invoiceSummary.paidAmount,
+              remainingAmount: invoiceSummary.remainingAmount,
+              status: invoiceSummary.status,
+              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+            },
+          });
+        }
+      }),
+    "Failed to update order package"
+  );
+
+  const workspace = await getPOSWorkspace(orderId);
+  if (!workspace) throw new Error("Order not found after package update");
+  return workspace;
+}
+
+export async function upgradeOrderPackageItem(
+  orderId: string,
+  input: UpgradeOrderPackageItemInput,
+  actorContext: ActorContext
+): Promise<POSWorkspace> {
+  const data = upgradeOrderPackageItemSchema.parse(input);
+  assertFinancialActorContext(actorContext);
+  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          include: {
+            originalPackage: { select: { id: true, price: true, photoCount: true } },
+            finalPackage: { select: { id: true, price: true, photoCount: true } },
+            invoices: {
+              where: { parentInvoiceId: null },
+              select: { id: true, isLocked: true },
+              orderBy: { createdAt: "asc" },
+              take: 1,
+            },
+            orderAddOns: {
+              select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        });
+        if (!order) throw new Error("Order not found");
+        if (order.status === OrderStatus.DELIVERED) {
+          throw new Error("Delivered orders cannot be edited");
+        }
+        if (order.invoices[0]?.isLocked) {
+          throw new Error("Invoice is locked. Use the adjustment flow before changing package composition.");
+        }
+
+        const currentPackage = order.finalPackage ?? order.originalPackage;
+        if (!currentPackage) throw new Error("Order has no current package");
+
+        const [currentItem, newProduct] = await Promise.all([
+          tx.packageItem.findUnique({
+            where: { id: data.packageItemId },
+            include: { product: { select: { id: true, name: true, category: true } } },
+          }),
+          tx.product.findUnique({
+            where: { id: data.newProductId },
+            select: {
+              id: true,
+              name: true,
+              category: true,
+              canonicalPrice: true,
+              isActive: true,
+              isPackageDeliverable: true,
+            },
+          }),
+        ]);
+
+        if (!currentItem || currentItem.packageId !== currentPackage.id) {
+          throw new Error("Package item is not part of the current order package");
+        }
+        if (!newProduct || !newProduct.isActive || !newProduct.isPackageDeliverable) {
+          throw new Error("Replacement product is not available");
+        }
+        if (newProduct.category !== currentItem.product.category) {
+          throw new Error("Replacement product must be in the same category");
+        }
+        if (newProduct.id === currentItem.productId) {
+          throw new Error("Replacement product is already included");
+        }
+
+        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const delta = newProduct.canonicalPrice.minus(currentItem.priceSnapshot);
+        const existingAddOn = await tx.orderAddOn.findFirst({
+          where: {
+            orderId,
+            packageItemId: currentItem.id,
+          },
+          select: { id: true },
+        });
+        const addOn = existingAddOn
+          ? await tx.orderAddOn.update({
+              where: { id: existingAddOn.id },
+              data: {
+                productId: newProduct.id,
+                nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
+                priceSnapshot: delta,
+                quantity: 1,
+                notes: `Package item upgrade from ${currentItem.product.name}`,
+              },
+              select: { id: true },
+            })
+          : await tx.orderAddOn.create({
+              data: {
+                orderId,
+                productId: newProduct.id,
+                packageItemId: currentItem.id,
+                nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
+                priceSnapshot: delta,
+                quantity: 1,
+                notes: `Package item upgrade from ${currentItem.product.name}`,
+              },
+              select: { id: true },
+            });
+
+        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
+          orderId,
+          previousPackagePrice: currentPackage.price,
+          previousAddOns,
+          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousIncludedPhotoCount: currentPackage.photoCount,
+        });
+
+        await recordOrderActivity(tx, {
+          orderId,
+          userId: actorContext.actorUserId ?? null,
+          type: OrderActivityType.ADD_ON_CHANGED,
+          title: "Package item upgraded",
+          description: `${currentItem.product.name} changed to ${newProduct.name} for ${formatSignedMoney(delta)}.`,
+          metadata: {
+            orderAddOnId: addOn.id,
+            packageItemId: currentItem.id,
+            previousProductId: currentItem.productId,
+            previousProductName: currentItem.product.name,
+            nextProductId: newProduct.id,
+            nextProductName: newProduct.name,
+            priceDelta: delta.toFixed(3),
+          },
+        });
+
+        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
+            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
+            metadata: {
+              invoiceId: invoiceSummary.invoiceId,
+              invoiceNumber: invoiceSummary.invoiceNumber,
+              totalAmount: invoiceSummary.totalAmount,
+              paidAmount: invoiceSummary.paidAmount,
+              remainingAmount: invoiceSummary.remainingAmount,
+              status: invoiceSummary.status,
+              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+            },
+          });
+        }
+      }),
+    "Failed to upgrade package item"
+  );
+
+  const workspace = await getPOSWorkspace(orderId);
+  if (!workspace) throw new Error("Order not found after package item upgrade");
+  return workspace;
 }
 
 export async function updateOrderEditingWorkflow(
