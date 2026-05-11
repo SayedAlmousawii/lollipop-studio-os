@@ -57,6 +57,7 @@ import type {
   InvoiceStatusLabel,
   Order,
   OrderAddOn,
+  OrderAddOnDisplay,
   OrderAddOnProductOption,
   OrderActivityPreviewItem,
   OrderDetail,
@@ -66,8 +67,10 @@ import type {
   OrderEditorOption,
   OrderFilters,
   OrderFinancialSummary,
+  OrderFinancialLineItem,
   OrderPaymentStatusLabel,
   OrderPaymentStage,
+  PackageItemDisplay,
   OrderProductionAction,
   OrderProductionSection,
   ProductionQueueItem,
@@ -108,6 +111,19 @@ function assertActorPermission(actorContext: ActorContext, permission: Permissio
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
 type OrderWriteClient = Prisma.TransactionClient;
+
+const packageItemDisplaySelect = {
+  id: true,
+  productId: true,
+  quantity: true,
+  priceSnapshot: true,
+  product: {
+    select: {
+      name: true,
+      category: true,
+    },
+  },
+} satisfies Prisma.PackageItemSelect;
 
 export function parseOrderFilters(filters: {
   search?: string | string[];
@@ -207,6 +223,7 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
     productionStatus,
     deliveryStatus: row.deliveryStatus,
   });
+  const activePackage = row.finalPackage ?? row.originalPackage ?? null;
 
   return {
     ...summary,
@@ -223,6 +240,11 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
         ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
         : "—",
     addonsSummary: formatAddOnsSummary(mapStructuredAddOns(row.orderAddOns)),
+    packageItems: activePackage ? mapPackageItemDisplays(activePackage.items) : [],
+    bundleAdjustment: activePackage
+      ? formatSignedMoney(new Prisma.Decimal(activePackage.bundleAdjustment))
+      : formatSignedMoney(zeroMoney()),
+    paidAddOns: mapOrderAddOnDisplays(row.orderAddOns),
     ...workflowStatus,
     nextAction: resolveNextOrderAction({
       invoiceStatus: summary.invoiceStatus,
@@ -270,7 +292,11 @@ export async function getOrderSelectionWorkflowById(
                 name: true,
                 price: true,
                 photoCount: true,
-                description: true,
+                bundleAdjustment: true,
+                items: {
+                  select: packageItemDisplaySelect,
+                  orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                },
               },
             },
             finalPackage: {
@@ -279,7 +305,11 @@ export async function getOrderSelectionWorkflowById(
                 name: true,
                 price: true,
                 photoCount: true,
-                description: true,
+                bundleAdjustment: true,
+                items: {
+                  select: packageItemDisplaySelect,
+                  orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                },
               },
             },
             invoices: {
@@ -306,7 +336,17 @@ export async function getOrderSelectionWorkflowById(
         }),
         db.package.findMany({
           where: { isActive: true },
-          select: { id: true, name: true, price: true, photoCount: true },
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            photoCount: true,
+            bundleAdjustment: true,
+            items: {
+              select: packageItemDisplaySelect,
+              orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+            },
+          },
           orderBy: { price: "asc" },
         }),
         db.product.findMany({
@@ -366,8 +406,7 @@ export async function getOrderSelectionWorkflowById(
   const extraPhotoOption = await getExtraPhotoAddOnOption();
   const extraPhotoCharge = extraPhotoOption.price.mul(extraPhotoCount);
   const selectionAddOnTotal = manualAddOnTotal.plus(extraPhotoCharge);
-  const packageDescription =
-    order.finalPackage?.description ?? order.originalPackage?.description ?? null;
+  const packageItems = mapPackageItemDisplays(currentPackage.items);
 
   return {
     orderId: order.id,
@@ -375,10 +414,8 @@ export async function getOrderSelectionWorkflowById(
     finalPackageId: currentPackage.id,
     originalPackageName: order.originalPackage?.name ?? "—",
     finalPackageName: currentPackage.name,
-    packageDescription:
-      packageDescription !== null && packageDescription.trim().length > 0
-        ? packageDescription.trim()
-        : null,
+    packageItems,
+    bundleAdjustment: formatSignedMoney(new Prisma.Decimal(currentPackage.bundleAdjustment)),
     selectedPhotos,
     includedPhotoCount,
     extraPhotoCount,
@@ -1669,12 +1706,22 @@ function fetchOrderByIdWithClient(
         select: {
           name: true,
           photoCount: true,
+          bundleAdjustment: true,
+          items: {
+            select: packageItemDisplaySelect,
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          },
         },
       },
       finalPackage: {
         select: {
           name: true,
           photoCount: true,
+          bundleAdjustment: true,
+          items: {
+            select: packageItemDisplaySelect,
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          },
         },
       },
       editingJob: {
@@ -2383,6 +2430,64 @@ function formatAddOnsSummary(addOns: OrderAddOn[]): string {
   return addOns
     .map((addOn) => `${addOn.name} (${formatMoney(new Prisma.Decimal(addOn.price))})`)
     .join(", ");
+}
+
+function mapOrderAddOnDisplays(
+  rows: Array<{
+    productId: string | null;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+): OrderAddOnDisplay[] {
+  return rows.map((row) => ({
+    productId: row.productId,
+    name: row.nameSnapshot,
+    quantity: row.quantity,
+    unitPrice: formatMoney(row.priceSnapshot),
+    lineTotal: formatMoney(row.priceSnapshot.mul(row.quantity)),
+  }));
+}
+
+function mapPackageItemDisplays(
+  rows: Array<{
+    id: string;
+    productId: string;
+    quantity: number;
+    priceSnapshot: Prisma.Decimal;
+    product: {
+      name: string;
+      category: ProductCategory;
+    };
+  }>
+): PackageItemDisplay[] {
+  return rows.map((row) => ({
+    id: row.id,
+    productId: row.productId,
+    productName: row.product.name,
+    productCategory: formatEnum(row.product.category),
+    quantity: row.quantity,
+    unitPrice: formatMoney(row.priceSnapshot),
+    lineTotal: formatMoney(row.priceSnapshot.mul(row.quantity)),
+  }));
+}
+
+function mapOrderFinancialLineItem(row: {
+  id: string;
+  lineType: string;
+  description: string;
+  quantity: number;
+  unitPrice: Prisma.Decimal;
+  lineTotal: Prisma.Decimal;
+}): OrderFinancialLineItem {
+  return {
+    id: row.id,
+    lineType: formatEnum(row.lineType),
+    description: row.description,
+    quantity: row.quantity,
+    unitPrice: formatMoney(row.unitPrice),
+    lineTotal: formatMoney(row.lineTotal),
+  };
 }
 
 function formatSignedMoney(value: Prisma.Decimal): string {
@@ -3525,6 +3630,19 @@ export async function getOrderFinancialSummary(
               paidAmount: true,
               remainingAmount: true,
               status: true,
+              lineItems: {
+                select: {
+                  id: true,
+                  lineType: true,
+                  description: true,
+                  quantity: true,
+                  unitPrice: true,
+                  lineTotal: true,
+                  sortOrder: true,
+                  createdAt: true,
+                },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
               payments: {
                 orderBy: { paidAt: "desc" },
                 select: {
@@ -3614,6 +3732,7 @@ export async function getOrderFinancialSummary(
     invoiceTotal: formatMoney(invoiceSummary.totalAmount),
     paidAmount: formatMoney(invoiceSummary.paidAmount),
     balanceDue: formatMoney(invoiceSummary.remainingAmount),
+    lineItems: (invoice?.lineItems ?? []).map(mapOrderFinancialLineItem),
     payments,
   };
 }

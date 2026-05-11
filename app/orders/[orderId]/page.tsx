@@ -40,6 +40,8 @@ import type {
   OrderDeliveryWorkflow,
   OrderEditingWorkflow,
   OrderFinancialSummary,
+  OrderAddOnDisplay,
+  PackageItemDisplay,
   OrderProductionWorkflow,
   OrderSelectionWorkflow,
   OrderWorkflowStep,
@@ -212,7 +214,7 @@ function ProductionTab({
               ["Production status", production.productionStatus],
               ["Delivery readiness", production.deliveryStatus],
               ["Ready for pickup", production.readyAt ?? "Not ready"],
-              ["Deliverables", order.addonsSummary],
+              ["Deliverables", formatDeliverablesSummary(order.packageItems, order.paidAddOns)],
               ["Included photos", order.includedPhotoCount],
               ["Extra photos", order.extraPhotoCount],
             ]}
@@ -333,29 +335,24 @@ function OverviewTab({ order }: { order: OrderDetail }) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Workflow Progress</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <WorkflowStrip steps={order.workflowSteps} compact />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle className="text-base">Deliverables</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-5">
             <InfoGrid
               items={[
                 ["Package", order.finalPackageName],
                 ["Photo limit", order.includedPhotoCount],
                 ["Selected photos", selectedPhotosLabel],
-                [
-                  "Add-ons",
-                  order.addonsSummary === "—" ? "None selected" : order.addonsSummary,
-                ],
+                ["Bundle adjustment", order.bundleAdjustment],
               ]}
             />
+            <DeliverableList
+              title="Included in Package"
+              items={order.packageItems}
+              emptyLabel="No structured package items have been added yet."
+              photoCountLabel={`${order.includedPhotoCount} Photos`}
+            />
+            <AddOnList items={order.paidAddOns} />
           </CardContent>
         </Card>
 
@@ -410,15 +407,21 @@ function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
             Selection
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-5">
           <InfoGrid
             items={[
               ["Package", selection.finalPackageName],
               ["Package limit", String(selection.includedPhotoCount)],
-              ["Package includes", selection.packageDescription ?? "—"],
+              ["Bundle adjustment", selection.bundleAdjustment],
               ["Selected photos", String(selection.selectedPhotos)],
               ["Extra selected", String(selection.extraPhotoCount)],
             ]}
+          />
+          <DeliverableList
+            title="Package Includes"
+            items={selection.packageItems}
+            emptyLabel="No structured package items have been added yet."
+            photoCountLabel={`${selection.includedPhotoCount} Photos`}
           />
         </CardContent>
       </Card>
@@ -470,20 +473,43 @@ function FinancialsTab({
             <CardTitle className="text-base">Price Breakdown</CardTitle>
           </CardHeader>
           <CardContent>
-            <InfoGrid
-              items={[
-                ["Base package", financial?.basePackageName ?? order.originalPackageName],
-                ["Package price", financial?.basePackagePrice ?? "—"],
-                ...(financial?.upgradePackageName
-                  ? ([
-                      ["Upgrade to", financial.upgradePackageName],
-                      ["Upgrade charge", financial.upgradeAmount ?? "—"],
-                    ] as Array<[string, string]>)
-                  : []),
-                ["Add-on total", financial?.addOnTotal ?? "—"],
-                ["Extra photos", financial?.extraPhotoTotal ?? "—"],
-              ]}
-            />
+            {financial && financial.lineItems.length > 0 ? (
+              <div className="space-y-3">
+                {financial.lineItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-text-primary">
+                        {item.description}
+                      </p>
+                      <p className="text-xs text-text-secondary">
+                        {item.lineType} · {item.quantity} × {item.unitPrice}
+                      </p>
+                    </div>
+                    <p className="text-sm font-medium text-text-primary">
+                      {item.lineTotal}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <InfoGrid
+                items={[
+                  ["Base package", financial?.basePackageName ?? order.originalPackageName],
+                  ["Package price", financial?.basePackagePrice ?? "—"],
+                  ...(financial?.upgradePackageName
+                    ? ([
+                        ["Upgrade to", financial.upgradePackageName],
+                        ["Upgrade charge", financial.upgradeAmount ?? "—"],
+                      ] as Array<[string, string]>)
+                    : []),
+                  ["Add-on total", financial?.addOnTotal ?? "—"],
+                  ["Extra photos", financial?.extraPhotoTotal ?? "—"],
+                ]}
+              />
+            )}
           </CardContent>
         </Card>
       </div>
@@ -537,6 +563,91 @@ function FinancialsTab({
       ) : null}
     </div>
   );
+}
+
+function DeliverableList({
+  title,
+  items,
+  emptyLabel,
+  photoCountLabel,
+}: {
+  title: string;
+  items: PackageItemDisplay[];
+  emptyLabel: string;
+  photoCountLabel: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium uppercase text-text-muted">{title}</p>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
+          >
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {item.quantity}× {item.productName}
+              </p>
+              <p className="text-xs text-text-secondary">
+                {item.productCategory} · {item.unitPrice}
+              </p>
+            </div>
+            <p className="text-sm font-medium text-text-primary">{item.lineTotal}</p>
+          </div>
+        ))}
+        <div className="rounded-md border border-border bg-surface-soft px-3 py-2">
+          <p className="text-sm font-medium text-text-primary">{photoCountLabel}</p>
+          <p className="text-xs text-text-secondary">Included photo selection</p>
+        </div>
+        {items.length === 0 ? (
+          <p className="text-sm text-text-secondary">{emptyLabel}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function AddOnList({ items }: { items: OrderAddOnDisplay[] }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium uppercase text-text-muted">Paid Add-ons</p>
+      {items.length > 0 ? (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <div
+              key={`${item.productId ?? item.name}-${item.name}`}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
+            >
+              <div>
+                <p className="text-sm font-medium text-text-primary">
+                  {item.quantity}× {item.name}
+                </p>
+                <p className="text-xs text-text-secondary">{item.unitPrice}</p>
+              </div>
+              <p className="text-sm font-medium text-text-primary">
+                {item.lineTotal}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-text-secondary">No paid add-ons selected.</p>
+      )}
+    </div>
+  );
+}
+
+function formatDeliverablesSummary(
+  packageItems: PackageItemDisplay[],
+  paidAddOns: OrderAddOnDisplay[]
+): string {
+  const itemCount = packageItems.reduce((sum, item) => sum + item.quantity, 0);
+  const addOnCount = paidAddOns.reduce((sum, item) => sum + item.quantity, 0);
+  const parts = [];
+  if (itemCount > 0) parts.push(`${itemCount} package item${itemCount === 1 ? "" : "s"}`);
+  if (addOnCount > 0) parts.push(`${addOnCount} paid add-on${addOnCount === 1 ? "" : "s"}`);
+  return parts.length > 0 ? parts.join(" · ") : "No structured deliverables";
 }
 
 function RelatedRecords({ order }: { order: OrderDetail }) {

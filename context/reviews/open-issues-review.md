@@ -31,10 +31,6 @@
 
 ## Feature Gaps
 
-### Package Deliverables Missing from Order Tab
-**Issue:** Albums and canvases (add-ons) only appear in the Production tab summary (`order.addonsSummary`). They do not appear as a dedicated deliverables section in the order tab.  
-**Fix:** Surface package add-ons in the order tab and ensure they are included in deliverables tracking.
-
 ### Increase Public IDs to 6 Digits
 **Current:** 5 digits — e.g., `ORD-00001`, `BKG-00001`, `INV-PUB-00001`  
 **Fix:** Increase to 6 digits for scalability.  

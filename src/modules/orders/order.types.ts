@@ -61,6 +61,9 @@ export interface OrderDetail extends Order {
   includedPhotoCount: string;
   extraPhotoCount: string;
   addonsSummary: string;
+  packageItems: PackageItemDisplay[];
+  bundleAdjustment: string;
+  paidAddOns: OrderAddOnDisplay[];
   selectionStatus: string;
   editingStatus: string;
   productionStatus: string;
@@ -77,7 +80,8 @@ export interface OrderSelectionWorkflow {
   finalPackageId: string;
   originalPackageName: string;
   finalPackageName: string;
-  packageDescription: string | null;
+  packageItems: PackageItemDisplay[];
+  bundleAdjustment: string;
   selectedPhotos: number;
   includedPhotoCount: number;
   extraPhotoCount: number;
@@ -225,6 +229,14 @@ export interface OrderAddOn {
   price: number;
 }
 
+export interface OrderAddOnDisplay {
+  productId: string | null;
+  name: string;
+  quantity: number;
+  unitPrice: string;
+  lineTotal: string;
+}
+
 export interface OrderAddOnProductOption {
   id: string;
   name: string;
@@ -239,6 +251,16 @@ export interface OrderEditPackage {
   price: number;
   priceLabel: string;
   photoCount: number;
+}
+
+export interface PackageItemDisplay {
+  id: string;
+  productId: string;
+  productName: string;
+  productCategory: string;
+  quantity: number;
+  unitPrice: string;
+  lineTotal: string;
 }
 
 export interface EditableOrder {
@@ -276,6 +298,15 @@ export interface OrderPaymentStage {
   notes: string;
 }
 
+export interface OrderFinancialLineItem {
+  id: string;
+  lineType: string;
+  description: string;
+  quantity: number;
+  unitPrice: string;
+  lineTotal: string;
+}
+
 export interface OrderFinancialSummary {
   invoiceId: string | null;
   invoiceNumber: string | null;
@@ -290,6 +321,7 @@ export interface OrderFinancialSummary {
   invoiceTotal: string;
   paidAmount: string;
   balanceDue: string;
+  lineItems: OrderFinancialLineItem[];
   payments: OrderPaymentStage[];
 }
 
