@@ -39,7 +39,7 @@ export async function getProducts(): Promise<Product[]> {
           },
           _count: { select: { packageItems: true } },
         },
-        orderBy: [{ category: "asc" }, { name: "asc" }],
+        orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
       }),
     "Failed to fetch products"
   );
@@ -61,6 +61,8 @@ export async function getProducts(): Promise<Product[]> {
       activePackageItemCount,
       status: row.isActive ? "Active" : "Inactive",
       isActive: row.isActive,
+      isPackageDeliverable: row.isPackageDeliverable,
+      isAddOn: row.isAddOn,
     };
   });
 }
@@ -69,14 +71,14 @@ export async function getActiveProductOptions(): Promise<GroupedProductOptions[]
   const rows = await withRetry(
     () =>
       db.product.findMany({
-        where: { isActive: true },
+        where: { isActive: true, isPackageDeliverable: true },
         select: {
           id: true,
           name: true,
           category: true,
           canonicalPrice: true,
         },
-        orderBy: [{ category: "asc" }, { name: "asc" }],
+        orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
       }),
     "Failed to fetch product options"
   );
@@ -113,6 +115,8 @@ export async function createProduct(input: CreateProductInput) {
       category: data.category,
       canonicalPrice: decimal(data.canonicalPrice),
       description: data.description,
+      isPackageDeliverable: data.isPackageDeliverable,
+      isAddOn: data.isAddOn,
     },
     select: { id: true },
   });
@@ -133,6 +137,8 @@ export async function updateProduct(
         canonicalPrice: decimal(data.canonicalPrice),
         description: data.description,
         isActive: data.isActive,
+        isPackageDeliverable: data.isPackageDeliverable,
+        isAddOn: data.isAddOn,
       },
       select: { id: true },
     });
@@ -148,39 +154,42 @@ export async function updateProduct(
 }
 
 export async function archiveProduct(id: string): Promise<void> {
-  const product = await db.product.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      packageItems: {
-        select: {
-          package: { select: { isActive: true } },
-        },
-      },
-    },
-  });
-
-  if (!product) {
-    throw new ProductNotFoundError();
-  }
-
-  const hasActivePackageReferences = product.packageItems.some(
-    (item) => item.package.isActive
-  );
-
-  if (hasActivePackageReferences) {
-    throw new ProductArchiveBlockedError();
-  }
-
-  if (product.packageItems.length > 0) {
-    await db.product.update({
+  await db.$transaction(async (tx) => {
+    const product = await tx.product.findUnique({
       where: { id },
-      data: { isActive: false },
+      select: {
+        id: true,
+        packageItems: {
+          select: {
+            package: { select: { isActive: true } },
+          },
+        },
+        _count: { select: { orderAddOns: true } },
+      },
     });
-    return;
-  }
 
-  await db.product.delete({ where: { id } });
+    if (!product) {
+      throw new ProductNotFoundError();
+    }
+
+    const hasActivePackageReferences = product.packageItems.some(
+      (item) => item.package.isActive
+    );
+
+    if (hasActivePackageReferences) {
+      throw new ProductArchiveBlockedError();
+    }
+
+    if (product.packageItems.length > 0 || product._count.orderAddOns > 0) {
+      await tx.product.update({
+        where: { id },
+        data: { isActive: false },
+      });
+      return;
+    }
+
+    await tx.product.delete({ where: { id } });
+  });
 }
 
 function decimal(value: number): Prisma.Decimal {

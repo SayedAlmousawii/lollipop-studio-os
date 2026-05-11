@@ -1,5 +1,7 @@
 import type { ProductCategory } from "@prisma/client";
 
+export const DEFAULT_PRODUCT_CATEGORY: ProductCategory = "ALBUM";
+
 export const PRODUCT_CATEGORY_LABELS = {
   ALBUM: "Album",
   CANVAS: "Canvas",

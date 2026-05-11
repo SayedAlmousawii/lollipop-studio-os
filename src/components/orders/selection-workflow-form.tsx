@@ -176,7 +176,7 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
                   <div className="space-y-2">
                     <Label htmlFor={`selection-add-on-option-${index}`}>Add-on</Label>
                     <Select
-                      name="addOnOptionId"
+                      name="addOnProductId"
                       value={addOn.optionId ?? ""}
                       onValueChange={(optionId) => {
                         const option = selection.addOnOptions.find((item) => item.id === optionId);

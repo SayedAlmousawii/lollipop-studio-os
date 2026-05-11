@@ -12,7 +12,8 @@ CREATE TABLE "products" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "products_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "products_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "products_canonicalPrice_check" CHECK ("canonicalPrice" >= 0)
 );
 
 -- CreateTable
@@ -26,7 +27,12 @@ CREATE TABLE "package_items" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "package_items_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "package_items_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "package_items_packageId_productId_key" UNIQUE ("packageId", "productId"),
+    CONSTRAINT "package_items_quantity_check" CHECK ("quantity" > 0),
+    CONSTRAINT "package_items_priceSnapshot_check" CHECK ("priceSnapshot" >= 0),
+    CONSTRAINT "package_items_packageId_fkey" FOREIGN KEY ("packageId") REFERENCES "packages"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "package_items_productId_fkey" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateIndex
@@ -37,9 +43,3 @@ CREATE INDEX "package_items_packageId_idx" ON "package_items"("packageId");
 
 -- CreateIndex
 CREATE INDEX "package_items_productId_idx" ON "package_items"("productId");
-
--- AddForeignKey
-ALTER TABLE "package_items" ADD CONSTRAINT "package_items_packageId_fkey" FOREIGN KEY ("packageId") REFERENCES "packages"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "package_items" ADD CONSTRAINT "package_items_productId_fkey" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

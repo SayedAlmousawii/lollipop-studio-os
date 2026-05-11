@@ -65,12 +65,12 @@ export async function updateSelectionWorkflowAction(
   _prev: UpdateSelectionActionState,
   formData: FormData
 ): Promise<UpdateSelectionActionState> {
-  const addOnOptionIds = formData.getAll("addOnOptionId");
-  const addOns = addOnOptionIds.flatMap((optionId) => {
-    const safeOptionId = typeof optionId === "string" ? optionId.trim() : "";
-    if (!safeOptionId) return [];
+  const addOnProductIds = formData.getAll("addOnProductId");
+  const addOns = addOnProductIds.flatMap((productId) => {
+    const safeProductId = typeof productId === "string" ? productId.trim() : "";
+    if (!safeProductId) return [];
 
-    return [{ optionId: safeOptionId, name: "Selected add-on", price: 0 }];
+    return [{ optionId: safeProductId, name: "Selected add-on", price: 0 }];
   });
 
   const parsed = updateOrderSelectionWorkflowSchema.safeParse({

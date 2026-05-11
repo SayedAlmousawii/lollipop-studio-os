@@ -40,6 +40,14 @@ export const createProductSchema = z.object({
       .max(1000, "Description must be 1000 characters or fewer")
       .optional()
   ),
+  isPackageDeliverable: z.preprocess(
+    (value) => value === "on" || value === true,
+    z.boolean()
+  ),
+  isAddOn: z.preprocess(
+    (value) => value === "on" || value === true,
+    z.boolean()
+  ),
 });
 
 export const updateProductSchema = createProductSchema.extend({

@@ -13,25 +13,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  DEFAULT_PRODUCT_CATEGORY,
   PRODUCT_CATEGORY_LABELS,
   PRODUCT_CATEGORY_OPTIONS,
 } from "@/modules/products/product.constants";
 
-interface ProductFormProps {
-  mode: "create" | "edit";
-  productId?: string;
+interface ProductCreateFormProps {
+  mode: "create";
+  productId?: never;
   defaultValues?: ProductActionState["values"];
 }
+
+interface ProductEditFormProps {
+  mode: "edit";
+  productId: string;
+  defaultValues?: ProductActionState["values"];
+}
+
+type ProductFormProps = ProductCreateFormProps | ProductEditFormProps;
 
 export function ProductForm({
   mode,
   productId,
   defaultValues,
 }: ProductFormProps) {
-  const action =
-    mode === "edit" && productId
-      ? updateProduct.bind(null, productId)
-      : createProduct;
+  const action = mode === "edit"
+    ? updateProduct.bind(null, productId)
+    : createProduct;
   const [state, formAction] = useActionState<ProductActionState, FormData>(
     action,
     { values: defaultValues ?? emptyValues() }
@@ -95,7 +103,7 @@ function ProductFields({
           <select
             id="product-category"
             name="category"
-            defaultValue={state.values?.category ?? "ALBUM"}
+            defaultValue={state.values?.category ?? DEFAULT_PRODUCT_CATEGORY}
             disabled={pending}
             aria-invalid={state.errors?.category?.length ? true : undefined}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -143,6 +151,29 @@ function ProductFields({
         ) : null}
       </div>
 
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-sm text-text-secondary">
+          <input
+            type="checkbox"
+            name="isPackageDeliverable"
+            defaultChecked={state.values?.isPackageDeliverable !== ""}
+            disabled={pending}
+            className="h-4 w-4 rounded border-border"
+          />
+          Available inside packages
+        </label>
+        <label className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-sm text-text-secondary">
+          <input
+            type="checkbox"
+            name="isAddOn"
+            defaultChecked={state.values?.isAddOn !== ""}
+            disabled={pending}
+            className="h-4 w-4 rounded border-border"
+          />
+          Sell as standalone add-on
+        </label>
+      </div>
+
       <div className="space-y-2">
         <Label htmlFor="product-description">Description</Label>
         <Textarea
@@ -180,8 +211,10 @@ function FieldError({ messages }: { messages?: string[] }) {
 function emptyValues(): ProductActionState["values"] {
   return {
     name: "",
-    category: "ALBUM",
+    category: DEFAULT_PRODUCT_CATEGORY,
     canonicalPrice: "",
     description: "",
+    isPackageDeliverable: "on",
+    isAddOn: "",
   };
 }

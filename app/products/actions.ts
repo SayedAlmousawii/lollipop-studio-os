@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ProductCategory } from "@prisma/client";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -13,6 +12,7 @@ import {
   ProductNotFoundError,
   updateProduct as updateProductRecord,
 } from "@/modules/products/product.service";
+import { DEFAULT_PRODUCT_CATEGORY } from "@/modules/products/product.constants";
 import {
   createProductSchema,
   updateProductSchema,
@@ -29,6 +29,8 @@ type ProductFormValues = {
   category: string;
   canonicalPrice: string;
   description: string;
+  isPackageDeliverable: string;
+  isAddOn: string;
   isActive?: string;
 };
 
@@ -36,6 +38,9 @@ export type ProductArchiveActionState = {
   errors?: Partial<Record<string, string[]>>;
   success?: string;
 };
+
+const PRODUCT_ACTION_GENERIC_ERROR =
+  "An unexpected error occurred while processing the product.";
 
 export async function createProduct(
   _prev: ProductActionState,
@@ -55,9 +60,11 @@ export async function createProduct(
   try {
     await createProductRecord(parsed.data);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to create product";
-    return { values, errors: { _global: [message] } };
+    logProductActionError("createProduct", error);
+    return {
+      values,
+      errors: { _global: [PRODUCT_ACTION_GENERIC_ERROR] },
+    };
   }
 
   revalidatePath("/products");
@@ -89,13 +96,17 @@ export async function updateProduct(
   try {
     await updateProductRecord(productId, parsed.data);
   } catch (error) {
-    const message =
-      error instanceof ProductNotFoundError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : "Unable to update product";
-    return { values, errors: { _global: [message] } };
+    logProductActionError("updateProduct", error);
+    return {
+      values,
+      errors: {
+        _global: [
+          error instanceof ProductNotFoundError
+            ? "Product not found."
+            : PRODUCT_ACTION_GENERIC_ERROR,
+        ],
+      },
+    };
   }
 
   revalidatePath("/products");
@@ -115,14 +126,18 @@ export async function archiveProductAction(
   try {
     await archiveProduct(productId);
   } catch (error) {
-    const message =
-      error instanceof ProductArchiveBlockedError ||
-      error instanceof ProductNotFoundError
-        ? error.message
-        : error instanceof Error
-          ? error.message
-          : "Unable to archive product";
-    return { errors: { _global: [message] } };
+    logProductActionError("archiveProduct", error);
+    return {
+      errors: {
+        _global: [
+          error instanceof ProductArchiveBlockedError
+            ? "This product is used by active packages and cannot be archived yet."
+            : error instanceof ProductNotFoundError
+              ? "Product not found."
+              : PRODUCT_ACTION_GENERIC_ERROR,
+        ],
+      },
+    };
   }
 
   revalidatePath("/products");
@@ -132,21 +147,30 @@ export async function archiveProductAction(
 function productFormValues(formData: FormData): ProductFormValues {
   return {
     name: formValue(formData.get("name")),
-    category: formValue(formData.get("category")) || ProductCategory.OTHER,
+    category: formValue(formData.get("category")) || DEFAULT_PRODUCT_CATEGORY,
     canonicalPrice: formValue(formData.get("canonicalPrice")),
     description: formValue(formData.get("description")),
+    isPackageDeliverable:
+      formData.get("isPackageDeliverable") === "on" ? "on" : "",
+    isAddOn: formData.get("isAddOn") === "on" ? "on" : "",
   };
 }
 
 function emptyProductValues(): ProductFormValues {
   return {
     name: "",
-    category: ProductCategory.ALBUM,
+    category: DEFAULT_PRODUCT_CATEGORY,
     canonicalPrice: "",
     description: "",
+    isPackageDeliverable: "on",
+    isAddOn: "",
   };
 }
 
 function formValue(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value : "";
+}
+
+function logProductActionError(action: string, error: unknown): void {
+  console.error(`[products] ${action} failed`, error);
 }

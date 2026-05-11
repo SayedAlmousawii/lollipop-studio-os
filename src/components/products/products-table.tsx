@@ -44,6 +44,7 @@ export function ProductsTable({ products }: ProductsTableProps) {
             <TableHead className="text-text-secondary">Name</TableHead>
             <TableHead className="text-text-secondary">Category</TableHead>
             <TableHead className="text-text-secondary">Canonical Price</TableHead>
+            <TableHead className="text-text-secondary">Use</TableHead>
             <TableHead className="text-text-secondary">Status</TableHead>
             <TableHead className="text-text-secondary">Package Uses</TableHead>
             <TableHead className="w-12">
@@ -70,6 +71,13 @@ export function ProductsTable({ products }: ProductsTableProps) {
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {product.canonicalPrice}
+              </TableCell>
+              <TableCell className="text-sm text-text-secondary">
+                {product.isPackageDeliverable && product.isAddOn
+                  ? "Package + Add-on"
+                  : product.isAddOn
+                    ? "Add-on"
+                    : "Package"}
               </TableCell>
               <TableCell>
                 <ProductStatusBadge status={product.status} />

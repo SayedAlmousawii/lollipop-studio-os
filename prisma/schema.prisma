@@ -235,12 +235,17 @@ model Product {
   canonicalPrice Decimal         @db.Decimal(10, 3)
   description    String?
   isActive       Boolean         @default(true)
+  isPackageDeliverable Boolean   @default(true)
+  isAddOn        Boolean         @default(false)
+  sortOrder      Int             @default(0)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
   packageItems PackageItem[]
+  orderAddOns  OrderAddOn[]
 
   @@index([category, isActive])
+  @@index([isAddOn, isActive, sortOrder])
   @@map("products")
 }
 
@@ -257,25 +262,10 @@ model PackageItem {
   package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
+  @@unique([packageId, productId])
   @@index([packageId])
   @@index([productId])
   @@map("package_items")
-}
-
-model OrderAddOnOption {
-  id        String   @id @default(cuid())
-  name      String
-  category  String
-  price     Decimal  @db.Decimal(10, 3)
-  isActive  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  orderAddOns OrderAddOn[]
-
-  @@index([category, isActive])
-  @@map("order_add_on_options")
 }
 
 model StudioDepartment {
@@ -460,7 +450,7 @@ model OrderActivity {
 model OrderAddOn {
   id            String   @id @default(cuid())
   orderId       String
-  addOnOptionId String?
+  productId     String?
   nameSnapshot  String
   priceSnapshot Decimal  @db.Decimal(10, 3)
   quantity      Int      @default(1)
@@ -468,10 +458,11 @@ model OrderAddOn {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  order       Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  addOnOption OrderAddOnOption? @relation(fields: [addOnOptionId], references: [id], onDelete: SetNull)
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([productId])
   @@map("order_add_ons")
 }
 

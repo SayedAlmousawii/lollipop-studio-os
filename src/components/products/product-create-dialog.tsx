@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactElement } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
 import { ProductForm } from "./product-form";
 
 interface ProductCreateDialogProps {
-  trigger: ReactNode;
+  trigger: ReactElement;
 }
 
 export function ProductCreateDialog({ trigger }: ProductCreateDialogProps) {

@@ -14,6 +14,8 @@ export interface Product {
   activePackageItemCount: number;
   status: ProductStatus;
   isActive: boolean;
+  isPackageDeliverable: boolean;
+  isAddOn: boolean;
 }
 
 export interface ProductOption {

@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 56a product catalog foundation is complete; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 56a product catalog foundation is complete and now uses Product as the shared catalog for package deliverables and standalone add-ons; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,6 +25,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 56a.2: Hardened product catalog flows with safe action error messages, stricter form contracts, atomic archive behavior, and package item integrity constraints.
+- Feature 56a.1: Unified package deliverables and standalone add-ons into Product; existing add-on options migrate into products and OrderAddOn now references Product snapshots.
 - Feature 56a: Product catalog foundation — Product/ProductCategory schema plus supporting PackageItem relation, product service/actions, admin `/products` UI, and admin/manager navigation/permission gate.
 - Feature 55g follow-up: Added a shared TimePicker and migrated booking create/edit session time fields off native time inputs.
 - Feature 55g: Migrated all raw date inputs to the shared DatePicker component across booking, editing workflow, invoice payment, and child forms.

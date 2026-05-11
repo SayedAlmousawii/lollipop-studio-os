@@ -37,6 +37,8 @@ export function ProductEditDialog({ product }: ProductEditDialogProps) {
             category: product.category,
             canonicalPrice: product.canonicalPriceValue.toFixed(3),
             description: product.description,
+            isPackageDeliverable: product.isPackageDeliverable ? "on" : "",
+            isAddOn: product.isAddOn ? "on" : "",
             isActive: product.isActive ? "on" : "",
           }}
         />
