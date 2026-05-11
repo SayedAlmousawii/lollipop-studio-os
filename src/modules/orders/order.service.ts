@@ -74,6 +74,7 @@ import type {
   OrderAddOnDisplay,
   OrderAddOnProductOption,
   OrderActivityPreviewItem,
+  CustomerOrderHistoryItem,
   OrderDetail,
   OrderDeliveryWorkflow,
   OrderEditPackage,
@@ -122,6 +123,7 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
   "PAID",
   "CLOSED",
 ]);
+const MAX_CUSTOMER_ORDER_HISTORY_LIMIT = 100;
 
 function assertActorPermission(actorContext: ActorContext, permission: Permission): void {
   if (!actorContext.actorRole) return;
@@ -191,6 +193,19 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
   );
 
   return rows.map(mapOrderRow);
+}
+
+export async function getOrdersByCustomerId(
+  customerId: string,
+  limit = 10
+): Promise<CustomerOrderHistoryItem[]> {
+  const sanitizedLimit = sanitizeCustomerOrderHistoryLimit(limit);
+  const rows = await withRetry(
+    () => fetchOrdersByCustomerId(customerId, sanitizedLimit),
+    "Failed to fetch customer orders"
+  );
+
+  return rows.map(mapCustomerOrderHistoryRow);
 }
 
 export async function getOrderFilterEditorOptions(): Promise<OrderEditorOption[]> {
@@ -2531,6 +2546,32 @@ async function fetchOrders(filters: OrderFilters) {
   });
 }
 
+function fetchOrdersByCustomerId(customerId: string, limit: number) {
+  return db.order.findMany({
+    where: { customerId },
+    select: {
+      id: true,
+      jobNumber: true,
+      status: true,
+      booking: { select: { sessionDate: true } },
+      originalPackage: { select: { name: true } },
+      finalPackage: { select: { name: true } },
+      invoices: {
+        select: {
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          status: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+}
+
 async function fetchOrderById(orderId: string) {
   return fetchOrderByIdWithClient(db, orderId);
 }
@@ -2677,6 +2718,24 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
   };
 }
 
+type CustomerOrderHistoryRow = Awaited<ReturnType<typeof fetchOrdersByCustomerId>>[number];
+
+function mapCustomerOrderHistoryRow(
+  row: CustomerOrderHistoryRow
+): CustomerOrderHistoryItem {
+  const invoiceSummary = summarizeInvoices(row.invoices);
+
+  return {
+    id: row.id,
+    jobNumber: row.jobNumber,
+    sessionDate: formatDate(row.booking.sessionDate),
+    packageName: row.finalPackage?.name ?? row.originalPackage?.name ?? "—",
+    orderStatus: mapOrderStatus(row.status),
+    invoiceStatus: invoiceSummary.status,
+    paymentStatus: invoiceSummary.paymentStatus,
+  };
+}
+
 type InvoiceSummaryRow = Array<{
   totalAmount: Prisma.Decimal;
   paidAmount: Prisma.Decimal;
@@ -2767,6 +2826,12 @@ function mapPaymentStatus(
     return "Paid";
   }
   return "Partially paid";
+}
+
+function sanitizeCustomerOrderHistoryLimit(limit: number): number {
+  const parsedLimit = Number.isFinite(limit) ? Math.trunc(limit) : 10;
+
+  return Math.min(Math.max(parsedLimit, 1), MAX_CUSTOMER_ORDER_HISTORY_LIMIT);
 }
 
 function mapWorkflowStatus(row: {

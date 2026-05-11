@@ -50,6 +50,16 @@ export interface Order {
   primaryInvoiceNumber: string | null;
 }
 
+export interface CustomerOrderHistoryItem {
+  id: string;
+  jobNumber: string;
+  sessionDate: string;
+  packageName: string;
+  orderStatus: OrderStatusLabel;
+  invoiceStatus: InvoiceStatusLabel;
+  paymentStatus: OrderPaymentStatusLabel;
+}
+
 export interface OrderDetail extends Order {
   customerId: string;
   bookingId: string;

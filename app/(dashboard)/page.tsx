@@ -1,9 +1,10 @@
-import { Camera, DollarSign, ClipboardList, Users } from "lucide-react";
+import { Camera, ClipboardList, DollarSign, Users } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { StatCard } from "@/components/dashboard/stat-card";
 import { SectionHeader } from "@/components/dashboard/section-header";
 import { ScheduleItem } from "@/components/dashboard/schedule-item";
 import { ActivityItem } from "@/components/dashboard/activity-item";
+import { PhoneSalesSearch } from "@/components/dashboard/phone-sales-search";
 import { getDashboardData } from "@/modules/dashboard/dashboard.service";
 
 export default async function DashboardPage() {
@@ -41,6 +42,8 @@ export default async function DashboardPage() {
             />
           </div>
         </section>
+
+        <PhoneSalesSearch />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <section className="rounded-[14px] border border-border bg-surface p-5">

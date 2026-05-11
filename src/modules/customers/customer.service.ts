@@ -58,6 +58,12 @@ export interface CustomerEditRecord {
   notes: string;
 }
 
+export interface CustomerPhoneLookup {
+  id: string;
+  fullName: string;
+  phone: string;
+}
+
 export function parseCustomerFilters(filters: {
   search?: string | string[];
   status?: string | string[];
@@ -215,6 +221,43 @@ export async function getCustomerById(
     bookings,
     orders,
     recentHistory: buildRecentHistory(row.bookings, row.orders),
+  };
+}
+
+export async function getCustomerByPhone(
+  phone: string
+): Promise<CustomerPhoneLookup | null> {
+  const search = phone.trim();
+
+  if (!search) {
+    return null;
+  }
+
+  const rows = await withRetry(
+    () =>
+      db.customer.findMany({
+        where: buildCustomerPhoneLookupWhere(search),
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      }),
+    "Failed to fetch customer by phone"
+  );
+  const customer = prioritizeCustomers(rows, search)[0];
+
+  if (!customer) {
+    return null;
+  }
+
+  return {
+    id: customer.id,
+    fullName: customer.name,
+    phone: formatCustomerPhone(customer.phone),
   };
 }
 
@@ -404,6 +447,44 @@ function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInpu
     ...(searchClause ?? {}),
     ...(filters.status ? { status: filters.status } : {}),
   };
+}
+
+function buildCustomerPhoneLookupWhere(search: string): Prisma.CustomerWhereInput {
+  const normalizedPhoneSearch = normalizePhoneSearch(search);
+  const formattedPhoneSearch = normalizedPhoneSearch
+    ? formatCustomerPhone(normalizedPhoneSearch)
+    : undefined;
+  const phoneFilters = [
+    ...(normalizedPhoneSearch
+      ? [
+          {
+            phone: {
+              contains: normalizedPhoneSearch,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ]
+      : []),
+    ...(formattedPhoneSearch && formattedPhoneSearch !== normalizedPhoneSearch
+      ? [
+          {
+            phone: {
+              contains: formattedPhoneSearch,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ]
+      : []),
+  ];
+
+  return phoneFilters.length > 0
+    ? { OR: phoneFilters }
+    : {
+        phone: {
+          contains: search,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      };
 }
 
 function prioritizeCustomers<
