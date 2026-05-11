@@ -1,7 +1,11 @@
 "use server";
 
 import { z } from "zod";
-import { getCustomerByPhone, type CustomerPhoneLookup } from "@/modules/customers/customer.service";
+import {
+  getCustomerByPhone,
+  getCustomerPhoneLookupById,
+  type CustomerPhoneLookup,
+} from "@/modules/customers/customer.service";
 import { getOrdersByCustomerId } from "@/modules/orders/order.service";
 import type { CustomerOrderHistoryItem } from "@/modules/orders/order.types";
 
@@ -28,7 +32,11 @@ const phoneLookupSchema = z.object({
     .string()
     .trim()
     .min(1, "Phone number is required")
-    .regex(/^\+?[\d\s\-().]+$/, "Enter a valid phone number"),
+    .regex(/^(?=.*\d)\+?[\d\s\-().]+$/, "Enter a valid phone number"),
+});
+
+const customerIdLookupSchema = z.object({
+  customerId: z.string().trim().min(1, "Customer is required"),
 });
 
 export async function lookupDashboardSalesByPhone(
@@ -74,6 +82,48 @@ export async function lookupDashboardSalesByPhone(
       phoneSearch: parsed.data.phone,
       hasSearched: true,
       errors: { _global: ["Unable to complete phone search, please try again."] },
+    };
+  }
+}
+
+export async function lookupDashboardSalesByCustomerId(
+  customerId: string
+): Promise<DashboardPhoneLookupState> {
+  const parsed = customerIdLookupSchema.safeParse({ customerId });
+
+  if (!parsed.success) {
+    return {
+      ...initialLookupState,
+      hasSearched: true,
+      errors: { _global: ["Customer is required."] },
+    };
+  }
+
+  try {
+    const customer = await getCustomerPhoneLookupById(parsed.data.customerId);
+
+    if (!customer) {
+      return {
+        ...initialLookupState,
+        hasSearched: true,
+      };
+    }
+
+    const orders = await getOrdersByCustomerId(customer.id);
+
+    return {
+      phoneSearch: customer.phone,
+      customer,
+      orders,
+      hasSearched: true,
+    };
+  } catch (error) {
+    console.error("Dashboard customer lookup failed", error);
+
+    return {
+      ...initialLookupState,
+      hasSearched: true,
+      errors: { _global: ["Unable to complete customer search, please try again."] },
     };
   }
 }
