@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Plus, Trash2 } from "lucide-react";
 import { useActionState, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
@@ -24,6 +25,8 @@ interface PackageCreateFormProps {
   packageId?: never;
   productOptions: GroupedProductOptions[];
   defaultValues?: PackageFormValues;
+  presentation?: "dialog" | "page";
+  cancelHref?: string;
 }
 
 interface PackageEditFormProps {
@@ -31,6 +34,8 @@ interface PackageEditFormProps {
   packageId: string;
   productOptions: GroupedProductOptions[];
   defaultValues: PackageFormValues;
+  presentation?: "dialog" | "page";
+  cancelHref?: string;
 }
 
 type PackageFormProps = PackageCreateFormProps | PackageEditFormProps;
@@ -47,6 +52,8 @@ export function PackageForm({
   packageId,
   productOptions,
   defaultValues,
+  presentation = "dialog",
+  cancelHref = "/packages",
 }: PackageFormProps) {
   const action = mode === "edit"
     ? updatePackage.bind(null, packageId)
@@ -70,6 +77,7 @@ export function PackageForm({
     () => calculateBundleAdjustment(packagePrice, items),
     [packagePrice, items]
   );
+  const isPagePresentation = presentation === "page";
 
   function addItem() {
     setItems((current) => [...current, emptyItemRow()]);
@@ -96,8 +104,21 @@ export function PackageForm({
   }
 
   return (
-    <form action={formAction} className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+    <form
+      action={formAction}
+      className={
+        isPagePresentation
+          ? "space-y-5"
+          : "flex h-full min-h-0 flex-col overflow-hidden"
+      }
+    >
+      <div
+        className={
+          isPagePresentation
+            ? "space-y-5"
+            : "min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5"
+        }
+      >
         {state.errors?._global ? (
           <p className="rounded-md bg-danger-soft px-4 py-3 text-sm text-danger">
             {state.errors._global[0]}
@@ -165,12 +186,24 @@ export function PackageForm({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border bg-background px-6 py-4">
-        <DialogClose asChild>
-          <Button type="button" variant="outline">
-            Close
+      <div
+        className={
+          isPagePresentation
+            ? "flex items-center justify-end gap-3 pt-2"
+            : "flex shrink-0 items-center justify-end gap-3 border-t border-border bg-background px-6 py-4"
+        }
+      >
+        {isPagePresentation ? (
+          <Button type="button" variant="outline" asChild>
+            <Link href={cancelHref}>Cancel</Link>
           </Button>
-        </DialogClose>
+        ) : (
+          <DialogClose asChild>
+            <Button type="button" variant="outline">
+              Close
+            </Button>
+          </DialogClose>
+        )}
         <SubmitButton mode={mode} />
       </div>
     </form>

@@ -1,23 +1,18 @@
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
-import { PackageCreateDialog } from "@/components/packages/package-create-dialog";
 import { PackagesTable } from "@/components/packages/packages-table";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import { getPackages } from "@/modules/packages/package.service";
-import { getActiveProductOptions } from "@/modules/products/product.service";
 
 export default async function PackagesPage() {
   await requireCurrentAppUserPermission(PERMISSIONS.PACKAGE_CATALOG_MANAGE);
 
   let packages: Awaited<ReturnType<typeof getPackages>> = [];
-  let productOptions: Awaited<ReturnType<typeof getActiveProductOptions>> = [];
   let fetchError = false;
 
   try {
-    [packages, productOptions] = await Promise.all([
-      getPackages(),
-      getActiveProductOptions(),
-    ]);
+    packages = await getPackages();
   } catch {
     fetchError = true;
   }
@@ -35,10 +30,9 @@ export default async function PackagesPage() {
               Build commercial bundles from structured product deliverables.
             </p>
           </div>
-          <PackageCreateDialog
-            productOptions={productOptions}
-            trigger={<Button type="button">Create Package</Button>}
-          />
+          <Button type="button" asChild>
+            <Link href="/packages/new">Create Package</Link>
+          </Button>
         </div>
 
         {fetchError ? (
@@ -46,7 +40,7 @@ export default async function PackagesPage() {
             Failed to load packages. Please try refreshing the page.
           </p>
         ) : (
-          <PackagesTable packages={packages} productOptions={productOptions} />
+          <PackagesTable packages={packages} />
         )}
       </div>
     </PageContainer>
