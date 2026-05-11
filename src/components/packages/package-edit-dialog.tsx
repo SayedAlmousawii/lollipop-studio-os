@@ -1,7 +1,10 @@
+"use client";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -30,9 +33,12 @@ export function PackageEditDialog({
           Edit
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="grid max-h-[85dvh] max-w-4xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0">
+        <DialogHeader className="border-b border-border px-6 py-5">
           <DialogTitle>Edit Package</DialogTitle>
+          <DialogDescription className="sr-only">
+            Edit package pricing, status, and structured deliverable items.
+          </DialogDescription>
         </DialogHeader>
         <PackageForm
           mode="edit"

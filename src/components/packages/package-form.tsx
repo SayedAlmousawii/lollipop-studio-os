@@ -93,74 +93,76 @@ export function PackageForm({
   }
 
   return (
-    <form action={formAction} className="space-y-5">
-      {state.errors?._global ? (
-        <p className="rounded-md bg-danger-soft px-4 py-3 text-sm text-danger">
-          {state.errors._global[0]}
-        </p>
-      ) : null}
-      {state.success ? (
-        <p className="rounded-md bg-success-soft px-4 py-3 text-sm text-success">
-          {state.success}
-        </p>
-      ) : null}
-
-      <PackageFields
-        state={state}
-        mode={mode}
-        packagePrice={packagePrice}
-        onPackagePriceChange={setPackagePrice}
-      />
-
-      <div className="space-y-3 rounded-[14px] border border-border bg-surface-soft p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-text-primary">
-              Deliverable Items
-            </h3>
-            <p className="mt-1 text-xs text-text-secondary">
-              At least one item is recommended for a complete package.
-            </p>
-          </div>
-          <Button type="button" variant="outline" size="sm" onClick={addItem}>
-            <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
-            Add Item
-          </Button>
-        </div>
-
-        <FieldError messages={state.errors?.items} />
-
-        {items.length === 0 ? (
-          <p className="rounded-md border border-border bg-surface px-3 py-4 text-sm text-text-secondary">
-            No deliverables selected.
+    <form action={formAction} className="flex min-h-0 flex-col">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+        {state.errors?._global ? (
+          <p className="rounded-md bg-danger-soft px-4 py-3 text-sm text-danger">
+            {state.errors._global[0]}
           </p>
-        ) : (
-          <div className="space-y-3">
-            {items.map((item, index) => (
-              <PackageItemFields
-                key={item.key}
-                index={index}
-                item={item}
-                productOptions={productOptions}
-                onSelectProduct={selectProduct}
-                onChange={updateItem}
-                onRemove={removeItem}
-              />
-            ))}
-          </div>
-        )}
+        ) : null}
+        {state.success ? (
+          <p className="rounded-md bg-success-soft px-4 py-3 text-sm text-success">
+            {state.success}
+          </p>
+        ) : null}
 
-        <div className="flex items-center justify-between rounded-md border border-border bg-surface px-4 py-3">
-          <span className="text-sm font-medium text-text-primary">
-            Bundle adjustment
-          </span>
-          <span className="text-sm font-semibold text-text-primary">
-            {formatSignedMoney(bundleAdjustment)}
-          </span>
+        <PackageFields
+          state={state}
+          mode={mode}
+          packagePrice={packagePrice}
+          onPackagePriceChange={setPackagePrice}
+        />
+
+        <div className="space-y-3 rounded-[14px] border border-border bg-surface-soft p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">
+                Deliverable Items
+              </h3>
+              <p className="mt-1 text-xs text-text-secondary">
+                At least one item is recommended for a complete package.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={addItem}>
+              <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+              Add Item
+            </Button>
+          </div>
+
+          <FieldError messages={state.errors?.items} />
+
+          {items.length === 0 ? (
+            <p className="rounded-md border border-border bg-surface px-3 py-4 text-sm text-text-secondary">
+              No deliverables selected.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {items.map((item, index) => (
+                <PackageItemFields
+                  key={item.key}
+                  index={index}
+                  item={item}
+                  productOptions={productOptions}
+                  onSelectProduct={selectProduct}
+                  onChange={updateItem}
+                  onRemove={removeItem}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between rounded-md border border-border bg-surface px-4 py-3">
+            <span className="text-sm font-medium text-text-primary">
+              Bundle adjustment
+            </span>
+            <span className="text-sm font-semibold text-text-primary">
+              {formatSignedMoney(bundleAdjustment)}
+            </span>
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 pt-2">
+      <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border bg-background px-6 py-4">
         <DialogClose asChild>
           <Button type="button" variant="outline">
             Close
@@ -371,8 +373,8 @@ function FieldError({ messages }: { messages?: string[] }) {
 }
 
 function rowsFromValues(values: PackageFormValues): PackageItemRow[] {
-  return values.items.map((item) => ({
-    key: crypto.randomUUID(),
+  return values.items.map((item, index) => ({
+    key: `${item.productId || "item"}-${index}`,
     productId: item.productId,
     quantity: item.quantity,
     priceSnapshot: item.priceSnapshot,

@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -23,9 +24,12 @@ export function PackageCreateDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="grid max-h-[85dvh] max-w-4xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0">
+        <DialogHeader className="border-b border-border px-6 py-5">
           <DialogTitle>Create Package</DialogTitle>
+          <DialogDescription className="sr-only">
+            Create a package with pricing, photo count, and structured deliverable items.
+          </DialogDescription>
         </DialogHeader>
         <PackageForm mode="create" productOptions={productOptions} />
       </DialogContent>
