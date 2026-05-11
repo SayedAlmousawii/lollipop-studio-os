@@ -284,7 +284,20 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                   invoiceNumber: true,
                   status: true,
                   isLocked: true,
+                  totalAmount: true,
                   paidAmount: true,
+                  remainingAmount: true,
+                  lineItems: {
+                    select: {
+                      id: true,
+                      lineType: true,
+                      description: true,
+                      quantity: true,
+                      unitPrice: true,
+                      lineTotal: true,
+                    },
+                    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                  },
                 },
                 orderBy: { createdAt: "asc" },
                 take: 1,
@@ -344,7 +357,6 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const addOns = mapPOSAddOns(order.orderAddOns);
   const addOnTotal = sumOrderAddOnRowsDecimal(order.orderAddOns);
   const packageBaseTotal = currentPackage?.price ?? zeroMoney();
-  const invoiceTotal = packageBaseTotal.plus(extraPhotoTotalDecimal).plus(addOnTotal);
   const paidAmount = order.invoices[0]?.paidAmount ?? zeroMoney();
 
   return {
@@ -376,7 +388,6 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
           bundleAdjustment: currentPackage?.bundleAdjustment ?? zeroMoney(),
           addOnTotal,
           extraPhotoTotal: extraPhotoTotalDecimal,
-          invoiceTotal,
           paidAmount,
         })
       : null,
@@ -3423,26 +3434,57 @@ function mapPOSInvoiceSummary(input: {
     invoiceNumber: string;
     status: InvoiceStatus;
     isLocked: boolean;
+    totalAmount: Prisma.Decimal;
+    remainingAmount: Prisma.Decimal;
+    lineItems: Array<{
+      id: string;
+      lineType: string;
+      description: string;
+      quantity: number;
+      unitPrice: Prisma.Decimal;
+      lineTotal: Prisma.Decimal;
+    }>;
   };
   packageBaseTotal: Prisma.Decimal;
   bundleAdjustment: Prisma.Decimal;
   addOnTotal: Prisma.Decimal;
   extraPhotoTotal: Prisma.Decimal;
-  invoiceTotal: Prisma.Decimal;
   paidAmount: Prisma.Decimal;
 }): POSInvoiceSummary {
+  const hasSnapshotLineItems = input.invoice.lineItems.length > 0;
+
   return {
     invoiceId: input.invoice.id,
     invoiceNumber: input.invoice.invoiceNumber,
     invoiceStatus: mapInvoiceStatus(input.invoice.status),
     isLocked: input.invoice.isLocked,
+    renderMode: hasSnapshotLineItems ? "SNAPSHOT" : "COMPUTED",
     packageBaseTotal: input.packageBaseTotal.toNumber(),
     bundleAdjustment: input.bundleAdjustment.toNumber(),
     addOnTotal: input.addOnTotal.toNumber(),
     extraPhotoTotal: input.extraPhotoTotal.toNumber(),
-    invoiceTotal: input.invoiceTotal.toNumber(),
+    invoiceTotal: input.invoice.totalAmount.toNumber(),
     paidAmount: input.paidAmount.toNumber(),
-    remainingAmount: input.invoiceTotal.minus(input.paidAmount).toNumber(),
+    remainingAmount: input.invoice.remainingAmount.toNumber(),
+    lineItems: input.invoice.lineItems.map(mapPOSInvoiceLineItem),
+  };
+}
+
+function mapPOSInvoiceLineItem(row: {
+  id: string;
+  lineType: string;
+  description: string;
+  quantity: number;
+  unitPrice: Prisma.Decimal;
+  lineTotal: Prisma.Decimal;
+}) {
+  return {
+    id: row.id,
+    lineType: formatEnum(row.lineType),
+    description: row.description,
+    quantity: row.quantity,
+    unitPriceLabel: formatMoney(row.unitPrice),
+    lineTotalLabel: formatMoney(row.lineTotal),
   };
 }
 

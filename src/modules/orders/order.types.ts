@@ -409,6 +409,7 @@ export interface POSInvoiceSummary {
   invoiceNumber: string;
   invoiceStatus: InvoiceStatusLabel;
   isLocked: boolean;
+  renderMode: "SNAPSHOT" | "COMPUTED";
   packageBaseTotal: number;
   bundleAdjustment: number;
   addOnTotal: number;
@@ -416,6 +417,16 @@ export interface POSInvoiceSummary {
   invoiceTotal: number;
   paidAmount: number;
   remainingAmount: number;
+  lineItems: POSInvoiceLineItem[];
+}
+
+export interface POSInvoiceLineItem {
+  id: string;
+  lineType: string;
+  description: string;
+  quantity: number;
+  unitPriceLabel: string;
+  lineTotalLabel: string;
 }
 
 export interface EditingQueueItem {
