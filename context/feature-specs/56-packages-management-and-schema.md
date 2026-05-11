@@ -1,3 +1,7 @@
+##56e moved after feature 57.
+
+
+
 ## Goal
 
 Redesign the package data model from a flat commercial price into a structured commercial bundle architecture. Introduce a canonical Product catalog (albums, canvases, digital files, prints, etc.) that packages reference for their included deliverables. Add a bundle adjustment field to packages so the difference between a package's marketed price and the sum of its included product prices is explicit and trackable. Add invoice line items so every finalized invoice snapshots its full price breakdown immutably. Build or rebuild the admin UIs for both products and packages.

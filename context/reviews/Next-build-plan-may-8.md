@@ -168,15 +168,21 @@ Create small feature specs for missing high-value operational pieces instead of 
 ### Summary
 Resolve practical usability issues that slow down staff.
 
-### Current Known Items
-- selection count initialization bug
-- estimated editing date default
-- financial summary clarity
-- invoice context visibility
-- payment workflow messaging
-- deliverables visibility across order workflow
-- editing queue visibility
-- production queue visibility
+### Units
+
+- **55a** — Bug fixes: selection count init (shows 0), selection completed idempotency (upgrade reverts), two simultaneous "ready for pickup" buttons
+- **55b** — UX defaults: estimated editing date defaults to today+14; booking form adds session time field
+- **55c** — Deliverables visibility: overview tab gets a deliverables card; package description surfaced in selection tab
+- **55d** — Full payment gate: block editing assignment until invoice balance is zero; surface outstanding amount
+- **55e** — Customer phone enforcement: required field, valid format, phone-first search
+- **55f** — Editing queue investigation: profile slow render, document findings, fix is a follow-up unit
+- **55g** — Date picker migration: replace all `<Input type="date">` fields with the existing `DatePicker` calendar component
+
+### Deferred (needs design/decision first)
+- Financial summary clarity, invoice context visibility, payment workflow messaging — deferred to a later phase
+- Calendar page overhaul — deferred, needs design pass
+- Editing tab UX — deferred, needs design pass
+- Delivery status simplification — deferred, needs state machine decision
 
 ### Purpose
 Improve day-to-day confidence and speed.

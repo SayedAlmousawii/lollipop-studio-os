@@ -527,6 +527,7 @@ model InvoiceLineItem {
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
+  @@unique([invoiceId, sortOrder])
   @@index([invoiceId])
   @@map("invoice_line_items")
 }

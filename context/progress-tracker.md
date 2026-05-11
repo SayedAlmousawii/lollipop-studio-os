@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 56d invoice line item schema and snapshot logic is complete: invoices can now persist immutable line item snapshots when issued or first paid. Feature 56c package management UI rebuild is complete: `/packages` now manages structured bundle packages with deliverable composition, bundle adjustment preview, and safe archive/delete actions. Feature 56b package schema redesign is complete; Feature 56a product catalog foundation is complete and now uses Product as the shared catalog for package deliverables and standalone add-ons; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 56e downstream adoption is complete with the invoice snapshot timing corrected: payments no longer freeze order invoice recalculation, while delivery/close remains the final snapshot point. Feature 56d invoice line item schema and snapshot logic is complete and hardened: invoice line positions are unique per invoice and delivered/closed invoices are blocked from financial recalculation. Feature 56c package management UI rebuild is complete: `/packages` now manages structured bundle packages with deliverable composition, bundle adjustment preview, and safe archive/delete actions. Feature 56b package schema redesign is complete; Feature 56a product catalog foundation is complete and now uses Product as the shared catalog for package deliverables and standalone add-ons; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,6 +25,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 56e follow-up: Corrected invoice snapshot timing so first payment no longer freezes order edits; non-delivered premature snapshots are cleared on recalculation, and invoices snapshot/lock at order delivery or explicit invoice close.
+- Feature 56e: Downstream adoption — order selection and overview now render structured package deliverables and bundle adjustments, paid add-ons are separated from included items, and order financials prefer immutable invoice line item snapshots when present.
 - Feature 56d: Invoice line item snapshots — added `InvoiceLineItem` / `InvoiceLineType`, immutable snapshot creation on invoice issue or first payment, `PACKAGE_UPGRADE` delta lines for package upgrades, and invoice detail reads with sorted line items.
 - Feature 56c: Package management UI rebuild — `/packages` now supports create/edit package forms with structured deliverables, product price snapshots, client-side bundle adjustment preview, table deliverable summaries, active/inactive status, and safe archive/delete actions.
 - Feature 56b: Package schema redesign — `Package.bundleAdjustment` migration plus package service create/update/archive flows with structured PackageItem snapshots, adjustment calculation, locked-invoice edit guard, and active-reference archive guard.
@@ -37,7 +39,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Follow-up: bookings, orders, and invoices tables/pages now use customer phone as the primary displayed identifier and search target.
 - Feature 55e: Phone number required on all customer saves; search prioritizes phone.
 - Feature 55d: Editing start now requires full payment; assignment stays allowed, outstanding balance is surfaced in-tab with an upgrade-payment modal.
-- Feature 55c: Deliverables card on overview tab; package description surfaced in selection tab.
+- Feature 55c: Initial deliverables card on overview tab; its description-based selection display has been superseded by Feature 56e structured package items.
 - Feature 55b follow-up: Delivery completion transitions now stay on the dedicated pickup-completes path, while legacy `PICKED_UP` orders retain a valid route to close.
 - Feature 55b: Editing date default (today+14), booking session time field added.
 - Feature 55a: Fixed selection count init (0 display), selection save idempotency drift, and simplified delivery by removing redundant prepare/complete actions so pickup closes the order.

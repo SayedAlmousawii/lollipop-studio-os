@@ -6,7 +6,6 @@ import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import {
   recalculateInvoiceStatus,
-  snapshotInvoiceLineItemsWithClient,
 } from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import type { RecordPaymentInput } from "./payment.schema";
@@ -64,10 +63,6 @@ export async function recordPaymentWithClient(
     },
     select: { id: true },
   });
-
-  if (invoice.orderId) {
-    await snapshotInvoiceLineItemsWithClient(client, invoiceId, invoice.orderId);
-  }
 
   await recalculateInvoiceStatus(invoiceId, client);
   if (invoice.orderId) {
