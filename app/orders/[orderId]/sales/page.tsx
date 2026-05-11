@@ -1,5 +1,8 @@
 import { notFound } from "next/navigation";
-import { AlertCircle, ReceiptText } from "lucide-react";
+import Link from "next/link";
+import { AlertCircle, Lock, ReceiptText } from "lucide-react";
+import { createOrderInvoiceAction } from "@/app/orders/[orderId]/actions";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
@@ -31,10 +34,10 @@ export default async function SalesPage(
 
 function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
-  const packageAmount = invoice?.packageBaseTotal ?? workspace.currentPackage?.price ?? 0;
-  const extraPhotoAmount = invoice?.extraPhotoTotal ?? workspace.extraPhotoTotal;
-  const addOnAmount = invoice?.addOnTotal ?? workspace.addOnTotal;
-  const totalAmount = invoice?.invoiceTotal ?? packageAmount + extraPhotoAmount + addOnAmount;
+  const packageAmount = workspace.currentPackage?.price ?? 0;
+  const extraPhotoAmount = workspace.extraPhotoTotal;
+  const totalAmount =
+    invoice?.invoiceTotal ?? packageAmount + extraPhotoAmount + workspace.addOnTotal;
 
   return (
     <aside className="space-y-4 lg:sticky lg:top-4">
@@ -54,21 +57,61 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
         </CardHeader>
         <CardContent className="space-y-4">
           {invoice ? (
-            <div className="space-y-1 text-sm">
-              <p className="font-medium text-text-primary">Invoice {invoice.invoiceNumber}</p>
-              <p className="text-text-secondary">{invoice.invoiceStatus}</p>
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-text-primary">
+                  Invoice #{invoice.invoiceNumber}
+                </p>
+                <Badge variant="secondary" className="w-fit rounded-md">
+                  {invoice.invoiceStatus}
+                </Badge>
+              </div>
+              {invoice.isLocked ? (
+                <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
+                  <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+                  Invoice locked. Composition changes now require the future adjustment flow.
+                </div>
+              ) : null}
+              <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
+                {invoice.renderMode === "SNAPSHOT"
+                  ? "Snapshot line items"
+                  : "Computed current composition"}
+              </p>
             </div>
           ) : (
             <div className="flex items-start gap-2 rounded-md border border-border bg-surface-soft p-3 text-sm text-text-secondary">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
-              No invoice exists yet. The current package snapshot is shown below.
+              No invoice exists yet. The sidebar is showing the current commercial totals.
             </div>
           )}
 
           <div className="space-y-2 border-t border-border pt-4">
-            <MoneyRow label="Package" value={formatKD(packageAmount)} />
-            <MoneyRow label="Extra photos" value={formatKD(extraPhotoAmount)} />
-            <MoneyRow label="Add-ons" value={formatKD(addOnAmount)} />
+            {invoice?.renderMode === "SNAPSHOT" && invoice.lineItems.length > 0 ? (
+              invoice.lineItems.map((item) => (
+                <InvoiceLineRow
+                  key={item.id}
+                  label={item.description}
+                  meta={`${item.quantity} × ${item.unitPriceLabel}`}
+                  value={item.lineTotalLabel}
+                />
+              ))
+            ) : (
+              <>
+                <MoneyRow
+                  label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
+                  value={formatKD(packageAmount)}
+                />
+                {extraPhotoAmount > 0 ? (
+                  <MoneyRow
+                    label={`Extra Photos (${workspace.extraPhotoCount})`}
+                    value={formatKD(extraPhotoAmount)}
+                  />
+                ) : null}
+                {workspace.addOns.map((addOn) => (
+                  <MoneyRow key={addOn.id} label={addOn.name} value={addOn.priceLabel} />
+                ))}
+              </>
+            )}
             <MoneyRow label="Total" value={formatKD(totalAmount)} strong />
           </div>
 
@@ -78,9 +121,47 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
               <MoneyRow label="Remaining" value={formatKD(invoice.remainingAmount)} strong />
             </div>
           ) : null}
+
+          <div className="border-t border-border pt-4">
+            {invoice ? (
+              <Button className="w-full" asChild>
+                <Link href={`/invoices/${invoice.invoiceId}`}>
+                  {invoice.isLocked ? "View Invoice" : "Record Payment"}
+                </Link>
+              </Button>
+            ) : (
+              <form action={createOrderInvoiceAction.bind(null, workspace.orderId)}>
+                <Button type="submit" className="w-full">
+                  Create Invoice
+                </Button>
+              </form>
+            )}
+          </div>
         </CardContent>
       </Card>
     </aside>
+  );
+}
+
+function InvoiceLineRow({
+  label,
+  meta,
+  value,
+}: {
+  label: string;
+  meta: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-surface-soft px-3 py-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">{label}</p>
+          <p className="text-xs text-text-secondary">{meta}</p>
+        </div>
+        <span className="text-sm font-medium tabular-nums text-text-primary">{value}</span>
+      </div>
+    </div>
   );
 }
 
