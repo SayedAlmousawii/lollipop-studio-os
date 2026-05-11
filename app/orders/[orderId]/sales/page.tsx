@@ -12,6 +12,7 @@ import {
 import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import styles from "./sales-page.module.css";
 
 export default async function SalesPage(
   props: PageProps<"/orders/[orderId]/sales">
@@ -21,7 +22,7 @@ export default async function SalesPage(
   if (!workspace) notFound();
 
   return (
-    <div className="grid items-start gap-5 md:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+    <div className={styles.salesGrid}>
       <main className="space-y-5">
         <POSPackageComposition workspace={workspace} />
         <POSPhotoCountCard workspace={workspace} />
@@ -42,7 +43,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
     packageAmount + bundleAdjustment + extraPhotoAmount + workspace.addOnTotal;
 
   return (
-    <aside className="space-y-4 md:sticky md:top-4">
+    <aside className={styles.financialSidebar}>
       <Card className="border-text-primary/20">
         <CardHeader>
           <CardTitle className="flex items-center justify-between gap-3 text-base">
