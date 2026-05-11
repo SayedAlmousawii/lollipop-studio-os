@@ -1,4 +1,4 @@
-import { InvoiceLineType, InvoiceStatus, OrderActivityType, Prisma } from "@prisma/client";
+import { InvoiceLineType, InvoiceStatus, OrderActivityType, OrderStatus, Prisma } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -57,11 +57,15 @@ async function updateUnlockedInvoiceTotal(
   totalAmount: Prisma.Decimal
 ) {
   const updateResult = await client.invoice.updateMany({
-    where: { id, isLocked: false },
+    where: {
+      id,
+      isLocked: false,
+      lineItems: { none: {} },
+    },
     data: { totalAmount },
   });
   if (updateResult.count === 0) {
-    throw new Error("Invoice is locked or not found");
+    throw new Error("Only unsnapshotted unlocked invoices can be recalculated");
   }
 
   const invoice = await client.invoice.findUnique({
@@ -226,6 +230,7 @@ export async function syncOrderInvoiceForFinancialEdit(
           remainingAmount: true,
           status: true,
           isLocked: true,
+          _count: { select: { lineItems: true } },
         },
       })
     : null;
@@ -251,6 +256,14 @@ export async function syncOrderInvoiceForFinancialEdit(
   const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
   if (existingInvoice?.isLocked) {
     throw new Error("Locked invoices cannot be recalculated from order edits");
+  }
+  if (existingInvoice && existingInvoice._count.lineItems > 0) {
+    if (order.status === OrderStatus.DELIVERED) {
+      throw new Error("Delivered order invoices cannot be recalculated from order edits");
+    }
+    await client.invoiceLineItem.deleteMany({
+      where: { invoiceId: existingInvoice.id },
+    });
   }
 
   const recognizedPackageBaseline = existingInvoice
@@ -497,10 +510,6 @@ export async function issueInvoiceWithClient(
     throw new Error("Invoice is locked or not found");
   }
 
-  if (invoice.orderId) {
-    await snapshotInvoiceLineItemsWithClient(client, invoice.id, invoice.orderId);
-  }
-
   const result = await client.invoice.updateMany({
     where: { id, isLocked: false },
     data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
@@ -567,6 +576,7 @@ export async function snapshotInvoiceLineItemsWithClient(
 
   await client.invoiceLineItem.createMany({
     data: lineItems.map((item) => ({ invoiceId, ...item })),
+    skipDuplicates: true,
   });
 }
 
@@ -591,6 +601,10 @@ export async function closeInvoice(
         }
         if (invoice.isLocked) {
           throw new Error("Invoice is already locked");
+        }
+
+        if (invoice.orderId) {
+          await snapshotInvoiceLineItemsWithClient(tx, invoice.id, invoice.orderId);
         }
 
         await tx.invoice.update({
@@ -668,11 +682,15 @@ async function createSyncedOrderInvoice(
   });
   if (existingInvoice) {
     const updateResult = await client.invoice.updateMany({
-      where: { id: existingInvoice.id, isLocked: false },
+      where: {
+        id: existingInvoice.id,
+        isLocked: false,
+        lineItems: { none: {} },
+      },
       data: { totalAmount: data.totalAmount },
     });
     if (updateResult.count === 0) {
-      throw new Error("Invoice is locked or not found");
+      throw new Error("Only unsnapshotted unlocked invoices can be recalculated");
     }
 
     const refreshedInvoice = await client.invoice.findUnique({

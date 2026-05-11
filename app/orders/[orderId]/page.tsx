@@ -614,9 +614,9 @@ function AddOnList({ items }: { items: OrderAddOnDisplay[] }) {
       <p className="text-xs font-medium uppercase text-text-muted">Paid Add-ons</p>
       {items.length > 0 ? (
         <div className="space-y-2">
-          {items.map((item) => (
+          {items.map((item, index) => (
             <div
-              key={`${item.productId ?? item.name}-${item.name}`}
+              key={`${item.productId ?? "manual"}-${item.name}-${index}`}
               className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
             >
               <div>

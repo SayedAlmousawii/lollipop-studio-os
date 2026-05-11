@@ -22,7 +22,10 @@ import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
-import { syncOrderInvoiceForFinancialEdit } from "@/modules/invoices/invoice.service";
+import {
+  snapshotInvoiceLineItemsWithClient,
+  syncOrderInvoiceForFinancialEdit,
+} from "@/modules/invoices/invoice.service";
 import {
   ORDER_DELIVERY_STATUS_LABELS,
   ORDER_EDITING_STATUS_LABELS,
@@ -1138,6 +1141,21 @@ export async function updateOrderDeliveryWorkflow(
         });
 
         if (next.completed) {
+          for (const invoice of order.invoices) {
+            if (invoice.isLocked || invoice.parentInvoiceId !== null) continue;
+            if (invoice.orderId) {
+              await snapshotInvoiceLineItemsWithClient(tx, invoice.id, invoice.orderId);
+            }
+            await tx.invoice.updateMany({
+              where: { id: invoice.id, isLocked: false },
+              data: {
+                status: InvoiceStatus.CLOSED,
+                isLocked: true,
+                closedAt: new Date(),
+              },
+            });
+          }
+
           await recordOrderActivity(tx, {
             orderId,
             userId: actorContext.actorUserId ?? null,
@@ -2700,6 +2718,10 @@ const deliveryOrderSelect = {
   deliveryOverrideReason: true,
   invoices: {
     select: {
+      id: true,
+      orderId: true,
+      parentInvoiceId: true,
+      isLocked: true,
       totalAmount: true,
       paidAmount: true,
       remainingAmount: true,
