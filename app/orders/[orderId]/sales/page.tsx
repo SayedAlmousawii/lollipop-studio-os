@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { AlertCircle, Lock, ReceiptText } from "lucide-react";
 import { createOrderInvoiceAction } from "@/app/orders/[orderId]/actions";
 import { Button } from "@/components/ui/button";
@@ -10,6 +9,7 @@ import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
+import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 
@@ -129,11 +129,28 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
 
           <div className="border-t border-border pt-4">
             {invoice ? (
-              <Button className="w-full" asChild>
-                <Link href={`/invoices/${invoice.invoiceId}`}>
-                  {invoice.isLocked ? "View Invoice" : "Record Payment"}
-                </Link>
-              </Button>
+              invoice.remainingAmount <= 0 ? (
+                <div className="space-y-2">
+                  <Button className="w-full" disabled>
+                    Fully Paid
+                  </Button>
+                  <p className="text-center text-xs text-text-muted">
+                    No outstanding balance remains.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <POSRecordPaymentDialog
+                    orderId={workspace.orderId}
+                    invoice={invoice}
+                    customerName={workspace.customerName}
+                    jobNumber={workspace.jobNumber}
+                  />
+                  <p className="text-center text-xs text-text-muted">
+                    Opens without leaving the sales workspace.
+                  </p>
+                </div>
+              )
             ) : (
               <form action={createOrderInvoiceAction.bind(null, workspace.orderId)}>
                 <Button type="submit" className="w-full">
