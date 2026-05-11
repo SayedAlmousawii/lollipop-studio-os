@@ -3,10 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import {
+  addOrderProductAddOnSchema,
+  removeOrderAddOnSchema,
   updateOrderPackageSchema,
   upgradeOrderPackageItemSchema,
 } from "@/modules/orders/order.schema";
 import {
+  addOrderProductAddOn,
+  removeOrderAddOn,
   updateOrderPackage,
   upgradeOrderPackageItem,
 } from "@/modules/orders/order.service";
@@ -78,6 +82,68 @@ export async function upgradeOrderPackageItemAction(
   return {};
 }
 
+export async function addOrderProductAddOnAction(
+  orderId: string,
+  _prev: POSCompositionActionState,
+  formData: FormData
+): Promise<POSCompositionActionState> {
+  const parsed = addOrderProductAddOnSchema.safeParse({
+    productId: formData.get("productId"),
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    await addOrderProductAddOn(orderId, parsed.data, {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    });
+  } catch (error) {
+    return { errors: { _global: [safePOSActionMessage(error, "Unable to add order add-on")] } };
+  }
+
+  revalidatePOSPaths(orderId);
+  return {};
+}
+
+export async function removeOrderAddOnAction(
+  orderId: string,
+  _prev: POSCompositionActionState,
+  formData: FormData
+): Promise<POSCompositionActionState> {
+  const parsed = removeOrderAddOnSchema.safeParse({
+    addOnId: formData.get("addOnId"),
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    await removeOrderAddOn(orderId, parsed.data, {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    });
+  } catch (error) {
+    return {
+      errors: {
+        _global: [safePOSActionMessage(error, "Unable to remove order add-on")],
+      },
+    };
+  }
+
+  revalidatePOSPaths(orderId);
+  return {};
+}
+
 function revalidatePOSPaths(orderId: string): void {
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
@@ -93,6 +159,9 @@ const SAFE_POS_DOMAIN_MESSAGES = new Set([
   "Replacement product is not available",
   "Replacement product must be in the same category",
   "Replacement product is already included",
+  "Invoice is locked. Use the adjustment flow before changing add-ons.",
+  "Selected add-on product is not available",
+  "Selected add-on is not on this order",
 ]);
 
 function safePOSActionMessage(error: unknown, fallback: string): string {

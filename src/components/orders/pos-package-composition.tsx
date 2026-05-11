@@ -43,7 +43,7 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
   const locked = workspace.invoice?.isLocked ?? false;
 
   return (
-    <Card>
+    <Card id="package-composition">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <PackageOpen className="h-4 w-4 text-accent" />

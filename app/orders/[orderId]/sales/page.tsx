@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
-import { AlertCircle, Lock, Plus, ReceiptText } from "lucide-react";
+import { AlertCircle, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import { POSPackageComposition } from "@/components/orders/pos-package-composition";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import type { POSWorkspace } from "@/modules/orders/order.types";
@@ -18,66 +18,10 @@ export default async function SalesPage(
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
       <main className="space-y-5">
         <POSPackageComposition workspace={workspace} />
-        <ActionsSkeleton workspace={workspace} />
-        <AddOnsSkeleton workspace={workspace} />
+        <POSAddOnMarketplace workspace={workspace} />
       </main>
       <FinancialSidebar workspace={workspace} />
     </div>
-  );
-}
-
-function ActionsSkeleton({ workspace }: { workspace: POSWorkspace }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Plus className="h-4 w-4 text-accent" />
-          Commercial Actions
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {workspace.invoice?.isLocked ? (
-          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-            Invoice is locked. Composition changes will require the future adjustment flow.
-          </div>
-        ) : null}
-        <div className="flex flex-wrap gap-2">
-          {["Add Album", "Add Canvas", "Add Prints", "Add Digital"].map((label) => (
-            <Button key={label} variant="outline" disabled>
-              {label}
-            </Button>
-          ))}
-        </div>
-        <p className="text-sm text-text-secondary">
-          Action pickers are intentionally reserved for the next POS units.
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AddOnsSkeleton({ workspace }: { workspace: POSWorkspace }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Standalone Add-ons</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {workspace.addOns.length > 0 ? (
-          workspace.addOns.map((addOn) => (
-            <div key={addOn.id} className="flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm">
-              <span className="text-text-primary">{addOn.name}</span>
-              <span className="font-medium text-text-primary">{addOn.priceLabel}</span>
-            </div>
-          ))
-        ) : (
-          <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
-            No standalone add-ons are attached to this order yet.
-          </p>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
