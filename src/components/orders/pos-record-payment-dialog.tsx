@@ -130,6 +130,9 @@ function PaymentForm({
   const [paidTime, setPaidTime] = useState(formatTimeInput(now));
   const [method, setMethod] = useState<(typeof PAYMENT_METHODS)[number]["value"]>("KNET");
   const amountRef = useRef<HTMLInputElement>(null);
+  const amountErrorId = "pos-payment-amount-error";
+  const referenceErrorId = "pos-payment-reference-error";
+  const notesErrorId = "pos-payment-notes-error";
 
   return (
     <form action={formAction} className="flex min-h-0 flex-col">
@@ -172,8 +175,9 @@ function PaymentForm({
               required
               autoFocus
               aria-invalid={state.errors?.amount?.length ? true : undefined}
+              aria-describedby={state.errors?.amount?.length ? amountErrorId : undefined}
             />
-            <FieldError messages={state.errors?.amount} />
+            <FieldError id={amountErrorId} messages={state.errors?.amount} />
           </div>
           <QuickAmountActions
             remainingAmount={invoice.remainingAmount}
@@ -245,8 +249,11 @@ function PaymentForm({
               id="pos-payment-reference"
               name="reference"
               aria-invalid={state.errors?.reference?.length ? true : undefined}
+              aria-describedby={
+                state.errors?.reference?.length ? referenceErrorId : undefined
+              }
             />
-            <FieldError messages={state.errors?.reference} />
+            <FieldError id={referenceErrorId} messages={state.errors?.reference} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="pos-payment-notes">Notes</Label>
@@ -255,8 +262,9 @@ function PaymentForm({
               name="notes"
               rows={2}
               aria-invalid={state.errors?.notes?.length ? true : undefined}
+              aria-describedby={state.errors?.notes?.length ? notesErrorId : undefined}
             />
-            <FieldError messages={state.errors?.notes} />
+            <FieldError id={notesErrorId} messages={state.errors?.notes} />
           </div>
         </div>
       </div>
@@ -372,9 +380,19 @@ function SubmitButton() {
   );
 }
 
-function FieldError({ messages }: { messages?: string[] }) {
+function FieldError({
+  id,
+  messages,
+}: {
+  id?: string;
+  messages?: string[];
+}) {
   if (!messages?.length) return null;
-  return <p className="text-xs text-danger">{messages[0]}</p>;
+  return (
+    <p id={id} className="text-xs text-danger">
+      {messages[0]}
+    </p>
+  );
 }
 
 function formatKD(value: number): string {
