@@ -18,6 +18,10 @@ export async function AppShell({
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         showProductionLink={hasPermission(appUser, PERMISSIONS.ORDER_READ)}
+        showProductsLink={hasPermission(
+          appUser,
+          PERMISSIONS.PACKAGE_CATALOG_MANAGE
+        )}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar pageTitle={pageTitle} />

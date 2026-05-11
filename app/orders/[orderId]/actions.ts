@@ -65,12 +65,32 @@ export async function updateSelectionWorkflowAction(
   _prev: UpdateSelectionActionState,
   formData: FormData
 ): Promise<UpdateSelectionActionState> {
-  const addOnOptionIds = formData.getAll("addOnOptionId");
-  const addOns = addOnOptionIds.flatMap((optionId) => {
-    const safeOptionId = typeof optionId === "string" ? optionId.trim() : "";
-    if (!safeOptionId) return [];
+  const unresolvedAddOnCount = Number(formData.get("unresolvedAddOnCount") ?? 0);
+  if (Number.isFinite(unresolvedAddOnCount) && unresolvedAddOnCount > 0) {
+    return {
+      errors: {
+        _global: ["Resolve or remove every archived add-on row before saving this selection."],
+      },
+    };
+  }
 
-    return [{ optionId: safeOptionId, name: "Selected add-on", price: 0 }];
+  const addOnProductIds = formData.getAll("addOnProductId");
+  const hasUnresolvedAddOn = addOnProductIds.some(
+    (productId) => typeof productId !== "string" || productId.trim() === ""
+  );
+  if (hasUnresolvedAddOn) {
+    return {
+      errors: {
+        _global: ["Resolve or remove every archived add-on row before saving this selection."],
+      },
+    };
+  }
+
+  const addOns = addOnProductIds.flatMap((productId) => {
+    const safeProductId = typeof productId === "string" ? productId.trim() : "";
+    if (!safeProductId) return [];
+
+    return [{ productId: safeProductId, name: "Selected add-on", price: 0 }];
   });
 
   const parsed = updateOrderSelectionWorkflowSchema.safeParse({

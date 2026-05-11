@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 
 interface SidebarProps {
   showProductionLink: boolean;
+  showProductsLink: boolean;
 }
 
 const NAV_SECTIONS = [
@@ -65,20 +66,36 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-export function Sidebar({ showProductionLink }: SidebarProps) {
+export function Sidebar({ showProductionLink, showProductsLink }: SidebarProps) {
   const pathname = usePathname();
-  const navSections = NAV_SECTIONS.map((section, index) =>
-    index === 2 && showProductionLink
-      ? {
-          ...section,
-          items: [
-            ...section.items.slice(0, 3),
-            { label: "Production", href: "/production", icon: Printer },
-            ...section.items.slice(3),
-          ],
-        }
-      : section
-  );
+  const navSections = NAV_SECTIONS.map((section, index) => {
+    if (index === 1 && showProductsLink) {
+      const packageIndex = section.items.findIndex(
+        (item) => item.href === "/packages"
+      );
+      return {
+        ...section,
+        items: [
+          ...section.items.slice(0, packageIndex + 1),
+          { label: "Products", href: "/products", icon: Image },
+          ...section.items.slice(packageIndex + 1),
+        ],
+      };
+    }
+
+    if (index === 2 && showProductionLink) {
+      return {
+        ...section,
+        items: [
+          ...section.items.slice(0, 3),
+          { label: "Production", href: "/production", icon: Printer },
+          ...section.items.slice(3),
+        ],
+      };
+    }
+
+    return section;
+  });
 
   return (
     <aside className="flex h-full w-60 flex-shrink-0 flex-col bg-sidebar">

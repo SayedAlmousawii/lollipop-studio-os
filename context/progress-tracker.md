@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 55g complete, including the related booking time picker polish; Feature 55 is now complete across 55a (selection/delivery fixes), 55b (editing date default + session time), 55c (deliverables visibility), 55d (full-payment editing gate), 55e (customer phone enforcement), 55f (editing queue investigation), and 55g (date/time picker migration). Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 56a product catalog foundation is complete and now uses Product as the shared catalog for package deliverables and standalone add-ons; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -18,13 +18,16 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Job number generation self-heals if `identifier_sequences` falls behind existing canonical `Job.jobNumber` rows.
 - Invoice payments are append-only; financial order edits recalculate totals without overwriting payment records.
-- Extra selected photos are a per-photo service-computed add-on charge using the database-backed extra-photo add-on option.
+- Extra selected photos are a per-photo service-computed add-on charge using the database-backed extra-photo product-backed add-on catalog row.
 - `Order.addOns` JSON is deprecated; `OrderAddOn` rows with snapshot fields are the active source of truth.
 - Editing start requires: selection complete + editor assigned + full invoice balance settled; assignment stays allowed while any outstanding balance is surfaced in-tab with an upgrade-payment modal.
 - Order completion requires: pickup recorded + production status READY_FOR_PICKUP or COMPLETED + settled payment or explicit admin override reason.
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 56a.2: Hardened product catalog flows with safe action error messages, stricter form contracts, atomic archive behavior, and package item integrity constraints.
+- Feature 56a.1: Unified package deliverables and standalone add-ons into Product; legacy add-on catalog rows migrate into products and OrderAddOn now references Product snapshots.
+- Feature 56a: Product catalog foundation — Product/ProductCategory schema plus supporting PackageItem relation, product service/actions, admin `/products` UI, and admin/manager navigation/permission gate.
 - Feature 55g follow-up: Added a shared TimePicker and migrated booking create/edit session time fields off native time inputs.
 - Feature 55g: Migrated all raw date inputs to the shared DatePicker component across booking, editing workflow, invoice payment, and child forms.
 - Feature 55f: Editing queue investigation complete — current query returns `1` row in `19ms`, has no pagination, shows no N+1 pattern, and points to cold-start overhead as the present bottleneck with pagination as the likely future fix target.
@@ -70,7 +73,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 33: Operational Delivery workflow tab — pickup recording, payment override, order completion guards.
 - Feature 32: Operational Production workflow tab — section actions, early-start warnings, pickup readiness.
 - Feature 31: Operational Editing workflow tab — editor assignment, progress, revision tracking, base-payment gate.
-- Feature 30: Operational Selection workflow tab — photo counts, database-backed add-ons, extra-photo invoice sync.
+- Feature 30: Operational Selection workflow tab — photo counts, Product-backed add-ons, extra-photo invoice sync.
 - Feature 29: Tabbed order hub UI shell added on top of existing read models.
 - Feature 28: Order activity foundation with structured metadata and service-layer writes.
 - Feature 27: Order workflow sub-statuses added for selection, editing, production, and delivery; payment status computed from invoice state.

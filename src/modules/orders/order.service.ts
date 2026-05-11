@@ -9,6 +9,7 @@ import {
   OrderStatus,
   PaymentType,
   Prisma,
+  ProductCategory,
   UserRole,
 } from "@prisma/client";
 import { addDays } from "date-fns";
@@ -56,7 +57,7 @@ import type {
   InvoiceStatusLabel,
   Order,
   OrderAddOn,
-  OrderAddOnOption,
+  OrderAddOnProductOption,
   OrderActivityPreviewItem,
   OrderDetail,
   OrderDeliveryWorkflow,
@@ -257,7 +258,7 @@ export async function getOrderHubById(
 export async function getOrderSelectionWorkflowById(
   orderId: string
 ): Promise<OrderSelectionWorkflow | null> {
-  const [order, packageRows, addOnOptionRows, completedActivity] = await withRetry(
+  const [order, packageRows, addOnProductRows, completedActivity] = await withRetry(
     () =>
       Promise.all([
         db.order.findUnique({
@@ -294,7 +295,7 @@ export async function getOrderSelectionWorkflowById(
             },
             orderAddOns: {
               select: {
-                addOnOptionId: true,
+                productId: true,
                 nameSnapshot: true,
                 priceSnapshot: true,
                 quantity: true,
@@ -308,12 +309,13 @@ export async function getOrderSelectionWorkflowById(
           select: { id: true, name: true, price: true, photoCount: true },
           orderBy: { price: "asc" },
         }),
-        db.orderAddOnOption.findMany({
+        db.product.findMany({
           where: {
             isActive: true,
-            category: { not: "EXTRA_PHOTO" },
+            isAddOn: true,
+            id: { not: "addon-extra-photo" },
           },
-          select: { id: true, name: true, category: true, price: true },
+          select: { id: true, name: true, category: true, canonicalPrice: true },
           orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
         }),
         db.orderActivity.findFirst({
@@ -403,7 +405,7 @@ export async function getOrderSelectionWorkflowById(
     recommendedPackage,
     invoiceLocked: invoice?.isLocked ?? false,
     packageOptions,
-    addOnOptions: addOnOptionRows.map(mapOrderAddOnOption),
+    addOnOptions: addOnProductRows.map(mapOrderAddOnProductOption),
   };
 }
 
@@ -1154,7 +1156,7 @@ export async function updateOrder(
               originalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
               finalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
               orderAddOns: {
-                select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+                select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
                 orderBy: { createdAt: "asc" },
               },
             },
@@ -1199,7 +1201,7 @@ export async function updateOrder(
           await tx.orderAddOn.createMany({
             data: data.addOns.map((addOn) => ({
               orderId,
-              addOnOptionId: addOn.optionId ?? null,
+              productId: addOn.productId ?? null,
               nameSnapshot: addOn.name,
               priceSnapshot: new Prisma.Decimal(addOn.price),
               quantity: 1,
@@ -1697,7 +1699,7 @@ function fetchOrderByIdWithClient(
       },
       orderAddOns: {
         select: {
-          addOnOptionId: true,
+          productId: true,
           nameSnapshot: true,
           priceSnapshot: true,
           quantity: true,
@@ -1743,7 +1745,7 @@ const editableOrderInclude = {
   },
   orderAddOns: {
     select: {
-      addOnOptionId: true,
+      productId: true,
       nameSnapshot: true,
       priceSnapshot: true,
       quantity: true,
@@ -2235,45 +2237,48 @@ function buildSelectionPackageOptions(input: {
   });
 }
 
-function mapOrderAddOnOption(option: {
+function mapOrderAddOnProductOption(option: {
   id: string;
   name: string;
-  category: string;
-  price: Prisma.Decimal;
-}): OrderAddOnOption {
+  category: ProductCategory;
+  canonicalPrice: Prisma.Decimal;
+}): OrderAddOnProductOption {
   return {
     id: option.id,
     name: option.name,
     category: option.category,
-    price: option.price.toNumber(),
-    priceLabel: formatMoney(option.price),
+    price: option.canonicalPrice.toNumber(),
+    priceLabel: formatMoney(option.canonicalPrice),
   };
 }
 
 async function priceSelectionAddOns(addOns: OrderAddOn[]): Promise<OrderAddOn[]> {
-  const optionIds = addOns.flatMap((addOn) => addOn.optionId ? [addOn.optionId] : []);
-  if (optionIds.length === 0) return addOns;
+  const productIds = addOns.flatMap((addOn) => addOn.productId ? [addOn.productId] : []);
+  if (productIds.length === 0) return addOns;
 
-  const options = await db.orderAddOnOption.findMany({
+  const options = await db.product.findMany({
     where: {
-      id: { in: optionIds },
+      id: { in: productIds, not: "addon-extra-photo" },
       isActive: true,
-      category: { not: "EXTRA_PHOTO" },
+      isAddOn: true,
     },
-    select: { id: true, name: true, price: true },
+    select: { id: true, name: true, canonicalPrice: true },
   });
   const byId = new Map(options.map((option) => [option.id, option]));
 
   return addOns.map((addOn) => {
-    if (!addOn.optionId) return addOn;
-    const option = byId.get(addOn.optionId);
+    if (!addOn.productId) return addOn;
+    const option = byId.get(addOn.productId);
     if (!option) {
-      throw new Error("Selected add-on option is not available");
+      if (addOn.name.trim() && addOn.price >= 0) {
+        return addOn;
+      }
+      throw new Error("Selected add-on product is not available");
     }
     return {
-      optionId: option.id,
+      productId: option.id,
       name: option.name,
-      price: option.price.toNumber(),
+      price: option.canonicalPrice.toNumber(),
     };
   });
 }
@@ -2281,14 +2286,14 @@ async function priceSelectionAddOns(addOns: OrderAddOn[]): Promise<OrderAddOn[]>
 async function getExtraPhotoAddOnOption(): Promise<{
   price: Prisma.Decimal;
 }> {
-  const option = await db.orderAddOnOption.findUnique({
+  const option = await db.product.findUnique({
     where: { id: "addon-extra-photo" },
-    select: { price: true, isActive: true },
+    select: { canonicalPrice: true },
   });
-  if (!option?.isActive) {
-    throw new Error("Active extra-photo add-on price is required");
+  if (!option) {
+    throw new Error("Extra-photo product price is required");
   }
-  return option;
+  return { price: option.canonicalPrice };
 }
 
 async function calculateExtraPhotoCharge(input: {
@@ -2332,7 +2337,7 @@ function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
 
 function mapStructuredAddOns(
   rows: Array<{
-    addOnOptionId: string | null;
+    productId: string | null;
     nameSnapshot: string;
     priceSnapshot: Prisma.Decimal;
     quantity: number;
@@ -2342,7 +2347,7 @@ function mapStructuredAddOns(
     const entries: OrderAddOn[] = [];
     for (let i = 0; i < row.quantity; i++) {
       entries.push({
-        ...(row.addOnOptionId ? { optionId: row.addOnOptionId } : {}),
+        ...(row.productId ? { productId: row.productId } : {}),
         name: row.nameSnapshot,
         price: row.priceSnapshot.toNumber(),
       });
@@ -2357,7 +2362,7 @@ function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
     const other = second[index];
     return (
       other !== undefined &&
-      addOn.optionId === other.optionId &&
+      addOn.productId === other.productId &&
       addOn.name === other.name &&
       new Prisma.Decimal(addOn.price).equals(new Prisma.Decimal(other.price))
     );
@@ -2366,7 +2371,7 @@ function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
 
 function serializeAddOnsForMetadata(addOns: OrderAddOn[]): Prisma.InputJsonArray {
   return addOns.map((addOn) => ({
-    ...(addOn.optionId ? { optionId: addOn.optionId } : {}),
+    ...(addOn.productId ? { productId: addOn.productId } : {}),
     name: addOn.name,
     price: addOn.price,
   }));
@@ -3539,7 +3544,7 @@ export async function getOrderFinancialSummary(
           },
           orderAddOns: {
             select: {
-              addOnOptionId: true,
+              productId: true,
               nameSnapshot: true,
               priceSnapshot: true,
               quantity: true,

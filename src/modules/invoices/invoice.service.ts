@@ -11,7 +11,7 @@ import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoi
 
 type DbClient = typeof db | Prisma.TransactionClient;
 type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
-type OrderAddOnLine = { optionId?: string; name: string; price: number };
+type OrderAddOnLine = { productId?: string; name: string; price: number };
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
@@ -108,7 +108,7 @@ export async function createInvoiceForOrderWithClient(
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
       orderAddOns: {
-        select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+        select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -191,7 +191,7 @@ export async function syncOrderInvoiceForFinancialEdit(
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
       orderAddOns: {
-        select: { addOnOptionId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+        select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -763,7 +763,7 @@ async function normalizePrimaryWorkflowInvoice(
 
 function mapOrderAddOnRows(
   rows: Array<{
-    addOnOptionId: string | null;
+    productId: string | null;
     nameSnapshot: string;
     priceSnapshot: Prisma.Decimal;
     quantity: number;
@@ -771,7 +771,7 @@ function mapOrderAddOnRows(
 ): OrderAddOnLine[] {
   return rows.flatMap((row) => {
     const line: OrderAddOnLine = {
-      ...(row.addOnOptionId ? { optionId: row.addOnOptionId } : {}),
+      ...(row.productId ? { productId: row.productId } : {}),
       name: row.nameSnapshot,
       price: row.priceSnapshot.toNumber(),
     };
@@ -799,15 +799,15 @@ async function calculateExtraPhotoCharge(
   );
   if (extraPhotoCount === 0) return new Prisma.Decimal(0);
 
-  const extraPhotoOption = await client.orderAddOnOption.findUnique({
+  const extraPhotoOption = await client.product.findUnique({
     where: { id: "addon-extra-photo" },
-    select: { price: true, isActive: true },
+    select: { canonicalPrice: true },
   });
-  if (!extraPhotoOption?.isActive) {
-    throw new Error("Active extra-photo add-on price is required");
+  if (!extraPhotoOption) {
+    throw new Error("Extra-photo product price is required");
   }
 
-  return extraPhotoOption.price.mul(extraPhotoCount);
+  return extraPhotoOption.canonicalPrice.mul(extraPhotoCount);
 }
 
 export async function createAdjustmentInvoice(

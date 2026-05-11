@@ -97,7 +97,7 @@ export interface OrderSelectionWorkflow {
   recommendedPackage: OrderSelectionPackageOption | null;
   invoiceLocked: boolean;
   packageOptions: OrderSelectionPackageOption[];
-  addOnOptions: OrderAddOnOption[];
+  addOnOptions: OrderAddOnProductOption[];
 }
 
 export interface OrderEditingWorkflow {
@@ -220,12 +220,12 @@ export interface OrderActivityPreviewItem {
 }
 
 export interface OrderAddOn {
-  optionId?: string;
+  productId?: string;
   name: string;
   price: number;
 }
 
-export interface OrderAddOnOption {
+export interface OrderAddOnProductOption {
   id: string;
   name: string;
   category: string;

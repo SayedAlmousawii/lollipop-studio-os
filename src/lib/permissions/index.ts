@@ -19,6 +19,7 @@ export const PERMISSIONS = {
   DELIVERY_PAYMENT_OVERRIDE: "delivery:payment-override",
   WORKFLOW_EDITING_UPDATE: "workflow:editing-update",
   WORKFLOW_PRODUCTION_UPDATE: "workflow:production-update",
+  PACKAGE_CATALOG_MANAGE: "package-catalog:manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
