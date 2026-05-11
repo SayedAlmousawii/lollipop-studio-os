@@ -210,12 +210,13 @@ model Child {
 }
 
 model Package {
-  id          String  @id @default(cuid())
-  name        String
-  price       Decimal @db.Decimal(10, 3)
-  photoCount  Int
-  description String?
-  isActive    Boolean @default(true)
+  id               String  @id @default(cuid())
+  name             String
+  price            Decimal @db.Decimal(10, 3)
+  photoCount       Int
+  description      String?
+  isActive         Boolean @default(true)
+  bundleAdjustment Decimal @default(0) @db.Decimal(10, 3)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
