@@ -1,4 +1,4 @@
-import { InvoiceStatus, OrderActivityType, Prisma } from "@prisma/client";
+import { InvoiceLineType, InvoiceStatus, OrderActivityType, Prisma } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -7,11 +7,20 @@ import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
-import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoice.types";
+import type {
+  InvoiceDetail,
+  InvoiceLineItem,
+  InvoiceListItem,
+  InvoiceStatusLabel,
+} from "./invoice.types";
 
 type DbClient = typeof db | Prisma.TransactionClient;
 type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
 type OrderAddOnLine = { productId?: string; name: string; price: number };
+type SnapshotInvoiceLineItem = Omit<
+  Prisma.InvoiceLineItemCreateManyInput,
+  "invoiceId"
+>;
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
@@ -392,6 +401,10 @@ export async function getInvoices({
 }
 
 export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> {
+  return getInvoiceWithLineItems(id);
+}
+
+export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail | null> {
   const row = await withRetry(
     () =>
       db.invoice.findUnique({
@@ -402,6 +415,7 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
           booking: { select: { jobNumber: true } },
           parentInvoice: { select: { id: true, invoiceNumber: true } },
           payments: { orderBy: { paidAt: "desc" } },
+          lineItems: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
           adjustments: {
             select: { id: true, invoiceNumber: true, totalAmount: true, status: true },
             orderBy: { createdAt: "desc" },
@@ -447,6 +461,7 @@ export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> 
       totalAmount: formatMoney(invoice.totalAmount),
       status: mapInvoiceStatus(invoice.status),
     })),
+    lineItems: row.lineItems.map(mapInvoiceLineItem),
   };
 }
 
@@ -482,6 +497,10 @@ export async function issueInvoiceWithClient(
     throw new Error("Invoice is locked or not found");
   }
 
+  if (invoice.orderId) {
+    await snapshotInvoiceLineItemsWithClient(client, invoice.id, invoice.orderId);
+  }
+
   const result = await client.invoice.updateMany({
     where: { id, isLocked: false },
     data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
@@ -504,6 +523,51 @@ export async function issueInvoiceWithClient(
       },
     });
   }
+}
+
+export async function snapshotInvoiceLineItems(
+  invoiceId: string,
+  orderId: string
+): Promise<void> {
+  await withRetry(
+    () =>
+      db.$transaction((tx) =>
+        snapshotInvoiceLineItemsWithClient(tx, invoiceId, orderId)
+      ),
+    "Failed to snapshot invoice line items"
+  );
+}
+
+export async function snapshotInvoiceLineItemsWithClient(
+  client: DbClient,
+  invoiceId: string,
+  orderId: string
+): Promise<void> {
+  const existingLineCount = await client.invoiceLineItem.count({
+    where: { invoiceId },
+  });
+  if (existingLineCount > 0) return;
+
+  const invoice = await client.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { id: true, orderId: true, isLocked: true },
+  });
+  if (!invoice) {
+    throw new Error("Invoice not found");
+  }
+  if (invoice.isLocked) {
+    throw new Error("Invoice is locked or not found");
+  }
+  if (invoice.orderId !== orderId) {
+    throw new Error("Invoice does not belong to this order");
+  }
+
+  const lineItems = await buildInvoiceLineItems(client, orderId);
+  if (lineItems.length === 0) return;
+
+  await client.invoiceLineItem.createMany({
+    data: lineItems.map((item) => ({ invoiceId, ...item })),
+  });
 }
 
 export async function closeInvoice(
@@ -786,6 +850,129 @@ function sumAddOns(addOns: OrderAddOnLine[]): Prisma.Decimal {
   );
 }
 
+async function buildInvoiceLineItems(
+  client: DbClient,
+  orderId: string
+): Promise<SnapshotInvoiceLineItem[]> {
+  const order = await client.order.findUnique({
+    where: { id: orderId },
+    include: {
+      originalPackage: {
+        select: { id: true, name: true, price: true, photoCount: true, bundleAdjustment: true },
+      },
+      finalPackage: {
+        select: { id: true, name: true, price: true, photoCount: true, bundleAdjustment: true },
+      },
+      orderAddOns: {
+        select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+  if (!order) throw new Error("Order not found");
+
+  const originalPackage = order.originalPackage;
+  const finalPackage = order.finalPackage;
+  const basePackage = originalPackage ?? finalPackage;
+  if (!basePackage) throw new Error("Order has no package price");
+
+  const lines: SnapshotInvoiceLineItem[] = [];
+  let sortOrder = 0;
+
+  lines.push(
+    createLineItem({
+      lineType: InvoiceLineType.PACKAGE_BASE,
+      description: basePackage.name,
+      unitPrice: basePackage.price.minus(basePackage.bundleAdjustment),
+      sortOrder: sortOrder++,
+    })
+  );
+
+  if (!basePackage.bundleAdjustment.equals(0)) {
+    lines.push(
+      createLineItem({
+        lineType: InvoiceLineType.BUNDLE_ADJUSTMENT,
+        description: `${basePackage.name} bundle adjustment`,
+        unitPrice: basePackage.bundleAdjustment,
+        sortOrder: sortOrder++,
+      })
+    );
+  }
+
+  if (originalPackage && finalPackage && originalPackage.id !== finalPackage.id) {
+    const upgradeAmount = finalPackage.price.minus(originalPackage.price);
+    if (!upgradeAmount.equals(0)) {
+      lines.push(
+        createLineItem({
+          lineType: InvoiceLineType.PACKAGE_UPGRADE,
+          description: `Package upgrade (${originalPackage.name} to ${finalPackage.name})`,
+          unitPrice: upgradeAmount,
+          sortOrder: sortOrder++,
+        })
+      );
+    }
+  }
+
+  for (const addOn of order.orderAddOns) {
+    lines.push(
+      createLineItem({
+        lineType: InvoiceLineType.ADD_ON,
+        description: addOn.nameSnapshot,
+        quantity: addOn.quantity,
+        unitPrice: addOn.priceSnapshot,
+        sortOrder: sortOrder++,
+      })
+    );
+  }
+
+  const includedPhotoCount =
+    finalPackage?.photoCount ?? originalPackage?.photoCount ?? 0;
+  const extraPhotoCount = Math.max(
+    (order.selectedPhotoCount ?? includedPhotoCount) - includedPhotoCount,
+    0
+  );
+  if (extraPhotoCount > 0) {
+    const extraPhotoCharge = await calculateExtraPhotoCharge(client, {
+      selectedPhotoCount: order.selectedPhotoCount,
+      includedPhotoCount,
+    });
+    lines.push(
+      createLineItem({
+        lineType: InvoiceLineType.EXTRA_PHOTOS,
+        description: "Extra photos",
+        quantity: extraPhotoCount,
+        unitPrice: extraPhotoCharge.div(extraPhotoCount),
+        sortOrder: sortOrder++,
+      })
+    );
+  }
+
+  return lines;
+}
+
+function createLineItem({
+  lineType,
+  description,
+  quantity = 1,
+  unitPrice,
+  sortOrder,
+}: {
+  lineType: InvoiceLineType;
+  description: string;
+  quantity?: number;
+  unitPrice: Prisma.Decimal;
+  sortOrder: number;
+}): SnapshotInvoiceLineItem {
+  return {
+    lineType,
+    description,
+    quantity,
+    unitPrice,
+    lineTotal: unitPrice.mul(quantity),
+    sortOrder,
+  };
+}
+
 async function calculateExtraPhotoCharge(
   client: DbClient,
   input: {
@@ -808,6 +995,28 @@ async function calculateExtraPhotoCharge(
   }
 
   return extraPhotoOption.canonicalPrice.mul(extraPhotoCount);
+}
+
+function mapInvoiceLineItem(row: {
+  id: string;
+  lineType: InvoiceLineType;
+  description: string;
+  quantity: number;
+  unitPrice: Prisma.Decimal;
+  lineTotal: Prisma.Decimal;
+  sortOrder: number;
+  createdAt: Date;
+}): InvoiceLineItem {
+  return {
+    id: row.id,
+    lineType: row.lineType,
+    description: row.description,
+    quantity: row.quantity,
+    unitPrice: formatMoney(row.unitPrice),
+    lineTotal: formatMoney(row.lineTotal),
+    sortOrder: row.sortOrder,
+    createdAt: formatDate(row.createdAt),
+  };
 }
 
 export async function createAdjustmentInvoice(

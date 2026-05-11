@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 56c package management UI rebuild is complete: `/packages` now manages structured bundle packages with deliverable composition, bundle adjustment preview, and safe archive/delete actions. Feature 56b package schema redesign is complete; Feature 56a product catalog foundation is complete and now uses Product as the shared catalog for package deliverables and standalone add-ons; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 56d invoice line item schema and snapshot logic is complete: invoices can now persist immutable line item snapshots when issued or first paid. Feature 56c package management UI rebuild is complete: `/packages` now manages structured bundle packages with deliverable composition, bundle adjustment preview, and safe archive/delete actions. Feature 56b package schema redesign is complete; Feature 56a product catalog foundation is complete and now uses Product as the shared catalog for package deliverables and standalone add-ons; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,6 +25,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 56d: Invoice line item snapshots — added `InvoiceLineItem` / `InvoiceLineType`, immutable snapshot creation on invoice issue or first payment, `PACKAGE_UPGRADE` delta lines for package upgrades, and invoice detail reads with sorted line items.
 - Feature 56c: Package management UI rebuild — `/packages` now supports create/edit package forms with structured deliverables, product price snapshots, client-side bundle adjustment preview, table deliverable summaries, active/inactive status, and safe archive/delete actions.
 - Feature 56b: Package schema redesign — `Package.bundleAdjustment` migration plus package service create/update/archive flows with structured PackageItem snapshots, adjustment calculation, locked-invoice edit guard, and active-reference archive guard.
 - Feature 56a.2: Hardened product catalog flows with safe action error messages, stricter form contracts, atomic archive behavior, and package item integrity constraints.

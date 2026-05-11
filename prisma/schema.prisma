@@ -97,6 +97,16 @@ enum InvoiceStatus {
   CLOSED
 }
 
+enum InvoiceLineType {
+  PACKAGE_BASE
+  BUNDLE_ADJUSTMENT
+  PACKAGE_UPGRADE
+  ADD_ON
+  EXTRA_PHOTOS
+  MANUAL_DISCOUNT
+  MANUAL_SURCHARGE
+}
+
 enum PaymentMethod {
   CASH
   KNET
@@ -496,11 +506,29 @@ model Invoice {
   parentInvoice Invoice?  @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
   adjustments   Invoice[] @relation("InvoiceAdjustments")
   payments      Payment[]
+  lineItems     InvoiceLineItem[]
 
   @@unique([id, jobId])
   @@index([jobId])
   @@index([jobNumber])
   @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String          @id @default(cuid())
+  invoiceId   String
+  lineType    InvoiceLineType
+  description String
+  quantity    Int             @default(1)
+  unitPrice   Decimal         @db.Decimal(10, 3)
+  lineTotal   Decimal         @db.Decimal(10, 3)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
 }
 
 model Payment {

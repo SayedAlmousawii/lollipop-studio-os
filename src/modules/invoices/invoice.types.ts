@@ -1,5 +1,25 @@
 export type InvoiceStatusLabel = "Draft" | "Issued" | "Partial" | "Paid" | "Closed";
 
+export type InvoiceLineType =
+  | "PACKAGE_BASE"
+  | "BUNDLE_ADJUSTMENT"
+  | "PACKAGE_UPGRADE"
+  | "ADD_ON"
+  | "EXTRA_PHOTOS"
+  | "MANUAL_DISCOUNT"
+  | "MANUAL_SURCHARGE";
+
+export interface InvoiceLineItem {
+  id: string;
+  lineType: InvoiceLineType;
+  description: string;
+  quantity: number;
+  unitPrice: string;
+  lineTotal: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
 export interface InvoiceListItem {
   id: string;
   jobNumber: string;
@@ -37,4 +57,5 @@ export interface InvoiceDetail extends InvoiceListItem {
     totalAmount: string;
     status: InvoiceStatusLabel;
   }>;
+  lineItems: InvoiceLineItem[];
 }
