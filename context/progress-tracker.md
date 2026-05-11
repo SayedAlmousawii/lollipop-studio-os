@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Current phase: Phase 3 — Core operational completeness. Feature 55g complete, including the related booking time picker polish; Feature 55 is now complete across 55a (selection/delivery fixes), 55b (editing date default + session time), 55c (deliverables visibility), 55d (full-payment editing gate), 55e (customer phone enforcement), 55f (editing queue investigation), and 55g (date/time picker migration). Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
+- Current phase: Phase 3 — Core operational completeness. Feature 56a product catalog foundation is complete; Feature 55 is complete across 55a–55g. Feature 54 complete: 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), and 54e (ready-for-pickup quick filter) are complete. Feature 53 (deliverable-driven sections) deferred pending schema review.
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
@@ -25,6 +25,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 56a: Product catalog foundation — Product/ProductCategory schema plus supporting PackageItem relation, product service/actions, admin `/products` UI, and admin/manager navigation/permission gate.
 - Feature 55g follow-up: Added a shared TimePicker and migrated booking create/edit session time fields off native time inputs.
 - Feature 55g: Migrated all raw date inputs to the shared DatePicker component across booking, editing workflow, invoice payment, and child forms.
 - Feature 55f: Editing queue investigation complete — current query returns `1` row in `19ms`, has no pagination, shows no N+1 pattern, and points to cold-start overhead as the present bottleneck with pagination as the likely future fix target.
