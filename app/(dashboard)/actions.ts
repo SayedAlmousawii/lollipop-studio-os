@@ -67,14 +67,13 @@ export async function lookupDashboardSalesByPhone(
       hasSearched: true,
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to search by phone";
+    console.error("Dashboard phone lookup failed", error);
 
     return {
       ...initialLookupState,
       phoneSearch: parsed.data.phone,
       hasSearched: true,
-      errors: { _global: [message] },
+      errors: { _global: ["Unable to complete phone search, please try again."] },
     };
   }
 }

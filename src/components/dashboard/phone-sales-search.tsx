@@ -98,7 +98,7 @@ function PhoneLookupResult({ state }: { state: DashboardPhoneLookupState }) {
   }
 
   return (
-    <div className="mt-5 space-y-4">
+    <div className="mt-5 space-y-4" role="status" aria-live="polite">
       <div className="flex flex-col gap-1 rounded-[12px] bg-surface-soft p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-medium text-text-primary">
@@ -168,7 +168,11 @@ function LookupMetric({ label, value }: { label: string; value: string }) {
 
 function LookupMessage({ children }: { children: ReactNode }) {
   return (
-    <p className="mt-5 rounded-[12px] border border-dashed border-border bg-surface-soft p-4 text-sm text-text-secondary">
+    <p
+      className="mt-5 rounded-[12px] border border-dashed border-border bg-surface-soft p-4 text-sm text-text-secondary"
+      role="status"
+      aria-live="polite"
+    >
       {children}
     </p>
   );
