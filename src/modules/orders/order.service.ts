@@ -123,6 +123,7 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
   "PAID",
   "CLOSED",
 ]);
+const MAX_CUSTOMER_ORDER_HISTORY_LIMIT = 100;
 
 function assertActorPermission(actorContext: ActorContext, permission: Permission): void {
   if (!actorContext.actorRole) return;
@@ -198,8 +199,9 @@ export async function getOrdersByCustomerId(
   customerId: string,
   limit = 10
 ): Promise<CustomerOrderHistoryItem[]> {
+  const sanitizedLimit = sanitizeCustomerOrderHistoryLimit(limit);
   const rows = await withRetry(
-    () => fetchOrdersByCustomerId(customerId, limit),
+    () => fetchOrdersByCustomerId(customerId, sanitizedLimit),
     "Failed to fetch customer orders"
   );
 
@@ -2824,6 +2826,12 @@ function mapPaymentStatus(
     return "Paid";
   }
   return "Partially paid";
+}
+
+function sanitizeCustomerOrderHistoryLimit(limit: number): number {
+  const parsedLimit = Number.isFinite(limit) ? Math.trunc(limit) : 10;
+
+  return Math.min(Math.max(parsedLimit, 1), MAX_CUSTOMER_ORDER_HISTORY_LIMIT);
 }
 
 function mapWorkflowStatus(row: {

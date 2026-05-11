@@ -236,7 +236,7 @@ export async function getCustomerByPhone(
   const rows = await withRetry(
     () =>
       db.customer.findMany({
-        where: buildCustomersWhere({ search }),
+        where: buildCustomerPhoneLookupWhere(search),
         select: {
           id: true,
           name: true,
@@ -447,6 +447,44 @@ function buildCustomersWhere(filters: CustomerFilters): Prisma.CustomerWhereInpu
     ...(searchClause ?? {}),
     ...(filters.status ? { status: filters.status } : {}),
   };
+}
+
+function buildCustomerPhoneLookupWhere(search: string): Prisma.CustomerWhereInput {
+  const normalizedPhoneSearch = normalizePhoneSearch(search);
+  const formattedPhoneSearch = normalizedPhoneSearch
+    ? formatCustomerPhone(normalizedPhoneSearch)
+    : undefined;
+  const phoneFilters = [
+    ...(normalizedPhoneSearch
+      ? [
+          {
+            phone: {
+              contains: normalizedPhoneSearch,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ]
+      : []),
+    ...(formattedPhoneSearch && formattedPhoneSearch !== normalizedPhoneSearch
+      ? [
+          {
+            phone: {
+              contains: formattedPhoneSearch,
+              mode: Prisma.QueryMode.insensitive,
+            },
+          },
+        ]
+      : []),
+  ];
+
+  return phoneFilters.length > 0
+    ? { OR: phoneFilters }
+    : {
+        phone: {
+          contains: search,
+          mode: Prisma.QueryMode.insensitive,
+        },
+      };
 }
 
 function prioritizeCustomers<
