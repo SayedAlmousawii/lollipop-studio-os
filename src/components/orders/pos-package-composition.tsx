@@ -6,12 +6,14 @@ import { useFormStatus } from "react-dom";
 import { ArrowRightLeft, Lock, PackageOpen } from "lucide-react";
 import {
   updateOrderPackageAction,
+  updateOrderSelectedPhotoCountAction,
   upgradeOrderPackageItemAction,
   type POSCompositionActionState,
 } from "@/app/orders/[orderId]/sales/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -43,7 +45,7 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
   const locked = workspace.invoice?.isLocked ?? false;
 
   return (
-    <Card>
+    <Card id="package-composition">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <PackageOpen className="h-4 w-4 text-accent" />
@@ -80,7 +82,6 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
               locked={locked}
             />
           ))}
-          <PhotosCard workspace={workspace} />
           {workspace.packageItems.length === 0 ? (
             <div className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
               Structured package deliverables will appear here when available.
@@ -98,6 +99,81 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
             strong
           />
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function POSPhotoCountCard({ workspace }: POSPackageCompositionProps) {
+  const locked = workspace.invoice?.isLocked ?? false;
+  const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
+    updateOrderSelectedPhotoCountAction.bind(null, workspace.orderId),
+    {}
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Selected Photos</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {locked ? (
+          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+            Invoice is locked. Selected-photo changes require the future adjustment flow.
+          </div>
+        ) : null}
+        <div className="rounded-md border border-border bg-surface-soft p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {workspace.includedPhotoCount} Included Edited Photos
+              </p>
+              <p className="mt-1 text-xs uppercase text-text-muted">DIGITAL</p>
+            </div>
+            <Badge variant="secondary" className="rounded-md">
+              Included
+            </Badge>
+          </div>
+          {workspace.extraPhotoCount > 0 ? (
+            <p className="mt-3 text-sm text-text-secondary">
+              {workspace.extraPhotoCount} extra selected · {workspace.extraPhotoCount} x{" "}
+              {formatKD(workspace.extraPhotoUnitPrice)} = {formatKD(workspace.extraPhotoTotal)}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-text-secondary">No extra-photo charge</p>
+          )}
+        </div>
+        <form action={formAction} className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="space-y-2">
+              <Label htmlFor="selectedPhotoCount">Selected photos</Label>
+              <Input
+                id="selectedPhotoCount"
+                name="selectedPhotoCount"
+                type="number"
+                min={workspace.includedPhotoCount}
+                step={1}
+                defaultValue={workspace.selectedPhotoCount}
+                disabled={locked}
+                aria-invalid={
+                  state.errors?.selectedPhotoCount?.length ||
+                  state.errors?._global?.length
+                    ? true
+                    : undefined
+                }
+              />
+            </div>
+            <SubmitButton label="Update Count" disabled={locked} />
+          </div>
+          <div className="grid gap-2 text-xs text-text-secondary sm:grid-cols-3">
+            <span>Included: {workspace.includedPhotoCount}</span>
+            <span>Selected: {workspace.selectedPhotoCount}</span>
+            <span>Extra: {workspace.extraPhotoCount}</span>
+          </div>
+          <FieldError messages={state.errors?.selectedPhotoCount} />
+          <GlobalError messages={state.errors?._global} />
+        </form>
       </CardContent>
     </Card>
   );
@@ -270,31 +346,6 @@ function ItemUpgradeDialog({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function PhotosCard({ workspace }: { workspace: POSWorkspace }) {
-  return (
-    <div className="rounded-md border border-border bg-surface-soft p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-text-primary">
-            {workspace.includedPhotoCount} Edited Photos
-          </p>
-          <p className="mt-1 text-xs uppercase text-text-muted">DIGITAL</p>
-        </div>
-        <Badge variant="secondary" className="rounded-md">
-          Included
-        </Badge>
-      </div>
-      {workspace.extraPhotoCount > 0 ? (
-        <p className="mt-3 text-sm text-text-secondary">
-          {workspace.extraPhotoCount} extra selected · {formatKD(workspace.extraPhotoTotal)}
-        </p>
-      ) : (
-        <p className="mt-3 text-sm text-text-secondary">Included in package</p>
-      )}
-    </div>
   );
 }
 

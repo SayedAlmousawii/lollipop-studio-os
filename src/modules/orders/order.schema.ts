@@ -57,6 +57,21 @@ export const upgradeOrderPackageItemSchema = z.object({
   newProductId: z.string().trim().min(1, "Replacement product is required"),
 });
 
+export const addOrderProductAddOnSchema = z.object({
+  productId: z.string().trim().min(1, "Product is required"),
+});
+
+export const removeOrderAddOnSchema = z.object({
+  addOnId: z.string().trim().min(1, "Add-on is required"),
+});
+
+export const updateOrderSelectedPhotoCountSchema = z.object({
+  selectedPhotoCount: z.coerce
+    .number()
+    .int("Selected photos must be a whole number")
+    .min(0, "Selected photos cannot be negative"),
+});
+
 export const updateOrderEditingWorkflowSchema = z.object({
   action: z.enum([
     "assignEditor",
@@ -106,6 +121,9 @@ export type UpdateOrderWorkflowInput = z.infer<typeof updateOrderWorkflowSchema>
 export type UpdateOrderSelectionWorkflowInput = z.infer<typeof updateOrderSelectionWorkflowSchema>;
 export type UpdateOrderPackageInput = z.infer<typeof updateOrderPackageSchema>;
 export type UpgradeOrderPackageItemInput = z.infer<typeof upgradeOrderPackageItemSchema>;
+export type AddOrderProductAddOnInput = z.infer<typeof addOrderProductAddOnSchema>;
+export type RemoveOrderAddOnInput = z.infer<typeof removeOrderAddOnSchema>;
+export type UpdateOrderSelectedPhotoCountInput = z.infer<typeof updateOrderSelectedPhotoCountSchema>;
 export type UpdateOrderEditingWorkflowInput = z.infer<typeof updateOrderEditingWorkflowSchema>;
 export type UpdateOrderProductionWorkflowInput = z.infer<typeof updateOrderProductionWorkflowSchema>;
 export type UpdateOrderDeliveryWorkflowInput = z.infer<typeof updateOrderDeliveryWorkflowSchema>;

@@ -48,12 +48,18 @@ import {
   updateOrderSelectionWorkflowSchema,
   updateOrderPackageSchema,
   upgradeOrderPackageItemSchema,
+  addOrderProductAddOnSchema,
+  removeOrderAddOnSchema,
+  updateOrderSelectedPhotoCountSchema,
   updateOrderWorkflowSchema,
+  type AddOrderProductAddOnInput,
   type UpdateOrderInput,
   type UpdateOrderEditingWorkflowInput,
   type UpdateOrderDeliveryWorkflowInput,
   type UpdateOrderPackageInput,
   type UpdateOrderProductionWorkflowInput,
+  type RemoveOrderAddOnInput,
+  type UpdateOrderSelectedPhotoCountInput,
   type UpdateOrderSelectionWorkflowInput,
   type UpgradeOrderPackageItemInput,
   type UpdateOrderWorkflowInput,
@@ -287,6 +293,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                 select: {
                   id: true,
                   productId: true,
+                  packageItemId: true,
                   nameSnapshot: true,
                   priceSnapshot: true,
                   quantity: true,
@@ -307,12 +314,16 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
             orderBy: { price: "asc" },
           }),
           db.product.findMany({
-            where: { isActive: true, isPackageDeliverable: true },
+            where: {
+              id: { not: "addon-extra-photo" },
+              isActive: true,
+              isPackageDeliverable: true,
+            },
             select: { id: true, name: true, category: true, canonicalPrice: true },
             orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
           }),
           db.product.findMany({
-            where: { isActive: true, isAddOn: true },
+            where: { id: { not: "addon-extra-photo" }, isActive: true, isAddOn: true },
             select: { id: true, name: true, category: true, canonicalPrice: true },
             orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
           }),
@@ -331,7 +342,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const extraPhotoCount = Math.max(selectedPhotoCount - includedPhotoCount, 0);
   const extraPhotoTotalDecimal = extraPhotoOption.price.mul(extraPhotoCount);
   const addOns = mapPOSAddOns(order.orderAddOns);
-  const addOnTotal = sumPOSAddOnsDecimal(addOns);
+  const addOnTotal = sumOrderAddOnRowsDecimal(order.orderAddOns);
   const packageBaseTotal = currentPackage?.price ?? zeroMoney();
   const invoiceTotal = packageBaseTotal.plus(extraPhotoTotalDecimal).plus(addOnTotal);
   const paidAmount = order.invoices[0]?.paidAmount ?? zeroMoney();
@@ -960,7 +971,8 @@ export async function upgradeOrderPackageItem(
         }
 
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
-        const delta = newProduct.canonicalPrice.minus(currentItem.priceSnapshot);
+        const unitDelta = newProduct.canonicalPrice.minus(currentItem.priceSnapshot);
+        const adjustmentTotal = unitDelta.mul(currentItem.quantity);
         const existingAddOn = await tx.orderAddOn.findFirst({
           where: {
             orderId,
@@ -974,8 +986,8 @@ export async function upgradeOrderPackageItem(
               data: {
                 productId: newProduct.id,
                 nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
-                priceSnapshot: delta,
-                quantity: 1,
+                priceSnapshot: unitDelta,
+                quantity: currentItem.quantity,
                 notes: `Package item upgrade from ${currentItem.product.name}`,
               },
               select: { id: true },
@@ -986,8 +998,8 @@ export async function upgradeOrderPackageItem(
                 productId: newProduct.id,
                 packageItemId: currentItem.id,
                 nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
-                priceSnapshot: delta,
-                quantity: 1,
+                priceSnapshot: unitDelta,
+                quantity: currentItem.quantity,
                 notes: `Package item upgrade from ${currentItem.product.name}`,
               },
               select: { id: true },
@@ -1006,7 +1018,7 @@ export async function upgradeOrderPackageItem(
           userId: actorContext.actorUserId ?? null,
           type: OrderActivityType.ADD_ON_CHANGED,
           title: "Package item upgraded",
-          description: `${currentItem.product.name} changed to ${newProduct.name} for ${formatSignedMoney(delta)}.`,
+          description: `${currentItem.product.name} changed to ${newProduct.name} for ${formatSignedMoney(adjustmentTotal)}.`,
           metadata: {
             orderAddOnId: addOn.id,
             packageItemId: currentItem.id,
@@ -1014,7 +1026,9 @@ export async function upgradeOrderPackageItem(
             previousProductName: currentItem.product.name,
             nextProductId: newProduct.id,
             nextProductName: newProduct.name,
-            priceDelta: delta.toFixed(3),
+            quantity: currentItem.quantity,
+            unitPriceDelta: unitDelta.toFixed(3),
+            priceDelta: adjustmentTotal.toFixed(3),
           },
         });
 
@@ -1044,6 +1058,369 @@ export async function upgradeOrderPackageItem(
 
   const workspace = await getPOSWorkspace(orderId);
   if (!workspace) throw new Error("Order not found after package item upgrade");
+  return workspace;
+}
+
+export async function addOrderProductAddOn(
+  orderId: string,
+  input: AddOrderProductAddOnInput,
+  actorContext: ActorContext
+): Promise<POSWorkspace> {
+  const data = addOrderProductAddOnSchema.parse(input);
+  assertFinancialActorContext(actorContext);
+  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const [order, product] = await Promise.all([
+          tx.order.findUnique({
+            where: { id: orderId },
+            include: {
+              originalPackage: { select: { price: true, photoCount: true } },
+              finalPackage: { select: { price: true, photoCount: true } },
+              invoices: {
+                where: { parentInvoiceId: null },
+                select: { id: true, isLocked: true },
+                orderBy: { createdAt: "asc" },
+                take: 1,
+              },
+              orderAddOns: {
+                select: {
+                  productId: true,
+                  nameSnapshot: true,
+                  priceSnapshot: true,
+                  quantity: true,
+                },
+                orderBy: { createdAt: "asc" },
+              },
+            },
+          }),
+          tx.product.findUnique({
+            where: { id: data.productId },
+            select: {
+              id: true,
+              name: true,
+              canonicalPrice: true,
+              isActive: true,
+              isAddOn: true,
+              isPackageDeliverable: true,
+            },
+          }),
+        ]);
+
+        if (!order) throw new Error("Order not found");
+        if (order.status === OrderStatus.DELIVERED) {
+          throw new Error("Delivered orders cannot be edited");
+        }
+        if (order.invoices[0]?.isLocked) {
+          throw new Error("Invoice is locked. Use the adjustment flow before changing add-ons.");
+        }
+        if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
+          throw new Error("Selected add-on product is not available");
+        }
+        if (product.id === "addon-extra-photo") {
+          throw new Error("Use selected photo count for extra photos");
+        }
+
+        const currentPackage = order.finalPackage ?? order.originalPackage;
+        if (!currentPackage) throw new Error("Order has no package price");
+        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const addOn = await tx.orderAddOn.create({
+          data: {
+            orderId,
+            productId: product.id,
+            nameSnapshot: product.name,
+            priceSnapshot: product.canonicalPrice,
+            quantity: 1,
+          },
+          select: { id: true },
+        });
+
+        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
+          orderId,
+          previousPackagePrice: currentPackage.price,
+          previousAddOns,
+          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousIncludedPhotoCount: currentPackage.photoCount,
+        });
+
+        await recordOrderActivity(tx, {
+          orderId,
+          userId: actorContext.actorUserId ?? null,
+          type: OrderActivityType.ADD_ON_CHANGED,
+          title: "Add-on added",
+          description: `${product.name} was added for ${formatMoney(product.canonicalPrice)}.`,
+          metadata: {
+            orderAddOnId: addOn.id,
+            productId: product.id,
+            productName: product.name,
+            price: product.canonicalPrice.toFixed(3),
+            addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+          },
+        });
+
+        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
+            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
+            metadata: {
+              invoiceId: invoiceSummary.invoiceId,
+              invoiceNumber: invoiceSummary.invoiceNumber,
+              totalAmount: invoiceSummary.totalAmount,
+              paidAmount: invoiceSummary.paidAmount,
+              remainingAmount: invoiceSummary.remainingAmount,
+              status: invoiceSummary.status,
+              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+            },
+          });
+        }
+      }),
+    "Failed to add order add-on"
+  );
+
+  const workspace = await getPOSWorkspace(orderId);
+  if (!workspace) throw new Error("Order not found after add-on update");
+  return workspace;
+}
+
+export async function removeOrderAddOn(
+  orderId: string,
+  input: RemoveOrderAddOnInput,
+  actorContext: ActorContext
+): Promise<POSWorkspace> {
+  const data = removeOrderAddOnSchema.parse(input);
+  assertFinancialActorContext(actorContext);
+  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          include: {
+            originalPackage: { select: { price: true, photoCount: true } },
+            finalPackage: { select: { price: true, photoCount: true } },
+            invoices: {
+              where: { parentInvoiceId: null },
+              select: { id: true, isLocked: true },
+              orderBy: { createdAt: "asc" },
+              take: 1,
+            },
+            orderAddOns: {
+              select: {
+                productId: true,
+                nameSnapshot: true,
+                priceSnapshot: true,
+                quantity: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        });
+
+        if (!order) throw new Error("Order not found");
+        if (order.status === OrderStatus.DELIVERED) {
+          throw new Error("Delivered orders cannot be edited");
+        }
+        if (order.invoices[0]?.isLocked) {
+          throw new Error("Invoice is locked. Use the adjustment flow before changing add-ons.");
+        }
+
+        const currentPackage = order.finalPackage ?? order.originalPackage;
+        if (!currentPackage) throw new Error("Order has no package price");
+        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const addOn = await tx.orderAddOn.findFirst({
+          where: {
+            id: data.addOnId,
+            orderId,
+            packageItemId: null,
+          },
+          select: {
+            id: true,
+            productId: true,
+            nameSnapshot: true,
+            priceSnapshot: true,
+            quantity: true,
+          },
+        });
+        if (!addOn) {
+          throw new Error("Selected add-on is not on this order");
+        }
+
+        if (addOn.quantity > 1) {
+          await tx.orderAddOn.update({
+            where: { id: addOn.id },
+            data: { quantity: addOn.quantity - 1 },
+          });
+        } else {
+          await tx.orderAddOn.delete({ where: { id: addOn.id } });
+        }
+
+        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
+          orderId,
+          previousPackagePrice: currentPackage.price,
+          previousAddOns,
+          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousIncludedPhotoCount: currentPackage.photoCount,
+        });
+
+        await recordOrderActivity(tx, {
+          orderId,
+          userId: actorContext.actorUserId ?? null,
+          type: OrderActivityType.ADD_ON_CHANGED,
+          title: "Add-on removed",
+          description: `${addOn.nameSnapshot} was removed.`,
+          metadata: {
+            orderAddOnId: addOn.id,
+            productId: addOn.productId,
+            productName: addOn.nameSnapshot,
+            price: addOn.priceSnapshot.toFixed(3),
+            previousQuantity: addOn.quantity,
+            nextQuantity: Math.max(addOn.quantity - 1, 0),
+            addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+          },
+        });
+
+        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
+            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
+            metadata: {
+              invoiceId: invoiceSummary.invoiceId,
+              invoiceNumber: invoiceSummary.invoiceNumber,
+              totalAmount: invoiceSummary.totalAmount,
+              paidAmount: invoiceSummary.paidAmount,
+              remainingAmount: invoiceSummary.remainingAmount,
+              status: invoiceSummary.status,
+              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+            },
+          });
+        }
+      }),
+    "Failed to remove order add-on"
+  );
+
+  const workspace = await getPOSWorkspace(orderId);
+  if (!workspace) throw new Error("Order not found after add-on removal");
+  return workspace;
+}
+
+export async function updateOrderSelectedPhotoCount(
+  orderId: string,
+  input: UpdateOrderSelectedPhotoCountInput,
+  actorContext: ActorContext
+): Promise<POSWorkspace> {
+  const data = updateOrderSelectedPhotoCountSchema.parse(input);
+  assertFinancialActorContext(actorContext);
+  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
+
+  await withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const order = await tx.order.findUnique({
+          where: { id: orderId },
+          include: {
+            originalPackage: { select: { price: true, photoCount: true } },
+            finalPackage: { select: { price: true, photoCount: true } },
+            invoices: {
+              where: { parentInvoiceId: null },
+              select: { id: true, isLocked: true },
+              orderBy: { createdAt: "asc" },
+              take: 1,
+            },
+            orderAddOns: {
+              select: {
+                productId: true,
+                nameSnapshot: true,
+                priceSnapshot: true,
+                quantity: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
+          },
+        });
+
+        if (!order) throw new Error("Order not found");
+        if (order.status === OrderStatus.DELIVERED) {
+          throw new Error("Delivered orders cannot be edited");
+        }
+        if (order.invoices[0]?.isLocked) {
+          throw new Error("Invoice is locked. Use the adjustment flow before changing selected photos.");
+        }
+
+        const currentPackage = order.finalPackage ?? order.originalPackage;
+        if (!currentPackage) throw new Error("Order has no package price");
+        if (data.selectedPhotoCount < currentPackage.photoCount) {
+          throw new Error("Selected photos cannot be below included package photos");
+        }
+
+        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        await tx.order.update({
+          where: { id: orderId },
+          data: { selectedPhotoCount: data.selectedPhotoCount },
+        });
+
+        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
+          orderId,
+          previousPackagePrice: currentPackage.price,
+          previousAddOns,
+          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousIncludedPhotoCount: currentPackage.photoCount,
+        });
+
+        if (order.selectedPhotoCount !== data.selectedPhotoCount) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.SELECTION_UPDATED,
+            title: "Selected photo count updated",
+            description: `Selected photos changed to ${data.selectedPhotoCount}.`,
+            metadata: {
+              previousSelectedPhotoCount: order.selectedPhotoCount,
+              nextSelectedPhotoCount: data.selectedPhotoCount,
+              includedPhotoCount: currentPackage.photoCount,
+              extraPhotoCount: Math.max(data.selectedPhotoCount - currentPackage.photoCount, 0),
+            },
+          });
+        }
+
+        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
+          await recordOrderActivity(tx, {
+            orderId,
+            userId: actorContext.actorUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
+            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
+            metadata: {
+              invoiceId: invoiceSummary.invoiceId,
+              invoiceNumber: invoiceSummary.invoiceNumber,
+              totalAmount: invoiceSummary.totalAmount,
+              paidAmount: invoiceSummary.paidAmount,
+              remainingAmount: invoiceSummary.remainingAmount,
+              status: invoiceSummary.status,
+              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
+              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
+              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
+            },
+          });
+        }
+      }),
+    "Failed to update selected photo count"
+  );
+
+  const workspace = await getPOSWorkspace(orderId);
+  if (!workspace) throw new Error("Order not found after selected photo update");
   return workspace;
 }
 
@@ -2841,6 +3218,18 @@ function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
   );
 }
 
+function sumOrderAddOnRowsDecimal(
+  rows: Array<{
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+): Prisma.Decimal {
+  return rows.reduce(
+    (sum, row) => sum.plus(row.priceSnapshot.mul(row.quantity)),
+    zeroMoney()
+  );
+}
+
 function mapStructuredAddOns(
   rows: Array<{
     productId: string | null;
@@ -2952,16 +3341,18 @@ function mapPOSAddOns(
   rows: Array<{
     id: string;
     productId: string | null;
+    packageItemId: string | null;
     nameSnapshot: string;
     priceSnapshot: Prisma.Decimal;
     quantity: number;
   }>
 ): POSAddOn[] {
-  return rows.flatMap((row) => {
+  return rows.filter((row) => !row.packageItemId).flatMap((row) => {
     const entries: POSAddOn[] = [];
     for (let index = 0; index < row.quantity; index++) {
       entries.push({
         id: row.quantity === 1 ? row.id : `${row.id}-${index + 1}`,
+        addOnRowId: row.id,
         productId: row.productId,
         name: row.nameSnapshot,
         price: row.priceSnapshot.toNumber(),
@@ -3058,13 +3449,6 @@ function mapPOSInvoiceSummary(input: {
 function sumPOSPackageItemsDecimal(items: POSPackageItem[]): Prisma.Decimal {
   return items.reduce(
     (sum, item) => sum.plus(new Prisma.Decimal(item.priceSnapshot).mul(item.quantity)),
-    zeroMoney()
-  );
-}
-
-function sumPOSAddOnsDecimal(addOns: POSAddOn[]): Prisma.Decimal {
-  return addOns.reduce(
-    (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
     zeroMoney()
   );
 }

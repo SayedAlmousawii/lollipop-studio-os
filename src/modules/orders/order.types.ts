@@ -371,6 +371,7 @@ export interface POSPackageItem {
 
 export interface POSAddOn {
   id: string;
+  addOnRowId: string;
   productId: string | null;
   name: string;
   price: number;

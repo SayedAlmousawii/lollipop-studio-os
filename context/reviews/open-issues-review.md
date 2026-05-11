@@ -104,3 +104,23 @@ No current rule enforces this. Upgrade amount is calculated during selection. It
 
 ---
 
+
+
+
+Right now it’s controlled by the product catalog.
+
+A product appears in the Add-On Marketplace when it has:
+
+isAddOn = true
+isActive = true
+So to choose what appears there, go to the Products area and mark the commonly sold items as add-ons. Examples:
+
+Mini Album
+USB Drive
+Acrylic Frame
+Thank-You Cards
+Extra Photos package
+Extra album copy
+The Commercial Actions section uses broader product categories like ALBUM, CANVAS, PRINT, DIGITAL, while the Marketplace is the curated “staff should see this immediately” shelf.
+
+One improvement I’d probably recommend later: add a dedicated field like showInPOSMarketplace or posFeatured, because “is this sellable as an add-on?” and “should this be featured in the POS marketplace?” are related but not exactly the same. Right now isAddOn does both jobs.
