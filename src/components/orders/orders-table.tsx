@@ -103,6 +103,9 @@ export function OrdersTable({ orders }: OrdersTableProps) {
                       <Link href={`/orders/${order.id}`}>View Details</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
+                      <Link href={`/orders/${order.id}/sales`}>Sales</Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
                       <Link href={`/orders/${order.id}/edit`}>Edit Order</Link>
                     </DropdownMenuItem>
                     {order.primaryInvoiceId ? (

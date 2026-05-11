@@ -325,6 +325,97 @@ export interface OrderFinancialSummary {
   payments: OrderPaymentStage[];
 }
 
+export interface POSWorkspace {
+  orderId: string;
+  jobNumber: string;
+  orderStatus: OrderStatusLabel;
+  sessionDate: string;
+  customerName: string;
+  customerPhone: string;
+  originalPackage: POSPackage | null;
+  currentPackage: POSPackage | null;
+  packageItems: POSPackageItem[];
+  bundleAdjustment: number;
+  rawDeliverableTotal: number;
+  includedPhotoCount: number;
+  selectedPhotoCount: number;
+  extraPhotoCount: number;
+  extraPhotoUnitPrice: number;
+  extraPhotoTotal: number;
+  addOns: POSAddOn[];
+  packageOptions: POSPackageOption[];
+  productOptions: POSProductOption[];
+  addOnCatalog: POSAddOnCatalogItem[];
+  invoice: POSInvoiceSummary | null;
+}
+
+export interface POSPackage {
+  id: string;
+  name: string;
+  price: number;
+  priceLabel: string;
+  photoCount: number;
+  bundleAdjustment: number;
+}
+
+export interface POSPackageItem {
+  id: string;
+  productId: string;
+  productName: string;
+  category: string;
+  quantity: number;
+  priceSnapshot: number;
+  priceSnapshotLabel: string;
+}
+
+export interface POSAddOn {
+  id: string;
+  productId: string | null;
+  name: string;
+  price: number;
+  priceLabel: string;
+}
+
+export interface POSPackageOption {
+  id: string;
+  name: string;
+  price: number;
+  priceLabel: string;
+  isCurrentPackage: boolean;
+  upgradeDelta: number;
+  upgradeDeltaLabel: string;
+}
+
+export interface POSProductOption {
+  id: string;
+  name: string;
+  category: string;
+  canonicalPrice: number;
+  canonicalPriceLabel: string;
+}
+
+export interface POSAddOnCatalogItem {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  priceLabel: string;
+}
+
+export interface POSInvoiceSummary {
+  invoiceId: string;
+  invoiceNumber: string;
+  invoiceStatus: InvoiceStatusLabel;
+  isLocked: boolean;
+  packageBaseTotal: number;
+  bundleAdjustment: number;
+  addOnTotal: number;
+  extraPhotoTotal: number;
+  invoiceTotal: number;
+  paidAmount: number;
+  remainingAmount: number;
+}
+
 export interface EditingQueueItem {
   id: string;
   jobNumber: string;
