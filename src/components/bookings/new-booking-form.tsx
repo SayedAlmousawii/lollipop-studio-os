@@ -6,6 +6,7 @@ import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -196,6 +197,7 @@ export function NewBookingForm({
 }: NewBookingFormProps) {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [selectedSessionType, setSelectedSessionType] = useState("");
+  const [sessionDate, setSessionDate] = useState("");
   const [state, formAction] = useActionState<ActionState, FormData>(
     createBooking,
     {}
@@ -251,10 +253,15 @@ export function NewBookingForm({
       {/* Session Date */}
       <div className="space-y-1.5">
         <Label htmlFor="sessionDate">Session Date</Label>
-        <Input
-          id="sessionDate"
+        <input
+          type="hidden"
           name="sessionDate"
-          type="date"
+          value={sessionDate}
+        />
+        <DatePicker
+          value={sessionDate}
+          onChange={(value) => setSessionDate(value ?? "")}
+          placeholder="Select date"
           className="w-full"
         />
         <FieldError messages={state.errors?.sessionDate} />

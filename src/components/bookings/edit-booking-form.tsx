@@ -13,6 +13,7 @@ import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
 import { PaymentStatusBadge } from "@/components/bookings/payment-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -71,6 +72,7 @@ export function EditBookingForm({
   const [selectedDepartmentId, setSelectedDepartmentId] = useState(
     booking.departmentId
   );
+  const [sessionDate, setSessionDate] = useState(booking.sessionDate ?? "");
   const [selectedPhotographerId, setSelectedPhotographerId] = useState(
     booking.assignedPhotographerId || UNASSIGNED_PHOTOGRAPHER_VALUE
   );
@@ -227,13 +229,16 @@ export function EditBookingForm({
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="date">Date</Label>
-            <Input
-              id="date"
+            <input
+              type="hidden"
               name="date"
-              type="date"
-              defaultValue={booking.sessionDate}
-              disabled={!booking.canEdit}
-              aria-invalid={state.errors?.date?.length ? true : undefined}
+              value={sessionDate}
+            />
+            <DatePicker
+              value={sessionDate}
+              onChange={(value) => setSessionDate(value ?? "")}
+              placeholder="Select date"
+              className={`w-full ${!booking.canEdit ? "pointer-events-none opacity-50" : ""}`}
             />
             <FieldError messages={state.errors?.date} />
           </div>

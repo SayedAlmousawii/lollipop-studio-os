@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { recordPaymentAction, type RecordPaymentActionState } from "@/app/invoices/actions";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -49,6 +50,7 @@ function PaymentFields({
   errors?: RecordPaymentActionState["errors"];
 }) {
   const { pending } = useFormStatus();
+  const [paidAt, setPaidAt] = useState("");
 
   return (
     <>
@@ -75,10 +77,11 @@ function PaymentFields({
         disabled={pending}
         error={errors?.paymentType}
       />
-      <Field
+      <DateField
         label="Paid At"
         name="paidAt"
-        type="date"
+        value={paidAt}
+        onChange={setPaidAt}
         disabled={pending}
         error={errors?.paidAt}
       />
@@ -95,6 +98,36 @@ function PaymentFields({
         <FieldError messages={errors?.notes} />
       </div>
     </>
+  );
+}
+
+function DateField({
+  label,
+  name,
+  value,
+  onChange,
+  disabled,
+  error,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  error?: string[];
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={name}>{label}</Label>
+      <input type="hidden" name={name} value={value} />
+      <DatePicker
+        value={value}
+        onChange={(nextValue) => onChange(nextValue ?? "")}
+        placeholder="Select date"
+        className={`w-full ${disabled ? "pointer-events-none opacity-50" : ""}`}
+      />
+      <FieldError messages={error} />
+    </div>
   );
 }
 
