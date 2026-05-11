@@ -34,18 +34,21 @@ export async function recordPaymentWithClient(
 ): Promise<{ id: string }> {
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
-    select: {
-      id: true,
-      invoiceNumber: true,
-      isLocked: true,
-      jobId: true,
-      jobNumber: true,
-      orderId: true,
-    },
+    include: { payments: { select: { amount: true } } },
   });
   if (!invoice) throw new Error("Invoice not found");
-  if (invoice.isLocked) {
-    throw new Error("Cannot record payments against a locked invoice");
+
+  const paidAmount = invoice.payments.reduce(
+    (sum, payment) => sum.plus(payment.amount),
+    new Prisma.Decimal(0)
+  );
+  const remainingAmount = Prisma.Decimal.max(invoice.totalAmount.minus(paidAmount), 0);
+  const paymentAmount = new Prisma.Decimal(data.amount);
+  if (remainingAmount.lessThanOrEqualTo(0)) {
+    throw new Error("No outstanding balance remains on this invoice");
+  }
+  if (paymentAmount.greaterThan(remainingAmount)) {
+    throw new Error("Payment amount cannot exceed the remaining invoice balance");
   }
 
   const payment = await client.payment.create({
@@ -54,7 +57,7 @@ export async function recordPaymentWithClient(
       jobId: invoice.jobId,
       jobNumber: invoice.jobNumber,
       invoiceId,
-      amount: new Prisma.Decimal(data.amount),
+      amount: paymentAmount,
       method: data.method,
       paymentType: data.paymentType,
       paidAt: data.paidAt ?? new Date(),
@@ -71,12 +74,12 @@ export async function recordPaymentWithClient(
       userId: actorContext.actorUserId ?? null,
       type: OrderActivityType.PAYMENT_RECEIVED,
       title: "Payment received",
-      description: `${new Prisma.Decimal(data.amount).toFixed(3)} KD payment recorded.`,
+      description: `${paymentAmount.toFixed(3)} KD payment recorded.`,
       metadata: {
         invoiceId,
         invoiceNumber: invoice.invoiceNumber,
         paymentId: payment.id,
-        amount: new Prisma.Decimal(data.amount).toFixed(3),
+        amount: paymentAmount.toFixed(3),
         method: data.method,
         paymentType: data.paymentType,
         paidAt: (data.paidAt ?? new Date()).toISOString(),

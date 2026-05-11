@@ -642,7 +642,6 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
     include: { payments: { select: { amount: true } } },
   });
   if (!invoice) throw new Error("Invoice not found");
-  if (invoice.isLocked) return;
 
   const paidAmount = invoice.payments.reduce(
     (sum, payment) => sum.plus(payment.amount),
