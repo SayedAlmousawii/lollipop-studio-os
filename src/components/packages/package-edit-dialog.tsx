@@ -50,11 +50,11 @@ export function PackageEditDialog({
             photoCount: String(packageRecord.photoCount),
             description: packageRecord.description,
             isActive: packageRecord.isActive ? "on" : "",
-            items: packageRecord.items.map((item, index) => ({
+            items: packageRecord.items.map((item) => ({
               productId: item.productId,
               quantity: String(item.quantity),
               priceSnapshot: item.priceSnapshotValue.toFixed(3),
-              sortOrder: String(index),
+              sortOrder: String(item.sortOrder),
             })),
           }}
         />

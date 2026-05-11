@@ -66,7 +66,10 @@ export function PackageForm({
     () => mapProductOptions(productOptions),
     [productOptions]
   );
-  const bundleAdjustment = calculateBundleAdjustment(packagePrice, items);
+  const bundleAdjustment = useMemo(
+    () => calculateBundleAdjustment(packagePrice, items),
+    [packagePrice, items]
+  );
 
   function addItem() {
     setItems((current) => [...current, emptyItemRow()]);

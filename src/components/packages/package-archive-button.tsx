@@ -33,7 +33,8 @@ export function PackageArchiveButton({
       ) : null}
       {disabled ? (
         <p className="max-w-64 px-2 py-1.5 text-xs text-text-secondary">
-          {activeReferenceCount} active booking/order reference
+          {activeReferenceCount} active booking/order{" "}
+          {activeReferenceCount === 1 ? "reference" : "references"}
         </p>
       ) : null}
       <ArchiveSubmitButton
