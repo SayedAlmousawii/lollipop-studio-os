@@ -73,7 +73,7 @@ function PaymentFields({
       <SelectField
         label="Payment Type"
         name="paymentType"
-        options={["DEPOSIT", "BASE", "UPGRADE", "ADDON", "OTHER"]}
+        options={["DEPOSIT", "FINAL", "UPGRADE", "ADDON", "OTHER"]}
         disabled={pending}
         error={errors?.paymentType}
       />

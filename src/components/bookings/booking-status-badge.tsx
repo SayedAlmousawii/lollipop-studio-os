@@ -1,14 +1,14 @@
 export type BookingStatus =
   | "Pending"
   | "Confirmed"
-  | "Completed"
+  | "Checked In"
   | "Cancelled"
   | "No-Show";
 
 const styles: Record<BookingStatus, string> = {
   Pending:   "bg-warning-soft text-warning",
   Confirmed: "bg-success-soft text-success",
-  Completed: "bg-success-soft text-success",
+  "Checked In": "bg-success-soft text-success",
   Cancelled: "bg-danger-soft text-danger",
   "No-Show": "bg-info-soft text-info",
 };

@@ -23,10 +23,11 @@ export async function generateJobNumber(
   const year = input.sessionDate.getUTCFullYear();
   const jobNumberPrefix = `${code}-${year}-%`;
   const rows = await client.$queryRaw<Array<{ lastValue: number | bigint }>>`
-    INSERT INTO "identifier_sequences" ("scope", "year", "lastValue", "createdAt", "updatedAt")
+    INSERT INTO "identifier_sequences" ("scope", "year", "kind", "lastValue", "createdAt", "updatedAt")
     VALUES (
       ${code},
       ${year},
+      'JOB',
       (
         SELECT COALESCE(MAX(substring("jobNumber" FROM '[0-9]+$')::INTEGER), 0) + 1
         FROM "jobs"
@@ -35,7 +36,7 @@ export async function generateJobNumber(
       CURRENT_TIMESTAMP,
       CURRENT_TIMESTAMP
     )
-    ON CONFLICT ("scope", "year")
+    ON CONFLICT ("scope", "year", "kind")
     DO UPDATE SET
       "lastValue" = GREATEST(
         "identifier_sequences"."lastValue" + 1,
