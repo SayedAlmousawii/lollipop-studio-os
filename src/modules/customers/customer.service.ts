@@ -64,6 +64,12 @@ export interface CustomerPhoneLookup {
   phone: string;
 }
 
+export interface CustomerPhoneSuggestion {
+  id: string;
+  name: string;
+  phone: string;
+}
+
 export function parseCustomerFilters(filters: {
   search?: string | string[];
   status?: string | string[];
@@ -259,6 +265,65 @@ export async function getCustomerByPhone(
     fullName: customer.name,
     phone: formatCustomerPhone(customer.phone),
   };
+}
+
+export async function getCustomerPhoneLookupById(
+  customerId: string
+): Promise<CustomerPhoneLookup | null> {
+  const row = await withRetry(
+    () =>
+      db.customer.findUnique({
+        where: { id: customerId },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+        },
+      }),
+    "Failed to fetch customer by id"
+  );
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    fullName: row.name,
+    phone: formatCustomerPhone(row.phone),
+  };
+}
+
+export async function getCustomerPhoneSuggestions(
+  query: string
+): Promise<CustomerPhoneSuggestion[]> {
+  const digits = query.replace(/\D/g, "");
+
+  if (digits.length < 3) {
+    return [];
+  }
+
+  const rows = await withRetry(
+    () =>
+      db.customer.findMany({
+        where: buildCustomerPhoneLookupWhere(digits),
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      }),
+    "Failed to fetch customer phone suggestions"
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    phone: formatCustomerPhone(row.phone),
+  }));
 }
 
 export async function getCustomerForEdit(

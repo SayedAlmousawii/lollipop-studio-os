@@ -124,3 +124,21 @@ Extra album copy
 The Commercial Actions section uses broader product categories like ALBUM, CANVAS, PRINT, DIGITAL, while the Marketplace is the curated “staff should see this immediately” shelf.
 
 One improvement I’d probably recommend later: add a dedicated field like showInPOSMarketplace or posFeatured, because “is this sellable as an add-on?” and “should this be featured in the POS marketplace?” are related but not exactly the same. Right now isAddOn does both jobs.
+
+
+---------------
+
+
+Doable, and not a bad idea, but I’d be careful with it.
+
+For this dashboard POS lookup, a suggestion dropdown could be excellent if staff often know only part of the number or customer name. It would make the flow feel fast: type 55…, see matching customers, click one, then show their orders / open Sales.
+
+The main tradeoff: suggestions should not hit the server on every keystroke. We’d want:
+
+Debounce, maybe 250-400ms.
+Minimum length, probably 3 or 4 digits.
+Small result limit, maybe 5.
+Lightweight endpoint/service that returns only id, name, phone.
+Keyboard support and a clear “Search” fallback.
+No order fetching until a suggestion is selected or the form is submitted.
+My take: good idea for a later polish unit, but not needed for 57e’s acceptance criteria. The current submit-based lookup is simpler, safer, and avoids chatter. A suggestion dropdown would be a nice 57e.1 or dashboard search enhancement once the POS flow is stable.
