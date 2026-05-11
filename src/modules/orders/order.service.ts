@@ -124,6 +124,12 @@ function assertActorPermission(actorContext: ActorContext, permission: Permissio
   }
 }
 
+function assertFinancialActorContext(actorContext: ActorContext): void {
+  if (!actorContext.actorUserId || !actorContext.actorRole) {
+    throw new Error("Missing actor context");
+  }
+}
+
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
 type OrderWriteClient = Prisma.TransactionClient;
@@ -761,9 +767,10 @@ export async function updateOrderSelectionWorkflow(
 export async function updateOrderPackage(
   orderId: string,
   input: UpdateOrderPackageInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<POSWorkspace> {
   const data = updateOrderPackageSchema.parse(input);
+  assertFinancialActorContext(actorContext);
   assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
 
   await withRetry(
@@ -808,6 +815,13 @@ export async function updateOrderPackage(
         if (!previousPackage) throw new Error("Order has no package price");
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const previousIncludedPhotoCount = previousPackage.photoCount;
+
+        await tx.orderAddOn.deleteMany({
+          where: {
+            orderId,
+            packageItemId: { not: null },
+          },
+        });
 
         await tx.order.update({
           where: { id: orderId },
@@ -877,9 +891,10 @@ export async function updateOrderPackage(
 export async function upgradeOrderPackageItem(
   orderId: string,
   input: UpgradeOrderPackageItemInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<POSWorkspace> {
   const data = upgradeOrderPackageItemSchema.parse(input);
+  assertFinancialActorContext(actorContext);
   assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
 
   await withRetry(
@@ -946,17 +961,37 @@ export async function upgradeOrderPackageItem(
 
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const delta = newProduct.canonicalPrice.minus(currentItem.priceSnapshot);
-        const addOn = await tx.orderAddOn.create({
-          data: {
+        const existingAddOn = await tx.orderAddOn.findFirst({
+          where: {
             orderId,
-            productId: newProduct.id,
-            nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
-            priceSnapshot: delta,
-            quantity: 1,
-            notes: `Package item upgrade from ${currentItem.product.name}`,
+            packageItemId: currentItem.id,
           },
           select: { id: true },
         });
+        const addOn = existingAddOn
+          ? await tx.orderAddOn.update({
+              where: { id: existingAddOn.id },
+              data: {
+                productId: newProduct.id,
+                nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
+                priceSnapshot: delta,
+                quantity: 1,
+                notes: `Package item upgrade from ${currentItem.product.name}`,
+              },
+              select: { id: true },
+            })
+          : await tx.orderAddOn.create({
+              data: {
+                orderId,
+                productId: newProduct.id,
+                packageItemId: currentItem.id,
+                nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
+                priceSnapshot: delta,
+                quantity: 1,
+                notes: `Package item upgrade from ${currentItem.product.name}`,
+              },
+              select: { id: true },
+            });
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,

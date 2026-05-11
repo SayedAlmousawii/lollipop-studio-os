@@ -37,9 +37,7 @@ export async function updateOrderPackageAction(
       actorRole: appUser.role,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to update package";
-    return { errors: { _global: [message] } };
+    return { errors: { _global: [safePOSActionMessage(error, "Unable to update package")] } };
   }
 
   revalidatePOSPaths(orderId);
@@ -69,9 +67,11 @@ export async function upgradeOrderPackageItemAction(
       actorRole: appUser.role,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to upgrade package item";
-    return { errors: { _global: [message] } };
+    return {
+      errors: {
+        _global: [safePOSActionMessage(error, "Unable to upgrade package item")],
+      },
+    };
   }
 
   revalidatePOSPaths(orderId);
@@ -83,4 +83,23 @@ function revalidatePOSPaths(orderId: string): void {
   revalidatePath(`/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}/sales`);
   revalidatePath("/invoices");
+}
+
+const SAFE_POS_DOMAIN_MESSAGES = new Set([
+  "Delivered orders cannot be edited",
+  "Invoice is locked. Use the adjustment flow before changing package composition.",
+  "Selected package is not available",
+  "Package item is not part of the current order package",
+  "Replacement product is not available",
+  "Replacement product must be in the same category",
+  "Replacement product is already included",
+]);
+
+function safePOSActionMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && SAFE_POS_DOMAIN_MESSAGES.has(error.message)) {
+    return error.message;
+  }
+
+  console.error(fallback, error);
+  return fallback;
 }

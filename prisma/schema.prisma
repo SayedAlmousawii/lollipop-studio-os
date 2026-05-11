@@ -273,6 +273,8 @@ model PackageItem {
   package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
+  upgradeAddOns OrderAddOn[]
+
   @@unique([packageId, productId])
   @@index([packageId])
   @@index([productId])
@@ -462,6 +464,7 @@ model OrderAddOn {
   id            String   @id @default(cuid())
   orderId       String
   productId     String?
+  packageItemId String?
   nameSnapshot  String
   priceSnapshot Decimal  @db.Decimal(10, 3)
   quantity      Int      @default(1)
@@ -469,11 +472,14 @@ model OrderAddOn {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  packageItem PackageItem? @relation(fields: [packageItemId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([productId])
+  @@index([packageItemId])
+  @@unique([orderId, packageItemId])
   @@map("order_add_ons")
 }
 
