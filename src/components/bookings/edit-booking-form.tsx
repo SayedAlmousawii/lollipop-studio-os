@@ -14,8 +14,8 @@ import { PaymentStatusBadge } from "@/components/bookings/payment-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TimePicker } from "@/components/ui/time-picker";
 import {
   Select,
   SelectContent,
@@ -73,6 +73,7 @@ export function EditBookingForm({
     booking.departmentId
   );
   const [sessionDate, setSessionDate] = useState(booking.sessionDate ?? "");
+  const [sessionTime, setSessionTime] = useState(booking.sessionTime ?? "");
   const [selectedPhotographerId, setSelectedPhotographerId] = useState(
     booking.assignedPhotographerId || UNASSIGNED_PHOTOGRAPHER_VALUE
   );
@@ -244,14 +245,18 @@ export function EditBookingForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="sessionTime">Time</Label>
-            <Input
-              id="sessionTime"
+            <input
+              type="hidden"
               name="sessionTime"
-              type="time"
-              defaultValue={booking.sessionTime}
+              value={sessionTime}
+            />
+            <TimePicker
+              id="sessionTime"
+              value={sessionTime}
+              onChange={(value) => setSessionTime(value ?? "")}
+              placeholder="Select time"
+              className="w-full"
               disabled={!booking.canEdit}
-              required
-              aria-invalid={state.errors?.sessionTime?.length ? true : undefined}
             />
             <FieldError messages={state.errors?.sessionTime} />
           </div>
