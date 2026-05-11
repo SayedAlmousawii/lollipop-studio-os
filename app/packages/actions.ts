@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -75,7 +76,7 @@ export async function createPackage(
   }
 
   revalidatePath("/packages");
-  return { success: "Package created.", values: emptyPackageValues() };
+  redirect("/packages");
 }
 
 export async function updatePackage(
@@ -108,7 +109,7 @@ export async function updatePackage(
   }
 
   revalidatePath("/packages");
-  return { success: "Package updated.", values };
+  redirect("/packages");
 }
 
 export async function archivePackageAction(
@@ -161,17 +162,6 @@ function packageItemFormValues(formData: FormData): PackageItemFormValues[] {
         item.productId !== "" || item.quantity !== "" || item.priceSnapshot !== ""
     );
 }
-
-function emptyPackageValues(): PackageFormValues {
-  return {
-    name: "",
-    price: "",
-    photoCount: "",
-    description: "",
-    items: [],
-  };
-}
-
 function formValue(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value : "";
 }

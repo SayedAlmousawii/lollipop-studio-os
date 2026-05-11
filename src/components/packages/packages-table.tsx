@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -17,18 +19,15 @@ import {
 } from "@/components/ui/table";
 import { PackageStatusBadge } from "./package-status-badge";
 import type { Package } from "@/modules/packages/package.types";
-import type { GroupedProductOptions } from "@/modules/products/product.types";
 import { PackageArchiveButton } from "./package-archive-button";
-import { PackageEditDialog } from "./package-edit-dialog";
 
 export type { Package };
 
 interface PackagesTableProps {
   packages: Package[];
-  productOptions: GroupedProductOptions[];
 }
 
-export function PackagesTable({ packages, productOptions }: PackagesTableProps) {
+export function PackagesTable({ packages }: PackagesTableProps) {
   if (packages.length === 0) {
     return (
       <div className="rounded-[14px] border border-border bg-surface px-6 py-10 text-center">
@@ -96,10 +95,9 @@ export function PackagesTable({ packages, productOptions }: PackagesTableProps) 
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
-                    <PackageEditDialog
-                      packageRecord={pkg}
-                      productOptions={productOptions}
-                    />
+                    <DropdownMenuItem asChild>
+                      <Link href={`/packages/${pkg.id}/edit`}>Edit</Link>
+                    </DropdownMenuItem>
                     <PackageArchiveButton
                       packageId={pkg.id}
                       activeReferenceCount={pkg.activeReferenceCount}
