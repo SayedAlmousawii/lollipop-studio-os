@@ -12,8 +12,14 @@ export interface Package {
   bundleAdjustment: string;
   bundleAdjustmentValue: number;
   bookingCount: number;
+  originalOrderCount: number;
+  finalOrderCount: number;
+  activeReferenceCount: number;
+  totalReferenceCount: number;
+  deliverableSummary: string;
   status: PackageStatus;
   isActive: boolean;
+  items: PackageItem[];
 }
 
 export interface PackageOption {
@@ -37,8 +43,4 @@ export interface PackageItem {
   sortOrder: number;
 }
 
-export interface PackageWithItems extends Package {
-  originalOrderCount: number;
-  finalOrderCount: number;
-  items: PackageItem[];
-}
+export type PackageWithItems = Package;

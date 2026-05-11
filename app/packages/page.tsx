@@ -1,14 +1,23 @@
+import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
-import { PackagesFilters } from "@/components/packages/packages-filters";
+import { PackageCreateDialog } from "@/components/packages/package-create-dialog";
 import { PackagesTable } from "@/components/packages/packages-table";
+import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import { getPackages } from "@/modules/packages/package.service";
+import { getActiveProductOptions } from "@/modules/products/product.service";
 
 export default async function PackagesPage() {
+  await requireCurrentAppUserPermission(PERMISSIONS.PACKAGE_CATALOG_MANAGE);
+
   let packages: Awaited<ReturnType<typeof getPackages>> = [];
+  let productOptions: Awaited<ReturnType<typeof getActiveProductOptions>> = [];
   let fetchError = false;
 
   try {
-    packages = await getPackages();
+    [packages, productOptions] = await Promise.all([
+      getPackages(),
+      getActiveProductOptions(),
+    ]);
   } catch {
     fetchError = true;
   }
@@ -23,9 +32,13 @@ export default async function PackagesPage() {
               Packages
             </h1>
             <p className="mt-1 text-sm text-text-secondary">
-              View and manage your studio packages
+              Build commercial bundles from structured product deliverables.
             </p>
           </div>
+          <PackageCreateDialog
+            productOptions={productOptions}
+            trigger={<Button type="button">Create Package</Button>}
+          />
         </div>
 
         {fetchError ? (
@@ -33,13 +46,7 @@ export default async function PackagesPage() {
             Failed to load packages. Please try refreshing the page.
           </p>
         ) : (
-          <>
-            {/* Filters */}
-            <PackagesFilters />
-
-            {/* Table */}
-            <PackagesTable packages={packages} />
-          </>
+          <PackagesTable packages={packages} productOptions={productOptions} />
         )}
       </div>
     </PageContainer>

@@ -62,7 +62,29 @@ export async function getPackages(): Promise<Package[]> {
     () =>
       db.package.findMany({
         include: {
-          _count: { select: { bookings: true } },
+          items: {
+            include: { product: true },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          },
+          bookings: {
+            where: { status: { in: ACTIVE_BOOKING_STATUSES } },
+            select: { id: true },
+          },
+          originalOrders: {
+            where: { status: { in: ACTIVE_ORDER_STATUSES } },
+            select: { id: true },
+          },
+          finalOrders: {
+            where: { status: { in: ACTIVE_ORDER_STATUSES } },
+            select: { id: true },
+          },
+          _count: {
+            select: {
+              bookings: true,
+              originalOrders: true,
+              finalOrders: true,
+            },
+          },
         },
         orderBy: { price: "asc" },
       }),
@@ -75,12 +97,20 @@ export async function getPackages(): Promise<Package[]> {
     price: formatPrice(row.price),
     priceValue: row.price.toNumber(),
     photoCount: row.photoCount,
-    description: row.description ?? "—",
+    description: row.description ?? "",
     bundleAdjustment: formatSignedPrice(row.bundleAdjustment),
     bundleAdjustmentValue: row.bundleAdjustment.toNumber(),
     bookingCount: row._count.bookings,
+    originalOrderCount: row._count.originalOrders,
+    finalOrderCount: row._count.finalOrders,
+    activeReferenceCount:
+      row.bookings.length + row.originalOrders.length + row.finalOrders.length,
+    totalReferenceCount:
+      row._count.bookings + row._count.originalOrders + row._count.finalOrders,
+    deliverableSummary: summarizePackageDeliverables(row),
     status: row.isActive ? "Active" : "Inactive",
     isActive: row.isActive,
+    items: row.items.map(mapPackageItem),
   }));
 }
 
@@ -125,6 +155,18 @@ export async function getPackageWithItems(id: string): Promise<PackageWithItems 
               originalOrders: true,
               finalOrders: true,
             },
+          },
+          bookings: {
+            where: { status: { in: ACTIVE_BOOKING_STATUSES } },
+            select: { id: true },
+          },
+          originalOrders: {
+            where: { status: { in: ACTIVE_ORDER_STATUSES } },
+            select: { id: true },
+          },
+          finalOrders: {
+            where: { status: { in: ACTIVE_ORDER_STATUSES } },
+            select: { id: true },
           },
         },
       }),
@@ -194,6 +236,9 @@ export async function updatePackage(
     if (hasCommercialFieldChanges(existing, price, data.photoCount, items)) {
       await assertNoLockedInvoicesForPackage(tx, id);
     }
+    if (existing.isActive && !data.isActive) {
+      await assertPackageCanBeArchived(tx, id);
+    }
 
     const bundleAdjustment = calculateBundleAdjustment(price, items);
 
@@ -233,19 +278,22 @@ export async function archivePackage(id: string): Promise<void> {
       throw new PackageNotFoundError();
     }
 
-    const activeReferences = await getActiveReferenceCounts(tx, id);
+    await assertPackageCanBeArchived(tx, id);
+
+    const totalReferences = await getTotalReferenceCounts(tx, id);
     if (
-      activeReferences.activeBookingCount > 0 ||
-      activeReferences.activeOriginalOrderCount > 0 ||
-      activeReferences.activeFinalOrderCount > 0
+      totalReferences.bookingCount > 0 ||
+      totalReferences.originalOrderCount > 0 ||
+      totalReferences.finalOrderCount > 0
     ) {
-      throw new PackageArchiveBlockedError();
+      await tx.package.update({
+        where: { id },
+        data: { isActive: false },
+      });
+      return;
     }
 
-    await tx.package.update({
-      where: { id },
-      data: { isActive: false },
-    });
+    await tx.package.delete({ where: { id } });
   });
 }
 
@@ -308,18 +356,37 @@ async function assertNoLockedInvoicesForPackage(
   const lockedInvoice = await client.invoice.findFirst({
     where: {
       isLocked: true,
-      order: {
-        OR: [
-          { originalPackageId: packageId },
-          { finalPackageId: packageId },
-        ],
-      },
+      OR: [
+        {
+          order: {
+            OR: [
+              { originalPackageId: packageId },
+              { finalPackageId: packageId },
+            ],
+          },
+        },
+        { booking: { packageId } },
+      ],
     },
     select: { id: true },
   });
 
   if (lockedInvoice) {
     throw new PackageLockedInvoiceError();
+  }
+}
+
+async function assertPackageCanBeArchived(
+  client: DbClient,
+  packageId: string
+): Promise<void> {
+  const activeReferences = await getActiveReferenceCounts(client, packageId);
+  if (
+    activeReferences.activeBookingCount > 0 ||
+    activeReferences.activeOriginalOrderCount > 0 ||
+    activeReferences.activeFinalOrderCount > 0
+  ) {
+    throw new PackageArchiveBlockedError();
   }
 }
 
@@ -347,6 +414,16 @@ async function getActiveReferenceCounts(client: DbClient, packageId: string) {
     ]);
 
   return { activeBookingCount, activeOriginalOrderCount, activeFinalOrderCount };
+}
+
+async function getTotalReferenceCounts(client: DbClient, packageId: string) {
+  const [bookingCount, originalOrderCount, finalOrderCount] = await Promise.all([
+    client.booking.count({ where: { packageId } }),
+    client.order.count({ where: { originalPackageId: packageId } }),
+    client.order.count({ where: { finalPackageId: packageId } }),
+  ]);
+
+  return { bookingCount, originalOrderCount, finalOrderCount };
 }
 
 function hasCommercialFieldChanges(
@@ -402,6 +479,11 @@ function mapPackageWithItems(row: PackageWithItemsRow): PackageWithItems {
     bookingCount: row._count.bookings,
     originalOrderCount: row._count.originalOrders,
     finalOrderCount: row._count.finalOrders,
+    activeReferenceCount:
+      row.bookings.length + row.originalOrders.length + row.finalOrders.length,
+    totalReferenceCount:
+      row._count.bookings + row._count.originalOrders + row._count.finalOrders,
+    deliverableSummary: summarizePackageDeliverables(row),
     status: row.isActive ? "Active" : "Inactive",
     isActive: row.isActive,
     items: row.items.map(mapPackageItem),
@@ -421,6 +503,24 @@ function mapPackageItem(row: PackageItemRow): PackageItem {
     lineTotalValue: row.priceSnapshot.mul(row.quantity).toNumber(),
     sortOrder: row.sortOrder,
   };
+}
+
+function summarizePackageDeliverables(row: {
+  photoCount: number;
+  items: Array<{
+    quantity: number;
+    product: { name: string };
+  }>;
+}): string {
+  const parts = row.items.map(
+    (item) => `${item.quantity}x ${item.product.name}`
+  );
+
+  if (row.photoCount > 0) {
+    parts.push(`${row.photoCount} Photos`);
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : "No deliverables set";
 }
 
 function decimal(value: number): Prisma.Decimal {
@@ -454,6 +554,18 @@ type PackageWithItemsRow = Prisma.PackageGetPayload<{
         originalOrders: true;
         finalOrders: true;
       };
+    };
+    bookings: {
+      where: { status: { in: typeof ACTIVE_BOOKING_STATUSES } };
+      select: { id: true };
+    };
+    originalOrders: {
+      where: { status: { in: typeof ACTIVE_ORDER_STATUSES } };
+      select: { id: true };
+    };
+    finalOrders: {
+      where: { status: { in: typeof ACTIVE_ORDER_STATUSES } };
+      select: { id: true };
     };
   };
 }>;
