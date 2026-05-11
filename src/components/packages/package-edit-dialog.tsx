@@ -33,7 +33,7 @@ export function PackageEditDialog({
           Edit
         </Button>
       </DialogTrigger>
-      <DialogContent className="grid max-h-[85dvh] max-w-4xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0">
+      <DialogContent className="grid h-[85dvh] w-[96vw] max-w-4xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0">
         <DialogHeader className="border-b border-border px-6 py-5">
           <DialogTitle>Edit Package</DialogTitle>
           <DialogDescription className="sr-only">

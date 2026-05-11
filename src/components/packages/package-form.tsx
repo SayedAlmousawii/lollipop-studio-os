@@ -93,7 +93,7 @@ export function PackageForm({
   }
 
   return (
-    <form action={formAction} className="flex min-h-0 flex-col">
+    <form action={formAction} className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
         {state.errors?._global ? (
           <p className="rounded-md bg-danger-soft px-4 py-3 text-sm text-danger">
@@ -286,7 +286,7 @@ function PackageItemFields({
   const { pending } = useFormStatus();
 
   return (
-    <div className="grid gap-3 rounded-md border border-border bg-surface p-3 md:grid-cols-[1fr_110px_140px_40px]">
+    <div className="grid gap-3 rounded-md border border-border bg-surface p-3 sm:grid-cols-[minmax(0,1fr)_7rem_9rem_2.5rem]">
       <div className="space-y-2">
         <Label htmlFor={`package-item-product-${index}`}>Product</Label>
         <select
