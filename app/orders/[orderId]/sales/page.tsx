@@ -3,7 +3,10 @@ import { AlertCircle, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
-import { POSPackageComposition } from "@/components/orders/pos-package-composition";
+import {
+  POSPackageComposition,
+  POSPhotoCountCard,
+} from "@/components/orders/pos-package-composition";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 
@@ -18,6 +21,7 @@ export default async function SalesPage(
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
       <main className="space-y-5">
         <POSPackageComposition workspace={workspace} />
+        <POSPhotoCountCard workspace={workspace} />
         <POSAddOnMarketplace workspace={workspace} />
       </main>
       <FinancialSidebar workspace={workspace} />

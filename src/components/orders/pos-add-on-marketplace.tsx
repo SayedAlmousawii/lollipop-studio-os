@@ -240,7 +240,7 @@ function CatalogCard({
         </form>
         {added && addOn ? (
         <form action={removeAction} className="space-y-2">
-          <input type="hidden" name="addOnId" value={addOn.id} />
+          <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
           <SubmitButton label="Remove One" disabled={locked} variant="ghost" icon="trash" />
           <GlobalError messages={removeState.errors?._global} />
         </form>
@@ -305,7 +305,7 @@ function CurrentAddOnRow({
       <div className="flex items-center gap-2">
         <span className="font-medium tabular-nums text-text-primary">{addOn.priceLabel}</span>
         <form action={formAction}>
-          <input type="hidden" name="addOnId" value={addOn.id} />
+          <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
           <SubmitIconButton disabled={locked} />
         </form>
       </div>
