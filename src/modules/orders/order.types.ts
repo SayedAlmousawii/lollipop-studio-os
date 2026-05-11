@@ -220,7 +220,7 @@ export interface OrderActivityPreviewItem {
 }
 
 export interface OrderAddOn {
-  optionId?: string;
+  productId?: string;
   name: string;
   price: number;
 }

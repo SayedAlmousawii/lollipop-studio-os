@@ -8,7 +8,7 @@ import {
 } from "./order.constants";
 
 export const orderAddOnSchema = z.object({
-  optionId: z.string().trim().min(1).optional(),
+  productId: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1, "Add-on name is required"),
   price: z.coerce.number().min(0, "Add-on price cannot be negative"),
 });

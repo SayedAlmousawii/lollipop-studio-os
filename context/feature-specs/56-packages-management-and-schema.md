@@ -10,7 +10,7 @@ This spec supersedes the earlier Feature 56 draft and the deferred note in Featu
 
 The business model is a **commercial bundle**, not an additive cart:
 
-```
+```text
 Package.price (final marketed price)
   = sum(PackageItem.canonicalPrice × qty)   ← raw deliverable total
   + Package.bundleAdjustment                ← can be negative (discount) or positive
@@ -28,7 +28,7 @@ Invoice line items snapshot every price component at invoice lock time so histor
 
 ## Read First
 
-- `prisma/schema.prisma` — current `Package`, `Order`, `OrderAddOn`, `OrderAddOnOption`, `Invoice`, `Payment` models
+- `prisma/schema.prisma` — current `Package`, `Product`, `Order`, `OrderAddOn`, `Invoice`, `Payment` models
 - `src/modules/packages/package.service.ts`
 - `src/modules/packages/package.types.ts`
 - `src/modules/orders/order.types.ts` — `OrderSelectionWorkflow`, `OrderFinancialSummary`
@@ -81,7 +81,7 @@ Invoice line items snapshot every price component at invoice lock time so histor
 
 **Schema addition — new `Product` model:**
 
-```
+```text
 Product
 ├── id            cuid
 ├── name          String               e.g. "Premium Album", "Luxury Canvas 20×30"
@@ -89,6 +89,8 @@ Product
 ├── canonicalPrice Decimal (10,3)
 ├── description   String?
 ├── isActive      Boolean @default(true)
+├── isPackageDeliverable Boolean @default(true)
+├── isAddOn       Boolean @default(false)
 ├── createdAt / updatedAt
 └── packageItems  PackageItem[]
 ```
@@ -96,18 +98,18 @@ Product
 **Admin UI — `/products` page:**
 
 - New sidebar nav item: "Products" (admin / manager only)
-- Table: name, category, canonicalPrice, status badge, actions
-- Create product: dialog/form with name, category, price, optional description
+- Table: name, category, canonicalPrice, capability flags, status badge, actions
+- Create product: dialog/form with name, category, price, optional description, and capability flags
 - Edit product: same form pre-populated
 - Archive: deactivate if referenced by any `PackageItem`; hard delete only if no references
 - Category shown as a readable label (Album, Canvas, Digital, etc.)
 
 **Service layer (`src/modules/products/product.service.ts`):**
 
-- `getProducts()` — all products with `_count: { packageItems: true }`
-- `getActiveProductOptions()` — for package builder dropdowns, grouped by category
-- `createProduct(data)` — Zod-validated
-- `updateProduct(id, data)` — Zod-validated
+- `getProducts()` — all products with `_count: { packageItems: true }` plus capability flags for admin display
+- `getActiveProductOptions()` — for package builder dropdowns, grouped by category, filtered to active `isPackageDeliverable` products
+- `createProduct(data)` — Zod-validated, including `isPackageDeliverable` and `isAddOn`
+- `updateProduct(id, data)` — Zod-validated, including `isPackageDeliverable` and `isAddOn`
 - `archiveProduct(id)` — sets `isActive: false`; blocks if `packageItems` exist on active packages
 
 **Catalog decision:** `Product` is now the single canonical catalog for both package-included deliverables and standalone add-ons (extra canvas, USB, prints, extra photos). Products use capability flags to control where they appear:
@@ -125,7 +127,7 @@ Product
 
 New `PackageItem` model:
 
-```
+```text
 PackageItem
 ├── id              cuid
 ├── packageId       String  → Package
@@ -139,7 +141,7 @@ PackageItem
 
 Updated `Package` model (additive changes only):
 
-```
+```text
 Package
 ├── (existing fields unchanged)
 ├── bundleAdjustment  Decimal (10,3) @default(0)  stored, not derived
@@ -148,7 +150,7 @@ Package
 
 `bundleAdjustment` is stored explicitly (not computed on read). When a package is saved, compute it as:
 
-```
+```text
 bundleAdjustment = Package.price − sum(PackageItem.priceSnapshot × quantity)
 ```
 
@@ -184,7 +186,7 @@ Replace the current read-only `/packages` page with a full management surface.
   - Snapshot price auto-fills from product's `canonicalPrice` (editable override allowed)
   - Add / remove items inline
 - Bundle adjustment preview computed client-side as user adds items:
-  ```
+  ```text
   bundleAdjustment = price − sum(items)
   ```
   Show it clearly: "Bundle adjustment: −30.000 KD"
@@ -201,7 +203,7 @@ Replace the current read-only `/packages` page with a full management surface.
 
 **Schema addition — new `InvoiceLineItem` model:**
 
-```
+```text
 InvoiceLineItem
 ├── id           cuid
 ├── invoiceId    String  → Invoice
@@ -224,7 +226,7 @@ InvoiceLineItem
 
 **Invoice model addition:**
 
-```
+```text
 Invoice
 ├── (existing fields unchanged)
 └── lineItems    InvoiceLineItem[]

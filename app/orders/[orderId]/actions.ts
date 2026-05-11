@@ -70,7 +70,7 @@ export async function updateSelectionWorkflowAction(
     const safeProductId = typeof productId === "string" ? productId.trim() : "";
     if (!safeProductId) return [];
 
-    return [{ optionId: safeProductId, name: "Selected add-on", price: 0 }];
+    return [{ productId: safeProductId, name: "Selected add-on", price: 0 }];
   });
 
   const parsed = updateOrderSelectionWorkflowSchema.safeParse({

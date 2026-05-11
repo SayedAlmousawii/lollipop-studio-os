@@ -19,7 +19,10 @@ INSERT INTO "products" (
   "updatedAt"
 )
 SELECT
-  "id",
+  CASE
+    WHEN "category" = 'EXTRA_PHOTO' THEN 'addon-extra-photo'
+    ELSE "id"
+  END,
   "name",
   CASE
     WHEN "category" = 'ALBUM' THEN 'ALBUM'::"ProductCategory"
@@ -43,14 +46,24 @@ SELECT
   "updatedAt"
 FROM "order_add_on_options"
 ON CONFLICT ("id") DO UPDATE SET
+  "name" = EXCLUDED."name",
   "canonicalPrice" = EXCLUDED."canonicalPrice",
+  "description" = EXCLUDED."description",
   "isActive" = EXCLUDED."isActive",
+  "isPackageDeliverable" = EXCLUDED."isPackageDeliverable",
   "isAddOn" = true,
   "sortOrder" = EXCLUDED."sortOrder",
   "updatedAt" = CURRENT_TIMESTAMP;
 
 -- Repoint existing order add-on snapshots at Product.
 ALTER TABLE "order_add_ons" ADD COLUMN "productId" TEXT;
+
+-- Extra-photo charges are service-computed from the stable system product,
+-- so legacy snapshot rows must be removed to avoid double-counting.
+DELETE FROM "order_add_ons"
+USING "order_add_on_options"
+WHERE "order_add_ons"."addOnOptionId" = "order_add_on_options"."id"
+  AND "order_add_on_options"."category" = 'EXTRA_PHOTO';
 
 UPDATE "order_add_ons"
 SET "productId" = "addOnOptionId"

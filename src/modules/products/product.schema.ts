@@ -22,7 +22,7 @@ const priceSchema = z.preprocess(
     )
 );
 
-export const createProductSchema = z.object({
+const productSchemaFields = {
   name: z
     .string()
     .trim()
@@ -48,14 +48,31 @@ export const createProductSchema = z.object({
     (value) => value === "on" || value === true,
     z.boolean()
   ),
-});
+};
 
-export const updateProductSchema = createProductSchema.extend({
+const baseProductSchema = z.object(productSchemaFields);
+
+export const createProductSchema = baseProductSchema.refine(
+  (value) => value.isPackageDeliverable || value.isAddOn,
+  {
+    message: "Select at least one product capability",
+    path: ["isPackageDeliverable"],
+  }
+);
+
+export const updateProductSchema = baseProductSchema.extend({
+  ...productSchemaFields,
   isActive: z.preprocess(
     (value) => value === "on" || value === true,
     z.boolean()
   ),
-});
+}).refine(
+  (value) => value.isPackageDeliverable || value.isAddOn,
+  {
+    message: "Select at least one product capability",
+    path: ["isPackageDeliverable"],
+  }
+);
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;

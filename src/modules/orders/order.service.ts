@@ -1201,7 +1201,7 @@ export async function updateOrder(
           await tx.orderAddOn.createMany({
             data: data.addOns.map((addOn) => ({
               orderId,
-              productId: addOn.optionId ?? null,
+              productId: addOn.productId ?? null,
               nameSnapshot: addOn.name,
               priceSnapshot: new Prisma.Decimal(addOn.price),
               quantity: 1,
@@ -2253,12 +2253,12 @@ function mapOrderAddOnProductOption(option: {
 }
 
 async function priceSelectionAddOns(addOns: OrderAddOn[]): Promise<OrderAddOn[]> {
-  const optionIds = addOns.flatMap((addOn) => addOn.optionId ? [addOn.optionId] : []);
-  if (optionIds.length === 0) return addOns;
+  const productIds = addOns.flatMap((addOn) => addOn.productId ? [addOn.productId] : []);
+  if (productIds.length === 0) return addOns;
 
   const options = await db.product.findMany({
     where: {
-      id: { in: optionIds, not: "addon-extra-photo" },
+      id: { in: productIds, not: "addon-extra-photo" },
       isActive: true,
       isAddOn: true,
     },
@@ -2267,13 +2267,16 @@ async function priceSelectionAddOns(addOns: OrderAddOn[]): Promise<OrderAddOn[]>
   const byId = new Map(options.map((option) => [option.id, option]));
 
   return addOns.map((addOn) => {
-    if (!addOn.optionId) return addOn;
-    const option = byId.get(addOn.optionId);
+    if (!addOn.productId) return addOn;
+    const option = byId.get(addOn.productId);
     if (!option) {
-      throw new Error("Selected add-on option is not available");
+      if (addOn.name.trim() && addOn.price >= 0) {
+        return addOn;
+      }
+      throw new Error("Selected add-on product is not available");
     }
     return {
-      optionId: option.id,
+      productId: option.id,
       name: option.name,
       price: option.canonicalPrice.toNumber(),
     };
@@ -2285,10 +2288,10 @@ async function getExtraPhotoAddOnOption(): Promise<{
 }> {
   const option = await db.product.findUnique({
     where: { id: "addon-extra-photo" },
-    select: { canonicalPrice: true, isActive: true, isAddOn: true },
+    select: { canonicalPrice: true },
   });
-  if (!option?.isActive || !option.isAddOn) {
-    throw new Error("Active extra-photo add-on price is required");
+  if (!option) {
+    throw new Error("Extra-photo product price is required");
   }
   return { price: option.canonicalPrice };
 }
@@ -2344,7 +2347,7 @@ function mapStructuredAddOns(
     const entries: OrderAddOn[] = [];
     for (let i = 0; i < row.quantity; i++) {
       entries.push({
-        ...(row.productId ? { optionId: row.productId } : {}),
+        ...(row.productId ? { productId: row.productId } : {}),
         name: row.nameSnapshot,
         price: row.priceSnapshot.toNumber(),
       });
@@ -2359,7 +2362,7 @@ function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
     const other = second[index];
     return (
       other !== undefined &&
-      addOn.optionId === other.optionId &&
+      addOn.productId === other.productId &&
       addOn.name === other.name &&
       new Prisma.Decimal(addOn.price).equals(new Prisma.Decimal(other.price))
     );
@@ -2368,7 +2371,7 @@ function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
 
 function serializeAddOnsForMetadata(addOns: OrderAddOn[]): Prisma.InputJsonArray {
   return addOns.map((addOn) => ({
-    ...(addOn.optionId ? { optionId: addOn.optionId } : {}),
+    ...(addOn.productId ? { productId: addOn.productId } : {}),
     name: addOn.name,
     price: addOn.price,
   }));

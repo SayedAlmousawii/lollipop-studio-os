@@ -59,7 +59,7 @@ The POS has its **own layout** (`app/orders/[orderId]/sales/layout.tsx`) that ov
 
 **Layout structure:**
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  POS Header: job number · customer · session date · back │
 ├──────────────────────────────────┬──────────────────────┤
@@ -142,7 +142,7 @@ interface POSPackageItem {
 
 interface POSAddOn {
   id: string                // OrderAddOn.id
-  optionId: string | null
+  productId: string | null
   name: string
   price: number
   priceLabel: string
@@ -191,7 +191,7 @@ interface POSInvoiceSummary {
 
 **Computed totals (service layer, not UI):**
 
-```
+```text
 invoiceTotal =
   currentPackage.price         (already includes bundleAdjustment)
   + extraPhotoTotal
@@ -231,7 +231,7 @@ invoiceTotal =
 
 Displays the current package's structured deliverables as visual cards:
 
-```
+```text
 ┌──────────────────────────────────────────┐
 │  Gold Package                            │
 │                                          │
@@ -262,13 +262,13 @@ Each deliverable card shows: product name, quantity, price snapshot, and action 
 
 - "Upgrade" on an album card opens a product picker filtered to the same category
 - Selecting a replacement product calls a new service action `upgradePackageItem(orderId, packageItemId, newProductId)`
-- Charge = `newProduct.canonicalPrice − currentItem.priceSnapshot` — added as an `ITEM_UPGRADE` line on the invoice
+- Charge = `newProduct.canonicalPrice − currentItem.priceSnapshot` — persisted as a product-backed add-on snapshot and later rendered in invoice totals/line items
 - This does NOT change the package template; it records the delta on the order
 
 **Server actions:**
 
 - `updateOrderPackage(orderId, packageId)` — existing, wraps current upgrade logic
-- `upgradeOrderPackageItem(orderId, packageItemId, newProductId)` — new; validates invoice not locked, computes delta, writes `OrderAddOn` row with type `ITEM_UPGRADE` and the price delta
+- `upgradeOrderPackageItem(orderId, packageItemId, newProductId)` — new; validates invoice not locked, computes delta, and writes a product-backed `OrderAddOn` snapshot with `productId`, name, and price delta
 
 **Acceptance:** composition area renders real `PackageItem` rows; bundle adjustment is visible; package upgrade picker works; item upgrade computes correct delta and adds it to the order.
 
@@ -280,7 +280,7 @@ Each deliverable card shows: product name, quantity, price snapshot, and action 
 
 Always-visible row of large action buttons:
 
-```
+```text
 [ + Add Album ]  [ + Add Canvas ]  [ + Add Prints ]  [ + Add Digital ]  [ Upgrade Package ]
 ```
 
@@ -292,7 +292,7 @@ These are standalone add-ons, not modifications to the package composition. They
 
 Horizontal scrollable row of catalog cards (from `addOnCatalog`):
 
-```
+```text
 [Extra Photos +10]  [Mini Album]  [Acrylic Frame]  [USB Drive]  [Thank-You Cards]
   +15.000 KD          +35.000 KD    +20.000 KD       +5.000 KD    +8.000 KD
    [+ Add]             [+ Add]        [+ Add]          [+ Add]      [+ Add]
@@ -306,7 +306,7 @@ Display current `addOns` list below the marketplace with name, price, and a remo
 
 **Server actions:**
 
-- `addOrderAddOn(orderId, optionId)` — existing or adapt from selection workflow; validates invoice not locked
+- `addOrderAddOn(orderId, productId)` — existing or adapt from selection workflow; validates invoice not locked
 - `addOrderProductAddOn(orderId, productId)` — new; adds a product as a standalone add-on at canonical price
 - `removeOrderAddOn(orderId, addOnId)` — existing; validates invoice not locked
 
@@ -320,7 +320,7 @@ Display current `addOns` list below the marketplace with name, price, and a remo
 
 Sticky sidebar, accounting-tone, read-mostly:
 
-```
+```text
 ┌───────────────────────────┐
 │  Invoice #INV-0042        │
 │  Status: Partial          │

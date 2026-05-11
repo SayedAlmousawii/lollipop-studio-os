@@ -11,7 +11,7 @@ import type { InvoiceDetail, InvoiceListItem, InvoiceStatusLabel } from "./invoi
 
 type DbClient = typeof db | Prisma.TransactionClient;
 type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
-type OrderAddOnLine = { optionId?: string; name: string; price: number };
+type OrderAddOnLine = { productId?: string; name: string; price: number };
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
@@ -771,7 +771,7 @@ function mapOrderAddOnRows(
 ): OrderAddOnLine[] {
   return rows.flatMap((row) => {
     const line: OrderAddOnLine = {
-      ...(row.productId ? { optionId: row.productId } : {}),
+      ...(row.productId ? { productId: row.productId } : {}),
       name: row.nameSnapshot,
       price: row.priceSnapshot.toNumber(),
     };
@@ -801,10 +801,10 @@ async function calculateExtraPhotoCharge(
 
   const extraPhotoOption = await client.product.findUnique({
     where: { id: "addon-extra-photo" },
-    select: { canonicalPrice: true, isActive: true, isAddOn: true },
+    select: { canonicalPrice: true },
   });
-  if (!extraPhotoOption?.isActive || !extraPhotoOption.isAddOn) {
-    throw new Error("Active extra-photo add-on price is required");
+  if (!extraPhotoOption) {
+    throw new Error("Extra-photo product price is required");
   }
 
   return extraPhotoOption.canonicalPrice.mul(extraPhotoCount);

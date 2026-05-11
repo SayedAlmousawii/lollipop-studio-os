@@ -34,7 +34,7 @@ export function SelectionWorkflowForm({ selection }: SelectionWorkflowFormProps)
     selection.finalPackageId,
     selection.extraPhotoCount,
     selection.addOns
-      .map((addOn) => `${addOn.optionId ?? addOn.name}:${addOn.price}`)
+      .map((addOn) => `${addOn.productId ?? addOn.name}:${addOn.price}`)
       .join("|"),
   ].join("::");
 
@@ -47,7 +47,7 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
   const [addOns, setAddOns] = useState<OrderAddOn[]>(
     selection.addOns.map((addOn) => ({
       ...addOn,
-      optionId: addOn.optionId ?? findOptionIdForAddOn(addOn, selection.addOnOptions),
+      productId: addOn.productId ?? findProductIdForAddOn(addOn, selection.addOnOptions),
     }))
   );
   const [state, formAction] = useActionState<UpdateSelectionActionState, FormData>(
@@ -177,14 +177,14 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
                     <Label htmlFor={`selection-add-on-option-${index}`}>Add-on</Label>
                     <Select
                       name="addOnProductId"
-                      value={addOn.optionId ?? ""}
-                      onValueChange={(optionId) => {
-                        const option = selection.addOnOptions.find((item) => item.id === optionId);
+                      value={addOn.productId ?? ""}
+                      onValueChange={(productId) => {
+                        const option = selection.addOnOptions.find((item) => item.id === productId);
                         updateAddOn(index, option ? {
-                          optionId: option.id,
+                          productId: option.id,
                           name: option.name,
                           price: option.price,
-                        } : { optionId });
+                        } : { productId });
                       }}
                       required
                     >
@@ -415,13 +415,13 @@ function FieldError({ messages }: { messages?: string[] }) {
 function optionToAddOn(option: OrderSelectionWorkflow["addOnOptions"][number] | undefined): OrderAddOn {
   if (!option) return { name: "", price: 0 };
   return {
-    optionId: option.id,
+    productId: option.id,
     name: option.name,
     price: option.price,
   };
 }
 
-function findOptionIdForAddOn(
+function findProductIdForAddOn(
   addOn: OrderAddOn,
   options: OrderSelectionWorkflow["addOnOptions"]
 ): string | undefined {
