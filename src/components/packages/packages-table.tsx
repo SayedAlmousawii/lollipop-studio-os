@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -16,14 +15,31 @@ import {
 } from "@/components/ui/table";
 import { PackageStatusBadge } from "./package-status-badge";
 import type { Package } from "@/modules/packages/package.types";
+import type { GroupedProductOptions } from "@/modules/products/product.types";
+import { PackageArchiveButton } from "./package-archive-button";
+import { PackageEditDialog } from "./package-edit-dialog";
 
 export type { Package };
 
 interface PackagesTableProps {
   packages: Package[];
+  productOptions: GroupedProductOptions[];
 }
 
-export function PackagesTable({ packages }: PackagesTableProps) {
+export function PackagesTable({ packages, productOptions }: PackagesTableProps) {
+  if (packages.length === 0) {
+    return (
+      <div className="rounded-[14px] border border-border bg-surface px-6 py-10 text-center">
+        <p className="text-sm font-medium text-text-primary">
+          No packages yet
+        </p>
+        <p className="mt-1 text-sm text-text-secondary">
+          Create a structured package from product deliverables.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto rounded-[14px] border border-border bg-surface">
       <Table>
@@ -31,9 +47,9 @@ export function PackagesTable({ packages }: PackagesTableProps) {
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Name</TableHead>
             <TableHead className="text-text-secondary">Price</TableHead>
-            <TableHead className="text-text-secondary">Photos Included</TableHead>
-            <TableHead className="text-text-secondary">Description</TableHead>
-            <TableHead className="text-text-secondary">Bookings</TableHead>
+            <TableHead className="text-text-secondary">Deliverables</TableHead>
+            <TableHead className="text-text-secondary">Bundle Adjustment</TableHead>
+            <TableHead className="text-text-secondary">References</TableHead>
             <TableHead className="text-text-secondary">Status</TableHead>
             <TableHead className="w-12">
               <span className="sr-only">Actions</span>
@@ -47,19 +63,24 @@ export function PackagesTable({ packages }: PackagesTableProps) {
               className="border-border hover:bg-surface-soft"
             >
               <TableCell className="font-medium text-text-primary">
-                {pkg.name}
+                <div>{pkg.name}</div>
+                {pkg.description ? (
+                  <p className="mt-1 max-w-md text-xs font-normal text-text-secondary">
+                    {pkg.description}
+                  </p>
+                ) : null}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {pkg.price}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
-                {pkg.photoCount}
+                <p className="max-w-lg">{pkg.deliverableSummary}</p>
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
-                {pkg.description}
+                {pkg.bundleAdjustment}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
-                {pkg.bookingCount}
+                {pkg.totalReferenceCount}
               </TableCell>
               <TableCell>
                 <PackageStatusBadge status={pkg.status} />
@@ -72,8 +93,16 @@ export function PackagesTable({ packages }: PackagesTableProps) {
                       <span className="sr-only">Open actions</span>
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem>Edit</DropdownMenuItem>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <PackageEditDialog
+                      packageRecord={pkg}
+                      productOptions={productOptions}
+                    />
+                    <PackageArchiveButton
+                      packageId={pkg.id}
+                      activeReferenceCount={pkg.activeReferenceCount}
+                      totalReferenceCount={pkg.totalReferenceCount}
+                    />
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
