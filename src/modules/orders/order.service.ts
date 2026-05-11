@@ -74,6 +74,7 @@ import type {
   OrderAddOnDisplay,
   OrderAddOnProductOption,
   OrderActivityPreviewItem,
+  CustomerOrderHistoryItem,
   OrderDetail,
   OrderDeliveryWorkflow,
   OrderEditPackage,
@@ -191,6 +192,18 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
   );
 
   return rows.map(mapOrderRow);
+}
+
+export async function getOrdersByCustomerId(
+  customerId: string,
+  limit = 10
+): Promise<CustomerOrderHistoryItem[]> {
+  const rows = await withRetry(
+    () => fetchOrdersByCustomerId(customerId, limit),
+    "Failed to fetch customer orders"
+  );
+
+  return rows.map(mapCustomerOrderHistoryRow);
 }
 
 export async function getOrderFilterEditorOptions(): Promise<OrderEditorOption[]> {
@@ -2531,6 +2544,32 @@ async function fetchOrders(filters: OrderFilters) {
   });
 }
 
+function fetchOrdersByCustomerId(customerId: string, limit: number) {
+  return db.order.findMany({
+    where: { customerId },
+    select: {
+      id: true,
+      jobNumber: true,
+      status: true,
+      booking: { select: { sessionDate: true } },
+      originalPackage: { select: { name: true } },
+      finalPackage: { select: { name: true } },
+      invoices: {
+        select: {
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          status: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+}
+
 async function fetchOrderById(orderId: string) {
   return fetchOrderByIdWithClient(db, orderId);
 }
@@ -2674,6 +2713,24 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
+  };
+}
+
+type CustomerOrderHistoryRow = Awaited<ReturnType<typeof fetchOrdersByCustomerId>>[number];
+
+function mapCustomerOrderHistoryRow(
+  row: CustomerOrderHistoryRow
+): CustomerOrderHistoryItem {
+  const invoiceSummary = summarizeInvoices(row.invoices);
+
+  return {
+    id: row.id,
+    jobNumber: row.jobNumber,
+    sessionDate: formatDate(row.booking.sessionDate),
+    packageName: row.finalPackage?.name ?? row.originalPackage?.name ?? "—",
+    orderStatus: mapOrderStatus(row.status),
+    invoiceStatus: invoiceSummary.status,
+    paymentStatus: invoiceSummary.paymentStatus,
   };
 }
 
