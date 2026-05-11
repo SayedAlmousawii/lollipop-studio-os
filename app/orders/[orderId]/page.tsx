@@ -8,6 +8,7 @@ import {
   ExternalLink,
   PackageCheck,
   Pencil,
+  ShoppingCart,
 } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
 import { ActivityTabContent } from "@/components/orders/activity-tab-content";
@@ -132,6 +133,12 @@ export default async function OrderDetailPage(
               <Link href={`/orders/${order.id}/edit`}>
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit Order
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href={`/orders/${order.id}/sales`}>
+                <ShoppingCart className="mr-2 h-4 w-4" />
+                Open Sales View
               </Link>
             </Button>
             {order.primaryInvoiceId ? (

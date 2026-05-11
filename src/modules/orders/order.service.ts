@@ -73,6 +73,14 @@ import type {
   OrderFinancialLineItem,
   OrderPaymentStatusLabel,
   OrderPaymentStage,
+  POSAddOn,
+  POSAddOnCatalogItem,
+  POSInvoiceSummary,
+  POSPackage,
+  POSPackageItem,
+  POSPackageOption,
+  POSProductOption,
+  POSWorkspace,
   PackageItemDisplay,
   OrderProductionAction,
   OrderProductionSection,
@@ -212,6 +220,142 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
 
   if (!row) return null;
   return mapOrderDetailRow(row);
+}
+
+export async function getPOSWorkspace(orderId: string): Promise<POSWorkspace | null> {
+  const [order, packageRows, productRows, addOnCatalogRows, extraPhotoOption] =
+    await withRetry(
+      () =>
+        Promise.all([
+          db.order.findUnique({
+            where: { id: orderId },
+            include: {
+              customer: { select: { name: true, phone: true } },
+              booking: { select: { sessionDate: true } },
+              originalPackage: {
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  photoCount: true,
+                  bundleAdjustment: true,
+                  items: {
+                    select: packageItemDisplaySelect,
+                    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                  },
+                },
+              },
+              finalPackage: {
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  photoCount: true,
+                  bundleAdjustment: true,
+                  items: {
+                    select: packageItemDisplaySelect,
+                    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                  },
+                },
+              },
+              invoices: {
+                where: { parentInvoiceId: null },
+                select: {
+                  id: true,
+                  invoiceNumber: true,
+                  status: true,
+                  isLocked: true,
+                  paidAmount: true,
+                },
+                orderBy: { createdAt: "asc" },
+                take: 1,
+              },
+              orderAddOns: {
+                select: {
+                  id: true,
+                  productId: true,
+                  nameSnapshot: true,
+                  priceSnapshot: true,
+                  quantity: true,
+                },
+                orderBy: { createdAt: "asc" },
+              },
+            },
+          }),
+          db.package.findMany({
+            where: { isActive: true },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              photoCount: true,
+              bundleAdjustment: true,
+            },
+            orderBy: { price: "asc" },
+          }),
+          db.product.findMany({
+            where: { isActive: true, isPackageDeliverable: true },
+            select: { id: true, name: true, category: true, canonicalPrice: true },
+            orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+          }),
+          db.product.findMany({
+            where: { isActive: true, isAddOn: true },
+            select: { id: true, name: true, category: true, canonicalPrice: true },
+            orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+          }),
+          getExtraPhotoAddOnOption(),
+        ]),
+      "Failed to fetch POS workspace"
+    );
+
+  if (!order) return null;
+
+  const currentPackage = order.finalPackage ?? order.originalPackage ?? null;
+  const originalPackage = order.originalPackage;
+  const packageItems = currentPackage ? mapPOSPackageItems(currentPackage.items) : [];
+  const includedPhotoCount = currentPackage?.photoCount ?? originalPackage?.photoCount ?? 0;
+  const selectedPhotoCount = order.selectedPhotoCount ?? includedPhotoCount;
+  const extraPhotoCount = Math.max(selectedPhotoCount - includedPhotoCount, 0);
+  const extraPhotoTotalDecimal = extraPhotoOption.price.mul(extraPhotoCount);
+  const addOns = mapPOSAddOns(order.orderAddOns);
+  const addOnTotal = sumPOSAddOnsDecimal(addOns);
+  const packageBaseTotal = currentPackage?.price ?? zeroMoney();
+  const invoiceTotal = packageBaseTotal.plus(extraPhotoTotalDecimal).plus(addOnTotal);
+  const paidAmount = order.invoices[0]?.paidAmount ?? zeroMoney();
+
+  return {
+    orderId: order.id,
+    jobNumber: order.jobNumber,
+    orderStatus: mapOrderStatus(order.status),
+    sessionDate: formatDateTime(order.booking.sessionDate),
+    customerName: order.customer.name,
+    customerPhone: formatCustomerPhone(order.customer.phone),
+    originalPackage: originalPackage ? mapPOSPackage(originalPackage) : null,
+    currentPackage: currentPackage ? mapPOSPackage(currentPackage) : null,
+    packageItems,
+    bundleAdjustment: currentPackage?.bundleAdjustment.toNumber() ?? 0,
+    rawDeliverableTotal: sumPOSPackageItemsDecimal(packageItems).toNumber(),
+    includedPhotoCount,
+    selectedPhotoCount,
+    extraPhotoCount,
+    extraPhotoUnitPrice: extraPhotoOption.price.toNumber(),
+    extraPhotoTotal: extraPhotoTotalDecimal.toNumber(),
+    addOns,
+    packageOptions: mapPOSPackageOptions(packageRows, currentPackage),
+    productOptions: productRows.map(mapPOSProductOption),
+    addOnCatalog: addOnCatalogRows.map(mapPOSAddOnCatalogItem),
+    invoice: order.invoices[0]
+      ? mapPOSInvoiceSummary({
+          invoice: order.invoices[0],
+          packageBaseTotal,
+          bundleAdjustment: currentPackage?.bundleAdjustment ?? zeroMoney(),
+          addOnTotal,
+          extraPhotoTotal: extraPhotoTotalDecimal,
+          invoiceTotal,
+          paidAmount,
+        })
+      : null,
+  };
 }
 
 function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
@@ -2465,6 +2609,167 @@ function mapOrderAddOnDisplays(
     unitPrice: formatMoney(row.priceSnapshot),
     lineTotal: formatMoney(row.priceSnapshot.mul(row.quantity)),
   }));
+}
+
+function mapPOSPackage(packageRow: {
+  id: string;
+  name: string;
+  price: Prisma.Decimal;
+  photoCount: number;
+  bundleAdjustment: Prisma.Decimal;
+}): POSPackage {
+  return {
+    id: packageRow.id,
+    name: packageRow.name,
+    price: packageRow.price.toNumber(),
+    priceLabel: formatMoney(packageRow.price),
+    photoCount: packageRow.photoCount,
+    bundleAdjustment: packageRow.bundleAdjustment.toNumber(),
+  };
+}
+
+function mapPOSPackageItems(
+  rows: Array<{
+    id: string;
+    productId: string;
+    quantity: number;
+    priceSnapshot: Prisma.Decimal;
+    product: {
+      name: string;
+      category: ProductCategory;
+    };
+  }>
+): POSPackageItem[] {
+  return rows.map((row) => ({
+    id: row.id,
+    productId: row.productId,
+    productName: row.product.name,
+    category: row.product.category,
+    quantity: row.quantity,
+    priceSnapshot: row.priceSnapshot.toNumber(),
+    priceSnapshotLabel: formatMoney(row.priceSnapshot),
+  }));
+}
+
+function mapPOSAddOns(
+  rows: Array<{
+    id: string;
+    productId: string | null;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+): POSAddOn[] {
+  return rows.flatMap((row) => {
+    const entries: POSAddOn[] = [];
+    for (let index = 0; index < row.quantity; index++) {
+      entries.push({
+        id: row.quantity === 1 ? row.id : `${row.id}-${index + 1}`,
+        productId: row.productId,
+        name: row.nameSnapshot,
+        price: row.priceSnapshot.toNumber(),
+        priceLabel: formatMoney(row.priceSnapshot),
+      });
+    }
+    return entries;
+  });
+}
+
+function mapPOSPackageOptions(
+  packages: Array<{
+    id: string;
+    name: string;
+    price: Prisma.Decimal;
+  }>,
+  currentPackage: { id: string; price: Prisma.Decimal } | null
+): POSPackageOption[] {
+  const currentPackagePrice = currentPackage?.price ?? zeroMoney();
+
+  return packages.map((packageRow) => {
+    const upgradeDelta = packageRow.price.minus(currentPackagePrice);
+    return {
+      id: packageRow.id,
+      name: packageRow.name,
+      price: packageRow.price.toNumber(),
+      priceLabel: formatMoney(packageRow.price),
+      isCurrentPackage: packageRow.id === currentPackage?.id,
+      upgradeDelta: upgradeDelta.toNumber(),
+      upgradeDeltaLabel: formatSignedMoney(upgradeDelta),
+    };
+  });
+}
+
+function mapPOSProductOption(option: {
+  id: string;
+  name: string;
+  category: ProductCategory;
+  canonicalPrice: Prisma.Decimal;
+}): POSProductOption {
+  return {
+    id: option.id,
+    name: option.name,
+    category: option.category,
+    canonicalPrice: option.canonicalPrice.toNumber(),
+    canonicalPriceLabel: formatMoney(option.canonicalPrice),
+  };
+}
+
+function mapPOSAddOnCatalogItem(option: {
+  id: string;
+  name: string;
+  category: ProductCategory;
+  canonicalPrice: Prisma.Decimal;
+}): POSAddOnCatalogItem {
+  return {
+    id: option.id,
+    name: option.name,
+    category: option.category,
+    price: option.canonicalPrice.toNumber(),
+    priceLabel: formatMoney(option.canonicalPrice),
+  };
+}
+
+function mapPOSInvoiceSummary(input: {
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    status: InvoiceStatus;
+    isLocked: boolean;
+  };
+  packageBaseTotal: Prisma.Decimal;
+  bundleAdjustment: Prisma.Decimal;
+  addOnTotal: Prisma.Decimal;
+  extraPhotoTotal: Prisma.Decimal;
+  invoiceTotal: Prisma.Decimal;
+  paidAmount: Prisma.Decimal;
+}): POSInvoiceSummary {
+  return {
+    invoiceId: input.invoice.id,
+    invoiceNumber: input.invoice.invoiceNumber,
+    invoiceStatus: mapInvoiceStatus(input.invoice.status),
+    isLocked: input.invoice.isLocked,
+    packageBaseTotal: input.packageBaseTotal.toNumber(),
+    bundleAdjustment: input.bundleAdjustment.toNumber(),
+    addOnTotal: input.addOnTotal.toNumber(),
+    extraPhotoTotal: input.extraPhotoTotal.toNumber(),
+    invoiceTotal: input.invoiceTotal.toNumber(),
+    paidAmount: input.paidAmount.toNumber(),
+    remainingAmount: input.invoiceTotal.minus(input.paidAmount).toNumber(),
+  };
+}
+
+function sumPOSPackageItemsDecimal(items: POSPackageItem[]): Prisma.Decimal {
+  return items.reduce(
+    (sum, item) => sum.plus(new Prisma.Decimal(item.priceSnapshot).mul(item.quantity)),
+    zeroMoney()
+  );
+}
+
+function sumPOSAddOnsDecimal(addOns: POSAddOn[]): Prisma.Decimal {
+  return addOns.reduce(
+    (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
+    zeroMoney()
+  );
 }
 
 function mapPackageItemDisplays(
