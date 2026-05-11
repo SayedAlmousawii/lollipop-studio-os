@@ -35,9 +35,11 @@ export default async function SalesPage(
 function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
   const packageAmount = workspace.currentPackage?.price ?? 0;
+  const bundleAdjustment = workspace.bundleAdjustment;
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
-    invoice?.invoiceTotal ?? packageAmount + extraPhotoAmount + workspace.addOnTotal;
+    invoice?.invoiceTotal ??
+    packageAmount + bundleAdjustment + extraPhotoAmount + workspace.addOnTotal;
 
   return (
     <aside className="space-y-4 lg:sticky lg:top-4">
@@ -101,6 +103,9 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                   label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
                   value={formatKD(packageAmount)}
                 />
+                {bundleAdjustment !== 0 ? (
+                  <MoneyRow label="Bundle adjustment" value={formatKD(bundleAdjustment)} />
+                ) : null}
                 {extraPhotoAmount > 0 ? (
                   <MoneyRow
                     label={`Extra Photos (${workspace.extraPhotoCount})`}
