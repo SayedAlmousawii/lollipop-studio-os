@@ -104,7 +104,8 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                   label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
                   value={formatKD(packageAmount)}
                 />
-                {invoice?.depositPaidAmount ? (
+                {invoice?.depositPaidAmount &&
+                !(invoice.renderMode === "SNAPSHOT" && invoice.lineItems.length === 0) ? (
                   <MoneyRow
                     label={`Deposit${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
                     value={`-${formatKD(invoice.depositPaidAmount)}`}
