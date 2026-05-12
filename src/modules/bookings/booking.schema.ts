@@ -16,6 +16,21 @@ const bookingThemeSchema = z.object({
 });
 
 const SESSION_TIME_REGEX = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const bookingPackageSchema = z.object({
+  packageId: z.string().min(1, "Package is required"),
+  quantity: z.coerce
+    .number({ error: "Quantity is required" })
+    .int("Quantity must be a whole number")
+    .min(1, "Quantity must be at least 1"),
+  sortOrder: z.coerce
+    .number({ error: "Sort order is required" })
+    .int("Sort order must be a whole number")
+    .min(0, "Sort order must be zero or greater"),
+});
+
+function hasMaxDecimalPlaces(value: number): boolean {
+  return Number.isInteger(Math.round(value * 1000));
+}
 
 export const createBookingSchema = z.object({
   phone: customerPhoneSchema,
@@ -24,7 +39,7 @@ export const createBookingSchema = z.object({
     .trim()
     .max(120, "Customer name must be 120 characters or fewer")
     .optional(),
-  packageId: z.string().min(1, "Package is required"),
+  packages: z.array(bookingPackageSchema).min(1, "Add at least one package"),
   sessionDate: z.coerce.date({ error: "Session date is required" }),
   sessionTime: z
     .string()
@@ -34,9 +49,6 @@ export const createBookingSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().trim().optional()
   ),
-  sessionType: z.enum(["NEWBORN", "KIDS", "FAMILY", "MATERNITY", "OTHER"], {
-    error: "Session type is required",
-  }),
   notes: z
     .string()
     .trim()
@@ -49,7 +61,7 @@ export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 
 export const updateBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
-  packageId: z.string().min(1, "Package is required"),
+  packages: z.array(bookingPackageSchema).min(1, "Add at least one package"),
   date: z.date({ error: "Session date is required" }),
   sessionTime: z
     .string()
@@ -59,9 +71,6 @@ export const updateBookingSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().trim().optional()
   ),
-  sessionType: z.enum(["NEWBORN", "KIDS", "FAMILY", "MATERNITY", "OTHER"], {
-    error: "Session type is required",
-  }),
   notes: z
     .string()
     .trim()
@@ -103,7 +112,10 @@ export type CheckInBookingInput = z.infer<typeof checkInBookingSchema>;
 
 export const recordBookingDepositSchema = z.object({
   bookingId: z.string().min(1, "Booking is required"),
-  amount: z.coerce.number().positive("Deposit amount must be greater than 0"),
+  amount: z.coerce
+    .number({ error: "Deposit amount is required" })
+    .min(20, "Deposit amount must be at least 20.000 KD")
+    .refine(hasMaxDecimalPlaces, "Deposit amount can have up to 3 decimals"),
   method: z.nativeEnum(PaymentMethod, {
     error: "Payment method is required",
   }),

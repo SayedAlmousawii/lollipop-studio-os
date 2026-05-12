@@ -44,12 +44,11 @@ export async function createDevelopmentTestBooking(): Promise<CreatedDevelopment
   const booking = await createBookingInDb({
     phone: customer.phone,
     customerName: customer.fullName,
-    packageId: selectedPackage.id,
+    packages: [{ packageId: selectedPackage.id, quantity: 1, sortOrder: 0 }],
     sessionDate: buildNextDaySessionDate(TEST_BOOKING_TIME),
     sessionTime: TEST_BOOKING_TIME,
     departmentId: department.id,
     assignedPhotographerId: photographers[0]?.id,
-    sessionType: "FAMILY",
     notes: "DEV TEST BOOKING",
     themes: [],
   });

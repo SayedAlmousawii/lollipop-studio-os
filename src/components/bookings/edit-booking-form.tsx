@@ -28,14 +28,11 @@ import type {
   EditableBooking,
   RecommendedPhotographer,
 } from "@/modules/bookings/booking.service";
-
-const SESSION_TYPES = [
-  { value: "NEWBORN", label: "Newborn" },
-  { value: "KIDS", label: "Kids" },
-  { value: "FAMILY", label: "Family" },
-  { value: "MATERNITY", label: "Maternity" },
-  { value: "OTHER", label: "Other" },
-] as const;
+import {
+  PackageLinesField,
+  type PackagePickerOption,
+  type SelectedPackageLine,
+} from "./new-booking-form";
 
 const UNASSIGNED_PHOTOGRAPHER_VALUE = "__UNASSIGNED__";
 
@@ -46,6 +43,13 @@ interface BookingOption {
 
 interface PackageOption extends BookingOption {
   priceLabel: string;
+  durationMinutes: number;
+  departmentId: string;
+  departmentName: string;
+  sessionTypeId: string;
+  sessionTypeName: string;
+  packageFamilyId: string;
+  packageFamilyName: string;
 }
 
 interface EditBookingFormProps {
@@ -65,14 +69,17 @@ export function EditBookingForm({
   departments,
   recommendedPhotographer,
 }: EditBookingFormProps) {
-  const packageOptions = useMemo(
-    () => mergePackageOptions(packages, booking),
-    [packages, booking]
-  );
+  const packageOptions = useMemo(() => mapPackagePickerOptions(packages), [packages]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(booking.customerId);
-  const [selectedPackageId, setSelectedPackageId] = useState(booking.packageId);
-  const [selectedSessionType, setSelectedSessionType] = useState(
-    booking.sessionType
+  const [selectedPackages, setSelectedPackages] = useState<SelectedPackageLine[]>(
+    booking.packages.length > 0
+      ? booking.packages.map((line) => ({
+          packageId: line.packageId,
+          quantity: line.quantity,
+        }))
+      : booking.packageId
+        ? [{ packageId: booking.packageId, quantity: 1 }]
+        : []
   );
   const [selectedDepartmentId, setSelectedDepartmentId] = useState(
     booking.departmentId
@@ -87,13 +94,12 @@ export function EditBookingForm({
     FormData
   >(updateBookingAction.bind(null, booking.id), {});
 
-  const selectedPackage =
-    packageOptions.find((item) => item.id === selectedPackageId) ?? null;
   const showRecommendedPhotographer = selectedCustomerId === booking.customerId;
   const saveDisabled =
     !booking.canEdit ||
     customers.length === 0 ||
     packageOptions.length === 0 ||
+    selectedPackages.length === 0 ||
     departments.length === 0;
 
   return (
@@ -199,37 +205,13 @@ export function EditBookingForm({
         </div>
       </Section>
 
-      <Section title="Package">
-        <div className="space-y-2">
-          <Label htmlFor="packageId">Package</Label>
-          <Select
-            name="packageId"
-            value={selectedPackageId}
-            onValueChange={setSelectedPackageId}
-            disabled={!booking.canEdit || packageOptions.length === 0}
-            required
-          >
-            <SelectTrigger
-              id="packageId"
-              aria-invalid={state.errors?.packageId?.length ? true : undefined}
-            >
-              <SelectValue placeholder="Select a package..." />
-            </SelectTrigger>
-            <SelectContent>
-              {packageOptions.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.name} · {item.priceLabel}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FieldError messages={state.errors?.packageId} />
-          {selectedPackage ? (
-            <p className="text-xs text-text-muted">
-              Selected package: {selectedPackage.name}
-            </p>
-          ) : null}
-        </div>
+      <Section title="Packages">
+        <PackageLinesField
+          packages={packageOptions}
+          selectedPackages={selectedPackages}
+          setSelectedPackages={setSelectedPackages}
+          errors={state.errors?.packages}
+        />
       </Section>
 
       <Section title="Date & Time">
@@ -347,36 +329,6 @@ export function EditBookingForm({
         </div>
       </Section>
 
-      <Section title="Session Type">
-        <div className="space-y-2">
-          <Label htmlFor="sessionType">Session type</Label>
-          <Select
-            name="sessionType"
-            value={selectedSessionType}
-            onValueChange={(value) =>
-              setSelectedSessionType(value as EditableBooking["sessionType"])
-            }
-            disabled={!booking.canEdit}
-            required
-          >
-            <SelectTrigger
-              id="sessionType"
-              aria-invalid={state.errors?.sessionType?.length ? true : undefined}
-            >
-              <SelectValue placeholder="Select session type..." />
-            </SelectTrigger>
-            <SelectContent>
-              {SESSION_TYPES.map((item) => (
-                <SelectItem key={item.value} value={item.value}>
-                  {item.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <FieldError messages={state.errors?.sessionType} />
-        </div>
-      </Section>
-
       <Section title="Themes">
         <div className="space-y-2">
           <Label htmlFor="themes">Themes</Label>
@@ -462,19 +414,17 @@ function FieldError({ messages }: { messages?: string[] }) {
   return <p className="text-xs text-danger">{messages[0]}</p>;
 }
 
-function mergePackageOptions(
-  packages: PackageOption[],
-  booking: EditableBooking
-): PackageOption[] {
-  if (!booking.packageId) return packages;
-  if (packages.some((item) => item.id === booking.packageId)) return packages;
-
-  return [
-    ...packages,
-    {
-      id: booking.packageId,
-      name: booking.packageName,
-      priceLabel: booking.packagePriceLabel,
-    },
-  ];
+function mapPackagePickerOptions(packages: PackageOption[]): PackagePickerOption[] {
+  return packages.map((item) => ({
+    id: item.id,
+    name: item.name,
+    price: item.priceLabel,
+    durationMinutes: item.durationMinutes,
+    departmentId: item.departmentId,
+    departmentName: item.departmentName,
+    sessionTypeId: item.sessionTypeId,
+    sessionTypeName: item.sessionTypeName,
+    packageFamilyId: item.packageFamilyId,
+    packageFamilyName: item.packageFamilyName,
+  }));
 }

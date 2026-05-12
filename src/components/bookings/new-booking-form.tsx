@@ -6,12 +6,14 @@ import {
   useRef,
   useState,
   useTransition,
+  type Dispatch,
   type KeyboardEvent,
+  type SetStateAction,
 } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { Loader2, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
@@ -33,14 +35,6 @@ import {
 } from "@/app/bookings/new/actions";
 import type { RecommendedPhotographer } from "@/modules/bookings/booking.service";
 
-const SESSION_TYPES = [
-  { value: "NEWBORN", label: "Newborn" },
-  { value: "KIDS", label: "Kids" },
-  { value: "FAMILY", label: "Family" },
-  { value: "MATERNITY", label: "Maternity" },
-  { value: "OTHER", label: "Other" },
-] as const;
-
 type PhoneSuggestion = {
   id: string;
   name: string;
@@ -48,12 +42,30 @@ type PhoneSuggestion = {
 };
 
 interface NewBookingFormProps {
-  packages: { id: string; name: string; price: string }[];
+  packages: PackagePickerOption[];
   photographers: { id: string; name: string }[];
   departments: { id: string; name: string; code: string }[];
   initialCustomerPhone?: string;
   recommendedPhotographer: RecommendedPhotographer;
 }
+
+export type PackagePickerOption = {
+  id: string;
+  name: string;
+  price: string;
+  durationMinutes: number;
+  departmentId: string;
+  departmentName: string;
+  sessionTypeId: string;
+  sessionTypeName: string;
+  packageFamilyId: string;
+  packageFamilyName: string;
+};
+
+export type SelectedPackageLine = {
+  packageId: string;
+  quantity: number;
+};
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
@@ -69,6 +81,243 @@ function FieldError({ messages }: { messages?: string[] }) {
   return (
     <p className="mt-1 text-xs text-(--color-destructive)">{messages[0]}</p>
   );
+}
+
+export function PackageLinesField({
+  packages,
+  selectedPackages,
+  setSelectedPackages,
+  errors,
+}: {
+  packages: PackagePickerOption[];
+  selectedPackages: SelectedPackageLine[];
+  setSelectedPackages: Dispatch<SetStateAction<SelectedPackageLine[]>>;
+  errors?: string[];
+}) {
+  const [pickerDepartmentId, setPickerDepartmentId] = useState("");
+  const [pickerSessionTypeId, setPickerSessionTypeId] = useState("");
+  const [pickerFamilyId, setPickerFamilyId] = useState("");
+  const [pickerPackageId, setPickerPackageId] = useState("");
+  const departments = uniqueOptions(packages, "departmentId", "departmentName");
+  const sessionTypes = uniqueOptions(
+    packages.filter((pkg) => pkg.departmentId === pickerDepartmentId),
+    "sessionTypeId",
+    "sessionTypeName"
+  );
+  const families = uniqueOptions(
+    packages.filter((pkg) => pkg.sessionTypeId === pickerSessionTypeId),
+    "packageFamilyId",
+    "packageFamilyName"
+  );
+  const packageOptions = packages.filter(
+    (pkg) => pkg.packageFamilyId === pickerFamilyId
+  );
+  const totalMinutes = selectedPackages.reduce((total, line) => {
+    const pkg = packages.find((item) => item.id === line.packageId);
+    return total + (pkg?.durationMinutes ?? 0) * line.quantity;
+  }, 0);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label>Packages</Label>
+        <div className="mt-2 space-y-2">
+          {selectedPackages.length === 0 ? (
+            <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-text-secondary">
+              No packages selected.
+            </p>
+          ) : (
+            selectedPackages.map((line, index) => {
+              const pkg = packages.find((item) => item.id === line.packageId);
+              if (!pkg) return null;
+
+              return (
+                <div
+                  key={`${line.packageId}-${index}`}
+                  className="grid gap-2 rounded-md border border-border p-3 md:grid-cols-[1fr_96px_auto]"
+                >
+                  <input type="hidden" name="packageIds" value={line.packageId} />
+                  <input
+                    type="hidden"
+                    name="packageQuantities"
+                    value={line.quantity}
+                  />
+                  <input type="hidden" name="packageSortOrders" value={index} />
+                  <div>
+                    <p className="text-sm font-medium text-text-primary">
+                      {pkg.name} · {pkg.price}
+                    </p>
+                    <p className="text-xs text-text-secondary">
+                      {pkg.departmentName} · {pkg.sessionTypeName} ·{" "}
+                      {pkg.packageFamilyName} · {pkg.durationMinutes * line.quantity} min
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`package-quantity-${index}`}>Qty</Label>
+                    <Input
+                      id={`package-quantity-${index}`}
+                      type="number"
+                      min="1"
+                      value={line.quantity}
+                      onChange={(event) =>
+                        setSelectedPackages((current) =>
+                          current.map((item, itemIndex) =>
+                            itemIndex === index
+                              ? {
+                                  ...item,
+                                  quantity: Math.max(1, Number(event.target.value) || 1),
+                                }
+                              : item
+                          )
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="flex items-end gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      disabled={index === 0}
+                      onClick={() => movePackageLine(index, -1)}
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      disabled={index === selectedPackages.length - 1}
+                      onClick={() => movePackageLine(index, 1)}
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        setSelectedPackages((current) =>
+                          current.filter((_, itemIndex) => itemIndex !== index)
+                        )
+                      }
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+        <FieldError messages={errors} />
+        <p className="mt-2 text-sm font-medium text-text-primary">
+          Total session duration: {formatDuration(totalMinutes)}
+        </p>
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-4">
+        <select
+          value={pickerDepartmentId}
+          onChange={(event) => {
+            setPickerDepartmentId(event.target.value);
+            setPickerSessionTypeId("");
+            setPickerFamilyId("");
+            setPickerPackageId("");
+          }}
+          className="flex h-10 rounded-sm border border-border bg-surface px-3 text-sm"
+        >
+          <option value="">Department...</option>
+          {departments.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={pickerSessionTypeId}
+          onChange={(event) => {
+            setPickerSessionTypeId(event.target.value);
+            setPickerFamilyId("");
+            setPickerPackageId("");
+          }}
+          disabled={!pickerDepartmentId}
+          className="flex h-10 rounded-sm border border-border bg-surface px-3 text-sm"
+        >
+          <option value="">Session type...</option>
+          {sessionTypes.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={pickerFamilyId}
+          onChange={(event) => {
+            setPickerFamilyId(event.target.value);
+            setPickerPackageId("");
+          }}
+          disabled={!pickerSessionTypeId}
+          className="flex h-10 rounded-sm border border-border bg-surface px-3 text-sm"
+        >
+          <option value="">Family...</option>
+          {families.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={pickerPackageId}
+          onChange={(event) => setPickerPackageId(event.target.value)}
+          disabled={!pickerFamilyId}
+          className="flex h-10 rounded-sm border border-border bg-surface px-3 text-sm"
+        >
+          <option value="">Package...</option>
+          {packageOptions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => {
+          if (!pickerPackageId) return;
+          setSelectedPackages((current) => {
+            const existingIndex = current.findIndex(
+              (line) => line.packageId === pickerPackageId
+            );
+            if (existingIndex >= 0) {
+              return current.map((line, index) =>
+                index === existingIndex
+                  ? { ...line, quantity: line.quantity + 1 }
+                  : line
+              );
+            }
+            return [...current, { packageId: pickerPackageId, quantity: 1 }];
+          });
+          setPickerPackageId("");
+        }}
+        disabled={!pickerPackageId}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        Add package
+      </Button>
+    </div>
+  );
+
+  function movePackageLine(index: number, direction: -1 | 1) {
+    setSelectedPackages((current) => {
+      const next = [...current];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return current;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
 }
 
 interface CustomerPhoneInputProps {
@@ -362,14 +611,14 @@ export function NewBookingForm({
   recommendedPhotographer,
 }: NewBookingFormProps) {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
-  const [selectedSessionType, setSelectedSessionType] = useState("");
+  const [selectedPackages, setSelectedPackages] = useState<SelectedPackageLine[]>([]);
   const [sessionDate, setSessionDate] = useState("");
   const [sessionTime, setSessionTime] = useState("");
   const [state, formAction] = useActionState<ActionState, FormData>(
     createBooking,
     {}
   );
-  const createDisabled = departments.length === 0;
+  const createDisabled = departments.length === 0 || selectedPackages.length === 0;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -394,25 +643,12 @@ export function NewBookingForm({
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="packageId">Package</Label>
-        <select
-          id="packageId"
-          name="packageId"
-          defaultValue=""
-          className="flex h-10 w-full rounded-sm border border-(--color-border) bg-(--color-surface) px-3 py-2 text-sm text-(--color-text-primary) focus:outline-none focus:ring-2 focus:ring-(--color-accent) focus:ring-offset-0 disabled:opacity-50"
-        >
-          <option value="" disabled>
-            Select a package...
-          </option>
-          {packages.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} - {p.price}
-            </option>
-          ))}
-        </select>
-        <FieldError messages={state.errors?.packageId} />
-      </div>
+      <PackageLinesField
+        packages={packages}
+        selectedPackages={selectedPackages}
+        setSelectedPackages={setSelectedPackages}
+        errors={state.errors?.packages}
+      />
 
       <div className="space-y-1.5">
         <Label htmlFor="sessionDate">Session Date</Label>
@@ -487,27 +723,6 @@ export function NewBookingForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="sessionType">Session Type</Label>
-        <input type="hidden" name="sessionType" value={selectedSessionType} />
-        <Select
-          value={selectedSessionType}
-          onValueChange={setSelectedSessionType}
-        >
-          <SelectTrigger id="sessionType" className="w-full">
-            <SelectValue placeholder="Select session type..." />
-          </SelectTrigger>
-          <SelectContent>
-            {SESSION_TYPES.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <FieldError messages={state.errors?.sessionType} />
-      </div>
-
-      <div className="space-y-1.5">
         <Label htmlFor="themes">Themes</Label>
         <Textarea
           id="themes"
@@ -539,4 +754,25 @@ export function NewBookingForm({
       </div>
     </form>
   );
+}
+
+function uniqueOptions<T>(
+  items: T[],
+  idKey: keyof T,
+  nameKey: keyof T
+) {
+  const options = new Map<string, string>();
+  for (const item of items) {
+    options.set(String(item[idKey]), String(item[nameKey]));
+  }
+  return Array.from(options, ([id, name]) => ({ id, name }));
+}
+
+function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours <= 0) return `${minutes} minutes`;
+  if (remainingMinutes === 0) return `${minutes} minutes (${hours} hr)`;
+  return `${minutes} minutes (${hours} hr ${remainingMinutes} min)`;
 }

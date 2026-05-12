@@ -44,6 +44,13 @@ export default async function EditBookingPage(
     id: item.id,
     name: item.name,
     priceLabel: item.price,
+    durationMinutes: item.durationMinutes,
+    departmentId: item.departmentId,
+    departmentName: item.departmentName,
+    sessionTypeId: item.sessionTypeId,
+    sessionTypeName: item.sessionTypeName,
+    packageFamilyId: item.packageFamilyId,
+    packageFamilyName: item.packageFamilyName,
   }));
 
   return (

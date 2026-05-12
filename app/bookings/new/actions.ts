@@ -35,13 +35,12 @@ export async function createBooking(
   const raw = {
     phone: formData.get("phone"),
     customerName: formData.get("customerName") || undefined,
-    packageId: formData.get("packageId"),
+    packages: parsePackageLines(formData),
     sessionDate,
     sessionTime: formData.get("sessionTime"),
     departmentId: formData.get("departmentId"),
     assignedPhotographerId:
       formData.get("assignedPhotographerId") || undefined,
-    sessionType: formData.get("sessionType"),
     notes: formData.get("notes") || undefined,
     themes: parseThemeInput(formData.get("themes")),
   };
@@ -59,6 +58,18 @@ export async function createBooking(
     return { errors: { _global: [message] } };
   }
   redirect("/bookings");
+}
+
+function parsePackageLines(formData: FormData) {
+  const packageIds = formData.getAll("packageIds");
+  const quantities = formData.getAll("packageQuantities");
+  const sortOrders = formData.getAll("packageSortOrders");
+
+  return packageIds.map((packageId, index) => ({
+    packageId,
+    quantity: quantities[index] ?? "1",
+    sortOrder: sortOrders[index] ?? String(index),
+  }));
 }
 
 export async function getBookingCustomerPhoneSuggestions(

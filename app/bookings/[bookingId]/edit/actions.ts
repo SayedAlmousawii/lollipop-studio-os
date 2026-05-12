@@ -25,13 +25,12 @@ export async function updateBookingAction(
 
   const parsed = updateBookingSchema.safeParse({
     customerId: formData.get("customerId"),
-    packageId: formData.get("packageId"),
+    packages: parsePackageLines(formData),
     date: sessionDate,
     sessionTime: formData.get("sessionTime"),
     departmentId: formData.get("departmentId"),
     assignedPhotographerId:
       formData.get("assignedPhotographerId") || undefined,
-    sessionType: formData.get("sessionType"),
     notes: formData.get("notes") || undefined,
     themes: parseThemeInput(formData.get("themes")),
   });
@@ -51,6 +50,18 @@ export async function updateBookingAction(
   revalidatePath("/bookings");
   revalidatePath("/calendar");
   redirect("/bookings");
+}
+
+function parsePackageLines(formData: FormData) {
+  const packageIds = formData.getAll("packageIds");
+  const quantities = formData.getAll("packageQuantities");
+  const sortOrders = formData.getAll("packageSortOrders");
+
+  return packageIds.map((packageId, index) => ({
+    packageId,
+    quantity: quantities[index] ?? "1",
+    sortOrder: sortOrders[index] ?? String(index),
+  }));
 }
 
 function buildSessionDate(date: FormDataEntryValue | null, time: FormDataEntryValue | null): Date | null {

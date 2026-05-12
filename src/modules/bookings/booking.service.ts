@@ -1,4 +1,5 @@
 import {
+  BookingSessionType,
   BookingStatus,
   InvoiceStatus,
   InvoiceType,
@@ -79,7 +80,7 @@ export interface EditableBooking {
   packagePriceLabel: string;
   sessionDate: string;
   sessionTime: string;
-  sessionType: UpdateBookingInput["sessionType"];
+  sessionType: BookingSessionType;
   departmentId: string;
   department: string;
   assignedPhotographerId: string;
@@ -92,6 +93,24 @@ export interface EditableBooking {
     notes: string;
   }>;
   canEdit: boolean;
+  packages: BookingPackageSummary[];
+  totalDurationMinutes: number;
+  totalDurationLabel: string;
+}
+
+export interface BookingPackageSummary {
+  id: string;
+  packageId: string;
+  packageName: string;
+  packagePriceLabel: string;
+  departmentName: string;
+  sessionTypeName: string;
+  packageFamilyName: string;
+  quantity: number;
+  sortOrder: number;
+  durationMinutes: number;
+  durationContributionMinutes: number;
+  durationContributionLabel: string;
 }
 
 export interface BookingDetail {
@@ -132,6 +151,9 @@ export interface BookingDetail {
     isLocked: boolean;
   } | null;
   packageRemainingBalanceLabel: string | null;
+  packages: BookingPackageSummary[];
+  totalDurationMinutes: number;
+  totalDurationLabel: string;
 }
 
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
@@ -155,7 +177,14 @@ const BOOKING_DATE_FILTERS = new Set<BookingDateFilter>([
   "month",
 ]);
 
-const BOOKING_DEPOSIT_AMOUNT = new Prisma.Decimal(20);
+const MIN_BOOKING_DEPOSIT_AMOUNT = new Prisma.Decimal(20);
+
+const SESSION_TYPE_CODE_TO_LEGACY: Record<string, BookingSessionType> = {
+  NB_NEWBORN: BookingSessionType.NEWBORN,
+  KD_REGULAR: BookingSessionType.KIDS,
+  KD_FAMILY: BookingSessionType.FAMILY,
+  NB_MATERNITY: BookingSessionType.MATERNITY,
+};
 
 export function parseBookingFilters(filters: {
   search?: string | string[];
@@ -194,6 +223,13 @@ export async function getBookings(
         include: {
           customer: { select: { phone: true } },
           package: { select: { name: true, price: true } },
+          packages: {
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+            select: {
+              quantity: true,
+              package: { select: { name: true } },
+            },
+          },
           department: { select: { name: true } },
           assignedPhotographer: { select: { id: true, name: true } },
           invoices: {
@@ -239,7 +275,16 @@ export async function getBookings(
       sessionDate: formatSessionDate(row.sessionDate),
       sessionTime: row.sessionTime,
       department: row.department.name,
-      package: row.package?.name ?? "—",
+      package:
+        row.packages.length > 0
+          ? row.packages
+              .map((line) =>
+                line.quantity > 1
+                  ? `${line.package.name} x${line.quantity}`
+                  : line.package.name
+              )
+              .join(", ")
+          : row.package?.name ?? "—",
       status: mapBookingStatus(row.status),
       paymentStatus,
       assignedPhotographerId: row.assignedPhotographer?.id ?? "",
@@ -328,9 +373,12 @@ export async function createBookingInDb(
           name: data.customerName,
         });
 
+        const packageLines = await resolveBookingPackageLines(tx, data.packages);
+        const firstLine = packageLines[0];
+
         await validateBookingReferences(tx, {
           customerId,
-          packageId: data.packageId,
+          packageIds: packageLines.map((line) => line.packageId),
           departmentId: data.departmentId,
           requireActiveDepartment: true,
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
@@ -339,15 +387,23 @@ export async function createBookingInDb(
         return tx.booking.create({
           data: {
             customerId,
-            packageId: data.packageId,
+            packageId: firstLine.packageId,
             sessionDate: data.sessionDate,
             sessionTime: data.sessionTime,
-            sessionType: data.sessionType,
+            sessionType: firstLine.legacySessionType,
             departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
             notes: emptyToNull(data.notes) ?? null,
             status: BookingStatus.PENDING,
+            packages: {
+              create: packageLines.map((line) => ({
+                packageId: line.packageId,
+                sessionTypeId: line.sessionTypeId,
+                quantity: line.quantity,
+                sortOrder: line.sortOrder,
+              })),
+            },
             themes: {
               create: data.themes.map((theme) => ({
                 themeName: theme.themeName.trim(),
@@ -414,9 +470,12 @@ export async function updateBooking(
           throw new Error("Cancelled bookings cannot be edited");
         }
 
+        const packageLines = await resolveBookingPackageLines(tx, data.packages);
+        const firstLine = packageLines[0];
+
         await validateBookingReferences(tx, {
           customerId: data.customerId,
-          packageId: data.packageId,
+          packageIds: packageLines.map((line) => line.packageId),
           departmentId: data.departmentId,
           requireActiveDepartment: data.departmentId !== booking.departmentId,
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
@@ -446,14 +505,16 @@ export async function updateBooking(
           });
         }
 
+        await syncBookingPackageLines(tx, bookingId, packageLines);
+
         return tx.booking.update({
           where: { id: bookingId },
           data: {
             customerId: data.customerId,
-            packageId: data.packageId,
+            packageId: firstLine.packageId,
             sessionDate: data.date,
             sessionTime: data.sessionTime,
-            sessionType: data.sessionType,
+            sessionType: firstLine.legacySessionType,
             departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
@@ -551,8 +612,9 @@ export async function recordBookingDeposit(
   actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   const data = recordBookingDepositSchema.parse(input);
-  if (!new Prisma.Decimal(data.amount).equals(BOOKING_DEPOSIT_AMOUNT)) {
-    throw new Error("Booking deposit must be exactly 20.000 KD");
+  const depositAmount = new Prisma.Decimal(data.amount);
+  if (depositAmount.lessThan(MIN_BOOKING_DEPOSIT_AMOUNT)) {
+    throw new Error("Booking deposit must be at least 20.000 KD");
   }
 
   return withRetry(
@@ -625,8 +687,8 @@ export async function recordBookingDeposit(
             bookingId: booking.id,
             customerId: booking.customerId,
             ...invoiceNumberData,
-            totalAmount: BOOKING_DEPOSIT_AMOUNT,
-            remainingAmount: BOOKING_DEPOSIT_AMOUNT,
+            totalAmount: depositAmount,
+            remainingAmount: depositAmount,
             status: InvoiceStatus.DRAFT,
           },
           select: { id: true, status: true },
@@ -636,7 +698,7 @@ export async function recordBookingDeposit(
 
         const payment = await recordPaymentWithClient(tx, invoice.id, {
           financialCaseId: financialCase.id,
-          amount: BOOKING_DEPOSIT_AMOUNT.toNumber(),
+          amount: depositAmount.toNumber(),
           method: data.method,
           paymentType: PaymentType.DEPOSIT,
           reference: data.reference,
@@ -829,24 +891,163 @@ export async function deletePendingBooking(
   );
 }
 
+export async function getBookingDurationMinutes(
+  bookingId: string
+): Promise<number> {
+  const lines = await withRetry(
+    () =>
+      db.bookingPackage.findMany({
+        where: { bookingId },
+        select: {
+          quantity: true,
+          package: { select: { durationMinutes: true } },
+        },
+      }),
+    "Failed to fetch booking duration"
+  );
+
+  return sumPackageDuration(lines);
+}
+
+type ResolvedBookingPackageLine = {
+  packageId: string;
+  sessionTypeId: string;
+  legacySessionType: BookingSessionType;
+  quantity: number;
+  sortOrder: number;
+};
+
+async function resolveBookingPackageLines(
+  client: Prisma.TransactionClient,
+  input: CreateBookingInput["packages"] | UpdateBookingInput["packages"]
+): Promise<ResolvedBookingPackageLine[]> {
+  if (input.length === 0) {
+    throw new Error("A booking must include at least one package");
+  }
+
+  const byPackageId = new Map<
+    string,
+    { packageId: string; quantity: number; sortOrder: number }
+  >();
+  input.forEach((line, index) => {
+    const current = byPackageId.get(line.packageId);
+    if (current) {
+      current.quantity += line.quantity ?? 1;
+      current.sortOrder = Math.min(current.sortOrder, line.sortOrder ?? index);
+      return;
+    }
+    byPackageId.set(line.packageId, {
+      packageId: line.packageId,
+      quantity: line.quantity ?? 1,
+      sortOrder: line.sortOrder ?? index,
+    });
+  });
+  const normalized = Array.from(byPackageId.values()).sort(
+    (left, right) => left.sortOrder - right.sortOrder
+  );
+  const packageIds = [...new Set(normalized.map((line) => line.packageId))];
+
+  const packages = await client.package.findMany({
+    where: { id: { in: packageIds } },
+    select: {
+      id: true,
+      isActive: true,
+      packageFamily: {
+        select: {
+          sessionType: {
+            select: { id: true, code: true },
+          },
+        },
+      },
+    },
+  });
+  const packageById = new Map(packages.map((pkg) => [pkg.id, pkg]));
+
+  return normalized.map((line) => {
+    const pkg = packageById.get(line.packageId);
+    if (!pkg) {
+      throw new Error("Package not found");
+    }
+    if (!pkg.isActive) {
+      throw new Error("Package is not active");
+    }
+
+    return {
+      packageId: line.packageId,
+      sessionTypeId: pkg.packageFamily.sessionType.id,
+      legacySessionType:
+        SESSION_TYPE_CODE_TO_LEGACY[pkg.packageFamily.sessionType.code] ??
+        BookingSessionType.OTHER,
+      quantity: line.quantity,
+      sortOrder: line.sortOrder,
+    };
+  });
+}
+
+async function syncBookingPackageLines(
+  client: Prisma.TransactionClient,
+  bookingId: string,
+  nextLines: ResolvedBookingPackageLine[]
+): Promise<void> {
+  const existingLines = await client.bookingPackage.findMany({
+    where: { bookingId },
+    select: { id: true, packageId: true },
+  });
+  const existingByPackageId = new Map(
+    existingLines.map((line) => [line.packageId, line])
+  );
+  const nextPackageIds = new Set(nextLines.map((line) => line.packageId));
+
+  await client.bookingPackage.deleteMany({
+    where: {
+      bookingId,
+      packageId: { notIn: Array.from(nextPackageIds) },
+    },
+  });
+
+  for (const line of nextLines) {
+    const existingLine = existingByPackageId.get(line.packageId);
+    if (existingLine) {
+      await client.bookingPackage.update({
+        where: { id: existingLine.id },
+        data: {
+          sessionTypeId: line.sessionTypeId,
+          quantity: line.quantity,
+          sortOrder: line.sortOrder,
+        },
+      });
+      continue;
+    }
+
+    await client.bookingPackage.create({
+      data: {
+        bookingId,
+        packageId: line.packageId,
+        sessionTypeId: line.sessionTypeId,
+        quantity: line.quantity,
+        sortOrder: line.sortOrder,
+      },
+    });
+  }
+}
+
 async function validateBookingReferences(
   client: Prisma.TransactionClient,
   input: {
     customerId: string;
-    packageId: string;
+    packageIds: string[];
     departmentId: string;
     requireActiveDepartment: boolean;
     assignedPhotographerId: string | null;
   }
 ): Promise<void> {
-  const [customer, pkg, department, photographer] = await Promise.all([
+  const [customer, packageCount, department, photographer] = await Promise.all([
     client.customer.findUnique({
       where: { id: input.customerId },
       select: { id: true },
     }),
-    client.package.findUnique({
-      where: { id: input.packageId },
-      select: { id: true, isActive: true },
+    client.package.count({
+      where: { id: { in: [...new Set(input.packageIds)] }, isActive: true },
     }),
     client.studioDepartment.findUnique({
       where: { id: input.departmentId },
@@ -866,11 +1067,8 @@ async function validateBookingReferences(
   if (!customer) {
     throw new Error("Customer not found");
   }
-  if (!pkg) {
+  if (packageCount !== new Set(input.packageIds).size) {
     throw new Error("Package not found");
-  }
-  if (!pkg.isActive) {
-    throw new Error("Package is not active");
   }
   if (!department) {
     throw new Error("Department not found");
@@ -910,6 +1108,33 @@ const editableBookingInclude = {
       id: true,
       name: true,
       price: true,
+    },
+  },
+  packages: {
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      packageId: true,
+      quantity: true,
+      sortOrder: true,
+      package: {
+        select: {
+          name: true,
+          price: true,
+          durationMinutes: true,
+          packageFamily: {
+            select: {
+              name: true,
+              sessionType: {
+                select: {
+                  name: true,
+                  department: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
   department: {
@@ -1017,8 +1242,10 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
               : []),
             { jobNumber: containsFilter },
             {
-              package: {
-                is: { name: containsFilter },
+              packages: {
+                some: {
+                  package: { name: containsFilter },
+                },
               },
             },
             {
@@ -1040,7 +1267,13 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
 
   return {
     ...(searchClause ?? {}),
-    ...(filters.packageId ? { packageId: filters.packageId } : {}),
+    ...(filters.packageId
+      ? {
+          packages: {
+            some: { packageId: filters.packageId },
+          },
+        }
+      : {}),
     ...(filters.status
       ? {
           status:
@@ -1131,6 +1364,7 @@ function mapBookingStatus(
 function mapEditableBooking(
   row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
 ): EditableBooking {
+  const packageSummaries = mapBookingPackages(row.packages);
   return {
     id: row.id,
     jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
@@ -1157,6 +1391,9 @@ function mapEditableBooking(
       row.status !== BookingStatus.CHECKED_IN &&
       row.status !== BookingStatus.CANCELLED &&
       row.status !== BookingStatus.NO_SHOW,
+    packages: packageSummaries,
+    totalDurationMinutes: sumPackageDuration(row.packages),
+    totalDurationLabel: formatDuration(sumPackageDuration(row.packages)),
   };
 }
 
@@ -1169,6 +1406,11 @@ function mapBookingDetail(
   ]);
   const hasDeposit = hasDepositPayment(depositInvoices);
   const depositInvoice = depositInvoices[0] ?? null;
+  const packageSummaries = mapBookingPackages(row.packages);
+  const totalPackagePrice = row.packages.reduce(
+    (total, line) => total.plus(line.package.price.mul(line.quantity)),
+    new Prisma.Decimal(0)
+  );
 
   return {
     id: row.id,
@@ -1212,10 +1454,48 @@ function mapBookingDetail(
           isLocked: depositInvoice.isLocked,
         }
       : null,
-    packageRemainingBalanceLabel: row.package
-      ? formatPrice(row.package.price.minus(BOOKING_DEPOSIT_AMOUNT))
+    packageRemainingBalanceLabel: depositInvoice
+      ? formatPrice(totalPackagePrice.minus(depositInvoice.totalAmount))
       : null,
+    packages: packageSummaries,
+    totalDurationMinutes: sumPackageDuration(row.packages),
+    totalDurationLabel: formatDuration(sumPackageDuration(row.packages)),
   };
+}
+
+function mapBookingPackages(
+  packages: NonNullable<
+    Awaited<ReturnType<typeof fetchEditableBookingById>>
+  >["packages"]
+): BookingPackageSummary[] {
+  return packages.map((line) => {
+    const durationContribution = line.package.durationMinutes * line.quantity;
+
+    return {
+      id: line.id,
+      packageId: line.packageId,
+      packageName: line.package.name,
+      packagePriceLabel: formatPrice(line.package.price),
+      departmentName:
+        line.package.packageFamily.sessionType.department.name,
+      sessionTypeName: line.package.packageFamily.sessionType.name,
+      packageFamilyName: line.package.packageFamily.name,
+      quantity: line.quantity,
+      sortOrder: line.sortOrder,
+      durationMinutes: line.package.durationMinutes,
+      durationContributionMinutes: durationContribution,
+      durationContributionLabel: formatDuration(durationContribution),
+    };
+  });
+}
+
+function sumPackageDuration(
+  packages: Array<{ quantity: number; package: { durationMinutes: number } }>
+): number {
+  return packages.reduce(
+    (total, line) => total + line.package.durationMinutes * line.quantity,
+    0
+  );
 }
 
 function mapDepositStatus(
@@ -1258,6 +1538,20 @@ function formatInputDate(date: Date): string {
 
 function formatPrice(value: { toFixed(dp: number): string }): string {
   return `${value.toFixed(3)} KD`;
+}
+
+function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours <= 0) {
+    return `${minutes} minutes`;
+  }
+  if (remainingMinutes === 0) {
+    return `${minutes} minutes (${hours} hr)`;
+  }
+
+  return `${minutes} minutes (${hours} hr ${remainingMinutes} min)`;
 }
 
 function formatEnum(value: string): string {

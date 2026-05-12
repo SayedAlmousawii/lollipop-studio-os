@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70b booking multi-package flow is complete: booking create/edit now writes `BookingPackage` rows, keeps legacy singular booking fields stamped from the first line, uses aggregate package duration for calendar rendering and booking detail, and records deposit invoices from an editable `>= 20 KD` payment-time amount.
 - Feature 70a multi-package schema foundation is complete: `BookingPackage` and `OrderPackage` line tables now mirror the existing singular booking/order package fields while leaving current flows wired to the legacy columns until 70b/70c.
 - Feature 69 session-type extra-photo pricing is complete: extra-photo unit prices now live in a seeded `(sessionTypeId, mediaType)` catalog with digital/print rows per session type, a service lookup, and a read-only `/pricing` admin review page.
 - Feature 68 package model upgrade is complete: packages now belong to one seeded package family, carry positive session duration in service/UI flows, expose transitive department/session/family display data, and `/packages` supports department/session filters.
@@ -31,6 +32,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Booking writes now treat package lines as the scheduling source of truth while dual-writing `Booking.packageId` and `Booking.sessionType` from the first selected line until the 70d cleanup.
+- Deposit invoice totals are no longer hardcoded to exactly 20 KD at recording time; the dialog defaults to 20.000 KD, validates a 20.000 KD minimum, and stores the entered amount immutably on the locked Deposit Invoice.
 - Bookings and orders now have additive package-line relations: seed and migration create one line per existing singular package, with line-level `sessionTypeId` mapped from the legacy booking session enum.
 - Extra-photo pricing is now data-backed by `SessionTypeExtraPhotoPricing`: each session type has independent `DIGITAL` and `PRINT` unit prices seeded as placeholders until owner confirmation before Spec 70 wiring.
 - Packages are now classified through `Package.packageFamilyId`; department and session type are derived live through `PackageFamily -> SessionType -> StudioDepartment`, and package duration is stored per package for downstream booking-duration work.
@@ -61,6 +64,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70b: Booking multi-package flow — add/edit booking forms now manage ordered package lines with quantities, booking services replace line rows and dual-write legacy fields, booking detail/calendar read aggregate duration, and deposit recording accepts an editable amount of at least 20 KD.
 - Feature 70a: Multi-package schema foundation — added `BookingPackage` and `OrderPackage` models, back-relations on booking/order/package/session type, migration backfill from singular package fields, and seed mirroring rows for seeded bookings/orders.
 - Feature 69: Session-type extra-photo pricing — added `MediaType` and `SessionTypeExtraPhotoPricing`, seeded 22 placeholder digital/print price rows, exposed `getExtraPhotoUnitPrice`, and added read-only admin pricing catalog navigation.
 - Feature 68: Package model upgrade — added `Package.packageFamilyId` and `durationMinutes`, backfilled/seeded existing packages to `KD_REGULAR_DEFAULT`, updated package service reads/writes/helpers, and added package admin classification cascade plus department/session filters.
