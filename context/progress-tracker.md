@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Hydration follow-up is complete: table action menus now use Radix dropdown triggers directly with shared button styling, avoiding the `DropdownMenuTrigger asChild` + custom `Button` composition that was producing unstable hydration around action buttons.
 - Feature 63 final invoice POS is complete: POS now creates and syncs a fresh `InvoiceType.FINAL` invoice scoped by `FinancialCase`, keeps Deposit Invoice records separate, displays the paid deposit deduction by invoice number in the sales summary, and records final-balance payments as `PaymentType.FINAL`.
 - Feature 62 deposit invoice display is complete: booking detail pages now show the locked Deposit Invoice with BK reference, paid deposit amount, live package context, and remaining-at-session only while the booking is `CONFIRMED`.
 - Feature 61 check-in rewrite is complete: confirmed bookings now check in without payment, atomically generate a `JOB-DEPT-YEAR-XXXXX` reference, create the Job and `WAITING_SELECTION` Order, stamp the FinancialCase, and move the booking to `CHECKED_IN`.
@@ -37,6 +38,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Hydration follow-up: table action menu triggers were switched from `DropdownMenuTrigger asChild` wrapping `Button` to native Radix triggers styled with shared button variants.
 - Feature 63 follow-up: POS totals now label the no-invoice state as a preview, and editing-start gating now treats the paid 20 KD deposit as satisfying the base-payment prerequisite when no Final Invoice payment exists yet.
 - Feature 63: Final invoice POS — order invoice creation/sync now targets a fresh FinancialCase-scoped `InvoiceType.FINAL`, POS displays the Deposit Invoice deduction by number without mutating final invoice totals, final payments use `PaymentType.FINAL`, package price snapshots are set through selection, and old invoice promotion helpers were removed.
 - Feature 62: Deposit invoice display — booking detail now renders the locked Deposit Invoice from the booking read model, shows paid deposit context plus live package price and remaining balance only for confirmed bookings, and omits the section when no deposit invoice exists.

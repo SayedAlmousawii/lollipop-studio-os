@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { closeInvoiceAction } from "@/app/invoices/actions";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -84,11 +85,14 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
                 </TableCell>
                 <TableCell>
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span className="sr-only">Open actions</span>
-                      </Button>
+                    <DropdownMenuTrigger
+                      className={cn(
+                        buttonVariants({ variant: "ghost", size: "icon" }),
+                        "h-8 w-8"
+                      )}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                      <span className="sr-only">Open actions</span>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem asChild>
