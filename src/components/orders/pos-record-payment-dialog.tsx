@@ -3,6 +3,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
+import { OrderSelectionStatus, OrderStatus } from "@prisma/client";
 import { Banknote, CreditCard, LinkIcon, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -25,12 +26,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TimePicker } from "@/components/ui/time-picker";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import type { POSInvoiceSummary } from "@/modules/orders/order.types";
 
 interface POSRecordPaymentDialogProps {
   orderId: string;
   invoice: POSInvoiceSummary;
+  orderStatus: OrderStatus;
+  selectionStatus: OrderSelectionStatus;
   customerName: string;
   jobNumber: string;
   trigger?: ReactNode;
@@ -51,6 +55,7 @@ const PAYMENT_MINUTES = Array.from({ length: 60 }, (_, index) =>
 export function POSRecordPaymentDialog({
   orderId,
   invoice,
+  orderStatus,
   customerName,
   jobNumber,
   trigger,
@@ -98,6 +103,7 @@ export function POSRecordPaymentDialog({
         </DialogHeader>
         <PaymentForm
           invoice={invoice}
+          orderStatus={orderStatus}
           customerName={customerName}
           jobNumber={jobNumber}
           state={state}
@@ -111,6 +117,7 @@ export function POSRecordPaymentDialog({
 
 function PaymentForm({
   invoice,
+  orderStatus,
   customerName,
   jobNumber,
   state,
@@ -118,6 +125,7 @@ function PaymentForm({
   onCancel,
 }: {
   invoice: POSInvoiceSummary;
+  orderStatus: OrderStatus;
   customerName: string;
   jobNumber: string;
   state: POSRecordPaymentActionState;
@@ -129,13 +137,28 @@ function PaymentForm({
   const [paidDate, setPaidDate] = useState(formatDateInput(now));
   const [paidTime, setPaidTime] = useState(formatTimeInput(now));
   const [method, setMethod] = useState<(typeof PAYMENT_METHODS)[number]["value"]>("KNET");
+  const [selectedSelectionStatus, setSelectedSelectionStatus] = useState("");
+  const [showSelectionError, setShowSelectionError] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
   const amountErrorId = "pos-payment-amount-error";
   const referenceErrorId = "pos-payment-reference-error";
   const notesErrorId = "pos-payment-notes-error";
+  const selectionErrorId = "pos-payment-selection-status-error";
+  const shouldCollectSelectionStatus = orderStatus === OrderStatus.WAITING_SELECTION;
+  const selectionStatusError =
+    state.errors?.selectionStatus ?? (showSelectionError ? ["Selection status is required"] : undefined);
 
   return (
-    <form action={formAction} className="flex min-h-0 flex-col">
+    <form
+      action={formAction}
+      className="flex min-h-0 flex-col"
+      onSubmit={(event) => {
+        if (shouldCollectSelectionStatus && !selectedSelectionStatus) {
+          event.preventDefault();
+          setShowSelectionError(true);
+        }
+      }}
+    >
       <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
         <InvoiceSummary invoice={invoice} customerName={customerName} jobNumber={jobNumber} />
         {state.errors?._global ? (
@@ -158,6 +181,9 @@ function PaymentForm({
         <input type="hidden" name="method" value={method} />
         <input type="hidden" name="paidDate" value={paidDate} />
         <input type="hidden" name="paidTime" value={paidTime} />
+        {shouldCollectSelectionStatus ? (
+          <input type="hidden" name="selectionStatus" value={selectedSelectionStatus} />
+        ) : null}
 
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
           <div className="space-y-2">
@@ -214,6 +240,33 @@ function PaymentForm({
           </div>
           <FieldError messages={state.errors?.method} />
         </div>
+
+        {shouldCollectSelectionStatus ? (
+          <div className="space-y-2">
+            <Label>Photo Selection Status</Label>
+            <ToggleGroup
+              type="single"
+              value={selectedSelectionStatus}
+              onValueChange={(value) => {
+                setSelectedSelectionStatus(value);
+                setShowSelectionError(false);
+              }}
+              className="grid gap-2 sm:grid-cols-3"
+              aria-describedby={selectionStatusError?.length ? selectionErrorId : undefined}
+            >
+              <ToggleGroupItem value={OrderSelectionStatus.PENDING}>
+                Not Yet
+              </ToggleGroupItem>
+              <ToggleGroupItem value={OrderSelectionStatus.IN_PROGRESS}>
+                In Progress
+              </ToggleGroupItem>
+              <ToggleGroupItem value={OrderSelectionStatus.COMPLETED}>
+                Selected
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <FieldError id={selectionErrorId} messages={selectionStatusError} />
+          </div>
+        ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-2">

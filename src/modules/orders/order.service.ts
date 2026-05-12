@@ -28,6 +28,8 @@ import {
   snapshotInvoiceLineItemsWithClient,
   syncOrderInvoiceForFinancialEdit,
 } from "@/modules/invoices/invoice.service";
+import { recordPaymentWithClient } from "@/modules/payments/payment.service";
+import type { RecordPaymentInput } from "@/modules/payments/payment.schema";
 import {
   ORDER_DELIVERY_STATUS_LABELS,
   ORDER_EDITING_STATUS_LABELS,
@@ -409,7 +411,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   return {
     orderId: order.id,
     jobNumber: order.jobNumber,
+    orderStatusRaw: order.status,
     orderStatus: mapOrderStatus(order.status),
+    selectionStatus: order.selectionStatus,
     sessionDate: formatDateTime(order.booking.sessionDate),
     customerName: order.customer.name,
     customerPhone: formatCustomerPhone(order.customer.phone),
@@ -441,6 +445,87 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
       : null,
   };
 });
+
+export async function recordPOSPaymentForOrder(
+  orderId: string,
+  invoiceId: string,
+  input: {
+    payment: RecordPaymentInput;
+    selectionStatus?: OrderSelectionStatus;
+  },
+  actorContext: ActorContext
+): Promise<{ id: string }> {
+  assertFinancialActorContext(actorContext);
+  assertActorPermission(actorContext, PERMISSIONS.PAYMENT_CREATE);
+
+  return withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const invoice = await tx.invoice.findUnique({
+          where: { id: invoiceId },
+          select: { orderId: true },
+        });
+        if (!invoice) throw new Error("Invoice not found");
+        if (invoice.orderId !== orderId) {
+          throw new Error("Invoice does not belong to this order");
+        }
+
+        const payment = await recordPaymentWithClient(
+          tx,
+          invoiceId,
+          input.payment,
+          actorContext
+        );
+
+        if (input.selectionStatus) {
+          const order = await tx.order.findUnique({
+            where: { id: orderId },
+            select: { status: true, selectionStatus: true },
+          });
+          if (!order) throw new Error("Order not found");
+
+          const nextSelectionStatus = resolveAdvancedSelectionStatus(
+            order.selectionStatus,
+            input.selectionStatus
+          );
+          if (nextSelectionStatus) {
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                selectionStatus: nextSelectionStatus,
+                ...(input.selectionStatus === OrderSelectionStatus.COMPLETED &&
+                order.status === OrderStatus.WAITING_SELECTION
+                  ? { status: OrderStatus.SELECTION_COMPLETED }
+                  : {}),
+              },
+            });
+            if (nextSelectionStatus !== order.selectionStatus) {
+              await recordOrderActivity(tx, {
+                orderId,
+                userId: actorContext.actorUserId ?? null,
+                type:
+                  nextSelectionStatus === OrderSelectionStatus.COMPLETED
+                    ? OrderActivityType.SELECTION_COMPLETED
+                    : OrderActivityType.SELECTION_UPDATED,
+                title:
+                  nextSelectionStatus === OrderSelectionStatus.COMPLETED
+                    ? "Selection completed"
+                    : "Selection status changed",
+                metadata: {
+                  field: "selectionStatus",
+                  previousStatus: order.selectionStatus,
+                  nextStatus: nextSelectionStatus,
+                },
+              });
+            }
+          }
+        }
+
+        return payment;
+      }),
+    "Failed to record POS payment"
+  );
+}
 
 function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   const summary = mapOrderRow(row);
@@ -4137,6 +4222,19 @@ function assertProductionWorkflowWritable(status: OrderStatus): void {
   if (status === OrderStatus.DELIVERED) {
     throw new Error("Delivered orders cannot be moved through production");
   }
+}
+
+function resolveAdvancedSelectionStatus(
+  current: OrderSelectionStatus,
+  next: OrderSelectionStatus
+): OrderSelectionStatus | null {
+  const rank: Record<OrderSelectionStatus, number> = {
+    [OrderSelectionStatus.PENDING]: 0,
+    [OrderSelectionStatus.IN_PROGRESS]: 1,
+    [OrderSelectionStatus.COMPLETED]: 2,
+  };
+
+  return rank[next] >= rank[current] ? next : null;
 }
 
 function assertSelectionWorkflowWritable(status: OrderStatus): void {

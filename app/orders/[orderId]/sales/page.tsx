@@ -157,6 +157,8 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                   <POSRecordPaymentDialog
                     orderId={workspace.orderId}
                     invoice={invoice}
+                    orderStatus={workspace.orderStatusRaw}
+                    selectionStatus={workspace.selectionStatus}
                     customerName={workspace.customerName}
                     jobNumber={workspace.jobNumber}
                   />

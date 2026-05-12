@@ -1,3 +1,5 @@
+import type { OrderSelectionStatus, OrderStatus } from "@prisma/client";
+
 export type OrderStatusLabel =
   | "Active"
   | "Waiting Selection"
@@ -339,7 +341,9 @@ export interface OrderFinancialSummary {
 export interface POSWorkspace {
   orderId: string;
   jobNumber: string;
+  orderStatusRaw: OrderStatus;
   orderStatus: OrderStatusLabel;
+  selectionStatus: OrderSelectionStatus;
   sessionDate: string;
   customerName: string;
   customerPhone: string;

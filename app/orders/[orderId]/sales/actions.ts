@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { PaymentType } from "@prisma/client";
+import { OrderSelectionStatus, OrderStatus, PaymentType } from "@prisma/client";
 import { z } from "zod";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import {
@@ -15,12 +15,12 @@ import {
   addOrderProductAddOn,
   getPOSWorkspace,
   removeOrderAddOn,
+  recordPOSPaymentForOrder,
   updateOrderPackage,
   updateOrderSelectedPhotoCount,
   upgradeOrderPackageItem,
 } from "@/modules/orders/order.service";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
-import { recordPayment } from "@/modules/payments/payment.service";
 
 export type POSCompositionActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -34,6 +34,11 @@ export type POSRecordPaymentActionState = {
 const posPaymentDateTimeSchema = z.object({
   paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Payment date is required"),
   paidTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "Payment time is required"),
+});
+const posPaymentSelectionSchema = z.object({
+  selectionStatus: z.nativeEnum(OrderSelectionStatus, {
+    error: "Selection status is required",
+  }),
 });
 
 export async function updateOrderPackageAction(
@@ -251,7 +256,18 @@ export async function recordPOSPaymentAction(
       };
     }
 
-    await recordPayment(invoiceId, parsed.data, {
+    const selectionStatus =
+      workspace.orderStatusRaw === OrderStatus.WAITING_SELECTION
+        ? parseRequiredSelectionStatus(formData)
+        : undefined;
+    if (selectionStatus instanceof Error) {
+      return { errors: { selectionStatus: [selectionStatus.message] } };
+    }
+
+    await recordPOSPaymentForOrder(orderId, invoiceId, {
+      payment: parsed.data,
+      selectionStatus,
+    }, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
@@ -300,6 +316,19 @@ function combineLocalDateTime(dateValue: string, timeValue: string): Date | null
   return paidAt;
 }
 
+function parseRequiredSelectionStatus(
+  formData: FormData
+): OrderSelectionStatus | Error {
+  const parsed = posPaymentSelectionSchema.safeParse({
+    selectionStatus: formData.get("selectionStatus"),
+  });
+  if (!parsed.success) {
+    return new Error("Selection status is required");
+  }
+
+  return parsed.data.selectionStatus;
+}
+
 const SAFE_POS_DOMAIN_MESSAGES = new Set([
   "Delivered orders cannot be edited",
   "Invoice is locked. Use the adjustment flow before changing package composition.",
@@ -316,6 +345,7 @@ const SAFE_POS_DOMAIN_MESSAGES = new Set([
   "Use selected photo count for extra photos",
   "No outstanding balance remains on this invoice",
   "Payment amount cannot exceed the remaining invoice balance",
+  "Invoice does not belong to this order",
 ]);
 
 function safePOSActionMessage(error: unknown, fallback: string): string {
