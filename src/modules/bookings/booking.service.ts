@@ -1108,6 +1108,7 @@ const editableBookingInclude = {
       id: true,
       name: true,
       price: true,
+      durationMinutes: true,
     },
   },
   packages: {
@@ -1242,11 +1243,16 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
               : []),
             { jobNumber: containsFilter },
             {
-              packages: {
-                some: {
-                  package: { name: containsFilter },
+              OR: [
+                {
+                  packages: {
+                    some: {
+                      package: { name: containsFilter },
+                    },
+                  },
                 },
-              },
+                { package: { is: { name: containsFilter } } },
+              ],
             },
             {
               department: {
@@ -1365,6 +1371,7 @@ function mapEditableBooking(
   row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
 ): EditableBooking {
   const packageSummaries = mapBookingPackages(row.packages);
+  const totalDurationMinutes = getBookingDurationFromRow(row);
   return {
     id: row.id,
     jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
@@ -1392,8 +1399,8 @@ function mapEditableBooking(
       row.status !== BookingStatus.CANCELLED &&
       row.status !== BookingStatus.NO_SHOW,
     packages: packageSummaries,
-    totalDurationMinutes: sumPackageDuration(row.packages),
-    totalDurationLabel: formatDuration(sumPackageDuration(row.packages)),
+    totalDurationMinutes,
+    totalDurationLabel: formatDuration(totalDurationMinutes),
   };
 }
 
@@ -1407,6 +1414,7 @@ function mapBookingDetail(
   const hasDeposit = hasDepositPayment(depositInvoices);
   const depositInvoice = depositInvoices[0] ?? null;
   const packageSummaries = mapBookingPackages(row.packages);
+  const totalDurationMinutes = getBookingDurationFromRow(row);
   const totalPackagePrice = row.packages.reduce(
     (total, line) => total.plus(line.package.price.mul(line.quantity)),
     new Prisma.Decimal(0)
@@ -1458,9 +1466,16 @@ function mapBookingDetail(
       ? formatPrice(totalPackagePrice.minus(depositInvoice.totalAmount))
       : null,
     packages: packageSummaries,
-    totalDurationMinutes: sumPackageDuration(row.packages),
-    totalDurationLabel: formatDuration(sumPackageDuration(row.packages)),
+    totalDurationMinutes,
+    totalDurationLabel: formatDuration(totalDurationMinutes),
   };
+}
+
+function getBookingDurationFromRow(
+  row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
+): number {
+  const packageDuration = sumPackageDuration(row.packages);
+  return packageDuration > 0 ? packageDuration : row.package?.durationMinutes ?? 0;
 }
 
 function mapBookingPackages(

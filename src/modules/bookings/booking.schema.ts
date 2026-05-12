@@ -29,7 +29,8 @@ const bookingPackageSchema = z.object({
 });
 
 function hasMaxDecimalPlaces(value: number): boolean {
-  return Number.isInteger(Math.round(value * 1000));
+  const scaledValue = value * 1000;
+  return Math.abs(scaledValue - Math.round(scaledValue)) < Number.EPSILON;
 }
 
 export const createBookingSchema = z.object({

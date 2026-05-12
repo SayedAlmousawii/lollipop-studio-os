@@ -218,6 +218,7 @@ export function PackageLinesField({
 
       <div className="grid gap-2 md:grid-cols-4">
         <select
+          aria-label="Package department"
           value={pickerDepartmentId}
           onChange={(event) => {
             setPickerDepartmentId(event.target.value);
@@ -235,6 +236,7 @@ export function PackageLinesField({
           ))}
         </select>
         <select
+          aria-label="Package session type"
           value={pickerSessionTypeId}
           onChange={(event) => {
             setPickerSessionTypeId(event.target.value);
@@ -252,6 +254,7 @@ export function PackageLinesField({
           ))}
         </select>
         <select
+          aria-label="Package family"
           value={pickerFamilyId}
           onChange={(event) => {
             setPickerFamilyId(event.target.value);
@@ -268,6 +271,7 @@ export function PackageLinesField({
           ))}
         </select>
         <select
+          aria-label="Package"
           value={pickerPackageId}
           onChange={(event) => setPickerPackageId(event.target.value)}
           disabled={!pickerFamilyId}

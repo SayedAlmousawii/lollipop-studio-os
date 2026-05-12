@@ -4,7 +4,10 @@ import { redirect } from "next/navigation";
 import { getCurrentAppUser } from "@/lib/auth";
 import { createBookingSchema } from "@/modules/bookings/booking.schema";
 import { createBookingInDb } from "@/modules/bookings/booking.service";
-import { parseThemeInput } from "@/modules/bookings/booking.utils";
+import {
+  parsePackageLines,
+  parseThemeInput,
+} from "@/modules/bookings/booking.utils";
 import {
   getCustomerPhoneSuggestions,
   type CustomerPhoneSuggestion,
@@ -58,18 +61,6 @@ export async function createBooking(
     return { errors: { _global: [message] } };
   }
   redirect("/bookings");
-}
-
-function parsePackageLines(formData: FormData) {
-  const packageIds = formData.getAll("packageIds");
-  const quantities = formData.getAll("packageQuantities");
-  const sortOrders = formData.getAll("packageSortOrders");
-
-  return packageIds.map((packageId, index) => ({
-    packageId,
-    quantity: quantities[index] ?? "1",
-    sortOrder: sortOrders[index] ?? String(index),
-  }));
 }
 
 export async function getBookingCustomerPhoneSuggestions(

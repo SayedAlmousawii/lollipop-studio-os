@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { updateBookingSchema } from "@/modules/bookings/booking.schema";
 import { updateBooking } from "@/modules/bookings/booking.service";
-import { parseThemeInput } from "@/modules/bookings/booking.utils";
+import {
+  parsePackageLines,
+  parseThemeInput,
+} from "@/modules/bookings/booking.utils";
 
 export type UpdateBookingActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -50,18 +53,6 @@ export async function updateBookingAction(
   revalidatePath("/bookings");
   revalidatePath("/calendar");
   redirect("/bookings");
-}
-
-function parsePackageLines(formData: FormData) {
-  const packageIds = formData.getAll("packageIds");
-  const quantities = formData.getAll("packageQuantities");
-  const sortOrders = formData.getAll("packageSortOrders");
-
-  return packageIds.map((packageId, index) => ({
-    packageId,
-    quantity: quantities[index] ?? "1",
-    sortOrder: sortOrders[index] ?? String(index),
-  }));
 }
 
 function buildSessionDate(date: FormDataEntryValue | null, time: FormDataEntryValue | null): Date | null {
