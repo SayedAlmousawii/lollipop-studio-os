@@ -45,16 +45,14 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
   );
 
   const selectedPackage = packageOptions.find((item) => item.id === selectedPackageId) ?? null;
-  const originalPrice = order.originalPackage?.price ?? 0;
+  const originalPrice =
+    order.originalPackagePriceSnapshot ?? order.originalPackage?.price ?? 0;
   const selectedPrice = selectedPackage?.price ?? 0;
   const currentAddOnTotal = sumAddOns(order.addOns);
   const selectedAddOnTotal = sumAddOns(addOns);
-  const recognizedPackageBaseline =
-    order.invoiceSummary?.recognizedPackageBaseline ??
-    order.finalPackage?.price ??
-    order.originalPackage?.price ??
-    0;
-  const packageAdjustment = selectedPrice - recognizedPackageBaseline;
+  const packageAdjustmentBaseline =
+    order.invoiceSummary?.packageAdjustmentBaseline ?? originalPrice;
+  const packageAdjustment = selectedPrice - packageAdjustmentBaseline;
   const addOnAdjustment = selectedAddOnTotal - currentAddOnTotal;
   const totalAdjustment = packageAdjustment + addOnAdjustment;
   const projectedInvoiceTotal = selectedPrice + selectedAddOnTotal;
@@ -155,8 +153,8 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
             <div className="grid gap-3 text-sm">
               <PriceRow label="Original package price" value={formatMoney(originalPrice)} />
               <PriceRow
-                label="Invoice package baseline"
-                value={formatMoney(recognizedPackageBaseline)}
+                label="Original package baseline"
+                value={formatMoney(packageAdjustmentBaseline)}
               />
               <PriceRow label="Selected package price" value={formatMoney(selectedPrice)} />
               <div className="flex items-center justify-between border-t border-border pt-3">

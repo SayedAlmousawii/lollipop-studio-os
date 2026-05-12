@@ -31,7 +31,6 @@ type SnapshotInvoiceLineItem = Omit<
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
-  previousPackagePrice: Prisma.Decimal;
   previousAddOns: OrderAddOnLine[];
   previousSelectedPhotoCount?: number | null;
   previousIncludedPhotoCount?: number | null;
@@ -47,7 +46,7 @@ export interface OrderInvoiceSyncSummary {
   packageAdjustmentAmount: Prisma.Decimal;
   addOnAdjustmentAmount: Prisma.Decimal;
   totalAdjustmentAmount: Prisma.Decimal;
-  recognizedPackageBaseline: Prisma.Decimal;
+  packageAdjustmentBaseline: Prisma.Decimal;
   createdInvoice: boolean;
 }
 
@@ -269,10 +268,11 @@ export async function syncOrderInvoiceForFinancialEdit(
     });
   }
 
-  const recognizedPackageBaseline = existingInvoice
-    ? existingInvoice.totalAmount.minus(previousSelectionAddOnTotal)
-    : input.previousPackagePrice;
-  const packageAdjustmentAmount = packagePrice.minus(recognizedPackageBaseline);
+  const packageAdjustmentBaseline =
+    order.originalPackagePriceSnapshot ??
+    order.originalPackage?.price ??
+    packagePrice;
+  const packageAdjustmentAmount = packagePrice.minus(packageAdjustmentBaseline);
   const addOnAdjustmentAmount = nextSelectionAddOnTotal.minus(previousSelectionAddOnTotal);
   const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
 
@@ -313,7 +313,7 @@ export async function syncOrderInvoiceForFinancialEdit(
     packageAdjustmentAmount,
     addOnAdjustmentAmount,
     totalAdjustmentAmount,
-    recognizedPackageBaseline,
+    packageAdjustmentBaseline,
     createdInvoice: !existingInvoice,
   };
 }

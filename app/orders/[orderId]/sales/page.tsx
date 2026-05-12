@@ -37,10 +37,11 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
   const packageAmount = workspace.currentPackage?.price ?? 0;
   const bundleAdjustment = workspace.bundleAdjustment;
+  const packageBaseAmount = packageAmount - bundleAdjustment;
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
     invoice?.invoiceTotal ??
-    packageAmount + bundleAdjustment + extraPhotoAmount + workspace.addOnTotal;
+    packageAmount + extraPhotoAmount + workspace.addOnTotal;
 
   return (
     <aside className={styles.financialSidebar}>
@@ -102,7 +103,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
               <>
                 <MoneyRow
                   label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
-                  value={formatKD(packageAmount)}
+                  value={formatKD(bundleAdjustment !== 0 ? packageBaseAmount : packageAmount)}
                 />
                 {invoice?.depositPaidAmount &&
                 !(invoice.renderMode === "SNAPSHOT" && invoice.lineItems.length === 0) ? (
