@@ -3,33 +3,33 @@ import { ChevronLeft } from "lucide-react";
 import { DevCreateTestBookingButton } from "@/components/bookings/dev-create-test-booking-button";
 import { PageContainer } from "@/components/layout/page-container";
 import { NewBookingForm } from "@/components/bookings/new-booking-form";
+import { db } from "@/lib/db";
 import {
   getAssignablePhotographers,
   getRecommendedPhotographer,
 } from "@/modules/bookings/booking.service";
-import { getCustomers } from "@/modules/customers/customer.service";
+import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { getActiveStudioDepartments } from "@/modules/departments/studio-department.service";
 import { getPackages } from "@/modules/packages/package.service";
 
 export default async function NewBookingPage(props: PageProps<"/bookings/new">) {
   const { customerId } = await props.searchParams;
-  const requestedCustomerId = Array.isArray(customerId) ? customerId[0] : customerId;
-  const [allCustomers, allPackages, photographers, departments] = await Promise.all([
-    getCustomers(),
-    getPackages(),
-    getAssignablePhotographers(),
-    getActiveStudioDepartments(),
-  ]);
+  const requestedCustomerId = Array.isArray(customerId)
+    ? customerId[0]
+    : customerId;
+  const [initialCustomer, allPackages, photographers, departments] =
+    await Promise.all([
+      getInitialCustomerPhone(requestedCustomerId),
+      getPackages(),
+      getAssignablePhotographers(),
+      getActiveStudioDepartments(),
+    ]);
 
-  const customers = allCustomers.map((c) => ({ id: c.id, name: c.fullName }));
-  const initialCustomerId = customers.some((c) => c.id === requestedCustomerId)
-    ? requestedCustomerId
-    : undefined;
   const packages = allPackages
     .filter((p) => p.status === "Active")
     .map((p) => ({ id: p.id, name: p.name, price: p.price }));
-  const recommendedPhotographer = initialCustomerId
-    ? await getRecommendedPhotographer(initialCustomerId)
+  const recommendedPhotographer = initialCustomer
+    ? await getRecommendedPhotographer(initialCustomer.id)
     : null;
 
   return (
@@ -71,15 +71,36 @@ export default async function NewBookingPage(props: PageProps<"/bookings/new">) 
         {/* Form card */}
         <div className="rounded-lg border border-(--color-border) bg-(--color-surface) p-8">
           <NewBookingForm
-            customers={customers}
             packages={packages}
             photographers={photographers}
             departments={departments}
-            initialCustomerId={initialCustomerId}
+            initialCustomerPhone={initialCustomer?.phone}
             recommendedPhotographer={recommendedPhotographer}
           />
         </div>
       </div>
     </PageContainer>
   );
+}
+
+async function getInitialCustomerPhone(
+  customerId: string | undefined
+): Promise<{ id: string; phone: string } | null> {
+  if (!customerId) {
+    return null;
+  }
+
+  const customer = await db.customer.findUnique({
+    where: { id: customerId },
+    select: { id: true, phone: true },
+  });
+
+  if (!customer) {
+    return null;
+  }
+
+  return {
+    id: customer.id,
+    phone: formatCustomerPhone(customer.phone),
+  };
 }

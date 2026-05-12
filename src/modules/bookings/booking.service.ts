@@ -24,6 +24,7 @@ import {
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
+import { findOrCreateCustomerByPhone } from "@/modules/customers/customer.service";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
@@ -322,8 +323,13 @@ export async function createBookingInDb(
   return withRetry(
     () =>
       db.$transaction(async (tx) => {
+        const customerId = await findOrCreateCustomerByPhone(tx, {
+          phone: data.phone,
+          name: data.customerName,
+        });
+
         await validateBookingReferences(tx, {
-          customerId: data.customerId,
+          customerId,
           packageId: data.packageId,
           departmentId: data.departmentId,
           requireActiveDepartment: true,
@@ -332,7 +338,7 @@ export async function createBookingInDb(
 
         return tx.booking.create({
           data: {
-            customerId: data.customerId,
+            customerId,
             packageId: data.packageId,
             sessionDate: data.sessionDate,
             sessionTime: data.sessionTime,

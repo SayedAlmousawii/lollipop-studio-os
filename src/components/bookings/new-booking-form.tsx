@@ -1,12 +1,20 @@
 "use client";
 
-import { useState, useRef, useId, useCallback } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TimePicker } from "@/components/ui/time-picker";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,7 +26,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { createBooking, type ActionState } from "@/app/bookings/new/actions";
+import {
+  createBooking,
+  getBookingCustomerPhoneSuggestions,
+  type ActionState,
+} from "@/app/bookings/new/actions";
 import type { RecommendedPhotographer } from "@/modules/bookings/booking.service";
 
 const SESSION_TYPES = [
@@ -29,17 +41,17 @@ const SESSION_TYPES = [
   { value: "OTHER", label: "Other" },
 ] as const;
 
-interface Customer {
+type PhoneSuggestion = {
   id: string;
   name: string;
-}
+  phone: string;
+};
 
 interface NewBookingFormProps {
-  customers: Customer[];
   packages: { id: string; name: string; price: string }[];
   photographers: { id: string; name: string }[];
   departments: { id: string; name: string; code: string }[];
-  initialCustomerId?: string;
+  initialCustomerPhone?: string;
   recommendedPhotographer: RecommendedPhotographer;
 }
 
@@ -47,7 +59,7 @@ function SubmitButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={disabled || pending} className="min-w-[140px]">
-      {pending ? "Creating…" : "Create Booking"}
+      {pending ? "Creating..." : "Create Booking"}
     </Button>
   );
 }
@@ -59,143 +71,294 @@ function FieldError({ messages }: { messages?: string[] }) {
   );
 }
 
-interface CustomerComboboxProps {
-  customers: Customer[];
+interface CustomerPhoneInputProps {
   error?: string[];
-  initialCustomerId?: string;
+  nameError?: string[];
+  initialCustomerPhone?: string;
 }
 
-function CustomerCombobox({
-  customers,
+function CustomerPhoneInput({
   error,
-  initialCustomerId,
-}: CustomerComboboxProps) {
-  const initialCustomer =
-    customers.find((customer) => customer.id === initialCustomerId) ?? null;
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(initialCustomer?.name ?? "");
-  const [selected, setSelected] = useState<Customer | null>(initialCustomer);
-  const [activeIndex, setActiveIndex] = useState(-1);
+  nameError,
+  initialCustomerPhone,
+}: CustomerPhoneInputProps) {
+  const [inputValue, setInputValue] = useState(initialCustomerPhone ?? "");
+  const [selected, setSelected] = useState<PhoneSuggestion | null>(null);
+  const [customerName, setCustomerName] = useState("");
+  const [suggestions, setSuggestions] = useState<PhoneSuggestion[]>([]);
+  const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
+  const [hasSuggestionResponse, setHasSuggestionResponse] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [, startSuggestionTransition] = useTransition();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestTokenRef = useRef(0);
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const numericQuery = inputValue.replace(/\D/g, "");
+  const canFetchSuggestions = numericQuery.length >= 3;
+  const isExistingCustomer = selected?.phone === inputValue;
 
-  const filtered = query
-    ? customers.filter((c) =>
-        c.name.toLowerCase().includes(query.toLowerCase())
-      )
-    : customers;
+  useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        closeDropdown();
+      }
+    }
 
-  const handleSelect = useCallback(
-    (customer: Customer) => {
-      setSelected(customer);
-      setQuery(customer.name);
-      setOpen(false);
-      setActiveIndex(-1);
-      inputRef.current?.focus();
-    },
-    []
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearPendingSuggestionRequest();
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} className="space-y-3">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
+        <Input
+          id="phone"
+          name="phone"
+          ref={inputRef}
+          type="search"
+          inputMode="tel"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-expanded={showDropdown}
+          aria-activedescendant={
+            highlightedIndex >= 0
+              ? `${listboxId}-option-${suggestions[highlightedIndex]?.id}`
+              : undefined
+          }
+          aria-invalid={error ? true : undefined}
+          value={inputValue}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            const nextDigits = nextValue.replace(/\D/g, "");
+
+            setInputValue(nextValue);
+            setHasSuggestionResponse(false);
+
+            if (selected && nextValue !== selected.phone) {
+              setSelected(null);
+              setCustomerName("");
+            }
+
+            if (!nextValue.trim()) {
+              setSelected(null);
+              setCustomerName("");
+            }
+
+            if (nextDigits.length < 3) {
+              clearPendingSuggestionRequest();
+              setSuggestions([]);
+              setIsLoadingSuggestions(false);
+              setHighlightedIndex(-1);
+              setShowDropdown(false);
+              return;
+            }
+
+            setShowDropdown(true);
+            queueSuggestionFetch(nextValue);
+          }}
+          onFocus={() => {
+            if (!canFetchSuggestions) {
+              return;
+            }
+
+            if (
+              isLoadingSuggestions ||
+              suggestions.length > 0 ||
+              hasSuggestionResponse
+            ) {
+              setShowDropdown(true);
+              return;
+            }
+
+            queueSuggestionFetch(inputValue);
+          }}
+          onKeyDown={handleInputKeyDown}
+          placeholder="Search phone number..."
+          autoComplete="off"
+          required
+          className="pl-9 pr-9"
+        />
+        {isLoadingSuggestions ? (
+          <Loader2 className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-text-secondary" />
+        ) : null}
+      </div>
+
+      {showDropdown && canFetchSuggestions ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label="Customer phone suggestions"
+          className="relative z-20 overflow-hidden rounded-[10px] border border-border bg-surface shadow-sm"
+        >
+          {suggestions.map((suggestion, index) => {
+            const isHighlighted = index === highlightedIndex;
+
+            return (
+              <button
+                key={suggestion.id}
+                id={`${listboxId}-option-${suggestion.id}`}
+                type="button"
+                role="option"
+                aria-selected={isHighlighted}
+                className={cn(
+                  "flex w-full flex-col gap-0.5 px-3 py-2 text-left transition-colors",
+                  isHighlighted ? "bg-accent-soft" : "hover:bg-surface-soft"
+                )}
+                onMouseEnter={() => setHighlightedIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectSuggestion(suggestion)}
+              >
+                <span className="text-sm font-medium tabular-nums text-text-primary">
+                  {suggestion.phone}
+                </span>
+                <span className="text-xs text-text-secondary">
+                  {suggestion.name}
+                </span>
+              </button>
+            );
+          })}
+
+          {isLoadingSuggestions ? (
+            <p className="px-3 py-2 text-sm text-text-secondary">Searching...</p>
+          ) : null}
+
+          {!isLoadingSuggestions &&
+          hasSuggestionResponse &&
+          suggestions.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-text-secondary">No results</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <FieldError messages={error} />
+
+      {isExistingCustomer ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="existingCustomerName">Customer Name</Label>
+          <Input
+            id="existingCustomerName"
+            value={selected.name}
+            readOnly
+            className="bg-surface-soft"
+          />
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label htmlFor="customerName">Customer Name</Label>
+          <Input
+            id="customerName"
+            name="customerName"
+            value={customerName}
+            onChange={(event) => setCustomerName(event.target.value)}
+            placeholder="Optional customer name"
+            autoComplete="name"
+          />
+          <FieldError messages={nameError} />
+        </div>
+      )}
+    </div>
   );
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setOpen(true);
-      setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIndex((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter" && open && activeIndex >= 0) {
-      e.preventDefault();
-      const customer = filtered[activeIndex];
-      if (customer) handleSelect(customer);
-    } else if (e.key === "Escape") {
-      setOpen(false);
+  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape" || event.key === "Tab") {
+      closeDropdown();
+      return;
+    }
+
+    if (!showDropdown || suggestions.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedIndex((current) =>
+        current >= suggestions.length - 1 ? 0 : current + 1
+      );
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((current) =>
+        current <= 0 ? suggestions.length - 1 : current - 1
+      );
+    }
+
+    if (event.key === "Enter" && highlightedIndex >= 0) {
+      event.preventDefault();
+      selectSuggestion(suggestions[highlightedIndex]);
     }
   }
 
-  return (
-    <div className="relative">
-      <input type="hidden" name="customerId" value={selected?.id ?? ""} />
-      <div className="relative">
-        <input
-          ref={inputRef}
-          role="combobox"
-          aria-expanded={open}
-          aria-autocomplete="list"
-          aria-controls={open ? listboxId : undefined}
-          aria-activedescendant={
-            open && activeIndex >= 0
-              ? `${listboxId}-opt-${activeIndex}`
-              : undefined
-          }
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setOpen(true);
-            setActiveIndex(-1);
-            if (selected && e.target.value !== selected.name) setSelected(null);
-          }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
-          onKeyDown={handleKeyDown}
-          placeholder="Search customers…"
-          autoComplete="off"
-          className="flex h-10 w-full rounded-sm border border-(--color-border) bg-(--color-surface) px-3 py-2 pr-8 text-sm text-(--color-text-primary) focus:outline-none focus:ring-2 focus:ring-(--color-accent) focus:ring-offset-0"
-        />
-        <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-(--color-text-secondary)" />
-      </div>
+  function closeDropdown() {
+    setShowDropdown(false);
+    setHighlightedIndex(-1);
+  }
 
-      {open && (
-        <ul
-          id={listboxId}
-          role="listbox"
-          aria-label="Customers"
-          className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border border-(--color-border) bg-(--color-surface) py-1 shadow-md"
-        >
-          {filtered.length === 0 ? (
-            <li
-              role="option"
-              aria-selected={false}
-              className="px-3 py-2 text-sm text-(--color-text-secondary)"
-            >
-              No customers found.
-            </li>
-          ) : (
-            filtered.map((c, i) => (
-              <li
-                key={c.id}
-                id={`${listboxId}-opt-${i}`}
-                role="option"
-                aria-selected={selected?.id === c.id}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  handleSelect(c);
-                }}
-                className={cn(
-                  "cursor-pointer px-3 py-2 text-sm",
-                  i === activeIndex
-                    ? "bg-(--color-surface-soft) text-(--color-text-primary)"
-                    : "text-(--color-text-secondary) hover:bg-(--color-surface-soft) hover:text-(--color-text-primary)"
-                )}
-              >
-                {c.name}
-              </li>
-            ))
-          )}
-        </ul>
-      )}
+  function selectSuggestion(suggestion: PhoneSuggestion) {
+    clearPendingSuggestionRequest();
+    setSelected(suggestion);
+    setInputValue(suggestion.phone);
+    setCustomerName(suggestion.name);
+    setSuggestions([]);
+    setIsLoadingSuggestions(false);
+    setHasSuggestionResponse(false);
+    closeDropdown();
+    inputRef.current?.focus();
+  }
 
-      <FieldError messages={error} />
-    </div>
-  );
+  function clearPendingSuggestionRequest() {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    requestTokenRef.current += 1;
+  }
+
+  function queueSuggestionFetch(query: string) {
+    clearPendingSuggestionRequest();
+    const requestToken = requestTokenRef.current;
+    setIsLoadingSuggestions(true);
+
+    debounceRef.current = setTimeout(() => {
+      startSuggestionTransition(async () => {
+        const data = await getBookingCustomerPhoneSuggestions(query);
+
+        if (requestTokenRef.current !== requestToken) {
+          return;
+        }
+
+        setSuggestions(data);
+        setHighlightedIndex(data.length > 0 ? 0 : -1);
+        setHasSuggestionResponse(true);
+        setIsLoadingSuggestions(false);
+        setShowDropdown(true);
+      });
+    }, 300);
+  }
 }
 
 export function NewBookingForm({
-  customers,
   packages,
   photographers,
   departments,
-  initialCustomerId,
+  initialCustomerPhone,
   recommendedPhotographer,
 }: NewBookingFormProps) {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
@@ -210,14 +373,12 @@ export function NewBookingForm({
 
   return (
     <form action={formAction} className="space-y-6">
-      {/* Global error */}
       {state.errors?._global && (
         <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-(--color-destructive)">
           {state.errors._global[0]}
         </p>
       )}
 
-      {/* Customer */}
       {departments.length === 0 ? (
         <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
           An active department is required before this booking can be saved.
@@ -225,15 +386,14 @@ export function NewBookingForm({
       ) : null}
 
       <div className="space-y-1.5">
-        <Label htmlFor="customerId-input">Customer</Label>
-        <CustomerCombobox
-          customers={customers}
-          error={state.errors?.customerId}
-          initialCustomerId={initialCustomerId}
+        <Label htmlFor="phone">Customer Phone</Label>
+        <CustomerPhoneInput
+          error={state.errors?.phone}
+          nameError={state.errors?.customerName}
+          initialCustomerPhone={initialCustomerPhone}
         />
       </div>
 
-      {/* Package */}
       <div className="space-y-1.5">
         <Label htmlFor="packageId">Package</Label>
         <select
@@ -243,25 +403,20 @@ export function NewBookingForm({
           className="flex h-10 w-full rounded-sm border border-(--color-border) bg-(--color-surface) px-3 py-2 text-sm text-(--color-text-primary) focus:outline-none focus:ring-2 focus:ring-(--color-accent) focus:ring-offset-0 disabled:opacity-50"
         >
           <option value="" disabled>
-            Select a package…
+            Select a package...
           </option>
           {packages.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name} — {p.price}
+              {p.name} - {p.price}
             </option>
           ))}
         </select>
         <FieldError messages={state.errors?.packageId} />
       </div>
 
-      {/* Session Date */}
       <div className="space-y-1.5">
         <Label htmlFor="sessionDate">Session Date</Label>
-        <input
-          type="hidden"
-          name="sessionDate"
-          value={sessionDate}
-        />
+        <input type="hidden" name="sessionDate" value={sessionDate} />
         <DatePicker
           value={sessionDate}
           onChange={(value) => setSessionDate(value ?? "")}
@@ -273,11 +428,7 @@ export function NewBookingForm({
 
       <div className="space-y-1.5">
         <Label htmlFor="sessionTime">Session Time</Label>
-        <input
-          type="hidden"
-          name="sessionTime"
-          value={sessionTime}
-        />
+        <input type="hidden" name="sessionTime" value={sessionTime} />
         <TimePicker
           id="sessionTime"
           value={sessionTime}
@@ -297,7 +448,7 @@ export function NewBookingForm({
           disabled={departments.length === 0}
         >
           <SelectTrigger id="departmentId" className="w-full">
-            <SelectValue placeholder="Select department…" />
+            <SelectValue placeholder="Select department..." />
           </SelectTrigger>
           <SelectContent>
             {departments.map((department) => (
@@ -326,7 +477,7 @@ export function NewBookingForm({
           ))}
         </select>
         <p className="text-xs text-text-muted">
-          {initialCustomerId
+          {initialCustomerPhone
             ? recommendedPhotographer
               ? `Recommended from session history: ${recommendedPhotographer.name}`
               : "No photographer history found"
@@ -335,13 +486,15 @@ export function NewBookingForm({
         <FieldError messages={state.errors?.assignedPhotographerId} />
       </div>
 
-      {/* Session Type */}
       <div className="space-y-1.5">
         <Label htmlFor="sessionType">Session Type</Label>
         <input type="hidden" name="sessionType" value={selectedSessionType} />
-        <Select value={selectedSessionType} onValueChange={setSelectedSessionType}>
+        <Select
+          value={selectedSessionType}
+          onValueChange={setSelectedSessionType}
+        >
           <SelectTrigger id="sessionType" className="w-full">
-            <SelectValue placeholder="Select session type…" />
+            <SelectValue placeholder="Select session type..." />
           </SelectTrigger>
           <SelectContent>
             {SESSION_TYPES.map((t) => (
@@ -366,20 +519,18 @@ export function NewBookingForm({
         <FieldError messages={state.errors?.themes} />
       </div>
 
-      {/* Notes */}
       <div className="space-y-1.5">
         <Label htmlFor="notes">Notes</Label>
         <Textarea
           id="notes"
           name="notes"
-          placeholder="Optional notes…"
+          placeholder="Optional notes..."
           rows={3}
           className="w-full resize-none"
         />
         <FieldError messages={state.errors?.notes} />
       </div>
 
-      {/* Actions */}
       <div className="flex items-center justify-end gap-3 pt-2">
         <Button variant="outline" asChild>
           <Link href="/bookings">Cancel</Link>

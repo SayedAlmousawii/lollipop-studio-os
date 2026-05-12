@@ -1,9 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getCurrentAppUser } from "@/lib/auth";
 import { createBookingSchema } from "@/modules/bookings/booking.schema";
 import { createBookingInDb } from "@/modules/bookings/booking.service";
 import { parseThemeInput } from "@/modules/bookings/booking.utils";
+import {
+  getCustomerPhoneSuggestions,
+  type CustomerPhoneSuggestion,
+} from "@/modules/customers/customer.service";
 
 export type ActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -28,7 +33,8 @@ export async function createBooking(
   }
 
   const raw = {
-    customerId: formData.get("customerId"),
+    phone: formData.get("phone"),
+    customerName: formData.get("customerName") || undefined,
     packageId: formData.get("packageId"),
     sessionDate,
     sessionTime: formData.get("sessionTime"),
@@ -53,6 +59,23 @@ export async function createBooking(
     return { errors: { _global: [message] } };
   }
   redirect("/bookings");
+}
+
+export async function getBookingCustomerPhoneSuggestions(
+  query: string
+): Promise<CustomerPhoneSuggestion[]> {
+  const appUser = await getCurrentAppUser();
+
+  if (!appUser || !appUser.active) {
+    return [];
+  }
+
+  try {
+    return await getCustomerPhoneSuggestions(query);
+  } catch (error) {
+    console.error("Booking customer phone suggestions failed", error);
+    return [];
+  }
 }
 
 function buildSessionDate(

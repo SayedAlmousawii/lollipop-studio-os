@@ -42,7 +42,8 @@ export async function createDevelopmentTestBooking(): Promise<CreatedDevelopment
   }
 
   const booking = await createBookingInDb({
-    customerId: customer.id,
+    phone: customer.phone,
+    customerName: customer.fullName,
     packageId: selectedPackage.id,
     sessionDate: buildNextDaySessionDate(TEST_BOOKING_TIME),
     sessionTime: TEST_BOOKING_TIME,
