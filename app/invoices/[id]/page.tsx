@@ -59,34 +59,6 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
           <Metric label="Locked" value={invoice.isLocked ? "Yes" : "No"} />
         </div>
 
-        {invoice.invoiceType === "FINAL" ? (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Financial Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <MoneyRow label="Invoice total" value={invoice.totalAmount} />
-              <MoneyRow
-                label="Direct payments"
-                value={invoice.paidAmount}
-              />
-              {invoice.depositPaidAmount ? (
-                <MoneyRow
-                  label={`Deposit credited${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
-                  value={`-${invoice.depositPaidAmount}`}
-                />
-              ) : null}
-              <div className="border-t border-border pt-2">
-                <MoneyRow
-                  label="Remaining balance"
-                  value={invoice.remainingAmount}
-                  strong
-                />
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
         {invoice.parentInvoiceId && invoice.parentInvoiceNumber ? (
           <Card>
             <CardContent className="pt-6 text-sm text-text-secondary">
@@ -101,15 +73,65 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
           </Card>
         ) : null}
 
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Payment History</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <PaymentHistoryTable payments={invoice.payments} />
-            </CardContent>
-          </Card>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_380px] xl:items-start">
+          <div className="space-y-6">
+            {invoice.invoiceType === "FINAL" ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Financial Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  <MoneyRow label="Invoice total" value={invoice.totalAmount} />
+                  <MoneyRow label="Direct payments" value={invoice.paidAmount} />
+                  {invoice.depositPaidAmount ? (
+                    <MoneyRow
+                      label={`Deposit credited${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
+                      value={`-${invoice.depositPaidAmount}`}
+                    />
+                  ) : null}
+                  <div className="border-t border-border pt-2">
+                    <MoneyRow
+                      label="Remaining balance"
+                      value={invoice.remainingAmount}
+                      strong
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {invoice.lineItems.length > 0 ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Invoice Composition</CardTitle>
+                  {invoice.lineItemsAreComputed ? (
+                    <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
+                      Computed current composition
+                    </p>
+                  ) : null}
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {invoice.lineItems.map((item) => (
+                    <InvoiceLineRow
+                      key={item.id}
+                      label={item.description}
+                      meta={`${item.quantity} × ${item.unitPrice}`}
+                      value={item.lineTotal}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
+            ) : null}
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Payment History</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PaymentHistoryTable payments={invoice.payments} />
+              </CardContent>
+            </Card>
+          </div>
 
           <div className="space-y-6">
             {!invoice.isLocked ? (
@@ -212,6 +234,28 @@ function MoneyRow({
     >
       <span>{label}</span>
       <span className="tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function InvoiceLineRow({
+  label,
+  meta,
+  value,
+}: {
+  label: string;
+  meta: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-surface-soft px-3 py-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">{label}</p>
+          <p className="text-xs text-text-secondary">{meta}</p>
+        </div>
+        <span className="text-sm font-medium tabular-nums text-text-primary">{value}</span>
+      </div>
     </div>
   );
 }

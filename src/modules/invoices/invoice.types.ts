@@ -42,6 +42,7 @@ export interface InvoiceListItem {
 export interface InvoiceDetail extends InvoiceListItem {
   depositInvoiceNumber: string | null;
   depositPaidAmount: string | null;
+  lineItemsAreComputed: boolean;
   notes: string;
   parentInvoiceId: string | null;
   parentInvoiceNumber: string | null;

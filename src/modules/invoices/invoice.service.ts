@@ -395,6 +395,15 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
   if (!row) return null;
 
   const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+  const lineItemsAreComputed =
+    !row.isLocked &&
+    row.lineItems.length === 0 &&
+    row.orderId !== null &&
+    row.invoiceType === InvoiceType.FINAL;
+  const computedLineItems =
+    lineItemsAreComputed && row.orderId
+      ? await buildInvoiceLineItems(db, row.orderId)
+      : null;
   const depositInvoice =
     row.invoiceType === InvoiceType.FINAL && row.financialCaseId
       ? await findDepositInvoiceForFinancialCase(row.financialCaseId)
@@ -414,6 +423,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     remainingAmount: formatMoney(row.remainingAmount),
     depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
     depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
+    lineItemsAreComputed,
     status: mapInvoiceStatus(row.status),
     isLocked: row.isLocked,
     createdAt: formatDate(row.createdAt),
@@ -437,7 +447,9 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
       totalAmount: formatMoney(invoice.totalAmount),
       status: mapInvoiceStatus(invoice.status),
     })),
-    lineItems: row.lineItems.map(mapInvoiceLineItem),
+    lineItems:
+      computedLineItems?.map((item, index) => mapComputedInvoiceLineItem(item, index)) ??
+      row.lineItems.map(mapInvoiceLineItem),
   };
 }
 
@@ -952,6 +964,35 @@ function mapInvoiceLineItem(row: {
     sortOrder: row.sortOrder,
     createdAt: formatDate(row.createdAt),
   };
+}
+
+function mapComputedInvoiceLineItem(
+  row: SnapshotInvoiceLineItem,
+  index: number
+): InvoiceLineItem {
+  return {
+    id: `computed-${row.sortOrder}-${index}`,
+    lineType: row.lineType,
+    description: row.description,
+    quantity: row.quantity ?? 1,
+    unitPrice: formatComputedMoney(row.unitPrice),
+    lineTotal: formatComputedMoney(row.lineTotal),
+    sortOrder: row.sortOrder ?? index,
+    createdAt: "",
+  };
+}
+
+function formatComputedMoney(value: SnapshotInvoiceLineItem["unitPrice"]): string {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toFixed" in value &&
+    typeof value.toFixed === "function"
+  ) {
+    return formatMoney(value);
+  }
+
+  return `${Number(value).toFixed(3)} KD`;
 }
 
 export async function createAdjustmentInvoice(
