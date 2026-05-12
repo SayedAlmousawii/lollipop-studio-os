@@ -3,6 +3,7 @@ import {
   BookingStatus,
   CustomerStatus,
   InvoiceStatus,
+  MediaType,
   OrderEditingStatus,
   OrderProductionStatus,
   OrderSelectionStatus,
@@ -122,6 +123,51 @@ async function seedPackageTaxonomyCatalog() {
         sortOrder: 10,
       },
     });
+  }
+}
+
+async function seedExtraPhotoPricingCatalog() {
+  const sessionTypes = await prisma.sessionType.findMany({
+    select: { id: true, code: true },
+  });
+
+  if (sessionTypes.length !== SESSION_TYPE_CATALOG.length) {
+    throw new Error("Cannot seed extra-photo prices before all session types exist.");
+  }
+
+  for (const sessionType of sessionTypes) {
+    // PLACEHOLDER PRICES - owner to confirm per-session-type values before Spec 70 ships.
+    // Digital is intentionally stored as an independent number, not computed from print.
+    await Promise.all([
+      prisma.sessionTypeExtraPhotoPricing.upsert({
+        where: {
+          sessionTypeId_mediaType: {
+            sessionTypeId: sessionType.id,
+            mediaType: MediaType.DIGITAL,
+          },
+        },
+        update: { unitPrice: 2 },
+        create: {
+          sessionTypeId: sessionType.id,
+          mediaType: MediaType.DIGITAL,
+          unitPrice: 2,
+        },
+      }),
+      prisma.sessionTypeExtraPhotoPricing.upsert({
+        where: {
+          sessionTypeId_mediaType: {
+            sessionTypeId: sessionType.id,
+            mediaType: MediaType.PRINT,
+          },
+        },
+        update: { unitPrice: 3 },
+        create: {
+          sessionTypeId: sessionType.id,
+          mediaType: MediaType.PRINT,
+          unitPrice: 3,
+        },
+      }),
+    ]);
   }
 }
 
@@ -271,6 +317,7 @@ async function main() {
     }),
   ]);
   await seedPackageTaxonomyCatalog();
+  await seedExtraPhotoPricingCatalog();
 
   const regularPackageFamily = await prisma.packageFamily.findUnique({
     where: { code: "KD_REGULAR_DEFAULT" },

@@ -139,6 +139,11 @@ enum ProductCategory {
   OTHER
 }
 
+enum MediaType {
+  DIGITAL
+  PRINT
+}
+
 enum OrderActivityType {
   ORDER_CREATED
   PACKAGE_CHANGED
@@ -344,11 +349,27 @@ model SessionType {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  department      StudioDepartment @relation(fields: [departmentId], references: [id])
-  packageFamilies PackageFamily[]
+  department        StudioDepartment               @relation(fields: [departmentId], references: [id])
+  packageFamilies   PackageFamily[]
+  extraPhotoPricing SessionTypeExtraPhotoPricing[]
 
   @@index([departmentId, isActive, sortOrder])
   @@map("session_types")
+}
+
+model SessionTypeExtraPhotoPricing {
+  id            String    @id @default(cuid())
+  sessionTypeId String
+  mediaType     MediaType
+  unitPrice     Decimal   @db.Decimal(10, 3)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+
+  @@unique([sessionTypeId, mediaType])
+  @@index([sessionTypeId])
+  @@map("session_type_extra_photo_pricing")
 }
 
 model PackageFamily {
@@ -369,21 +390,21 @@ model PackageFamily {
 }
 
 model Booking {
-  id                     String        @id @default(cuid())
-  publicId               String?       @unique
-  jobNumber              String?       @unique
-  jobId                  String?       @unique
+  id                     String             @id @default(cuid())
+  publicId               String?            @unique
+  jobNumber              String?            @unique
+  jobId                  String?            @unique
   customerId             String
   packageId              String?
   sessionDate            DateTime
   sessionTime            String
   sessionType            BookingSessionType
   departmentId           String
-  status                 BookingStatus @default(PENDING)
+  status                 BookingStatus      @default(PENDING)
   assignedPhotographerId String?
   notes                  String?
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   job                  Job?             @relation(fields: [jobId], references: [id])
   customer             Customer         @relation(fields: [customerId], references: [id])
