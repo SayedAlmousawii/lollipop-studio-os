@@ -2,8 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
+import { DeletePendingBookingButton } from "@/components/bookings/delete-pending-booking-button";
 import { PaymentStatusBadge } from "@/components/bookings/payment-status-badge";
-import { RecordBasePaymentDialog } from "@/components/bookings/record-base-payment-dialog";
 import { RecordDepositDialog } from "@/components/bookings/record-deposit-dialog";
 import { PageContainer } from "@/components/layout/page-container";
 import { Button } from "@/components/ui/button";
@@ -57,15 +57,8 @@ export default async function BookingDetailPage(
               trigger={<Button variant="outline">Record Deposit</Button>}
             />
           ) : null}
-          {booking.canRecordBasePayment ? (
-            <RecordBasePaymentDialog
-              bookingId={booking.id}
-              defaultAmount={Math.max(
-                booking.packagePriceAmount - booking.depositPaidAmount,
-                0
-              )}
-              trigger={<Button variant="outline">Record Base Payment</Button>}
-            />
+          {booking.canDeletePending ? (
+            <DeletePendingBookingButton bookingId={booking.id} />
           ) : null}
         </div>
 

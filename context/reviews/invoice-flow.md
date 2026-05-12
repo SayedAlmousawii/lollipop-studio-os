@@ -1,5 +1,14 @@
 # Invoice Adjustment Workflow
 
+> ⚠️ **PARTIALLY SUPERSEDED — 2026-05-12**
+> This document describes the old "one rolling primary invoice per job" model. The lifecycle architecture revision (May 2026) replaces this with a two-invoice split:
+> - **Deposit Invoice** (`InvoiceType.DEPOSIT`) — created at booking confirmation, immediately PAID + LOCKED. Never evolves.
+> - **Final Invoice** (`InvoiceType.FINAL`) — created at POS/selection finalization. Subject to recalculation until delivery/close.
+>
+> The adjustment invoice mechanics described below (locked invoice → create adjustment) remain valid and apply to the Final Invoice after it is locked.
+> The `normalizePrimaryWorkflowInvoice` pattern and the "recalculate same invoice from deposit onwards" flow described here are retired.
+> See `context/reviews/lifecycle-review.md` and Feature specs 59–63 for the current architecture.
+
 ## Purpose
 
 This document defines how Studio OS should handle:

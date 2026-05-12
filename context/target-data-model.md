@@ -1,5 +1,18 @@
 # Target Data Model
 
+> ⚠️ **SUPERSEDED — 2026-05-12**
+> This document was the intended V1 schema target as of early 2026. The May 2026 lifecycle architecture revision changed several foundational decisions. Do not use this as implementation guidance for Features 59–63 or later. Key divergences:
+> - Job is no longer created at booking creation — it is created at check-in
+> - `jobNumber` is no longer "the one workflow identifier" — there are now two: `BK-` (at confirmation) and `JOB-` (at check-in)
+> - `Booking.publicId` is now the BK reference — it is not a transitional field to be removed
+> - `FinancialCase` is the new financial hub; this model does not describe it
+> - `PaymentType.BASE` is retired; replaced by `PaymentType.FINAL`
+> - Invoice `invoiceType` values are `DEPOSIT | FINAL | ADJUSTMENT | REFUND | CREDIT_NOTE`, not `PRIMARY | ADJUSTMENT`
+> - `UpgradeRecord` entity described here is deferred to Feature 64; it is not part of the lifecycle revision specs
+>
+> See `context/reviews/lifecycle-review.md` and `context/reviews/identifier-architecture-review.md` for current architecture.
+> Full schema redraw planned after Feature 63 is complete.
+
 ## Purpose
 
 This document describes the ideal V1 schema direction for Studio OS based on:

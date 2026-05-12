@@ -38,8 +38,9 @@ Rules for how the AI agent must behave during implementation — scoping, safety
 - [ ] UI renders correctly
 
 **Core invariants (never violate):**
-- Booking cannot be confirmed until 20 KD deposit is recorded
-- Editing cannot start until base package payment is recorded
+- Pending bookings consume no references — they are calendar holds only; hard-deleted on cancellation
+- Booking confirmation is atomic: 20 KD deposit recorded + BK reference generated + FinancialCase created + Deposit Invoice issued and locked in one transaction
+- Editing cannot start until the Final Invoice remaining balance is fully paid (`PaymentType.FINAL`); `PaymentType.BASE` is retired
 - Package upgrade = replace final package (not add a second line)
 - Upgrade charge = final package price − already paid package price
 - Commission = based on upgrade difference only

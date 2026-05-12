@@ -52,10 +52,13 @@ modules/bookings/
 
 **Status definition pattern:**
 ```ts
+// BookingStatus — as of lifecycle revision (Feature 59)
+// DEPOSIT_PAID is retired; deposit payment is what *triggers* CONFIRMED atomically
+// CHECKED_IN replaces the old COMPLETED state
 export const BOOKING_STATUS = {
   PENDING: "PENDING",
-  DEPOSIT_PAID: "DEPOSIT_PAID",
   CONFIRMED: "CONFIRMED",
+  CHECKED_IN: "CHECKED_IN",
   CANCELLED: "CANCELLED",
   NO_SHOW: "NO_SHOW",
 } as const;
@@ -95,6 +98,8 @@ userId | action | entityType | entityId | oldValue | newValue | timestamp | note
 - All financial logic lives in service files — never in components or API routes
 - Upgrade charge formula: `finalPackagePrice − alreadyPaidPackagePrice` (not addition)
 - Never duplicate financial formulas across files
+- `PaymentType.BASE` is retired as of Feature 59; use `PaymentType.FINAL` for the remaining balance payment against the Final Invoice at POS
+- Invoice split: `InvoiceType.DEPOSIT` (created at confirmation, immediately locked) and `InvoiceType.FINAL` (created at POS finalization); do not use a single evolving invoice for both stages
 
 **DB access rules:**
 - Prisma queries only inside service files

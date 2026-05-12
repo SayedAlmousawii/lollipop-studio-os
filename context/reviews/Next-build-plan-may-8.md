@@ -1,6 +1,6 @@
 # Studio OS - Suggested Next Build Phases & Feature Roadmap
 Date: 2026-05-08
-Revised: 2026-05-09
+Revised: 2026-05-12 — Phases 3–4 marked complete; Phase 5 replaced with Lifecycle Architecture Revision (Features 59–63); old Phase 5 specs renumbered to Phase 6 (Features 64–66); subsequent phases renumbered accordingly.
 
 ---
 
@@ -22,6 +22,7 @@ The roadmap should now prioritize:
 - workflow integrity
 - core operational completeness
 - cleanup of transitional compatibility architecture
+- lifecycle architecture revision (booking → confirmation → check-in separation)
 - reporting and commission foundations
 - later financial edge cases only when the business model is clear
 
@@ -46,14 +47,19 @@ The current system already includes:
 - customer profile hub
 - delivery completion safeguards
 - workflow sub-status architecture
+- Clerk auth + Prisma staff identity + role-based permissions
+- product catalog + structured package deliverables
+- POS commercial workspace (route, package composition, marketplace, payment dialog, financial sidebar)
+- dashboard phone lookup with suggestion dropdown
+- **FinancialCase model** — financial grouping entity replacing Job as financial hub
+- **Lifecycle schema foundation** — nullable lifecycle references, InvoiceType enum, CHECKED_IN status, FINAL payment type, identifier sequence kind discriminator, order package price snapshots
 
-The remaining work is now primarily:
+The remaining work is now:
 
-1. auth, staff identity, permissions, and audit accountability
-2. workflow hardening and core operational completeness
-3. cleanup of transitional compatibility architecture
-4. reporting and commission systems
-5. later financial edge-case automation
+1. lifecycle confirmation and check-in flows (Phase 5 — in progress)
+2. financial reporting and commission systems (Phase 6)
+3. later financial edge-case automation (Phase 7)
+4. production hardening and staff management (Phase 8)
 
 ---
 
@@ -107,7 +113,7 @@ Seven gaps identified (P1–P7). Implementation units below.
 
 ---
 
-## Feature 52 - Workflow Guard Enforcement
+## Feature 52 - Workflow Guard Enforcement ✅ Complete
 
 ### Summary
 Implement the highest-value missing guards found in the review.
@@ -116,12 +122,12 @@ Implement the highest-value missing guards found in the review.
 Keep the app operationally trustworthy without trying to solve every rare edge case at once.
 
 ### Units
-- **52a** — Add `editingStatus` check to delivery completion guard
-- **52b** — Per-section production state machine validation
-- **52c** — `WorkflowGuardError` typed error class
-- **52d** — Reusable error UI component *(style/design discussion required)*
-- **52e** — Audit-log failed guard blocks on high-risk transitions
-- **52f** — Service-layer permission enforcement *(deferred)*
+- **52a** ✅ — Add `editingStatus` check to delivery completion guard
+- **52b** ✅ — Per-section production state machine validation
+- **52c** ✅ — `WorkflowGuardError` typed error class
+- **52d** — Reusable error UI component *(style/design discussion required — still deferred)*
+- **52e** ✅ — Audit-log failed guard blocks on high-risk transitions
+- **52f** ✅ — Service-layer permission enforcement
 
 > **Feature 53 deferred.** Planned guard work was scoped into 52 units or deferred pending further workflow review. Not blocking Phase 3.
 
@@ -133,7 +139,7 @@ Keep the app operationally trustworthy without trying to solve every rare edge c
 
 ---
 
-# Phase 3 - Core Operational Completeness
+# Phase 3 - Core Operational Completeness ✅ Complete
 
 ## Goal
 
@@ -143,7 +149,7 @@ This phase should prioritize what staff actually needs every day.
 
 ---
 
-## Feature 54 - Operational Page Completion Review
+## Feature 54 - Operational Page Completion Review ✅ Complete
 
 ### Summary
 Review the main app areas and identify remaining gaps that stop the software from feeling complete.
@@ -163,20 +169,20 @@ Create small feature specs for missing high-value operational pieces instead of 
 
 ---
 
-## Feature 55 - UX And Workflow Polish Pass
+## Feature 55 - UX And Workflow Polish Pass ✅ Complete
 
 ### Summary
 Resolve practical usability issues that slow down staff.
 
 ### Units
 
-- **55a** — Bug fixes: selection count init (shows 0), selection completed idempotency (upgrade reverts), two simultaneous "ready for pickup" buttons
-- **55b** — UX defaults: estimated editing date defaults to today+14; booking form adds session time field
-- **55c** — Deliverables visibility: overview tab gets a deliverables card; package description surfaced in selection tab
-- **55d** — Full payment gate: block editing assignment until invoice balance is zero; surface outstanding amount
-- **55e** — Customer phone enforcement: required field, valid format, phone-first search
-- **55f** — Editing queue investigation: profile slow render, document findings, fix is a follow-up unit
-- **55g** — Date picker migration: replace all `<Input type="date">` fields with the existing `DatePicker` calendar component
+- **55a** ✅ — Bug fixes: selection count init (shows 0), selection completed idempotency (upgrade reverts), two simultaneous "ready for pickup" buttons
+- **55b** ✅ — UX defaults: estimated editing date defaults to today+14; booking form adds session time field
+- **55c** ✅ — Deliverables visibility: overview tab gets a deliverables card; package description surfaced in selection tab
+- **55d** ✅ — Full payment gate: block editing assignment until invoice balance is zero; surface outstanding amount
+- **55e** ✅ — Customer phone enforcement: required field, valid format, phone-first search
+- **55f** ✅ — Editing queue investigation: profile slow render, document findings, fix is a follow-up unit
+- **55g** ✅ — Date picker migration: replace all `<Input type="date">` fields with the existing `DatePicker` calendar component
 
 ### Deferred (needs design/decision first)
 - Financial summary clarity, invoice context visibility, payment workflow messaging — deferred to a later phase
@@ -189,80 +195,128 @@ Improve day-to-day confidence and speed.
 
 ---
 
-# Phase 4 - Transitional Architecture Cleanup
+# Phase 4 - Product, POS, And Transitional Cleanup ✅ Complete
 
 ## Goal
 
-Reduce long-term technical debt and remove compatibility architecture that is no longer needed.
-
-The system has transitioned to canonical Job ownership and jobNumber workflow identity. Remaining cleanup should simplify future development and reduce AI-agent confusion.
+Reduce long-term technical debt, remove compatibility architecture that is no longer needed, and build the POS commercial workspace.
 
 ---
 
-## Feature 56 - Transitional Field Cleanup Review
+## Feature 56 - Product Catalog + Package Management ✅ Complete
 
-### Summary
-Create a safe removal plan for deprecated or compatibility-only fields.
+### What Was Built
+Unified product catalog (`Product` / `ProductCategory`), structured `PackageItem` deliverables with price snapshots, `bundleAdjustment` on Package, package management UI at `/packages` with dedicated create/edit pages, safe archive/delete, and invoice line item snapshots at delivery/close.
 
-### Fields To Review
-- Booking.publicId
-- Order.publicId
-- Invoice.publicId
-- deprecated Order.addOns JSON
-- legacy Order.deliveryCompletedBy
-- duplicated propagated jobNumber fields
-
-### Purpose
-Determine:
-- what should stay
-- what should be removed later
-- what is still required for migration compatibility
-- what should never appear in UI again
+### Original Intent (from plan)
+Transitional field cleanup review — determine which deprecated fields to remove. The actual implementation went further and replaced the package system entirely, making the field cleanup question moot for most items reviewed.
 
 ---
 
-## Feature 57 - Remove Deprecated Compatibility Paths
+## Feature 57 - POS Commercial Workspace ✅ Complete
 
-### Summary
-Remove deprecated read/write paths after transition safety is confirmed.
+### What Was Built
+Standalone `/orders/[orderId]/sales` route, package composition area, add-on marketplace, embedded payment dialog, POS financial sidebar with line item snapshots, and dashboard phone lookup with suggestion dropdown (57a–57g).
 
-### Examples
-- remove JSON add-on writes completely
-- remove legacy delivery-completed fallback when no longer needed
-- remove old public-id generation if fully retired
-- simplify invoice/order lookup logic
-
-### Purpose
-Reduce architectural noise and make future development safer.
+### Original Intent (from plan)
+Remove deprecated compatibility paths. The POS workspace was prioritised instead; deprecated path removal was absorbed where safe to do.
 
 ---
 
-## Feature 58 - Route And Identifier Cleanup
+## Feature 58 - Route And Identifier Cleanup ⚠️ Superseded
 
-### Summary
+### Original Summary
 Review remaining route and lookup behavior that still depends on internal IDs.
 
-### Possible Directions
-- continue using cuid routes internally
-- optionally move staff operational routing toward jobNumber
-- reduce staff exposure to raw database IDs
-
-### Important Note
-This is mainly a UX/architecture consistency review, not a required migration.
+### Status
+**This spec was superseded by the Lifecycle Architecture Revision.** The identifier question (one `jobNumber` vs two references) was resolved differently: the architecture now uses separate `BK-` and `JOB-` references at distinct lifecycle stages, with `Booking.publicId` repurposed as the BK reference rather than retired. The route cleanup work remains valid but is lower priority — defer until after Feature 63 when the lifecycle is stable.
 
 ---
 
-# Phase 5 - Financial History, Reporting, And Commission Foundation
+# Phase 5 - Lifecycle Architecture Revision 🔄 In Progress
+
+## Goal
+
+Implement the booking/confirmation/check-in separation decided in the May 2026 lifecycle review. This is a real architectural revision — not just "move job number later." It changes the state machine, ownership boundaries, and financial hub for the entire workflow.
+
+Reference: `context/reviews/lifecycle-review.md`, `context/reviews/pos-and-invoice-design-review-may-2026.md`
+
+---
+
+## Feature 59 - Schema Foundation ✅ Complete
+
+### Summary
+All schema changes required before the lifecycle flows can be built.
+
+### What Was Done
+- Added `FinancialCase` model (`id`, `bookingId`, `jobOrderId?`, `customerId`, `createdAt`)
+- `BookingStatus.CHECKED_IN` replaces `COMPLETED`
+- `PaymentType.FINAL` replaces `BASE`
+- `InvoiceType` enum added (`DEPOSIT`, `FINAL`, `ADJUSTMENT`, `REFUND`, `CREDIT_NOTE`)
+- `Booking.publicId`, `Booking.jobId`, `Booking.jobNumber` → nullable
+- `Invoice.financialCaseId`, `Invoice.invoiceType` added; `Invoice.jobId`, `Invoice.jobNumber` → nullable
+- `Payment.financialCaseId` added; `Payment.jobId`, `Payment.jobNumber` → nullable
+- `identifier_sequences` — `kind` discriminator added (BK vs JOB sequences)
+- `Order.originalPackagePriceSnapshot`, `Order.finalPackagePriceSnapshot` added
+- Job-scoped composite ownership constraints removed (replaced by FinancialCase)
+
+---
+
+## Feature 60 - Booking Confirmation Rewrite
+
+### Summary
+Rewrite the booking confirmation flow to generate the BK reference, create a FinancialCase, issue a Deposit Invoice, and record the deposit payment as one atomic step.
+
+### Key Behavior
+- Pending bookings remain reference-free calendar holds
+- Confirmation: generates `BK-DEPT-YEAR-XXXXX` → stored in `Booking.publicId`, creates `FinancialCase`, creates Deposit Invoice (type `DEPOSIT`, totalAmount 20 KD, immediately PAID + CLOSED), records deposit payment (type `FINAL` is wrong here — this is type `DEPOSIT`)
+- On confirmed booking cancellation: FinancialCase remains with settled Deposit Invoice; no jobOrderId
+
+---
+
+## Feature 61 - Check-In Rewrite
+
+### Summary
+Rewrite the check-in flow to generate the JOB reference, create the Job/Order, and stamp the FinancialCase.
+
+### Key Behavior
+- Check-in: generates `JOB-DEPT-YEAR-XXXXX`, creates Job + Order, stamps `FinancialCase.jobOrderId`
+- Booking status transitions to `CHECKED_IN`
+
+---
+
+## Feature 62 - Deposit Invoice Display
+
+### Summary
+Surface the Deposit Invoice correctly in the UI, showing BK reference and package context (read live from booking, not stored on invoice).
+
+---
+
+## Feature 63 - Final Invoice / POS Integration
+
+### Summary
+Create the Final Invoice at POS/selection finalization. Show BK reference + JOB reference. Display deposit applied and remaining balance calculated from the linked Deposit Invoice.
+
+### Multi-Package Decision (open)
+One booking, two packages — one job with two orders, or two separate jobs? Confirm with owner before building this phase. Current assumption: 1:1:1 (Booking → Job → Order).
+
+---
+
+# Phase 6 - Financial History, Reporting, And Commission Foundation
 
 ## Goal
 
 Build stable financial history and operational reporting on top of trustworthy workflow data.
 
-This phase should begin after auth, audit actors, workflow guards, and core operational workflows are stable.
+This phase should begin after the lifecycle revision (Phase 5) is complete and the FinancialCase/invoice split is stable.
+
+_(Previously Phase 5. Features renumbered from 59–61 → 64–66.)_
 
 ---
 
-## Feature 59 - UpgradeRecord Foundation
+## Feature 64 - UpgradeRecord Foundation
+
+_(Previously Feature 59)_
 
 ### Summary
 Create explicit upgrade-event history records.
@@ -278,7 +332,9 @@ Currently, upgrades are derived indirectly from original vs final package compar
 
 ---
 
-## Feature 60 - Commission Foundation
+## Feature 65 - Commission Foundation
+
+_(Previously Feature 60)_
 
 ### Summary
 Implement photographer commission tracking tied to upgrade activity.
@@ -291,11 +347,13 @@ Support commission calculations based on:
 - payment state
 
 ### Important Note
-Commission logic should depend on finalized and trustworthy financial/workflow data.
+Commission logic should depend on finalized and trustworthy financial/workflow data. Commission formula uses `Order.finalPackagePriceSnapshot − Order.originalPackagePriceSnapshot` (snapshots added in Feature 59 schema).
 
 ---
 
-## Feature 61 - Basic Reporting Dashboard
+## Feature 66 - Basic Reporting Dashboard
+
+_(Previously Feature 61)_
 
 ### Summary
 Create operational and financial reporting views.
@@ -315,7 +373,7 @@ Transform workflow data into operational visibility.
 
 ---
 
-# Phase 6 - Later Financial Edge Cases
+# Phase 7 - Later Financial Edge Cases
 
 ## Goal
 
@@ -323,9 +381,13 @@ Add rare accounting automation only after the normal operating system is complet
 
 This phase should not block core app completion.
 
+_(Previously Phase 6. Features renumbered from 62–64 → 67–69.)_
+
 ---
 
-## Feature 62 - Locked Invoice Adjustment Automation
+## Feature 67 - Locked Invoice Adjustment Automation
+
+_(Previously Feature 62)_
 
 ### Summary
 Automatically create adjustment invoices when financial changes occur against locked invoices.
@@ -342,7 +404,9 @@ Manual adjustment invoices already cover the operational need. Automation can be
 
 ---
 
-## Feature 63 - Refund And Credit-Note Architecture
+## Feature 68 - Refund And Credit-Note Architecture
+
+_(Previously Feature 63)_
 
 ### Summary
 Design the official refund, negative-adjustment, and customer-credit strategy.
@@ -362,7 +426,9 @@ Do not implement this until the business policy is clear.
 
 ---
 
-## Feature 64 - Delivery-Time Invoice Closure
+## Feature 69 - Delivery-Time Invoice Closure
+
+_(Previously Feature 64)_
 
 ### Summary
 Automatically close or lock invoices when an order is completed/delivered.
@@ -375,7 +441,7 @@ This should wait until the studio is confident that delivery should be a hard fi
 
 ---
 
-# Phase 7 - Production Hardening And Staff Management
+# Phase 8 - Production Hardening And Staff Management
 
 ## Goal
 
@@ -383,9 +449,13 @@ Prepare the system for real multi-user production use. This phase adds the staff
 
 This phase should begin after the core operating system is complete and stable.
 
+_(Previously Phase 7. Features renumbered from 65–67 → 70–72.)_
+
 ---
 
-## Feature 65 - Staff Deactivation UI
+## Feature 70 - Staff Deactivation UI
+
+_(Previously Feature 65)_
 
 ### Summary
 Add an admin interface for deactivating and reactivating staff accounts.
@@ -400,7 +470,9 @@ Feature 51c adds the schema foundation. This feature surfaces it — admins can 
 
 ---
 
-## Feature 66 - Admin Invite And User Management UI
+## Feature 71 - Admin Invite And User Management UI
+
+_(Previously Feature 66)_
 
 ### Summary
 Add an admin page where staff accounts can be created via invitation and assigned a role.
@@ -422,7 +494,9 @@ Currently adding a staff member requires manually creating a Clerk user and a Pr
 
 ---
 
-## Feature 67 - Clerk Webhook Sync
+## Feature 72 - Clerk Webhook Sync
+
+_(Previously Feature 67)_
 
 ### Summary
 Handle Clerk lifecycle events (`user.deleted`, `user.updated`) to keep the Prisma `User` table in sync with the Clerk directory.
@@ -441,49 +515,51 @@ If a staff member's Clerk account is deleted directly from the Clerk dashboard (
 
 # Recommended Priority Order
 
-## Highest Priority
-1. Auth and staff identity
-2. Permission and audit actor foundation
-3. Workflow guard review and enforcement
-4. Core operational completeness
+## Complete ✅
+1. Auth and staff identity (Phase 1)
+2. Permission and audit actor foundation (Phase 1)
+3. Workflow guard review and enforcement (Phase 2)
+4. Core operational completeness (Phase 3)
+5. UX/workflow polish (Phase 3)
+6. Product catalog + package management (Phase 4)
+7. POS commercial workspace (Phase 4)
 
-## Medium Priority
-5. UX/workflow polish
-6. Transitional cleanup review
-7. Deprecated compatibility cleanup
-8. Upgrade history foundation
+## In Progress 🔄
+8. Lifecycle architecture revision — schema foundation complete; confirmation, check-in, invoice display, final invoice still to build (Phase 5, Features 60–63)
 
-## Lower Priority
-9. Commission foundation
-10. Reporting dashboards
-11. Route/identifier cleanup where it improves UX
+## Next
+9. UpgradeRecord foundation (Feature 64)
+10. Commission foundation (Feature 65)
+11. Reporting dashboards (Feature 66)
+12. Route/identifier cleanup where it improves UX (deferred from Feature 58)
 
 ## Later / Not Urgent
-12. Automatic locked-invoice adjustment detection
-13. Refund and credit-note architecture
-14. Customer credit ledger
-15. Advanced negative adjustment logic
-16. Delivery-time automatic invoice closure
-17. Staff deactivation UI
-18. Admin invite and user management UI
-19. Clerk webhook sync
+13. Automatic locked-invoice adjustment detection (Feature 67)
+14. Refund and credit-note architecture (Feature 68)
+15. Delivery-time automatic invoice closure (Feature 69)
+16. Staff deactivation UI (Feature 70)
+17. Admin invite and user management UI (Feature 71)
+18. Clerk webhook sync (Feature 72)
 
 ---
 
 # Final Recommendation
 
-The software is now entering the transition from:
+The software has completed the core operational phase and is now mid-way through a significant lifecycle architecture revision (Phase 5).
 
-> "feature building"
+The revision separates:
+- tentative booking holds (no references, no invoices)
+- confirmed bookings (BK reference + Deposit Invoice)
+- operational jobs (JOB reference + Final Invoice)
 
-to:
+Once Phase 5 is complete, the system will have a clean, auditable financial lifecycle and the schema will be stable enough to build reporting and commission systems on top.
 
-> "complete internal operating system."
-
-The current architecture already has the correct backbone:
+The architecture already has the correct backbone:
 
 - canonical workflow ownership
-- immutable workflow identifiers
+- dual workflow identifiers (BK + JOB) at the correct lifecycle stages
+- FinancialCase as financial grouping hub
+- Deposit Invoice / Final Invoice split
 - structured operational records
 - service-layer business logic
 - extracted workflow entities
@@ -491,13 +567,4 @@ The current architecture already has the correct backbone:
 - manual adjustment invoice escape hatch
 - operational workflow tracking
 
-The next phase should prioritize:
-
-1. auth and staff identity
-2. permission and audit accountability
-3. workflow integrity
-4. completing everyday operational flows
-5. cleanup of transitional architecture
-6. reporting and commission foundation
-
-Rare accounting edge cases should be postponed until they are either common in the business or the business has a clear policy for them.
+Rare accounting edge cases (Phases 7–8) should be postponed until they are either common in the business or the business has a clear policy for them.
