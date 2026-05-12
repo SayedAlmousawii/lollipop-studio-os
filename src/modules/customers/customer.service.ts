@@ -10,6 +10,7 @@ import {
   childSchema,
   type ChildInput,
   createCustomerSchema,
+  customerPhoneSchema,
   type CreateCustomerInput,
   updateCustomerSchema,
   type UpdateCustomerInput,
@@ -68,6 +69,11 @@ export interface CustomerPhoneSuggestion {
   id: string;
   name: string;
   phone: string;
+}
+
+export interface FindOrCreateCustomerByPhoneInput {
+  phone: string;
+  name?: string;
 }
 
 export function parseCustomerFilters(filters: {
@@ -324,6 +330,49 @@ export async function getCustomerPhoneSuggestions(
     name: row.name,
     phone: formatCustomerPhone(row.phone),
   }));
+}
+
+export async function findOrCreateCustomerByPhone(
+  tx: Prisma.TransactionClient,
+  input: FindOrCreateCustomerByPhoneInput
+): Promise<string> {
+  const phone = customerPhoneSchema.parse(input.phone);
+  const customer = await tx.customer.findUnique({
+    where: { phone },
+    select: { id: true },
+  });
+
+  if (customer) {
+    return customer.id;
+  }
+
+  try {
+    const createdCustomer = await tx.customer.create({
+      data: {
+        name: input.name?.trim() ?? "",
+        phone,
+        status: CustomerStatus.ACTIVE,
+      },
+      select: { id: true },
+    });
+
+    return createdCustomer.id;
+  } catch (error) {
+    if (!isUniquePhoneConflict(error)) {
+      throw error;
+    }
+
+    const existingCustomer = await tx.customer.findUnique({
+      where: { phone },
+      select: { id: true },
+    });
+
+    if (!existingCustomer) {
+      throw error;
+    }
+
+    return existingCustomer.id;
+  }
 }
 
 export async function getCustomerForEdit(

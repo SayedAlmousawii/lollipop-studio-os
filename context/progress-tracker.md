@@ -5,6 +5,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 65 follow-up is complete: the optional customer-phone prefill on `/bookings/new` now fails closed and returns `null` if the enrichment lookup throws, so the page still renders.
+- Feature 66 POS selection status on payment is complete: the POS payment dialog now requires a deliberate photo-selection status while orders are waiting for selection, records the payment and non-regressive selection update in one transaction, and advances selected orders to `SELECTION_COMPLETED`.
+- Feature 65 booking customer phone lookup is complete: new bookings now use phone-first server-side suggestions, booking creation finds or creates the customer by normalized phone inside the booking transaction, and `/bookings/new?customerId=...` resolves the initial phone without loading all customers.
 - Feature 65 review follow-up is complete: booking-list recommendation reads now cache per customer within the request, and booking edit pages avoid showing a stale photographer recommendation after the customer picker changes while still fetching the initial hint with lower latency.
 - Feature 64 dropdown check-in follow-up is complete: booking table check-in dialogs now stay mounted outside the Radix dropdown menu, so selecting Check In from the dropdown opens the same dialog as the booking detail page.
 - Feature 64 photographer assignment and check-in dialog is complete: check-in now requires a selected photographer and explicit social-media consent in the dialog, writes both onto `Job` atomically, updates booking assignment when changed, and booking forms surface history-based photographer recommendations without making assignment mandatory.
@@ -23,6 +26,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Booking creation accepts customer phone instead of customer id; existing customer names are display-only during booking creation and are not overwritten from the new booking form.
 - Development workflow reset must delete `FinancialCase` rows before `Booking` rows because booking-linked financial cases are now part of the booking lifecycle and use a restrictive foreign key.
 - Development-only booking shortcuts must keep using the real booking service and existing active references; the `/bookings/new` quick action creates a normal `PENDING` booking with preset session data, then redirects to `/bookings` instead of bypassing booking validation or workflow rules.
 - Lifecycle revision foundation is live: `BookingStatus.CHECKED_IN` replaces the old booking `COMPLETED` state, `PaymentType.FINAL` replaces `BASE`, `InvoiceType` exists, and `identifier_sequences` is keyed by `scope/year/kind`.
@@ -48,6 +52,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 65 follow-up: hardened the optional `/bookings/new` customer prefill lookup so lookup failures return `null` instead of rejecting the page load.
+- Feature 66: POS selection status on payment — sales payment recording now requires a Not Yet / In Progress / Selected ToggleGroup for `WAITING_SELECTION` orders, validates the choice client and server side, prevents selection-status regression, and advances `Selected` payments to `SELECTION_COMPLETED` in the same transaction as the payment.
+- Feature 65: Booking customer phone lookup and find-or-create — new booking customer selection is phone-first with server-action suggestions; `createBookingInDb` resolves or creates active customers by normalized phone inside the transaction; profile prefill resolves `customerId` to phone server-side without loading all customers.
 - Feature 65 review follow-up: cached repeated recommendation lookups in bookings list, hid stale edit-form recommendation hints after customer changes, and started edit-page recommendation fetches earlier.
 - Feature 64 follow-up: fixed booking-table dropdown check-in by controlling the dialog at the row level instead of mounting it inside dropdown content.
 - Feature 64: Photographer assignment and check-in dialog — check-in uses a dialog instead of `window.confirm`, requires photographer plus explicit consent, persists both on `Job`, updates booking assignment inside the transaction, and adds customer-history photographer recommendations to check-in and booking forms.

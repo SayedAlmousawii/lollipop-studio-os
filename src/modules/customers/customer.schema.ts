@@ -2,7 +2,7 @@ import { z } from "zod";
 import { CustomerStatus } from "@prisma/client";
 import { formatCustomerPhone } from "./customer.utils";
 
-const customerPhoneSchema = z
+export const customerPhoneSchema = z
   .string()
   .trim()
   .min(1, "Phone number is required")

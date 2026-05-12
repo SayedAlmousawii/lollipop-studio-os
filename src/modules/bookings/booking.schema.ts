@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BookingStatus, PaymentMethod } from "@prisma/client";
+import { customerPhoneSchema } from "@/modules/customers/customer.schema";
 
 const bookingThemeSchema = z.object({
   themeName: z
@@ -17,7 +18,12 @@ const bookingThemeSchema = z.object({
 const SESSION_TIME_REGEX = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 export const createBookingSchema = z.object({
-  customerId: z.string().min(1, "Customer is required"),
+  phone: customerPhoneSchema,
+  customerName: z
+    .string()
+    .trim()
+    .max(120, "Customer name must be 120 characters or fewer")
+    .optional(),
   packageId: z.string().min(1, "Package is required"),
   sessionDate: z.coerce.date({ error: "Session date is required" }),
   sessionTime: z
