@@ -807,7 +807,7 @@ async function main() {
       MAX(split_part("jobNumber", '-', 3)::INTEGER),
       CURRENT_TIMESTAMP,
       CURRENT_TIMESTAMP
-    FROM "bookings"
+    FROM "jobs"
     WHERE "jobNumber" IS NOT NULL
     GROUP BY split_part("jobNumber", '-', 1), split_part("jobNumber", '-', 2)::INTEGER
     ON CONFLICT ("scope", "year", "kind") DO UPDATE SET

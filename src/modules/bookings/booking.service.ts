@@ -411,8 +411,7 @@ export async function updateBooking(
 
 export async function updateBookingStatus(
   bookingId: string,
-  nextStatus: UpdateBookingStatusInput["nextStatus"],
-  actorContext: ActorContext = {}
+  nextStatus: UpdateBookingStatusInput["nextStatus"]
 ) {
   const data = updateBookingStatusSchema.parse({ bookingId, nextStatus });
 
@@ -459,15 +458,6 @@ export async function updateBookingStatus(
           where: { id: data.bookingId },
           data: { status: data.nextStatus },
         });
-
-        if (data.nextStatus === BookingStatus.CHECKED_IN) {
-          await createOrderFromBookingWithClient(
-            tx,
-            data.bookingId,
-            OrderStatus.ACTIVE,
-            actorContext
-          );
-        }
 
         if (data.nextStatus === BookingStatus.NO_SHOW) {
           await tx.invoice.updateMany({
@@ -642,9 +632,9 @@ export async function recordBasePaymentAndComplete(
           orderId: order.id,
           userId: actorContext.actorUserId ?? null,
           type: OrderActivityType.NOTE_ADDED,
-          title: "Booking completed",
+          title: "Booking checked in",
           description:
-            "Booking moved from Confirmed to Completed after the base payment was recorded.",
+            "Booking moved from Confirmed to Checked In after the base payment was recorded.",
           metadata: {
             bookingId: booking.id,
             previousStatus: BookingStatus.CONFIRMED,

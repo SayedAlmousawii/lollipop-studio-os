@@ -117,7 +117,7 @@ export function EditBookingForm({
 
       {!booking.canEdit ? (
         <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
-          Checked-in and cancelled bookings cannot be edited.
+          Checked-in, cancelled, or no-show bookings cannot be edited.
         </p>
       ) : null}
 
