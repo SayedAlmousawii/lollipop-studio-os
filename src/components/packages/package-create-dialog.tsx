@@ -10,16 +10,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { GroupedProductOptions } from "@/modules/products/product.types";
+import type { PackageTaxonomyOptions } from "@/modules/packages/package.types";
 import { PackageForm } from "./package-form";
 
 interface PackageCreateDialogProps {
   trigger: ReactElement;
   productOptions: GroupedProductOptions[];
+  taxonomyOptions: PackageTaxonomyOptions;
 }
 
 export function PackageCreateDialog({
   trigger,
   productOptions,
+  taxonomyOptions,
 }: PackageCreateDialogProps) {
   return (
     <Dialog>
@@ -31,7 +34,11 @@ export function PackageCreateDialog({
             Create a package with pricing, photo count, and structured deliverable items.
           </DialogDescription>
         </DialogHeader>
-        <PackageForm mode="create" productOptions={productOptions} />
+        <PackageForm
+          mode="create"
+          productOptions={productOptions}
+          taxonomyOptions={taxonomyOptions}
+        />
       </DialogContent>
     </Dialog>
   );

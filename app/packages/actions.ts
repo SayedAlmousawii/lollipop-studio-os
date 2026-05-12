@@ -10,6 +10,7 @@ import {
   archivePackage,
   createPackage as createPackageRecord,
   PackageArchiveBlockedError,
+  PackageFamilyNotFoundError,
   PackageLockedInvoiceError,
   PackageNotFoundError,
   PackageProductNotFoundError,
@@ -27,9 +28,13 @@ export type PackageActionState = {
 };
 
 export type PackageFormValues = {
+  departmentId: string;
+  sessionTypeId: string;
+  packageFamilyId: string;
   name: string;
   price: string;
   photoCount: string;
+  durationMinutes: string;
   description: string;
   isActive?: string;
   items: PackageItemFormValues[];
@@ -137,9 +142,13 @@ export async function archivePackageAction(
 
 function packageFormValues(formData: FormData): PackageFormValues {
   return {
+    departmentId: formValue(formData.get("departmentId")),
+    sessionTypeId: formValue(formData.get("sessionTypeId")),
+    packageFamilyId: formValue(formData.get("packageFamilyId")),
     name: formValue(formData.get("name")),
     price: formValue(formData.get("price")),
     photoCount: formValue(formData.get("photoCount")),
+    durationMinutes: formValue(formData.get("durationMinutes")),
     description: formValue(formData.get("description")),
     items: packageItemFormValues(formData),
   };
@@ -178,6 +187,9 @@ function messageForPackageError(error: unknown): string {
   }
   if (error instanceof PackageProductNotFoundError) {
     return "One or more selected products are unavailable for package deliverables.";
+  }
+  if (error instanceof PackageFamilyNotFoundError) {
+    return "Select an active package family.";
   }
   return PACKAGE_ACTION_GENERIC_ERROR;
 }

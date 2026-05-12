@@ -42,6 +42,19 @@ const packageItemSchema = z.object({
 });
 
 const basePackageSchema = z.object({
+  packageFamilyId: z
+    .string()
+    .trim()
+    .min(1, "Package family is required")
+    .cuid("Package family is invalid"),
+  durationMinutes: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce
+      .number({ error: "Session duration is required" })
+      .int("Session duration must be a whole number")
+      .positive("Session duration must be greater than 0")
+      .max(1440, "Session duration is too high")
+  ),
   name: z
     .string()
     .trim()

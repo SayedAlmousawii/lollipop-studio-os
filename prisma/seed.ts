@@ -238,40 +238,97 @@ async function main() {
     }),
   ]);
 
+  const [newbornDepartment, kidsDepartment] = await Promise.all([
+    prisma.studioDepartment.upsert({
+      where: { code: "NB" },
+      update: {
+        name: "Newborn",
+        isActive: true,
+        sortOrder: 10,
+      },
+      create: {
+        id: "dept-newborn",
+        name: "Newborn",
+        code: "NB",
+        isActive: true,
+        sortOrder: 10,
+      },
+    }),
+    prisma.studioDepartment.upsert({
+      where: { code: "KD" },
+      update: {
+        name: "Kids",
+        isActive: true,
+        sortOrder: 20,
+      },
+      create: {
+        id: "dept-kids",
+        name: "Kids",
+        code: "KD",
+        isActive: true,
+        sortOrder: 20,
+      },
+    }),
+  ]);
+  await seedPackageTaxonomyCatalog();
+
+  const regularPackageFamily = await prisma.packageFamily.findUnique({
+    where: { code: "KD_REGULAR_DEFAULT" },
+    select: { id: true },
+  });
+  if (!regularPackageFamily) {
+    throw new Error("Cannot seed packages because KD_REGULAR_DEFAULT does not exist.");
+  }
+
   // Packages
   const [pkgBasic, pkgStandard, pkgPremium] = await Promise.all([
     prisma.package.upsert({
       where: { id: "pkg-basic" },
-      update: {},
+      update: {
+        packageFamilyId: regularPackageFamily.id,
+        durationMinutes: 45,
+      },
       create: {
         id: "pkg-basic",
         name: "Basic Package",
         price: 150,
         photoCount: 20,
+        packageFamilyId: regularPackageFamily.id,
+        durationMinutes: 45,
         description: "20 edited photos, digital delivery",
         isActive: true,
       },
     }),
     prisma.package.upsert({
       where: { id: "pkg-standard" },
-      update: {},
+      update: {
+        packageFamilyId: regularPackageFamily.id,
+        durationMinutes: 60,
+      },
       create: {
         id: "pkg-standard",
         name: "Standard Package",
         price: 250,
         photoCount: 40,
+        packageFamilyId: regularPackageFamily.id,
+        durationMinutes: 60,
         description: "40 edited photos, digital delivery + 1 album",
         isActive: true,
       },
     }),
     prisma.package.upsert({
       where: { id: "pkg-premium" },
-      update: {},
+      update: {
+        packageFamilyId: regularPackageFamily.id,
+        durationMinutes: 90,
+      },
       create: {
         id: "pkg-premium",
         name: "Premium Package",
         price: 400,
         photoCount: 70,
+        packageFamilyId: regularPackageFamily.id,
+        durationMinutes: 90,
         description: "70 edited photos, digital delivery + 2 albums + prints",
         isActive: true,
       },
@@ -457,42 +514,6 @@ async function main() {
       },
     }),
   ]);
-
-  // Studio departments
-  const [newbornDepartment, kidsDepartment] = await Promise.all([
-    prisma.studioDepartment.upsert({
-      where: { code: "NB" },
-      update: {
-        name: "Newborn",
-        isActive: true,
-        sortOrder: 10,
-      },
-      create: {
-        id: "dept-newborn",
-        name: "Newborn",
-        code: "NB",
-        isActive: true,
-        sortOrder: 10,
-      },
-    }),
-    prisma.studioDepartment.upsert({
-      where: { code: "KD" },
-      update: {
-        name: "Kids",
-        isActive: true,
-        sortOrder: 20,
-      },
-      create: {
-        id: "dept-kids",
-        name: "Kids",
-        code: "KD",
-        isActive: true,
-        sortOrder: 20,
-      },
-    }),
-  ]);
-
-  await seedPackageTaxonomyCatalog();
 
   const [job1, job2, job3] = await Promise.all([
     prisma.job.upsert({

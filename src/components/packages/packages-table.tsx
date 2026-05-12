@@ -48,9 +48,12 @@ export function PackagesTable({ packages }: PackagesTableProps) {
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Name</TableHead>
+            <TableHead className="text-text-secondary">Department</TableHead>
+            <TableHead className="text-text-secondary">Session Type</TableHead>
+            <TableHead className="text-text-secondary">Family</TableHead>
             <TableHead className="text-text-secondary">Price</TableHead>
+            <TableHead className="text-text-secondary">Duration</TableHead>
             <TableHead className="text-text-secondary">Deliverables</TableHead>
-            <TableHead className="text-text-secondary">Bundle Adjustment</TableHead>
             <TableHead className="text-text-secondary">References</TableHead>
             <TableHead className="text-text-secondary">Status</TableHead>
             <TableHead className="w-12">
@@ -73,13 +76,22 @@ export function PackagesTable({ packages }: PackagesTableProps) {
                 ) : null}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
+                {pkg.departmentName}
+              </TableCell>
+              <TableCell className="text-sm text-text-secondary">
+                {pkg.sessionTypeName}
+              </TableCell>
+              <TableCell className="text-sm text-text-secondary">
+                {pkg.packageFamilyName}
+              </TableCell>
+              <TableCell className="text-sm text-text-secondary">
                 {pkg.price}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
-                <p className="max-w-lg">{pkg.deliverableSummary}</p>
+                {pkg.durationMinutes} min
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
-                {pkg.bundleAdjustment}
+                <p className="max-w-lg">{pkg.deliverableSummary}</p>
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {pkg.totalReferenceCount}

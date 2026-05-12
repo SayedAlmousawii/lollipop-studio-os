@@ -10,17 +10,20 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import type { Package } from "@/modules/packages/package.types";
+import type { PackageTaxonomyOptions } from "@/modules/packages/package.types";
 import type { GroupedProductOptions } from "@/modules/products/product.types";
 import { PackageForm } from "./package-form";
 
 interface PackageEditDialogProps {
   packageRecord: Package;
   productOptions: GroupedProductOptions[];
+  taxonomyOptions: PackageTaxonomyOptions;
 }
 
 export function PackageEditDialog({
   packageRecord,
   productOptions,
+  taxonomyOptions,
 }: PackageEditDialogProps) {
   return (
     <Dialog>
@@ -44,10 +47,15 @@ export function PackageEditDialog({
           mode="edit"
           packageId={packageRecord.id}
           productOptions={productOptions}
+          taxonomyOptions={taxonomyOptions}
           defaultValues={{
             name: packageRecord.name,
+            departmentId: packageRecord.departmentId,
+            sessionTypeId: packageRecord.sessionTypeId,
+            packageFamilyId: packageRecord.packageFamilyId,
             price: packageRecord.priceValue.toFixed(3),
             photoCount: String(packageRecord.photoCount),
+            durationMinutes: String(packageRecord.durationMinutes),
             description: packageRecord.description,
             isActive: packageRecord.isActive ? "on" : "",
             items: packageRecord.items.map((item) => ({
