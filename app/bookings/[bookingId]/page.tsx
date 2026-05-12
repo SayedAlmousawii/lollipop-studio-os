@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
+import { CheckInButton } from "@/components/bookings/check-in-button";
 import { DeletePendingBookingButton } from "@/components/bookings/delete-pending-booking-button";
 import { PaymentStatusBadge } from "@/components/bookings/payment-status-badge";
 import { RecordDepositDialog } from "@/components/bookings/record-deposit-dialog";
@@ -17,6 +18,34 @@ export default async function BookingDetailPage(
   const booking = await getBookingById(bookingId);
 
   if (!booking) notFound();
+
+  const referenceLine = booking.jobNumber
+    ? `Booking ${booking.bookingReference} · Job ${booking.jobNumber}`
+    : `Booking ${booking.bookingReference}`;
+  const summaryItems: Array<[string, string]> = [
+    ["BK reference", booking.bookingReference],
+  ];
+  if (booking.jobNumber) {
+    summaryItems.push(["JOB reference", booking.jobNumber]);
+  }
+  summaryItems.push(
+    ["Customer phone", booking.customerPhone],
+    ["Session date", booking.sessionDate],
+    ["Session time", booking.sessionTime],
+    ["Session type", booking.sessionType],
+    [
+      "Package",
+      `${booking.packageName}${
+        booking.packagePriceLabel !== "—"
+          ? ` · ${booking.packagePriceLabel}`
+          : ""
+      }`,
+    ],
+    ["Department", booking.department],
+    ["Assigned photographer", booking.assignedPhotographerName],
+    ["Booking status", booking.bookingStatus],
+    ["Deposit status", booking.depositStatus]
+  );
 
   return (
     <PageContainer>
@@ -34,7 +63,7 @@ export default async function BookingDetailPage(
               {booking.customerPhone}
             </h1>
             <p className="mt-1 text-sm text-text-secondary">
-              Job {booking.jobNumber}
+              {referenceLine}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -57,33 +86,26 @@ export default async function BookingDetailPage(
               trigger={<Button variant="outline">Record Deposit</Button>}
             />
           ) : null}
+          {booking.canCheckIn ? <CheckInButton bookingId={booking.id} /> : null}
+          {booking.isCheckedIn ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-success-soft px-2.5 py-0.5 text-xs font-medium text-success">
+                Checked In
+              </span>
+              {booking.orderId ? (
+                <Button variant="outline" asChild>
+                  <Link href={`/orders/${booking.orderId}`}>View Order</Link>
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           {booking.canDeletePending ? (
             <DeletePendingBookingButton bookingId={booking.id} />
           ) : null}
         </div>
 
         <Section title="Booking Summary">
-          <InfoGrid
-            items={[
-              ["Customer phone", booking.customerPhone],
-              ["Job number", booking.jobNumber],
-              ["Session date", booking.sessionDate],
-              ["Session time", booking.sessionTime],
-              ["Session type", booking.sessionType],
-              [
-                "Package",
-                `${booking.packageName}${
-                  booking.packagePriceLabel !== "—"
-                    ? ` · ${booking.packagePriceLabel}`
-                    : ""
-                }`,
-              ],
-              ["Department", booking.department],
-              ["Assigned photographer", booking.assignedPhotographerName],
-              ["Booking status", booking.bookingStatus],
-              ["Deposit status", booking.depositStatus],
-            ]}
-          />
+          <InfoGrid items={summaryItems} />
         </Section>
 
         <Section title="Notes">

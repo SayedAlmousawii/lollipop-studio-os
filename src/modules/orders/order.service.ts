@@ -2358,7 +2358,7 @@ export async function createOrderFromBookingWithClient(
       jobId: true,
       jobNumber: true,
       customer: { select: { id: true } },
-      package: { select: { id: true } },
+      package: { select: { id: true, price: true } },
       order: { select: { id: true } },
     },
   });
@@ -2409,6 +2409,7 @@ export async function createOrderFromBookingWithClient(
       customerId: booking.customer.id,
       originalPackageId: booking.package.id,
       finalPackageId: booking.package.id,
+      originalPackagePriceSnapshot: booking.package.price,
       selectedPhotoCount: 0,
       status: initialStatus,
       editingJob: {
