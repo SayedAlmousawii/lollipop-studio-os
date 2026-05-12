@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Development workflow reset is fixed: the dev reset action now clears `FinancialCase` rows before deleting bookings, so lifecycle-era test data can be reset without foreign-key failures.
 - Development booking shortcut is complete: `/bookings/new` now exposes a dev-only `Create Test Booking` action that creates a preset pending booking from existing active customer/package/department records and immediately redirects to `/bookings`.
 - Hydration follow-up is complete: table action menus now use Radix dropdown triggers directly with shared button styling, avoiding the `DropdownMenuTrigger asChild` + custom `Button` composition that was producing unstable hydration around action buttons.
 - Feature 63 final invoice POS is complete: POS now creates and syncs a fresh `InvoiceType.FINAL` invoice scoped by `FinancialCase`, keeps Deposit Invoice records separate, displays the paid deposit deduction by invoice number in the sales summary, and records final-balance payments as `PaymentType.FINAL`.
@@ -17,6 +18,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Development workflow reset must delete `FinancialCase` rows before `Booking` rows because booking-linked financial cases are now part of the booking lifecycle and use a restrictive foreign key.
 - Development-only booking shortcuts must keep using the real booking service and existing active references; the `/bookings/new` quick action creates a normal `PENDING` booking with preset session data, then redirects to `/bookings` instead of bypassing booking validation or workflow rules.
 - Lifecycle revision foundation is live: `BookingStatus.CHECKED_IN` replaces the old booking `COMPLETED` state, `PaymentType.FINAL` replaces `BASE`, `InvoiceType` exists, and `identifier_sequences` is keyed by `scope/year/kind`.
 - Pending bookings are calendar holds only: no `publicId`, `jobNumber`, `jobId`, `Job`, `FinancialCase`, or invoice is created until the 20 KD deposit is recorded; pending cancellation uses hard deletion.

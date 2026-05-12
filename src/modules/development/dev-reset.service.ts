@@ -13,6 +13,7 @@ export async function resetWorkflowTestData(): Promise<void> {
         await tx.payment.deleteMany({});
         await tx.invoice.deleteMany({});
         await tx.order.deleteMany({});
+        await tx.financialCase.deleteMany({});
         await tx.bookingTheme.deleteMany({});
         await tx.booking.deleteMany({});
         await tx.job.deleteMany({});
