@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Delivery pickup completion hotfix is complete: the delivery transition map now allows the existing `Picked up` action to complete orders directly from `READY_FOR_PICKUP` and `CUSTOMER_NOTIFIED`.
 - Development workflow reset is fixed: the dev reset action now clears `FinancialCase` rows before deleting bookings, so lifecycle-era test data can be reset without foreign-key failures.
 - Development booking shortcut is complete: `/bookings/new` now exposes a dev-only `Create Test Booking` action that creates a preset pending booking from existing active customer/package/department records and immediately redirects to `/bookings`.
 - Hydration follow-up is complete: table action menus now use Radix dropdown triggers directly with shared button styling, avoiding the `DropdownMenuTrigger asChild` + custom `Button` composition that was producing unstable hydration around action buttons.
@@ -42,6 +43,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Delivery pickup completion hotfix: delivery transitions now permit direct completion from `READY_FOR_PICKUP` and `CUSTOMER_NOTIFIED`, matching the existing `Picked up` action that closes the order immediately.
 - Hydration follow-up: table action menu triggers were switched from `DropdownMenuTrigger asChild` wrapping `Button` to native Radix triggers styled with shared button variants.
 - Feature 63 follow-up: POS totals now label the no-invoice state as a preview, and editing-start gating now treats the paid 20 KD deposit as satisfying the base-payment prerequisite when no Final Invoice payment exists yet.
 - Feature 63: Final invoice POS — order invoice creation/sync now targets a fresh FinancialCase-scoped `InvoiceType.FINAL`, POS displays the Deposit Invoice deduction by number without mutating final invoice totals, final payments use `PaymentType.FINAL`, package price snapshots are set through selection, and old invoice promotion helpers were removed.
