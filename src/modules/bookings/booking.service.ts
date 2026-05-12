@@ -2,6 +2,7 @@ import {
   BookingStatus,
   InvoiceStatus,
   InvoiceType,
+  OrderStatus,
   PaymentType,
   Prisma,
   UserRole,
@@ -17,18 +18,22 @@ import {
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import {
   generateBookingReference,
+  generateJobNumber,
   generatePublicId,
 } from "@/modules/identifiers/identifier.service";
+import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
 import {
+  checkInBookingSchema,
   deletePendingBookingSchema,
   recordBookingDepositSchema,
   updateBookingStatusSchema,
   updateBookingSchema,
+  type CheckInBookingInput,
   type CreateBookingInput,
   type DeletePendingBookingInput,
   type RecordBookingDepositInput,
@@ -88,7 +93,9 @@ export interface EditableBooking {
 
 export interface BookingDetail {
   id: string;
-  jobNumber: string;
+  bookingReference: string;
+  jobNumber: string | null;
+  orderId: string | null;
   customerPhone: string;
   sessionDate: string;
   sessionTime: string;
@@ -108,6 +115,8 @@ export interface BookingDetail {
   canEdit: boolean;
   canRecordDeposit: boolean;
   canDeletePending: boolean;
+  canCheckIn: boolean;
+  isCheckedIn: boolean;
 }
 
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
@@ -580,6 +589,92 @@ export async function recordBookingDeposit(
   );
 }
 
+export async function checkInBooking(
+  input: CheckInBookingInput,
+  actorContext: ActorContext = {}
+): Promise<{ orderId: string }> {
+  const data = checkInBookingSchema.parse(input);
+
+  return withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        await lockBookingForUpdate(tx, data.bookingId);
+
+        const booking = await tx.booking.findUnique({
+          where: { id: data.bookingId },
+          select: {
+            id: true,
+            customerId: true,
+            sessionDate: true,
+            status: true,
+            jobId: true,
+            jobNumber: true,
+            department: { select: { code: true } },
+            order: { select: { id: true } },
+            financialCase: { select: { id: true, jobId: true } },
+          },
+        });
+
+        if (!booking) {
+          throw new Error("Booking not found");
+        }
+        if (booking.status !== BookingStatus.CONFIRMED) {
+          throw new Error("Only confirmed bookings can be checked in");
+        }
+        if (booking.jobId || booking.jobNumber) {
+          throw new Error("Booking has already been checked in");
+        }
+        if (booking.order) {
+          throw new Error("Booking already has an order");
+        }
+        if (!booking.financialCase) {
+          throw new Error("Booking financial case is required before check-in");
+        }
+        if (booking.financialCase.jobId) {
+          throw new Error("Booking financial case is already linked to a job");
+        }
+
+        const jobNumber = await generateJobNumber(tx, {
+          departmentCode: booking.department.code,
+          sessionDate: booking.sessionDate,
+        });
+        const job = await tx.job.create({
+          data: {
+            jobNumber,
+            customerId: booking.customerId,
+          },
+          select: { id: true },
+        });
+
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { jobId: job.id, jobNumber },
+        });
+
+        const order = await createOrderFromBookingWithClient(
+          tx,
+          booking.id,
+          OrderStatus.WAITING_SELECTION,
+          actorContext
+        );
+
+        await tx.financialCase.update({
+          where: { id: booking.financialCase.id },
+          data: { jobId: job.id },
+        });
+
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { status: BookingStatus.CHECKED_IN },
+        });
+
+        return { orderId: order.id };
+      }),
+    "Failed to check in booking",
+    2
+  );
+}
+
 export async function deletePendingBooking(
   input: DeletePendingBookingInput
 ): Promise<void> {
@@ -720,6 +815,9 @@ const editableBookingInclude = {
       themeName: true,
       notes: true,
     },
+  },
+  order: {
+    select: { id: true },
   },
   invoices: {
     where: {
@@ -930,7 +1028,9 @@ function mapBookingDetail(
 
   return {
     id: row.id,
-    jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
+    bookingReference: row.publicId ?? "Pending",
+    jobNumber: row.jobNumber,
+    orderId: row.order?.id ?? null,
     customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
@@ -953,6 +1053,8 @@ function mapBookingDetail(
       row.status !== BookingStatus.NO_SHOW,
     canRecordDeposit: row.status === BookingStatus.PENDING && !hasDeposit,
     canDeletePending: row.status === BookingStatus.PENDING && !hasDeposit,
+    canCheckIn: row.status === BookingStatus.CONFIRMED,
+    isCheckedIn: row.status === BookingStatus.CHECKED_IN,
   };
 }
 

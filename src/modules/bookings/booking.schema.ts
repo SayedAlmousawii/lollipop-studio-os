@@ -83,6 +83,12 @@ export type DeletePendingBookingInput = z.infer<
   typeof deletePendingBookingSchema
 >;
 
+export const checkInBookingSchema = z.object({
+  bookingId: z.string().min(1, "Booking is required"),
+});
+
+export type CheckInBookingInput = z.infer<typeof checkInBookingSchema>;
+
 export const recordBookingDepositSchema = z.object({
   bookingId: z.string().min(1, "Booking is required"),
   amount: z.coerce.number().positive("Deposit amount must be greater than 0"),

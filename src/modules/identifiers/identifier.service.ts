@@ -47,10 +47,7 @@ async function generateWorkflowReference(
 ): Promise<string> {
   const code = input.departmentCode.trim().toUpperCase();
   const year = input.sessionDate.getUTCFullYear();
-  const referencePrefix =
-    input.kind === WORKFLOW_REFERENCE_KIND.BOOKING
-      ? `${WORKFLOW_REFERENCE_KIND.BOOKING}-${code}-${year}`
-      : `${code}-${year}`;
+  const referencePrefix = `${input.kind}-${code}-${year}`;
   const referenceLike = `${referencePrefix}-%`;
   const rows =
     input.kind === WORKFLOW_REFERENCE_KIND.BOOKING
