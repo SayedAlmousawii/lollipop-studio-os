@@ -90,17 +90,21 @@ async function getInitialCustomerPhone(
     return null;
   }
 
-  const customer = await db.customer.findUnique({
-    where: { id: customerId },
-    select: { id: true, phone: true },
-  });
+  try {
+    const customer = await db.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true, phone: true },
+    });
 
-  if (!customer) {
+    if (!customer) {
+      return null;
+    }
+
+    return {
+      id: customer.id,
+      phone: formatCustomerPhone(customer.phone),
+    };
+  } catch {
     return null;
   }
-
-  return {
-    id: customer.id,
-    phone: formatCustomerPhone(customer.phone),
-  };
 }
