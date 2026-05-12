@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { BookingStatus } from "@prisma/client";
+import { ArrowLeft, LockKeyhole } from "lucide-react";
 import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
 import { CheckInButton } from "@/components/bookings/check-in-button";
 import { DeletePendingBookingButton } from "@/components/bookings/delete-pending-booking-button";
@@ -9,7 +10,10 @@ import { RecordDepositDialog } from "@/components/bookings/record-deposit-dialog
 import { PageContainer } from "@/components/layout/page-container";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getBookingById } from "@/modules/bookings/booking.service";
+import {
+  getBookingById,
+  type BookingDetail,
+} from "@/modules/bookings/booking.service";
 
 export default async function BookingDetailPage(
   props: PageProps<"/bookings/[bookingId]">
@@ -108,6 +112,10 @@ export default async function BookingDetailPage(
           <InfoGrid items={summaryItems} />
         </Section>
 
+        {booking.depositInvoice ? (
+          <DepositInvoiceSection booking={booking} />
+        ) : null}
+
         <Section title="Notes">
           <p className="text-sm text-text-secondary">
             {booking.notes || "No notes added."}
@@ -134,6 +142,56 @@ export default async function BookingDetailPage(
         </Section>
       </div>
     </PageContainer>
+  );
+}
+
+function DepositInvoiceSection({ booking }: { booking: BookingDetail }) {
+  const depositInvoice = booking.depositInvoice;
+  if (!depositInvoice) return null;
+
+  const remainingBalanceLabel = booking.packageRemainingBalanceLabel;
+  const showPackageContext =
+    booking.status === BookingStatus.CONFIRMED &&
+    booking.packageName !== "—" &&
+    booking.packagePriceLabel !== "—" &&
+    remainingBalanceLabel !== null;
+
+  const items: Array<[string, string]> = [
+    ["Invoice number", depositInvoice.invoiceNumber],
+    ["BK reference", booking.bookingReference],
+    ["Deposit amount", `${depositInvoice.totalAmount} — Paid`],
+  ];
+
+  if (showPackageContext) {
+    items.push(
+      ["Package", booking.packageName],
+      ["Package full price", booking.packagePriceLabel],
+      ["Remaining at session", remainingBalanceLabel]
+    );
+  }
+
+  items.push(["Locked", depositInvoice.isLocked ? "Yes" : "No"]);
+
+  return (
+    <Section title="Deposit Invoice">
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-text-primary">
+              {depositInvoice.invoiceNumber}
+            </p>
+            <p className="text-sm text-text-secondary">
+              Deposit invoice is paid and locked.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-2.5 py-0.5 text-xs font-medium text-success">
+            <LockKeyhole className="h-3.5 w-3.5" />
+            Locked
+          </span>
+        </div>
+        <InfoGrid items={items} />
+      </div>
+    </Section>
   );
 }
 
