@@ -73,6 +73,14 @@ const SESSION_TYPE_CATALOG = [
   { code: "KD_DUCK", name: "Duck", departmentCode: "KD", sortOrder: 70 },
 ] as const;
 
+const BOOKING_SESSION_TYPE_TO_SESSION_TYPE_CODE: Record<BookingSessionType, string> = {
+  [BookingSessionType.NEWBORN]: "NB_NEWBORN",
+  [BookingSessionType.KIDS]: "KD_REGULAR",
+  [BookingSessionType.FAMILY]: "KD_FAMILY",
+  [BookingSessionType.MATERNITY]: "NB_MATERNITY",
+  [BookingSessionType.OTHER]: "KD_REGULAR",
+};
+
 async function seedPackageTaxonomyCatalog() {
   const departments = await prisma.studioDepartment.findMany({
     where: { code: { in: ["NB", "KD"] } },
@@ -187,6 +195,82 @@ async function seedExtraPhotoPricingCatalog() {
       }),
     ]);
   }
+}
+
+async function getSessionTypeIdForBookingSessionType(sessionType: BookingSessionType) {
+  const code = BOOKING_SESSION_TYPE_TO_SESSION_TYPE_CODE[sessionType];
+  const row = await prisma.sessionType.findUnique({
+    where: { code },
+    select: { id: true },
+  });
+
+  if (!row) {
+    throw new Error(
+      `Cannot create package line for booking session type "${sessionType}" because session type "${code}" does not exist.`
+    );
+  }
+
+  return row.id;
+}
+
+async function syncSeededBookingPackage({
+  bookingId,
+  packageId,
+  sessionType,
+}: {
+  bookingId: string;
+  packageId: string;
+  sessionType: BookingSessionType;
+}) {
+  const sessionTypeId = await getSessionTypeIdForBookingSessionType(sessionType);
+
+  await prisma.$transaction([
+    prisma.bookingPackage.deleteMany({ where: { bookingId } }),
+    prisma.bookingPackage.create({
+      data: {
+        bookingId,
+        packageId,
+        sessionTypeId,
+        quantity: 1,
+        sortOrder: 0,
+      },
+    }),
+  ]);
+}
+
+async function syncSeededOrderPackage({
+  orderId,
+  packageId,
+  sessionType,
+  originalPackagePriceSnapshot,
+  finalPackagePriceSnapshot,
+  selectedPhotoCount,
+}: {
+  orderId: string;
+  packageId: string;
+  sessionType: BookingSessionType;
+  originalPackagePriceSnapshot?: number;
+  finalPackagePriceSnapshot?: number;
+  selectedPhotoCount?: number;
+}) {
+  const sessionTypeId = await getSessionTypeIdForBookingSessionType(sessionType);
+
+  await prisma.$transaction([
+    prisma.orderPackage.deleteMany({ where: { orderId } }),
+    prisma.orderPackage.create({
+      data: {
+        orderId,
+        packageId,
+        sessionTypeId,
+        originalPackagePriceSnapshot,
+        finalPackagePriceSnapshot,
+        selectedPhotoCount,
+        extraDigitalCount: 0,
+        extraPrintCount: 0,
+        sortOrder: 0,
+      },
+    }),
+  ]);
 }
 
 async function normalizeSeededUserEmails() {
@@ -650,6 +734,11 @@ async function main() {
       },
     },
   });
+  await syncSeededBookingPackage({
+    bookingId: booking1.id,
+    packageId: pkgStandard.id,
+    sessionType: BookingSessionType.NEWBORN,
+  });
 
   // Invoice 1 linked directly to Booking 1 before completion
   const invoice1 = await prisma.invoice.upsert({
@@ -745,6 +834,11 @@ async function main() {
       notes: "Waiting for deposit confirmation",
     },
   });
+  await syncSeededBookingPackage({
+    bookingId: booking2.id,
+    packageId: pkgBasic.id,
+    sessionType: BookingSessionType.KIDS,
+  });
 
   // Booking 3: Completed session for Maryam (paid in full, editing)
   const booking3 = await prisma.booking.upsert({
@@ -785,6 +879,11 @@ async function main() {
       },
     },
   });
+  await syncSeededBookingPackage({
+    bookingId: booking3.id,
+    packageId: pkgPremium.id,
+    sessionType: BookingSessionType.FAMILY,
+  });
 
   // Order 3 linked to Booking 3
   const order3 = await prisma.order.upsert({
@@ -797,6 +896,8 @@ async function main() {
       customerId: customerMaryam.id,
       originalPackageId: pkgPremium.id,
       finalPackageId: pkgPremium.id,
+      originalPackagePriceSnapshot: 400,
+      finalPackagePriceSnapshot: 400,
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
       selectionStatus: OrderSelectionStatus.COMPLETED,
@@ -811,11 +912,21 @@ async function main() {
       customerId: customerMaryam.id,
       originalPackageId: pkgPremium.id,
       finalPackageId: pkgPremium.id,
+      originalPackagePriceSnapshot: 400,
+      finalPackagePriceSnapshot: 400,
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
       selectionStatus: OrderSelectionStatus.COMPLETED,
       nasFolderPath: "\\\\Synology\\Family\\2026-04-15\\96555511223-AlAzmi",
     },
+  });
+  await syncSeededOrderPackage({
+    orderId: order3.id,
+    packageId: pkgPremium.id,
+    sessionType: BookingSessionType.FAMILY,
+    originalPackagePriceSnapshot: 400,
+    finalPackagePriceSnapshot: 400,
+    selectedPhotoCount: 65,
   });
 
   await prisma.editingJob.upsert({

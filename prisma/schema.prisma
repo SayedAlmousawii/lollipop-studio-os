@@ -272,11 +272,13 @@ model Package {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bookings       Booking[]     @relation("BookingPackage")
-  originalOrders Order[]       @relation("OriginalPackage")
-  finalOrders    Order[]       @relation("FinalPackage")
-  items          PackageItem[]
-  packageFamily  PackageFamily @relation(fields: [packageFamilyId], references: [id])
+  bookings        Booking[]        @relation("BookingPackage")
+  originalOrders  Order[]          @relation("OriginalPackage")
+  finalOrders     Order[]          @relation("FinalPackage")
+  items           PackageItem[]
+  packageFamily   PackageFamily    @relation(fields: [packageFamilyId], references: [id])
+  bookingPackages BookingPackage[]
+  orderPackages   OrderPackage[]
 
   @@index([packageFamilyId, isActive])
   @@map("packages")
@@ -352,6 +354,8 @@ model SessionType {
   department        StudioDepartment               @relation(fields: [departmentId], references: [id])
   packageFamilies   PackageFamily[]
   extraPhotoPricing SessionTypeExtraPhotoPricing[]
+  bookingPackages   BookingPackage[]
+  orderPackages     OrderPackage[]
 
   @@index([departmentId, isActive, sortOrder])
   @@map("session_types")
@@ -389,6 +393,26 @@ model PackageFamily {
   @@map("package_families")
 }
 
+model BookingPackage {
+  id            String   @id @default(cuid())
+  bookingId     String
+  packageId     String
+  sessionTypeId String
+  quantity      Int      @default(1)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  booking     Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  package     Package     @relation(fields: [packageId], references: [id])
+  sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+
+  @@index([bookingId, sortOrder])
+  @@index([packageId])
+  @@index([sessionTypeId])
+  @@map("booking_packages")
+}
+
 model Booking {
   id                     String             @id @default(cuid())
   publicId               String?            @unique
@@ -415,6 +439,7 @@ model Booking {
   themes               BookingTheme[]
   invoices             Invoice[]
   financialCase        FinancialCase?
+  packages             BookingPackage[]
 
   @@index([departmentId])
   @@map("bookings")
@@ -476,9 +501,34 @@ model Order {
   invoices                Invoice[]
   activities              OrderActivity[]
   orderAddOns             OrderAddOn[]
+  packages                OrderPackage[]
 
   @@index([jobNumber])
   @@map("orders")
+}
+
+model OrderPackage {
+  id                           String   @id @default(cuid())
+  orderId                      String
+  packageId                    String
+  sessionTypeId                String
+  originalPackagePriceSnapshot Decimal? @db.Decimal(10, 3)
+  finalPackagePriceSnapshot    Decimal? @db.Decimal(10, 3)
+  selectedPhotoCount           Int?
+  extraDigitalCount            Int      @default(0)
+  extraPrintCount              Int      @default(0)
+  sortOrder                    Int      @default(0)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  package     Package     @relation(fields: [packageId], references: [id])
+  sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+
+  @@index([orderId, sortOrder])
+  @@index([packageId])
+  @@index([sessionTypeId])
+  @@map("order_packages")
 }
 
 model EditingJob {

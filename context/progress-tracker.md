@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70a multi-package schema foundation is complete: `BookingPackage` and `OrderPackage` line tables now mirror the existing singular booking/order package fields while leaving current flows wired to the legacy columns until 70b/70c.
 - Feature 69 session-type extra-photo pricing is complete: extra-photo unit prices now live in a seeded `(sessionTypeId, mediaType)` catalog with digital/print rows per session type, a service lookup, and a read-only `/pricing` admin review page.
 - Feature 68 package model upgrade is complete: packages now belong to one seeded package family, carry positive session duration in service/UI flows, expose transitive department/session/family display data, and `/packages` supports department/session filters.
 - Feature 67 package taxonomy foundation is complete: `SessionType` and `PackageFamily` catalog tables are in place under `StudioDepartment`, the legacy booking enum is now `BookingSessionType`, and seed creates the 11 V1 session types plus one default family per type.
@@ -30,6 +31,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Bookings and orders now have additive package-line relations: seed and migration create one line per existing singular package, with line-level `sessionTypeId` mapped from the legacy booking session enum.
 - Extra-photo pricing is now data-backed by `SessionTypeExtraPhotoPricing`: each session type has independent `DIGITAL` and `PRINT` unit prices seeded as placeholders until owner confirmation before Spec 70 wiring.
 - Packages are now classified through `Package.packageFamilyId`; department and session type are derived live through `PackageFamily -> SessionType -> StudioDepartment`, and package duration is stored per package for downstream booking-duration work.
 - Package taxonomy foundation is live: `SessionType` is now a catalog model under `StudioDepartment`, while `Booking.sessionType` still uses the renamed legacy `BookingSessionType` enum until the Spec 70 booking/package-line migration.
@@ -59,6 +61,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70a: Multi-package schema foundation — added `BookingPackage` and `OrderPackage` models, back-relations on booking/order/package/session type, migration backfill from singular package fields, and seed mirroring rows for seeded bookings/orders.
 - Feature 69: Session-type extra-photo pricing — added `MediaType` and `SessionTypeExtraPhotoPricing`, seeded 22 placeholder digital/print price rows, exposed `getExtraPhotoUnitPrice`, and added read-only admin pricing catalog navigation.
 - Feature 68: Package model upgrade — added `Package.packageFamilyId` and `durationMinutes`, backfilled/seeded existing packages to `KD_REGULAR_DEFAULT`, updated package service reads/writes/helpers, and added package admin classification cascade plus department/session filters.
 - Feature 67: Package taxonomy foundation — added `SessionType` and `PackageFamily` catalog models and migration, renamed the legacy booking enum to `BookingSessionType`, and seeded 11 department-scoped session types with matching `_DEFAULT` families.
