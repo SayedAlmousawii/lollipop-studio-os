@@ -157,6 +157,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                   <POSRecordPaymentDialog
                     orderId={workspace.orderId}
                     invoice={invoice}
+                    orderStatus={workspace.orderStatusRaw}
                     customerName={workspace.customerName}
                     jobNumber={workspace.jobNumber}
                   />
@@ -167,6 +168,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
               )
             ) : (
               <form action={createOrderInvoiceAction.bind(null, workspace.orderId)}>
+                <input type="hidden" name="returnTo" value="sales" />
                 <Button type="submit" className="w-full">
                   Create Invoice
                 </Button>
