@@ -75,6 +75,14 @@ export const updateBookingStatusSchema = z.object({
 
 export type UpdateBookingStatusInput = z.infer<typeof updateBookingStatusSchema>;
 
+export const deletePendingBookingSchema = z.object({
+  bookingId: z.string().min(1, "Booking is required"),
+});
+
+export type DeletePendingBookingInput = z.infer<
+  typeof deletePendingBookingSchema
+>;
+
 export const recordBookingDepositSchema = z.object({
   bookingId: z.string().min(1, "Booking is required"),
   amount: z.coerce.number().positive("Deposit amount must be greater than 0"),
@@ -87,14 +95,3 @@ export const recordBookingDepositSchema = z.object({
 export type RecordBookingDepositInput = z.infer<
   typeof recordBookingDepositSchema
 >;
-
-export const recordBasePaymentSchema = z.object({
-  bookingId: z.string().min(1, "Booking is required"),
-  amount: z.coerce.number().positive("Amount must be greater than 0"),
-  method: z.nativeEnum(PaymentMethod, {
-    error: "Payment method is required",
-  }),
-  notes: z.string().trim().max(500).optional(),
-});
-
-export type RecordBasePaymentInput = z.infer<typeof recordBasePaymentSchema>;

@@ -29,15 +29,6 @@ const STATUS_ACTIONS: Partial<
     }[]
   >
 > = {
-  Pending: [
-    { label: "Confirm Booking", nextStatus: "CONFIRMED" },
-    {
-      label: "Cancel Booking",
-      nextStatus: "CANCELLED",
-      confirmationMessage: "Cancel this booking?",
-      isDestructive: true,
-    },
-  ],
   Confirmed: [
     {
       label: "Record No-Show",

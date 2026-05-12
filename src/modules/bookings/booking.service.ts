@@ -1,8 +1,7 @@
 import {
   BookingStatus,
   InvoiceStatus,
-  OrderActivityType,
-  OrderStatus,
+  InvoiceType,
   PaymentType,
   Prisma,
   UserRole,
@@ -11,28 +10,27 @@ import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import {
-  createInvoiceForBookingWithClient,
+  generateInvoiceNumber,
   issueInvoiceWithClient,
+  recalculateInvoiceStatus,
 } from "@/modules/invoices/invoice.service";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import {
-  generateJobNumber,
+  generateBookingReference,
   generatePublicId,
 } from "@/modules/identifiers/identifier.service";
-import { recordOrderActivity } from "@/modules/orders/order-activity.service";
-import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
 import {
-  recordBasePaymentSchema,
+  deletePendingBookingSchema,
   recordBookingDepositSchema,
   updateBookingStatusSchema,
   updateBookingSchema,
   type CreateBookingInput,
-  type RecordBasePaymentInput,
+  type DeletePendingBookingInput,
   type RecordBookingDepositInput,
   type UpdateBookingStatusInput,
   type UpdateBookingInput,
@@ -109,13 +107,11 @@ export interface BookingDetail {
   }>;
   canEdit: boolean;
   canRecordDeposit: boolean;
-  canRecordBasePayment: boolean;
-  packagePriceAmount: number;
-  depositPaidAmount: number;
+  canDeletePending: boolean;
 }
 
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
-  [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
+  [BookingStatus.PENDING]: [BookingStatus.CONFIRMED],
   [BookingStatus.CONFIRMED]: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW],
   [BookingStatus.CHECKED_IN]: [],
   [BookingStatus.CANCELLED]: [],
@@ -134,6 +130,8 @@ const BOOKING_DATE_FILTERS = new Set<BookingDateFilter>([
   "week",
   "month",
 ]);
+
+const BOOKING_DEPOSIT_AMOUNT = new Prisma.Decimal(20);
 
 export function parseBookingFilters(filters: {
   search?: string | string[];
@@ -195,7 +193,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
 
   return rows.map((row) => ({
     id: row.id,
-    jobNumber: row.jobNumber ?? "Pending",
+    jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
     customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
@@ -204,8 +202,6 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
     status: mapBookingStatus(row.status),
     paymentStatus: mapDepositStatus(row.invoices),
     assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
-    packagePriceAmount: row.package?.price?.toNumber() ?? 0,
-    depositPaidAmount: row.invoices[0]?.payments?.[0]?.amount?.toNumber() ?? 0,
   }));
 }
 
@@ -247,33 +243,9 @@ export async function createBookingInDb(
           requireActiveDepartment: true,
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
         });
-        const department = await tx.studioDepartment.findUnique({
-          where: { id: data.departmentId },
-          select: { code: true },
-        });
-        if (!department) {
-          throw new Error("Department not found");
-        }
-        const [publicId, jobNumber] = await Promise.all([
-          generatePublicId(tx, PUBLIC_ID_KIND.BOOKING),
-          generateJobNumber(tx, {
-            departmentCode: department.code,
-            sessionDate: data.sessionDate,
-          }),
-        ]);
-        const job = await tx.job.create({
-          data: {
-            jobNumber,
-            customerId: data.customerId,
-          },
-          select: { id: true },
-        });
 
         return tx.booking.create({
           data: {
-            publicId,
-            jobNumber,
-            jobId: job.id,
             customerId: data.customerId,
             packageId: data.packageId,
             sessionDate: data.sessionDate,
@@ -487,6 +459,9 @@ export async function recordBookingDeposit(
   actorContext: ActorContext = {}
 ): Promise<{ id: string }> {
   const data = recordBookingDepositSchema.parse(input);
+  if (!new Prisma.Decimal(data.amount).equals(BOOKING_DEPOSIT_AMOUNT)) {
+    throw new Error("Booking deposit must be exactly 20.000 KD");
+  }
 
   return withRetry(
     () =>
@@ -497,12 +472,16 @@ export async function recordBookingDeposit(
           where: { id: data.bookingId },
           select: {
             id: true,
+            customerId: true,
+            sessionDate: true,
             status: true,
+            department: { select: { code: true } },
             invoices: {
-              orderBy: { createdAt: "asc" },
+              where: {
+                payments: { some: { paymentType: PaymentType.DEPOSIT } },
+              },
               select: {
                 id: true,
-                status: true,
                 payments: {
                   where: { paymentType: PaymentType.DEPOSIT },
                   select: { id: true },
@@ -523,19 +502,71 @@ export async function recordBookingDeposit(
           throw new Error("Deposit already recorded");
         }
 
-        const invoice =
-          booking.invoices[0] ??
-          (await createInvoiceForBookingWithClient(tx, booking.id));
-        if (invoice.status === InvoiceStatus.DRAFT) {
-          await issueInvoiceWithClient(tx, invoice.id);
-        }
+        const bookingReference = await generateBookingReference(tx, {
+          departmentCode: booking.department.code,
+          sessionDate: booking.sessionDate,
+        });
+
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { publicId: bookingReference },
+        });
+
+        const financialCase = await tx.financialCase.create({
+          data: {
+            bookingId: booking.id,
+            customerId: booking.customerId,
+            jobId: null,
+          },
+          select: { id: true },
+        });
+
+        const invoiceNumberData = await generateInvoiceNumber(tx);
+        const invoice = await tx.invoice.create({
+          data: {
+            publicId: await generatePublicId(tx, PUBLIC_ID_KIND.INVOICE),
+            financialCaseId: financialCase.id,
+            invoiceType: InvoiceType.DEPOSIT,
+            jobId: null,
+            jobNumber: null,
+            orderId: null,
+            bookingId: booking.id,
+            customerId: booking.customerId,
+            ...invoiceNumberData,
+            totalAmount: BOOKING_DEPOSIT_AMOUNT,
+            remainingAmount: BOOKING_DEPOSIT_AMOUNT,
+            status: InvoiceStatus.DRAFT,
+          },
+          select: { id: true, status: true },
+        });
+
+        await issueInvoiceWithClient(tx, invoice.id, actorContext);
 
         const payment = await recordPaymentWithClient(tx, invoice.id, {
-          amount: data.amount,
+          financialCaseId: financialCase.id,
+          amount: BOOKING_DEPOSIT_AMOUNT.toNumber(),
           method: data.method,
           paymentType: PaymentType.DEPOSIT,
           reference: data.reference,
         }, actorContext);
+
+        await recalculateInvoiceStatus(invoice.id, tx);
+        const paidInvoice = await tx.invoice.findUnique({
+          where: { id: invoice.id },
+          select: { status: true },
+        });
+        if (paidInvoice?.status !== InvoiceStatus.PAID) {
+          throw new Error("Deposit invoice was not fully paid");
+        }
+
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            closedAt: new Date(),
+          },
+        });
 
         await tx.booking.update({
           where: { id: booking.id },
@@ -549,13 +580,12 @@ export async function recordBookingDeposit(
   );
 }
 
-export async function recordBasePaymentAndComplete(
-  input: RecordBasePaymentInput,
-  actorContext: ActorContext = {}
-): Promise<{ orderId: string }> {
-  const data = recordBasePaymentSchema.parse(input);
+export async function deletePendingBooking(
+  input: DeletePendingBookingInput
+): Promise<void> {
+  const data = deletePendingBookingSchema.parse(input);
 
-  return withRetry(
+  await withRetry(
     () =>
       db.$transaction(async (tx) => {
         await lockBookingForUpdate(tx, data.bookingId);
@@ -565,86 +595,31 @@ export async function recordBasePaymentAndComplete(
           select: {
             id: true,
             status: true,
-            invoices: {
-              orderBy: { createdAt: "asc" },
-              select: {
-                id: true,
-                status: true,
-              },
-              take: 1,
-            },
+            jobId: true,
+            jobNumber: true,
+            financialCase: { select: { id: true } },
+            invoices: { select: { id: true }, take: 1 },
           },
         });
 
         if (!booking) {
           throw new Error("Booking not found");
         }
-        if (booking.status !== BookingStatus.CONFIRMED) {
-          throw new Error(
-            "Base payment can only be recorded for confirmed bookings"
-          );
+        if (booking.status !== BookingStatus.PENDING) {
+          throw new Error("Only pending bookings can be deleted");
+        }
+        if (
+          booking.jobId ||
+          booking.jobNumber ||
+          booking.financialCase ||
+          booking.invoices.length > 0
+        ) {
+          throw new Error("Cannot delete a booking with financial or job history");
         }
 
-        const invoice =
-          booking.invoices[0] ??
-          (await createInvoiceForBookingWithClient(tx, booking.id));
-        if (invoice.status === InvoiceStatus.DRAFT) {
-          await issueInvoiceWithClient(tx, invoice.id);
-        }
-
-        const payment = await recordPaymentWithClient(tx, invoice.id, {
-          amount: data.amount,
-          method: data.method,
-          paymentType: PaymentType.FINAL,
-          notes: data.notes,
-        }, actorContext);
-
-        await tx.booking.update({
-          where: { id: booking.id },
-          data: { status: BookingStatus.CHECKED_IN },
-        });
-
-        const order = await createOrderFromBookingWithClient(
-          tx,
-          booking.id,
-          OrderStatus.WAITING_SELECTION,
-          actorContext
-        );
-
-        await recordOrderActivity(tx, {
-          orderId: order.id,
-          userId: actorContext.actorUserId ?? null,
-          type: OrderActivityType.PAYMENT_RECEIVED,
-          title: "Base payment recorded",
-          description: `${new Prisma.Decimal(data.amount).toFixed(3)} KD base payment recorded before selection opened.`,
-          metadata: {
-            bookingId: booking.id,
-            invoiceId: invoice.id,
-            paymentId: payment.id,
-            amount: new Prisma.Decimal(data.amount).toFixed(3),
-            method: data.method,
-            paymentType: PaymentType.FINAL,
-            notes: data.notes ?? null,
-          },
-        });
-
-        await recordOrderActivity(tx, {
-          orderId: order.id,
-          userId: actorContext.actorUserId ?? null,
-          type: OrderActivityType.NOTE_ADDED,
-          title: "Booking checked in",
-          description:
-            "Booking moved from Confirmed to Checked In after the base payment was recorded.",
-          metadata: {
-            bookingId: booking.id,
-            previousStatus: BookingStatus.CONFIRMED,
-            nextStatus: BookingStatus.CHECKED_IN,
-          },
-        });
-
-        return { orderId: order.id };
+        await tx.booking.delete({ where: { id: booking.id } });
       }),
-    "Failed to record base payment",
+    "Failed to delete pending booking",
     2
   );
 }
@@ -921,7 +896,7 @@ function mapEditableBooking(
 ): EditableBooking {
   return {
     id: row.id,
-    jobNumber: row.jobNumber ?? "Pending",
+    jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
     customerId: row.customerId,
     customerPhone: formatCustomerPhone(row.customer.phone),
     packageId: row.package?.id ?? "",
@@ -952,13 +927,10 @@ function mapBookingDetail(
   row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
 ): BookingDetail {
   const hasDeposit = hasDepositPayment(row.invoices);
-  const depositPaidAmount =
-    row.invoices[0]?.payments?.[0]?.amount?.toNumber() ?? 0;
-  const packagePriceAmount = row.package?.price?.toNumber() ?? 0;
 
   return {
     id: row.id,
-    jobNumber: row.jobNumber ?? "Pending",
+    jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
     customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
@@ -980,9 +952,7 @@ function mapBookingDetail(
       row.status !== BookingStatus.CANCELLED &&
       row.status !== BookingStatus.NO_SHOW,
     canRecordDeposit: row.status === BookingStatus.PENDING && !hasDeposit,
-    canRecordBasePayment: row.status === BookingStatus.CONFIRMED,
-    packagePriceAmount,
-    depositPaidAmount,
+    canDeletePending: row.status === BookingStatus.PENDING && !hasDeposit,
   };
 }
 

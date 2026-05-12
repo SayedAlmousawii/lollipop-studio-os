@@ -1147,7 +1147,7 @@ function normalizePhoneSearch(value: string | undefined): string | undefined {
   return normalized && normalized !== "+" ? normalized : undefined;
 }
 
-async function generateInvoiceNumber(client: DbClient): Promise<InvoiceNumberData> {
+export async function generateInvoiceNumber(client: DbClient): Promise<InvoiceNumberData> {
   const rows = await client.$queryRaw<Array<{ invoice_seq: number | bigint }>>`
     SELECT nextval('"invoice_number_seq"') AS invoice_seq
   `;

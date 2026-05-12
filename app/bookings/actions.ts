@@ -1,15 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
 } from "@/lib/permissions";
 import {
+  deletePendingBookingSchema,
   recordBookingDepositSchema,
   updateBookingStatusSchema,
 } from "@/modules/bookings/booking.schema";
 import {
+  deletePendingBooking,
   recordBookingDeposit,
   updateBookingStatus,
 } from "@/modules/bookings/booking.service";
@@ -21,6 +24,10 @@ export type UpdateBookingStatusActionState = {
 export type RecordDepositActionState = {
   errors?: Partial<Record<string, string[]>>;
   success?: string;
+};
+
+export type DeletePendingBookingActionState = {
+  errors?: Partial<Record<string, string[]>>;
 };
 
 export async function updateBookingStatusAction(
@@ -37,12 +44,8 @@ export async function updateBookingStatusAction(
   }
 
   try {
-    const appUser = await requireCurrentAppUserPermission(
-      PERMISSIONS.BOOKING_STATUS_UPDATE
-    );
-    await updateBookingStatus(parsed.data.bookingId, parsed.data.nextStatus, {
-      actorUserId: appUser.id, actorRole: appUser.role,
-    });
+    await requireCurrentAppUserPermission(PERMISSIONS.BOOKING_STATUS_UPDATE);
+    await updateBookingStatus(parsed.data.bookingId, parsed.data.nextStatus);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update booking status";
@@ -90,4 +93,32 @@ export async function recordDepositAction(
   revalidatePath("/invoices");
 
   return { success: "Deposit recorded." };
+}
+
+export async function deletePendingBookingAction(
+  _prev: DeletePendingBookingActionState,
+  formData: FormData
+): Promise<DeletePendingBookingActionState> {
+  const parsed = deletePendingBookingSchema.safeParse({
+    bookingId: formData.get("bookingId"),
+  });
+
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  try {
+    await requireCurrentAppUserPermission(PERMISSIONS.BOOKING_STATUS_UPDATE);
+    await deletePendingBooking(parsed.data);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unable to delete pending booking";
+    return { errors: { _global: [message] } };
+  }
+
+  revalidatePath("/bookings");
+  revalidatePath(`/bookings/${parsed.data.bookingId}`);
+  revalidatePath("/calendar");
+
+  redirect("/bookings");
 }
