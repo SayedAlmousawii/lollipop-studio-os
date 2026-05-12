@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useRef } from "react";
+import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   checkInBookingAction,
@@ -19,32 +19,9 @@ export function CheckInDropdownItem({
     CheckInBookingActionState,
     FormData
   >(checkInBookingAction, {});
-  const allowSubmitRef = useRef(false);
 
   return (
-    <form
-      action={formAction}
-      className="space-y-1"
-      onSubmit={(event) => {
-        if (allowSubmitRef.current) {
-          allowSubmitRef.current = false;
-          return;
-        }
-
-        event.preventDefault();
-
-        if (
-          !window.confirm(
-            "Check in this booking? This creates the JOB reference and order and cannot be undone."
-          )
-        ) {
-          return;
-        }
-
-        allowSubmitRef.current = true;
-        event.currentTarget.requestSubmit();
-      }}
-    >
+    <form action={formAction} className="space-y-1">
       <input type="hidden" name="bookingId" value={bookingId} />
       <DropdownSubmitButton>Check In</DropdownSubmitButton>
       {state.errors?._global ? (
@@ -63,6 +40,15 @@ function DropdownSubmitButton({ children }: { children: React.ReactNode }) {
     <button
       type="submit"
       disabled={pending}
+      onClick={(event) => {
+        if (
+          !window.confirm(
+            "Check in this booking? This creates the JOB reference and order and cannot be undone."
+          )
+        ) {
+          event.preventDefault();
+        }
+      }}
       className={cn(
         "flex w-full select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50",
         "text-text-primary"
