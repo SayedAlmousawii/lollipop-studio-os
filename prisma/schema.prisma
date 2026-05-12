@@ -365,7 +365,7 @@ model SessionTypeExtraPhotoPricing {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+  sessionType SessionType @relation(fields: [sessionTypeId], references: [id], onDelete: Cascade)
 
   @@unique([sessionTypeId, mediaType])
   @@index([sessionTypeId])

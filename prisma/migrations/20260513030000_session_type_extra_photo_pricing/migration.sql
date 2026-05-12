@@ -9,7 +9,9 @@ CREATE TABLE "session_type_extra_photo_pricing" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
 
-  CONSTRAINT "session_type_extra_photo_pricing_pkey" PRIMARY KEY ("id")
+  CONSTRAINT "session_type_extra_photo_pricing_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "session_type_extra_photo_pricing_unitPrice_nonnegative_check"
+    CHECK ("unitPrice" >= 0)
 );
 
 CREATE UNIQUE INDEX "session_type_extra_photo_pricing_sessionTypeId_mediaType_key"
@@ -21,4 +23,4 @@ CREATE INDEX "session_type_extra_photo_pricing_sessionTypeId_idx"
 ALTER TABLE "session_type_extra_photo_pricing"
   ADD CONSTRAINT "session_type_extra_photo_pricing_sessionTypeId_fkey"
   FOREIGN KEY ("sessionTypeId") REFERENCES "session_types"("id")
-  ON DELETE RESTRICT ON UPDATE CASCADE;
+  ON DELETE CASCADE ON UPDATE CASCADE;

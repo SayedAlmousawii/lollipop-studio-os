@@ -74,6 +74,6 @@ export async function getExtraPhotoPricingCatalog(): Promise<ExtraPhotoPricingRo
   }));
 }
 
-function formatPrice(value: { toFixed(dp: number): string }): string {
+function formatPrice(value: Prisma.Decimal): string {
   return value.toFixed(3) + " KD";
 }

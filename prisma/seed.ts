@@ -130,12 +130,30 @@ async function seedExtraPhotoPricingCatalog() {
   const sessionTypes = await prisma.sessionType.findMany({
     select: { id: true, code: true },
   });
+  const sessionTypeByCode = new Map(
+    sessionTypes.map((sessionType) => [sessionType.code, sessionType])
+  );
+  const missingSessionTypes = SESSION_TYPE_CATALOG.filter(
+    (sessionType) => !sessionTypeByCode.has(sessionType.code)
+  );
 
-  if (sessionTypes.length !== SESSION_TYPE_CATALOG.length) {
-    throw new Error("Cannot seed extra-photo prices before all session types exist.");
+  if (missingSessionTypes.length > 0) {
+    const missingCodes = missingSessionTypes
+      .map((sessionType) => sessionType.code)
+      .join(", ");
+    throw new Error(
+      `Cannot seed extra-photo prices because required session types are missing: ${missingCodes}.`
+    );
   }
 
-  for (const sessionType of sessionTypes) {
+  for (const catalogSessionType of SESSION_TYPE_CATALOG) {
+    const sessionType = sessionTypeByCode.get(catalogSessionType.code);
+    if (!sessionType) {
+      throw new Error(
+        `Cannot seed extra-photo prices because session type "${catalogSessionType.code}" does not exist.`
+      );
+    }
+
     // PLACEHOLDER PRICES - owner to confirm per-session-type values before Spec 70 ships.
     // Digital is intentionally stored as an independent number, not computed from print.
     await Promise.all([

@@ -11,7 +11,8 @@ export default async function PricingPage() {
 
   try {
     rows = await getExtraPhotoPricingCatalog();
-  } catch {
+  } catch (error) {
+    console.error("Failed to load extra-photo pricing catalog", error);
     fetchError = true;
   }
 
