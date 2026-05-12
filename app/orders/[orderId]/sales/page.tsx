@@ -104,6 +104,13 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                   label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
                   value={formatKD(packageAmount)}
                 />
+                {invoice?.depositPaidAmount &&
+                !(invoice.renderMode === "SNAPSHOT" && invoice.lineItems.length === 0) ? (
+                  <MoneyRow
+                    label={`Deposit${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
+                    value={`-${formatKD(invoice.depositPaidAmount)}`}
+                  />
+                ) : null}
                 {bundleAdjustment !== 0 ? (
                   <MoneyRow label="Bundle adjustment" value={formatKD(bundleAdjustment)} />
                 ) : null}
@@ -118,13 +125,23 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                 ))}
               </>
             )}
-            <MoneyRow label="Total" value={formatKD(totalAmount)} strong />
+            {invoice?.renderMode === "SNAPSHOT" && invoice.depositPaidAmount ? (
+              <MoneyRow
+                label={`Deposit${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
+                value={`-${formatKD(invoice.depositPaidAmount)}`}
+              />
+            ) : null}
+            <MoneyRow
+              label={invoice ? "Final invoice total" : "Preview total"}
+              value={formatKD(totalAmount)}
+              strong
+            />
           </div>
 
           {invoice ? (
             <div className="space-y-2 border-t border-border pt-4">
               <MoneyRow label="Paid" value={formatKD(invoice.paidAmount)} />
-              <MoneyRow label="Remaining" value={formatKD(invoice.remainingAmount)} strong />
+              <MoneyRow label="Remaining balance" value={formatKD(invoice.remainingAmount)} strong />
             </div>
           ) : null}
 

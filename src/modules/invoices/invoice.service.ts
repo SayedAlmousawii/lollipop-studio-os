@@ -1,4 +1,11 @@
-import { InvoiceLineType, InvoiceStatus, OrderActivityType, OrderStatus, Prisma } from "@prisma/client";
+import {
+  InvoiceLineType,
+  InvoiceStatus,
+  InvoiceType,
+  OrderActivityType,
+  OrderStatus,
+  Prisma,
+} from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -99,16 +106,6 @@ export async function createInvoiceForOrder(
   );
 }
 
-export async function createInvoiceForBooking(
-  bookingId: string
-): Promise<{ id: string; status: InvoiceStatus }> {
-  return withRetry(
-    () =>
-      db.$transaction((tx) => createInvoiceForBookingWithClient(tx, bookingId)),
-    "Failed to create invoice for booking"
-  );
-}
-
 export async function createInvoiceForOrderWithClient(
   client: DbClient,
   orderId: string,
@@ -118,6 +115,7 @@ export async function createInvoiceForOrderWithClient(
     where: { id: orderId },
     include: {
       customer: { select: { id: true } },
+      booking: { select: { financialCase: { select: { id: true } } } },
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
       orderAddOns: {
@@ -127,10 +125,12 @@ export async function createInvoiceForOrderWithClient(
     },
   });
   if (!order) throw new Error("Order not found");
+  const financialCaseId = order.booking.financialCase?.id;
+  if (!financialCaseId) {
+    throw new Error("Order financial case is required to create a final invoice");
+  }
   const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
-    orderId: order.id,
-    bookingId: order.bookingId,
-    jobId: order.jobId,
+    financialCaseId,
   });
   if (existingInvoice) return existingInvoice;
 
@@ -152,6 +152,8 @@ export async function createInvoiceForOrderWithClient(
     invoice = await client.invoice.create({
       data: {
         publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+        financialCaseId,
+        invoiceType: InvoiceType.FINAL,
         jobId: order.jobId,
         jobNumber: order.jobNumber,
         orderId: order.id,
@@ -168,9 +170,7 @@ export async function createInvoiceForOrderWithClient(
     if (!isUniqueConstraintError(error)) throw error;
 
     const racedInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
-      orderId: order.id,
-      bookingId: order.bookingId,
-      jobId: order.jobId,
+      financialCaseId,
     });
     if (!racedInvoice) throw error;
 
@@ -201,6 +201,7 @@ export async function syncOrderInvoiceForFinancialEdit(
     where: { id: input.orderId },
     include: {
       customer: { select: { id: true } },
+      booking: { select: { financialCase: { select: { id: true } } } },
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
       orderAddOns: {
@@ -210,14 +211,16 @@ export async function syncOrderInvoiceForFinancialEdit(
     },
   });
   if (!order) throw new Error("Order not found");
+  const financialCaseId = order.booking.financialCase?.id;
+  if (!financialCaseId) {
+    throw new Error("Order financial case is required to sync a final invoice");
+  }
 
   const packagePrice = order.finalPackage?.price ?? order.originalPackage?.price;
   if (!packagePrice) throw new Error("Order has no package price");
 
   const existingWorkflowInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
-    orderId: order.id,
-    bookingId: order.bookingId,
-    jobId: order.jobId,
+    financialCaseId,
   });
   const existingInvoice = existingWorkflowInvoice
     ? await client.invoice.findUnique({
@@ -278,6 +281,7 @@ export async function syncOrderInvoiceForFinancialEdit(
     : await createSyncedOrderInvoice(client, {
         orderId: order.id,
         bookingId: order.bookingId,
+        financialCaseId,
         customerId: order.customer.id,
         jobId: order.jobId,
         jobNumber: order.jobNumber,
@@ -312,61 +316,6 @@ export async function syncOrderInvoiceForFinancialEdit(
     recognizedPackageBaseline,
     createdInvoice: !existingInvoice,
   };
-}
-
-export async function createInvoiceForBookingWithClient(
-  client: DbClient,
-  bookingId: string
-): Promise<{ id: string; status: InvoiceStatus }> {
-  const booking = await client.booking.findUnique({
-    where: { id: bookingId },
-    include: {
-      customer: { select: { id: true } },
-      package: { select: { price: true } },
-      order: { select: { id: true } },
-    },
-  });
-  if (!booking) throw new Error("Booking not found");
-
-  const existingInvoice = await findPrimaryWorkflowInvoiceForBooking(client, {
-    bookingId: booking.id,
-    orderId: booking.order?.id ?? null,
-    jobId: booking.jobId,
-  });
-  if (existingInvoice) return existingInvoice;
-
-  const totalAmount = booking.package?.price;
-  if (!totalAmount) throw new Error("Booking has no package price");
-
-  const invoiceNumberData = await generateInvoiceNumber(client);
-  try {
-    return await client.invoice.create({
-      data: {
-        publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
-        jobId: booking.jobId,
-        jobNumber: booking.jobNumber,
-        orderId: booking.order?.id ?? null,
-        bookingId: booking.id,
-        customerId: booking.customer.id,
-        ...invoiceNumberData,
-        totalAmount,
-        remainingAmount: totalAmount,
-        status: InvoiceStatus.DRAFT,
-      },
-      select: { id: true, status: true },
-    });
-  } catch (error) {
-    if (!isUniqueConstraintError(error)) throw error;
-
-    const racedInvoice = await findPrimaryWorkflowInvoiceForBooking(client, {
-      bookingId: booking.id,
-      orderId: booking.order?.id ?? null,
-      jobId: booking.jobId,
-    });
-    if (!racedInvoice) throw error;
-
-    return racedInvoice;
-  }
 }
 
 export async function getInvoices({
@@ -669,15 +618,14 @@ async function createSyncedOrderInvoice(
     orderId: string;
     bookingId: string;
     customerId: string;
+    financialCaseId: string;
     jobId: string;
     jobNumber: string;
     totalAmount: Prisma.Decimal;
   }
 ) {
   const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
-    orderId: data.orderId,
-    bookingId: data.bookingId,
-    jobId: data.jobId,
+    financialCaseId: data.financialCaseId,
   });
   if (existingInvoice) {
     const updateResult = await client.invoice.updateMany({
@@ -715,6 +663,8 @@ async function createSyncedOrderInvoice(
     return await client.invoice.create({
       data: {
         publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+        financialCaseId: data.financialCaseId,
+        invoiceType: InvoiceType.FINAL,
         jobId: data.jobId,
         jobNumber: data.jobNumber,
         orderId: data.orderId,
@@ -738,9 +688,7 @@ async function createSyncedOrderInvoice(
     if (!isUniqueConstraintError(error)) throw error;
 
     const racedInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
-      orderId: data.orderId,
-      bookingId: data.bookingId,
-      jobId: data.jobId,
+      financialCaseId: data.financialCaseId,
     });
     if (!racedInvoice) throw error;
 
@@ -763,83 +711,28 @@ async function createSyncedOrderInvoice(
   }
 }
 
-async function findPrimaryWorkflowInvoiceForBooking(
-  client: DbClient,
-  input: {
-    bookingId: string;
-    orderId: string | null;
-    jobId: string | null;
-  }
-): Promise<{ id: string; status: InvoiceStatus } | null> {
-  const invoices = await client.invoice.findMany({
-    where: {
-      parentInvoiceId: null,
-      ...(input.jobId ? { jobId: input.jobId } : {}),
-      OR: [
-        { bookingId: input.bookingId },
-        ...(input.orderId ? [{ orderId: input.orderId }] : []),
-      ],
-    },
-    select: { id: true, status: true, orderId: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return normalizePrimaryWorkflowInvoice(client, invoices, input.orderId);
-}
-
 async function findPrimaryWorkflowInvoiceForOrder(
   client: DbClient,
   input: {
-    orderId: string;
-    bookingId: string;
-    jobId: string;
+    financialCaseId: string;
   }
 ): Promise<{ id: string; status: InvoiceStatus } | null> {
   const invoices = await client.invoice.findMany({
     where: {
       parentInvoiceId: null,
-      jobId: input.jobId,
-      OR: [{ orderId: input.orderId }, { bookingId: input.bookingId }],
+      financialCaseId: input.financialCaseId,
+      invoiceType: InvoiceType.FINAL,
     },
-    select: { id: true, status: true, orderId: true },
+    select: { id: true, status: true },
     orderBy: { createdAt: "asc" },
   });
 
-  return normalizePrimaryWorkflowInvoice(client, invoices, input.orderId);
-}
-
-async function normalizePrimaryWorkflowInvoice(
-  client: DbClient,
-  invoices: Array<{ id: string; status: InvoiceStatus; orderId: string | null }>,
-  orderId: string | null
-): Promise<{ id: string; status: InvoiceStatus } | null> {
   if (invoices.length === 0) return null;
   if (invoices.length > 1) {
-    throw new Error("Duplicate primary workflow invoices found for this job");
+    throw new Error("Duplicate final invoices found for this financial case");
   }
 
-  const invoice = invoices[0];
-  if (orderId && !invoice.orderId) {
-    const updateResult = await client.invoice.updateMany({
-      where: { id: invoice.id, isLocked: false },
-      data: { orderId },
-    });
-    if (updateResult.count === 0) {
-      throw new Error("Invoice is locked or not found");
-    }
-
-    const updatedInvoice = await client.invoice.findUnique({
-      where: { id: invoice.id },
-      select: { id: true, status: true },
-    });
-    if (!updatedInvoice) {
-      throw new Error("Invoice not found after update");
-    }
-
-    return updatedInvoice;
-  }
-
-  return { id: invoice.id, status: invoice.status };
+  return invoices[0];
 }
 
 function mapOrderAddOnRows(
@@ -1048,6 +941,8 @@ export async function createAdjustmentInvoice(
           where: { id: parentInvoiceId },
           select: {
             id: true,
+            financialCaseId: true,
+            invoiceType: true,
             orderId: true,
             bookingId: true,
             customerId: true,
@@ -1060,11 +955,16 @@ export async function createAdjustmentInvoice(
         if (!parent.isLocked) {
           throw new Error("Adjustment invoices can only be created for locked invoices");
         }
+        if (parent.invoiceType !== InvoiceType.FINAL) {
+          throw new Error("Adjustment invoices can only be created for final invoices");
+        }
 
         const invoiceNumberData = await generateInvoiceNumber(tx);
         const invoice = await tx.invoice.create({
           data: {
             publicId: await generatePublicId(tx, PUBLIC_ID_KIND.INVOICE),
+            financialCaseId: parent.financialCaseId,
+            invoiceType: InvoiceType.ADJUSTMENT,
             jobId: parent.jobId,
             jobNumber: parent.jobNumber,
             orderId: parent.orderId,

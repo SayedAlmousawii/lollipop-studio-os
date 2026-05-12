@@ -1,4 +1,5 @@
 import {
+  InvoiceType,
   InvoiceStatus,
   OrderActivityType,
   OrderDeliveryStatus,
@@ -124,6 +125,11 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
   "CLOSED",
 ]);
 const MAX_CUSTOMER_ORDER_HISTORY_LIMIT = 100;
+const REQUIRED_BASE_PAYMENT_AMOUNT = new Prisma.Decimal(20);
+const FINAL_PARENT_INVOICE_WHERE = {
+  parentInvoiceId: null,
+  invoiceType: InvoiceType.FINAL,
+} satisfies Prisma.InvoiceWhereInput;
 
 function assertActorPermission(actorContext: ActorContext, permission: Permission): void {
   if (!actorContext.actorRole) return;
@@ -265,7 +271,27 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
             where: { id: orderId },
             include: {
               customer: { select: { name: true, phone: true } },
-              booking: { select: { sessionDate: true } },
+              booking: {
+                select: {
+                  sessionDate: true,
+                  financialCase: {
+                    select: {
+                      invoices: {
+                        where: {
+                          parentInvoiceId: null,
+                          invoiceType: InvoiceType.DEPOSIT,
+                        },
+                        select: {
+                          invoiceNumber: true,
+                          paidAmount: true,
+                        },
+                        orderBy: { createdAt: "desc" },
+                        take: 1,
+                      },
+                    },
+                  },
+                },
+              },
               originalPackage: {
                 select: {
                   id: true,
@@ -293,7 +319,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                 },
               },
               invoices: {
-                where: { parentInvoiceId: null },
+                where: FINAL_PARENT_INVOICE_WHERE,
                 select: {
                   id: true,
                   invoiceNumber: true,
@@ -363,6 +389,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   if (!order) return null;
 
   const currentPackage = order.finalPackage ?? order.originalPackage ?? null;
+  const depositInvoice = order.booking.financialCase?.invoices[0] ?? null;
   const originalPackage = order.originalPackage;
   const packageItems = currentPackage ? mapPOSPackageItems(currentPackage.items) : [];
   const includedPhotoCount = currentPackage?.photoCount ?? originalPackage?.photoCount ?? 0;
@@ -404,6 +431,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
           addOnTotal,
           extraPhotoTotal: extraPhotoTotalDecimal,
           paidAmount,
+          depositInvoice,
         })
       : null,
   };
@@ -511,7 +539,7 @@ export async function getOrderSelectionWorkflowById(
               },
             },
             invoices: {
-              where: { parentInvoiceId: null },
+              where: FINAL_PARENT_INVOICE_WHERE,
               select: {
                 totalAmount: true,
                 paidAmount: true,
@@ -661,12 +689,30 @@ export async function getOrderEditingWorkflowById(
             productionJob: {
               select: productionJobSelect,
             },
+            booking: {
+              select: {
+                financialCase: {
+                  select: {
+                    invoices: {
+                      where: {
+                        parentInvoiceId: null,
+                        invoiceType: InvoiceType.DEPOSIT,
+                      },
+                      select: { paidAmount: true },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
             originalPackage: { select: { photoCount: true } },
             finalPackage: { select: { photoCount: true } },
             invoices: {
-              where: { parentInvoiceId: null },
+              where: FINAL_PARENT_INVOICE_WHERE,
               select: {
                 id: true,
+                totalAmount: true,
+                paidAmount: true,
                 remainingAmount: true,
                 payments: {
                   where: { paymentType: PaymentType.FINAL },
@@ -820,7 +866,7 @@ export async function updateOrderPackage(
               originalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
               finalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
               invoices: {
-                where: { parentInvoiceId: null },
+                where: FINAL_PARENT_INVOICE_WHERE,
                 select: { id: true, isLocked: true },
                 orderBy: { createdAt: "asc" },
                 take: 1,
@@ -862,7 +908,10 @@ export async function updateOrderPackage(
 
         await tx.order.update({
           where: { id: orderId },
-          data: { finalPackage: { connect: { id: selectedPackage.id } } },
+          data: {
+            finalPackage: { connect: { id: selectedPackage.id } },
+            finalPackagePriceSnapshot: selectedPackage.price,
+          },
         });
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
@@ -943,7 +992,7 @@ export async function upgradeOrderPackageItem(
             originalPackage: { select: { id: true, price: true, photoCount: true } },
             finalPackage: { select: { id: true, price: true, photoCount: true } },
             invoices: {
-              where: { parentInvoiceId: null },
+              where: FINAL_PARENT_INVOICE_WHERE,
               select: { id: true, isLocked: true },
               orderBy: { createdAt: "asc" },
               take: 1,
@@ -1106,7 +1155,7 @@ export async function addOrderProductAddOn(
               originalPackage: { select: { price: true, photoCount: true } },
               finalPackage: { select: { price: true, photoCount: true } },
               invoices: {
-                where: { parentInvoiceId: null },
+                where: FINAL_PARENT_INVOICE_WHERE,
                 select: { id: true, isLocked: true },
                 orderBy: { createdAt: "asc" },
                 take: 1,
@@ -1233,7 +1282,7 @@ export async function removeOrderAddOn(
             originalPackage: { select: { price: true, photoCount: true } },
             finalPackage: { select: { price: true, photoCount: true } },
             invoices: {
-              where: { parentInvoiceId: null },
+              where: FINAL_PARENT_INVOICE_WHERE,
               select: { id: true, isLocked: true },
               orderBy: { createdAt: "asc" },
               take: 1,
@@ -1360,7 +1409,7 @@ export async function updateOrderSelectedPhotoCount(
             originalPackage: { select: { price: true, photoCount: true } },
             finalPackage: { select: { price: true, photoCount: true } },
             invoices: {
-              where: { parentInvoiceId: null },
+              where: FINAL_PARENT_INVOICE_WHERE,
               select: { id: true, isLocked: true },
               orderBy: { createdAt: "asc" },
               take: 1,
@@ -1472,9 +1521,27 @@ export async function updateOrderEditingWorkflow(
             productionJob: {
               select: productionJobSelect,
             },
-            invoices: {
-              where: { parentInvoiceId: null },
+            booking: {
               select: {
+                financialCase: {
+                  select: {
+                    invoices: {
+                      where: {
+                        parentInvoiceId: null,
+                        invoiceType: InvoiceType.DEPOSIT,
+                      },
+                      select: { paidAmount: true },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+            invoices: {
+              where: FINAL_PARENT_INVOICE_WHERE,
+              select: {
+                totalAmount: true,
+                paidAmount: true,
                 remainingAmount: true,
                 payments: {
                   where: { paymentType: PaymentType.FINAL },
@@ -1498,10 +1565,13 @@ export async function updateOrderEditingWorkflow(
           throw new Error("Delivered orders cannot be moved through editing");
         }
 
-        const basePaymentVerified = hasBasePayment(order.invoices);
-        const outstandingBalance = order.invoices.reduce(
-          (sum, invoice) => sum.plus(invoice.remainingAmount),
-          zeroMoney()
+        const depositPaidAmount = sumDepositInvoicePaidAmount(
+          order.booking.financialCase?.invoices ?? []
+        );
+        const basePaymentVerified = hasBasePayment(order.invoices, depositPaidAmount);
+        const outstandingBalance = calculateFinalBalanceDue(
+          order.invoices,
+          depositPaidAmount
         );
         const now = new Date();
         let editingJob = order.editingJob;
@@ -2062,7 +2132,7 @@ export async function updateOrder(
           }),
           tx.package.findUnique({
             where: { id: data.finalPackageId },
-            select: { id: true, name: true },
+            select: { id: true, name: true, price: true },
           }),
         ]);
 
@@ -2089,6 +2159,7 @@ export async function updateOrder(
           where: { id: orderId },
           data: {
             finalPackage: { connect: { id: data.finalPackageId } },
+            finalPackagePriceSnapshot: selectedPackage.price,
             selectedPhotoCount: data.selectedPhotos,
             addOns: data.addOns,
             notes: data.notes?.trim() ? data.notes.trim() : null,
@@ -2389,14 +2460,6 @@ export async function createOrderFromBookingWithClient(
         orderId: booking.order.id,
       },
     });
-    await client.invoice.updateMany({
-      where: {
-        bookingId: booking.id,
-        jobId: booking.jobId,
-        orderId: null,
-      },
-      data: { orderId: booking.order.id },
-    });
     return booking.order;
   }
 
@@ -2438,15 +2501,6 @@ export async function createOrderFromBookingWithClient(
       originalPackageId: booking.package.id,
       finalPackageId: booking.package.id,
     },
-  });
-
-  await client.invoice.updateMany({
-    where: {
-      bookingId: booking.id,
-      jobId: booking.jobId,
-      orderId: null,
-    },
-    data: { orderId: order.id },
   });
 
   return order;
@@ -2501,7 +2555,11 @@ async function fetchOrders(filters: OrderFilters) {
       : {}),
     ...(filters.orderStatus ? { status: filters.orderStatus } : {}),
     ...(filters.invoiceStatus
-      ? { invoices: { some: { status: filters.invoiceStatus } } }
+      ? {
+          invoices: {
+            some: { ...FINAL_PARENT_INVOICE_WHERE, status: filters.invoiceStatus },
+          },
+        }
       : {}),
     ...(sessionDateFilter
       ? { booking: { sessionDate: sessionDateFilter } }
@@ -2534,6 +2592,7 @@ async function fetchOrders(filters: OrderFilters) {
         },
       },
       invoices: {
+        where: FINAL_PARENT_INVOICE_WHERE,
         select: {
           id: true,
           invoiceNumber: true,
@@ -2561,6 +2620,7 @@ function fetchOrdersByCustomerId(customerId: string, limit: number) {
       originalPackage: { select: { name: true } },
       finalPackage: { select: { name: true } },
       invoices: {
+        where: FINAL_PARENT_INVOICE_WHERE,
         select: {
           totalAmount: true,
           paidAmount: true,
@@ -2625,6 +2685,7 @@ function fetchOrderByIdWithClient(
         select: productionJobSelect,
       },
       invoices: {
+        where: FINAL_PARENT_INVOICE_WHERE,
         select: {
           id: true,
           invoiceNumber: true,
@@ -2669,7 +2730,7 @@ const editableOrderInclude = {
     },
   },
   invoices: {
-    where: { parentInvoiceId: null },
+    where: FINAL_PARENT_INVOICE_WHERE,
     select: {
       id: true,
       invoiceNumber: true,
@@ -3102,6 +3163,30 @@ function zeroMoney(): Prisma.Decimal {
   return new Prisma.Decimal(0);
 }
 
+function sumDepositInvoicePaidAmount(
+  invoices: Array<{ paidAmount: Prisma.Decimal }>
+): Prisma.Decimal {
+  return invoices.reduce(
+    (sum, invoice) => sum.plus(invoice.paidAmount),
+    zeroMoney()
+  );
+}
+
+function calculateFinalBalanceDue(
+  invoices: Array<{
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    remainingAmount: Prisma.Decimal;
+  }>,
+  depositPaidAmount: Prisma.Decimal
+): Prisma.Decimal {
+  const rawRemainingAmount = invoices.reduce(
+    (sum, invoice) => sum.plus(invoice.remainingAmount),
+    zeroMoney()
+  );
+  return Prisma.Decimal.max(rawRemainingAmount.minus(depositPaidAmount), 0);
+}
+
 type EditableOrderRow = NonNullable<Awaited<ReturnType<typeof fetchEditableOrderById>>>;
 
 function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
@@ -3519,8 +3604,17 @@ function mapPOSInvoiceSummary(input: {
   addOnTotal: Prisma.Decimal;
   extraPhotoTotal: Prisma.Decimal;
   paidAmount: Prisma.Decimal;
+  depositInvoice: {
+    invoiceNumber: string;
+    paidAmount: Prisma.Decimal;
+  } | null;
 }): POSInvoiceSummary {
   const hasSnapshotLineItems = input.invoice.lineItems.length > 0;
+  const depositPaidAmount = input.depositInvoice?.paidAmount ?? zeroMoney();
+  const displayRemainingAmount = Prisma.Decimal.max(
+    input.invoice.totalAmount.minus(depositPaidAmount).minus(input.paidAmount),
+    0
+  );
 
   return {
     invoiceId: input.invoice.id,
@@ -3534,7 +3628,9 @@ function mapPOSInvoiceSummary(input: {
     extraPhotoTotal: input.extraPhotoTotal.toNumber(),
     invoiceTotal: input.invoice.totalAmount.toNumber(),
     paidAmount: input.paidAmount.toNumber(),
-    remainingAmount: input.invoice.remainingAmount.toNumber(),
+    depositInvoiceNumber: input.depositInvoice?.invoiceNumber ?? null,
+    depositPaidAmount: depositPaidAmount.toNumber(),
+    remainingAmount: displayRemainingAmount.toNumber(),
     lineItems: input.invoice.lineItems.map(mapPOSInvoiceLineItem),
   };
 }
@@ -3627,11 +3723,18 @@ function mapOrderEditingWorkflow(
       estimatedEditingCompletionAt: Date | null;
     } | null;
     productionJob: ProductionJobState | null;
+    booking: {
+      financialCase: {
+        invoices: Array<{ paidAmount: Prisma.Decimal }>;
+      } | null;
+    };
     selectedPhotoCount: number | null;
     originalPackage: { photoCount: number } | null;
     finalPackage: { photoCount: number } | null;
     invoices: Array<{
       id: string;
+      totalAmount: Prisma.Decimal;
+      paidAmount: Prisma.Decimal;
       remainingAmount: Prisma.Decimal;
       payments: Array<{ id: string }>;
     }>;
@@ -3659,11 +3762,11 @@ function mapOrderEditingWorkflow(
     targetPhotoCount > 0
       ? Math.min(Math.round((editedPhotoCount / targetPhotoCount) * 100), 100)
       : 0;
-  const basePaymentVerified = hasBasePayment(order.invoices);
-  const outstandingBalance = order.invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.remainingAmount),
-    zeroMoney()
+  const depositPaidAmount = sumDepositInvoicePaidAmount(
+    order.booking.financialCase?.invoices ?? []
   );
+  const basePaymentVerified = hasBasePayment(order.invoices, depositPaidAmount);
+  const outstandingBalance = calculateFinalBalanceDue(order.invoices, depositPaidAmount);
   const productionStatus =
     order.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
 
@@ -3814,6 +3917,7 @@ const deliveryOrderSelect = {
   deliveryPickupNotes: true,
   deliveryOverrideReason: true,
   invoices: {
+    where: FINAL_PARENT_INVOICE_WHERE,
     select: {
       id: true,
       orderId: true,
@@ -4583,9 +4687,13 @@ function isProductionReadyForDelivery(order: DeliveryOrderState): boolean {
 }
 
 function hasBasePayment(
-  invoices: Array<{ payments: Array<{ id: string }> }>
+  invoices: Array<{ payments: Array<{ id: string }> }>,
+  depositPaidAmount: Prisma.Decimal = zeroMoney()
 ): boolean {
-  return invoices.some((invoice) => invoice.payments.length > 0);
+  return (
+    invoices.some((invoice) => invoice.payments.length > 0) ||
+    depositPaidAmount.greaterThanOrEqualTo(REQUIRED_BASE_PAYMENT_AMOUNT)
+  );
 }
 
 function assertEditingReadyToStart(
@@ -4741,7 +4849,7 @@ export async function getOrderFinancialSummary(
           originalPackage: { select: { name: true, price: true } },
           finalPackage: { select: { name: true, price: true } },
           invoices: {
-            where: { parentInvoiceId: null },
+            where: FINAL_PARENT_INVOICE_WHERE,
             select: {
               id: true,
               invoiceNumber: true,
