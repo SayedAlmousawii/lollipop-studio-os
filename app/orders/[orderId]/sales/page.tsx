@@ -158,7 +158,6 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                     orderId={workspace.orderId}
                     invoice={invoice}
                     orderStatus={workspace.orderStatusRaw}
-                    selectionStatus={workspace.selectionStatus}
                     customerName={workspace.customerName}
                     jobNumber={workspace.jobNumber}
                   />

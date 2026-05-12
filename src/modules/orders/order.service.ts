@@ -489,17 +489,34 @@ export async function recordPOSPaymentForOrder(
             input.selectionStatus
           );
           if (nextSelectionStatus) {
-            await tx.order.update({
-              where: { id: orderId },
+            const shouldAdvanceOrderStatus =
+              input.selectionStatus === OrderSelectionStatus.COMPLETED &&
+              order.status === OrderStatus.WAITING_SELECTION;
+            const selectionStatusChanged =
+              nextSelectionStatus !== order.selectionStatus;
+
+            if (!selectionStatusChanged && !shouldAdvanceOrderStatus) {
+              return payment;
+            }
+
+            const updatedOrder = await tx.order.updateMany({
+              where: {
+                id: orderId,
+                selectionStatus: order.selectionStatus,
+                ...(shouldAdvanceOrderStatus ? { status: order.status } : {}),
+              },
               data: {
                 selectionStatus: nextSelectionStatus,
-                ...(input.selectionStatus === OrderSelectionStatus.COMPLETED &&
-                order.status === OrderStatus.WAITING_SELECTION
+                ...(shouldAdvanceOrderStatus
                   ? { status: OrderStatus.SELECTION_COMPLETED }
                   : {}),
               },
             });
-            if (nextSelectionStatus !== order.selectionStatus) {
+            if (updatedOrder.count === 0) {
+              throw new Error("Order selection status changed during payment recording");
+            }
+
+            if (selectionStatusChanged) {
               await recordOrderActivity(tx, {
                 orderId,
                 userId: actorContext.actorUserId ?? null,

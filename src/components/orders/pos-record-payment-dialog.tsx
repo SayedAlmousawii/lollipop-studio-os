@@ -34,7 +34,6 @@ interface POSRecordPaymentDialogProps {
   orderId: string;
   invoice: POSInvoiceSummary;
   orderStatus: OrderStatus;
-  selectionStatus: OrderSelectionStatus;
   customerName: string;
   jobNumber: string;
   trigger?: ReactNode;
@@ -144,6 +143,7 @@ function PaymentForm({
   const referenceErrorId = "pos-payment-reference-error";
   const notesErrorId = "pos-payment-notes-error";
   const selectionErrorId = "pos-payment-selection-status-error";
+  const selectionLabelId = "pos-payment-selection-status-label";
   const shouldCollectSelectionStatus = orderStatus === OrderStatus.WAITING_SELECTION;
   const selectionStatusError =
     state.errors?.selectionStatus ?? (showSelectionError ? ["Selection status is required"] : undefined);
@@ -243,7 +243,7 @@ function PaymentForm({
 
         {shouldCollectSelectionStatus ? (
           <div className="space-y-2">
-            <Label>Photo Selection Status</Label>
+            <Label id={selectionLabelId}>Photo Selection Status</Label>
             <ToggleGroup
               type="single"
               value={selectedSelectionStatus}
@@ -252,6 +252,7 @@ function PaymentForm({
                 setShowSelectionError(false);
               }}
               className="grid gap-2 sm:grid-cols-3"
+              aria-labelledby={selectionLabelId}
               aria-describedby={selectionStatusError?.length ? selectionErrorId : undefined}
             >
               <ToggleGroupItem value={OrderSelectionStatus.PENDING}>
