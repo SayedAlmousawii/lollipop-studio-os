@@ -25,7 +25,9 @@ export function DeletePendingBookingButton({
       <input type="hidden" name="bookingId" value={bookingId} />
       <DeleteButton />
       {state.errors?._global ? (
-        <p className="text-sm text-danger">{state.errors._global[0]}</p>
+        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+          {state.errors._global[0]}
+        </p>
       ) : null}
     </form>
   );

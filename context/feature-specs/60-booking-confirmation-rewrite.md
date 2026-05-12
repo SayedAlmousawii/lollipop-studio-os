@@ -112,6 +112,6 @@ Create it inline in the `recordBookingDeposit` transaction using `tx.financialCa
 9. A pending booking can be hard-deleted via a confirmed action on the booking detail page
 10. Attempting to hard-delete a non-pending booking returns an error
 11. TypeScript passes
-10. `npm run build` passes
-11. `npm run lint` passes
-12. Update `context/progress-tracker.md`
+12. `npm run build` passes
+13. `npm run lint` passes
+14. Update `context/progress-tracker.md`

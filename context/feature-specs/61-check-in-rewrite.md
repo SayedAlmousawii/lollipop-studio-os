@@ -32,16 +32,18 @@ Replace the removed "Record Base Payment" trigger with a Check In action. Check-
 ### In Scope
 
 **`checkInBooking` service function**
-New function in `booking.service.ts`. Logic:
+New function in `booking.service.ts`. All steps 1–8 must execute inside a single `db.$transaction()` — this ensures the JOB sequence increment, Job creation, Order creation, FinancialCase stamp, and status change are fully atomic. If any step fails, the entire transaction rolls back and no reference is consumed.
+
+Logic:
 1. Load and lock the booking — assert status is `CONFIRMED`, throw if not
-2. Assert no order already exists for this booking — idempotency guard
+2. Idempotency guard — if `booking.jobId` is already set OR an Order already exists for this booking, throw without creating anything
 3. Generate JOB reference using `kind = 'JOB'`, department code, and session date year (same pattern as BK generation in Spec 60)
 4. Create `Job` with the new `jobNumber`
 5. Stamp `booking.jobId` and `booking.jobNumber`
 6. Call `createOrderFromBookingWithClient` with status `WAITING_SELECTION`
 7. Load the booking's `FinancialCase` — stamp `financialCase.jobId` with the new Job id
 8. Set `booking.status = CHECKED_IN`
-9. Revalidate the booking detail page
+9. Revalidate the booking detail page (outside the transaction)
 
 **`checkInBooking` server action**
 Thin action in `app/bookings/[bookingId]/actions.ts`. Validates permission (`BOOKING_STATUS_UPDATE`), calls the service function, handles errors.

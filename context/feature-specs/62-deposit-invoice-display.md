@@ -74,7 +74,7 @@ The deposit invoice is linked to the booking via `bookingId` and has `invoiceTyp
 Read the current booking detail page layout to understand where the existing payment/financial information is shown. The Deposit Invoice section should sit in the same area, replacing any remnant of the old deposit recording UI that was removed in Spec 60.
 
 **Remaining balance calculation timing**
-Before check-in: shown as `package.price - 20 KD`. After check-in: omitted entirely on this section (the Final Invoice in Spec 63 will show the full breakdown). The component should gate this on `booking.status !== 'CHECKED_IN'`.
+Before check-in: shown as `package.price - 20 KD`. After check-in: omitted entirely on this section (the Final Invoice in Spec 63 will show the full breakdown). The component should gate this on `booking.status === 'CONFIRMED'` — explicit allowlist, not a negation. This ensures `CANCELLED` and `NO_SHOW` bookings never display a remaining balance, even though they also aren't `CHECKED_IN`.
 
 ---
 

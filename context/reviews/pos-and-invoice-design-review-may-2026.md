@@ -97,7 +97,7 @@ This is a UI-only change. Small spec scope. No schema work needed.
 
 **The problem:** In a typical package:
 
-```
+```text
 Package price (150 KD) = deliverable total (75 KD albums) + bundleAdjustment (75 KD)
 ```
 
