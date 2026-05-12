@@ -10,7 +10,15 @@ import {
   type PackageActionState,
   type PackageFormValues,
 } from "@/app/packages/actions";
-import { DialogClose } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -561,24 +569,58 @@ function SubmitButton({
   requireFamilyChangeConfirmation: boolean;
 }) {
   const { pending } = useFormStatus();
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [pendingForm, setPendingForm] = useState<HTMLFormElement | null>(null);
   const label = mode === "edit" ? "Save Changes" : "Create Package";
   const pendingLabel = mode === "edit" ? "Saving..." : "Creating...";
 
   return (
-    <Button
-      type="submit"
-      disabled={pending}
-      className="min-w-[150px]"
-      onClick={(event) => {
-        if (!requireFamilyChangeConfirmation) return;
-        const confirmed = window.confirm(
-          "This will change which session types can pick this package. Existing orders are not affected."
-        );
-        if (!confirmed) event.preventDefault();
-      }}
-    >
-      {pending ? pendingLabel : label}
-    </Button>
+    <>
+      <Button
+        type="submit"
+        disabled={pending}
+        className="min-w-[150px]"
+        onClick={(event) => {
+          if (!requireFamilyChangeConfirmation) return;
+          event.preventDefault();
+          setPendingForm(event.currentTarget.form);
+          setIsConfirmOpen(true);
+        }}
+      >
+        {pending ? pendingLabel : label}
+      </Button>
+
+      <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Package Family?</DialogTitle>
+            <DialogDescription>
+              This will change which session types can pick this package.
+              Existing orders are not affected.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setIsConfirmOpen(false);
+                pendingForm?.requestSubmit();
+              }}
+            >
+              {pending ? pendingLabel : "Confirm Change"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

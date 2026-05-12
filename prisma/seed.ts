@@ -280,7 +280,7 @@ async function main() {
     throw new Error("Cannot seed packages because KD_REGULAR_DEFAULT does not exist.");
   }
 
-  // Packages
+  // Packages intentionally preserve existing commercial copy/prices on re-seed.
   const [pkgBasic, pkgStandard, pkgPremium] = await Promise.all([
     prisma.package.upsert({
       where: { id: "pkg-basic" },
