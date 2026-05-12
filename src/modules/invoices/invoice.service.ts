@@ -355,11 +355,7 @@ export async function getInvoices({
       customerPhone: formatCustomerPhone(row.customer.phone),
       orderId: row.orderId,
       bookingId: row.bookingId,
-      referenceLabel: formatInvoiceReference(
-        row.invoiceType,
-        row.booking?.publicId,
-        displayJobNumber
-      ),
+      referenceLabel: formatInvoiceReference(row.booking?.publicId),
       totalAmount: formatMoney(row.totalAmount),
       paidAmount: formatMoney(row.paidAmount),
       remainingAmount: formatMoney(row.remainingAmount),
@@ -406,11 +402,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
     bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(
-      row.invoiceType,
-      row.booking?.publicId,
-      displayJobNumber
-    ),
+    referenceLabel: formatInvoiceReference(row.booking?.publicId),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -1121,18 +1113,10 @@ function resolveInvoiceDisplayJobNumber(invoice: {
 }
 
 function formatInvoiceReference(
-  invoiceType: InvoiceType | null | undefined,
-  bookingReference: string | null | undefined,
-  jobNumber: string | null | undefined
+  bookingReference: string | null | undefined
 ): string {
-  if (invoiceType === InvoiceType.DEPOSIT && bookingReference) {
-    return `Booking ${bookingReference}`;
-  }
-  if (jobNumber) {
-    return `Job ${jobNumber}`;
-  }
   if (bookingReference) {
-    return `Booking ${bookingReference}`;
+    return bookingReference;
   }
-  return "Reference pending";
+  return "Pending";
 }
