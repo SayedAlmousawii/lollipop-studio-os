@@ -8,7 +8,14 @@ export interface Package {
   price: string;
   priceValue: number;
   photoCount: number;
+  durationMinutes: number;
   description: string;
+  packageFamilyId: string;
+  packageFamilyName: string;
+  sessionTypeId: string;
+  sessionTypeName: string;
+  departmentId: string;
+  departmentName: string;
   bundleAdjustment: string;
   bundleAdjustmentValue: number;
   bookingCount: number;
@@ -28,6 +35,37 @@ export interface PackageOption {
   price: number;
   priceLabel: string;
   photoCount: number;
+  durationMinutes?: number;
+}
+
+export interface PackageFilters {
+  departmentId?: string;
+  sessionTypeId?: string;
+}
+
+export interface PackageTaxonomyOptions {
+  departments: Array<{
+    id: string;
+    name: string;
+    code: string;
+    sessionTypes: Array<{
+      id: string;
+      name: string;
+      code: string;
+      packageFamilies: Array<{
+        id: string;
+        name: string;
+        code: string;
+      }>;
+    }>;
+  }>;
+}
+
+export interface PackageSessionType {
+  sessionTypeId: string;
+  sessionTypeCode: string;
+  departmentId: string;
+  departmentCode: string;
 }
 
 export interface PackageItem {

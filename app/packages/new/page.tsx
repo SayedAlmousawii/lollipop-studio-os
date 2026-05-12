@@ -4,11 +4,15 @@ import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
 import { PackageForm } from "@/components/packages/package-form";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
+import { getPackageTaxonomyOptions } from "@/modules/packages/package.service";
 import { getActiveProductOptions } from "@/modules/products/product.service";
 
 export default async function NewPackagePage() {
   await requireCurrentAppUserPermission(PERMISSIONS.PACKAGE_CATALOG_MANAGE);
-  const productOptions = await getActiveProductOptions();
+  const [productOptions, taxonomyOptions] = await Promise.all([
+    getActiveProductOptions(),
+    getPackageTaxonomyOptions(),
+  ]);
 
   return (
     <PageContainer>
@@ -33,6 +37,7 @@ export default async function NewPackagePage() {
           <PackageForm
             mode="create"
             productOptions={productOptions}
+            taxonomyOptions={taxonomyOptions}
             presentation="page"
             cancelHref="/packages"
           />

@@ -5,7 +5,10 @@ import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
 import { PackageForm } from "@/components/packages/package-form";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
-import { getPackageWithItems } from "@/modules/packages/package.service";
+import {
+  getPackageTaxonomyOptions,
+  getPackageWithItems,
+} from "@/modules/packages/package.service";
 import { getActiveProductOptions } from "@/modules/products/product.service";
 
 export default async function EditPackagePage(
@@ -15,9 +18,10 @@ export default async function EditPackagePage(
 ) {
   await requireCurrentAppUserPermission(PERMISSIONS.PACKAGE_CATALOG_MANAGE);
   const { packageId } = await props.params;
-  const [packageRecord, productOptions] = await Promise.all([
+  const [packageRecord, productOptions, taxonomyOptions] = await Promise.all([
     getPackageWithItems(packageId),
     getActiveProductOptions(),
+    getPackageTaxonomyOptions(),
   ]);
 
   if (!packageRecord) notFound();
@@ -46,12 +50,17 @@ export default async function EditPackagePage(
             mode="edit"
             packageId={packageRecord.id}
             productOptions={productOptions}
+            taxonomyOptions={taxonomyOptions}
             presentation="page"
             cancelHref="/packages"
             defaultValues={{
               name: packageRecord.name,
+              departmentId: packageRecord.departmentId,
+              sessionTypeId: packageRecord.sessionTypeId,
+              packageFamilyId: packageRecord.packageFamilyId,
               price: packageRecord.priceValue.toFixed(3),
               photoCount: String(packageRecord.photoCount),
+              durationMinutes: String(packageRecord.durationMinutes),
               description: packageRecord.description,
               isActive: packageRecord.isActive ? "on" : "",
               items: packageRecord.items.map((item) => ({

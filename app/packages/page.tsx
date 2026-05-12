@@ -2,17 +2,29 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PageContainer } from "@/components/layout/page-container";
 import { PackagesTable } from "@/components/packages/packages-table";
+import { PackagesFilters } from "@/components/packages/packages-filters";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
-import { getPackages } from "@/modules/packages/package.service";
+import {
+  getPackages,
+  getPackageTaxonomyOptions,
+  parsePackageFilters,
+} from "@/modules/packages/package.service";
 
-export default async function PackagesPage() {
+export default async function PackagesPage(props: PageProps<"/packages">) {
   await requireCurrentAppUserPermission(PERMISSIONS.PACKAGE_CATALOG_MANAGE);
+  const filters = parsePackageFilters(await props.searchParams);
 
   let packages: Awaited<ReturnType<typeof getPackages>> = [];
+  let taxonomyOptions: Awaited<ReturnType<typeof getPackageTaxonomyOptions>> = {
+    departments: [],
+  };
   let fetchError = false;
 
   try {
-    packages = await getPackages();
+    [packages, taxonomyOptions] = await Promise.all([
+      getPackages(filters),
+      getPackageTaxonomyOptions(),
+    ]);
   } catch {
     fetchError = true;
   }
@@ -34,6 +46,8 @@ export default async function PackagesPage() {
             <Link href="/packages/new">Create Package</Link>
           </Button>
         </div>
+
+        <PackagesFilters taxonomyOptions={taxonomyOptions} />
 
         {fetchError ? (
           <p className="text-sm text-danger">

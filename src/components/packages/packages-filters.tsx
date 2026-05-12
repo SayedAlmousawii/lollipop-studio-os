@@ -1,7 +1,7 @@
 "use client";
 
-import { Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { PackageTaxonomyOptions } from "@/modules/packages/package.types";
 import {
   Select,
   SelectContent,
@@ -10,23 +10,71 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export function PackagesFilters() {
+interface PackagesFiltersProps {
+  taxonomyOptions: PackageTaxonomyOptions;
+}
+
+export function PackagesFilters({ taxonomyOptions }: PackagesFiltersProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const departmentId = searchParams.get("departmentId") ?? "all";
+  const sessionTypeId = searchParams.get("sessionTypeId") ?? "all";
+  const selectedDepartment = taxonomyOptions.departments.find(
+    (department) => department.id === departmentId
+  );
+  const sessionTypes = selectedDepartment?.sessionTypes ?? [];
+
+  function updateFilter(key: "departmentId" | "sessionTypeId", value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (!value || value === "all") {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+
+    if (key === "departmentId") {
+      params.delete("sessionTypeId");
+    }
+
+    const query = params.toString();
+    router.replace(query ? `/packages?${query}` : "/packages");
+  }
+
   return (
     <div className="flex flex-wrap gap-3">
-      <div className="relative min-w-48 flex-1">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" aria-hidden="true" />
-        <label htmlFor="packages-search" className="sr-only">Search packages</label>
-        <Input id="packages-search" placeholder="Search by name..." className="pl-9" />
-      </div>
-
-      <Select>
-        <SelectTrigger className="w-40" aria-label="Filter by status">
-          <SelectValue placeholder="Status" />
+      <Select
+        value={departmentId}
+        onValueChange={(value) => updateFilter("departmentId", value)}
+      >
+        <SelectTrigger className="w-48" aria-label="Filter by department">
+          <SelectValue placeholder="Department" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">All Statuses</SelectItem>
-          <SelectItem value="active">Active</SelectItem>
-          <SelectItem value="inactive">Inactive</SelectItem>
+          <SelectItem value="all">All Departments</SelectItem>
+          {taxonomyOptions.departments.map((department) => (
+            <SelectItem key={department.id} value={department.id}>
+              {department.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={sessionTypeId}
+        onValueChange={(value) => updateFilter("sessionTypeId", value)}
+        disabled={departmentId === "all"}
+      >
+        <SelectTrigger className="w-48" aria-label="Filter by session type">
+          <SelectValue placeholder="Session Type" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Session Types</SelectItem>
+          {sessionTypes.map((sessionType) => (
+            <SelectItem key={sessionType.id} value={sessionType.id}>
+              {sessionType.name}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
     </div>
