@@ -399,10 +399,6 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     row.invoiceType === InvoiceType.FINAL && row.financialCaseId
       ? await findDepositInvoiceForFinancialCase(row.financialCaseId)
       : null;
-  const depositPaidAmount = depositInvoice?.paidAmount ?? null;
-  const netRemainingAmount = depositPaidAmount
-    ? Prisma.Decimal.max(row.remainingAmount.minus(depositPaidAmount), 0)
-    : null;
 
   return {
     id: row.id,
@@ -417,8 +413,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
     depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
-    depositPaidAmount: depositPaidAmount ? formatMoney(depositPaidAmount) : null,
-    netRemainingAmount: netRemainingAmount ? formatMoney(netRemainingAmount) : null,
+    depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
     status: mapInvoiceStatus(row.status),
     isLocked: row.isLocked,
     createdAt: formatDate(row.createdAt),
@@ -611,23 +606,34 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
   });
   if (!invoice) throw new Error("Invoice not found");
 
-  const paidAmount = invoice.payments.reduce(
+  const directPaidAmount = invoice.payments.reduce(
     (sum, payment) => sum.plus(payment.amount),
     new Prisma.Decimal(0)
   );
-  const remainingAmount = Prisma.Decimal.max(invoice.totalAmount.minus(paidAmount), 0);
+  const depositCreditAmount =
+    invoice.invoiceType === InvoiceType.FINAL && invoice.financialCaseId
+      ? await getDepositCreditAmountForFinancialCase(client, invoice.financialCaseId)
+      : new Prisma.Decimal(0);
+  const effectivePaidAmount = directPaidAmount.plus(depositCreditAmount);
+  const remainingAmount = Prisma.Decimal.max(
+    invoice.totalAmount.minus(effectivePaidAmount),
+    0
+  );
   let status: InvoiceStatus =
     invoice.status === InvoiceStatus.DRAFT ? InvoiceStatus.DRAFT : InvoiceStatus.ISSUED;
-  if (paidAmount.greaterThan(0) && paidAmount.lessThan(invoice.totalAmount)) {
+  if (
+    effectivePaidAmount.greaterThan(0) &&
+    effectivePaidAmount.lessThan(invoice.totalAmount)
+  ) {
     status = InvoiceStatus.PARTIAL;
   }
-  if (paidAmount.greaterThanOrEqualTo(invoice.totalAmount)) {
+  if (effectivePaidAmount.greaterThanOrEqualTo(invoice.totalAmount)) {
     status = InvoiceStatus.PAID;
   }
 
   await client.invoice.update({
     where: { id },
-    data: { paidAmount, remainingAmount, status },
+    data: { paidAmount: directPaidAmount, remainingAmount, status },
   });
 }
 
@@ -1123,6 +1129,25 @@ function resolveInvoiceDisplayJobNumber(invoice: {
   booking: { jobNumber: string | null } | null;
 }): string | null {
   return invoice.jobNumber ?? invoice.order?.jobNumber ?? invoice.booking?.jobNumber ?? null;
+}
+
+async function getDepositCreditAmountForFinancialCase(
+  client: DbClient,
+  financialCaseId: string
+): Promise<Prisma.Decimal> {
+  const invoice = await client.invoice.findFirst({
+    where: {
+      financialCaseId,
+      invoiceType: InvoiceType.DEPOSIT,
+      parentInvoiceId: null,
+    },
+    select: {
+      paidAmount: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return invoice?.paidAmount ?? new Prisma.Decimal(0);
 }
 
 async function findDepositInvoiceForFinancialCase(

@@ -42,7 +42,6 @@ export interface InvoiceListItem {
 export interface InvoiceDetail extends InvoiceListItem {
   depositInvoiceNumber: string | null;
   depositPaidAmount: string | null;
-  netRemainingAmount: string | null;
   notes: string;
   parentInvoiceId: string | null;
   parentInvoiceNumber: string | null;

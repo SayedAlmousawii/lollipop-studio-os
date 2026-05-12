@@ -29,8 +29,6 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
   const createAdjustment = createAdjustmentInvoiceAction.bind(null, invoice.id);
   const issue = issueInvoiceAction.bind(null, invoice.id);
   const close = closeInvoiceAction.bind(null, invoice.id);
-  const displayedRemainingAmount =
-    invoice.netRemainingAmount ?? invoice.remainingAmount;
 
   return (
     <PageContainer>
@@ -57,25 +55,31 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
         <div className="grid gap-4 md:grid-cols-4">
           <Metric label="Total" value={invoice.totalAmount} />
           <Metric label="Paid" value={invoice.paidAmount} />
-          <Metric label="Remaining" value={displayedRemainingAmount} />
+          <Metric label="Remaining" value={invoice.remainingAmount} />
           <Metric label="Locked" value={invoice.isLocked ? "Yes" : "No"} />
         </div>
 
-        {invoice.depositInvoiceNumber && invoice.depositPaidAmount ? (
+        {invoice.invoiceType === "FINAL" ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Financial Breakdown</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <MoneyRow label="Total" value={invoice.totalAmount} />
+              <MoneyRow label="Invoice total" value={invoice.totalAmount} />
               <MoneyRow
-                label={`Deposit (${invoice.depositInvoiceNumber})`}
-                value={`-${invoice.depositPaidAmount}`}
+                label="Direct payments"
+                value={invoice.paidAmount}
               />
+              {invoice.depositPaidAmount ? (
+                <MoneyRow
+                  label={`Deposit credited${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
+                  value={`-${invoice.depositPaidAmount}`}
+                />
+              ) : null}
               <div className="border-t border-border pt-2">
                 <MoneyRow
                   label="Remaining balance"
-                  value={displayedRemainingAmount}
+                  value={invoice.remainingAmount}
                   strong
                 />
               </div>
