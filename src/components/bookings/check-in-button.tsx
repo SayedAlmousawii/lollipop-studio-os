@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef } from "react";
 import { useFormStatus } from "react-dom";
 import {
   checkInBookingAction,
@@ -17,9 +17,32 @@ export function CheckInButton({ bookingId }: CheckInButtonProps) {
     CheckInBookingActionState,
     FormData
   >(checkInBookingAction, {});
+  const allowSubmitRef = useRef(false);
 
   return (
-    <form action={formAction} className="space-y-2">
+    <form
+      action={formAction}
+      className="space-y-2"
+      onSubmit={(event) => {
+        if (allowSubmitRef.current) {
+          allowSubmitRef.current = false;
+          return;
+        }
+
+        event.preventDefault();
+
+        if (
+          !window.confirm(
+            "Check in this booking? This creates the JOB reference and order and cannot be undone."
+          )
+        ) {
+          return;
+        }
+
+        allowSubmitRef.current = true;
+        event.currentTarget.requestSubmit();
+      }}
+    >
       <input type="hidden" name="bookingId" value={bookingId} />
       <SubmitButton />
       {state.errors?._global ? (
@@ -35,19 +58,7 @@ function SubmitButton() {
   const { pending } = useFormStatus();
 
   return (
-    <Button
-      type="submit"
-      disabled={pending}
-      onClick={(event) => {
-        if (
-          !window.confirm(
-            "Check in this booking? This creates the JOB reference and order and cannot be undone."
-          )
-        ) {
-          event.preventDefault();
-        }
-      }}
-    >
+    <Button type="submit" disabled={pending}>
       {pending ? "Checking in..." : "Check In"}
     </Button>
   );
