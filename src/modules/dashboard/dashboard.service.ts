@@ -63,7 +63,7 @@ function mapScheduleStatus(status: BookingStatus): ScheduleStatus {
     case BookingStatus.PENDING:
       return "Pending";
     case BookingStatus.CONFIRMED:
-    case BookingStatus.COMPLETED:
+    case BookingStatus.CHECKED_IN:
       return "Confirmed";
     case BookingStatus.CANCELLED:
     case BookingStatus.NO_SHOW:

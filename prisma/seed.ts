@@ -486,8 +486,8 @@ async function main() {
     where: { id: "inv-001" },
     update: {
       publicId: "INV-PUB-00001",
-      jobId: booking1.jobId,
-      jobNumber: booking1.jobNumber,
+      jobId: job1.id,
+      jobNumber: job1.jobNumber,
       bookingId: booking1.id,
       orderId: null,
       customerId: customerFatima.id,
@@ -501,8 +501,8 @@ async function main() {
     create: {
       id: "inv-001",
       publicId: "INV-PUB-00001",
-      jobId: booking1.jobId,
-      jobNumber: booking1.jobNumber,
+      jobId: job1.id,
+      jobNumber: job1.jobNumber,
       bookingId: booking1.id,
       customerId: customerFatima.id,
       invoiceNumber: "INV-00001",
@@ -519,8 +519,8 @@ async function main() {
     where: { id: "pay-001" },
     update: {
       publicId: "PAY-00001",
-      jobId: booking1.jobId,
-      jobNumber: booking1.jobNumber,
+      jobId: job1.id,
+      jobNumber: job1.jobNumber,
       invoiceId: invoice1.id,
       amount: 20,
       method: PaymentMethod.KNET,
@@ -530,8 +530,8 @@ async function main() {
     create: {
       id: "pay-001",
       publicId: "PAY-00001",
-      jobId: booking1.jobId,
-      jobNumber: booking1.jobNumber,
+      jobId: job1.id,
+      jobNumber: job1.jobNumber,
       invoiceId: invoice1.id,
       amount: 20,
       method: PaymentMethod.KNET,
@@ -589,7 +589,7 @@ async function main() {
       sessionTime: "11:00",
       sessionType: SessionType.FAMILY,
       departmentId: kidsDepartment.id,
-      status: BookingStatus.COMPLETED,
+      status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,
       notes: null,
       themes: {
@@ -608,7 +608,7 @@ async function main() {
       sessionTime: "11:00",
       sessionType: SessionType.FAMILY,
       departmentId: kidsDepartment.id,
-      status: BookingStatus.COMPLETED,
+      status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,
       themes: {
         create: [{ themeName: "Classic Family" }],
@@ -621,8 +621,8 @@ async function main() {
     where: { id: "order-003" },
     update: {
       publicId: "ORD-00001",
-      jobId: booking3.jobId,
-      jobNumber: booking3.jobNumber,
+      jobId: job3.id,
+      jobNumber: job3.jobNumber,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
       originalPackageId: pkgPremium.id,
@@ -635,8 +635,8 @@ async function main() {
     create: {
       id: "order-003",
       publicId: "ORD-00001",
-      jobId: booking3.jobId,
-      jobNumber: booking3.jobNumber,
+      jobId: job3.id,
+      jobNumber: job3.jobNumber,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
       originalPackageId: pkgPremium.id,
@@ -651,7 +651,7 @@ async function main() {
   await prisma.editingJob.upsert({
     where: { orderId: order3.id },
     update: {
-      jobId: booking3.jobId,
+      jobId: job3.id,
       assignedEditorId: editor.id,
       status: OrderEditingStatus.IN_PROGRESS,
       editedPhotoCount: 32,
@@ -662,7 +662,7 @@ async function main() {
     },
     create: {
       orderId: order3.id,
-      jobId: booking3.jobId,
+      jobId: job3.id,
       assignedEditorId: editor.id,
       status: OrderEditingStatus.IN_PROGRESS,
       editedPhotoCount: 32,
@@ -676,12 +676,12 @@ async function main() {
   await prisma.productionJob.upsert({
     where: { orderId: order3.id },
     update: {
-      jobId: booking3.jobId,
+      jobId: job3.id,
       status: OrderProductionStatus.WAITING_FOR_EDITING,
     },
     create: {
       orderId: order3.id,
-      jobId: booking3.jobId,
+      jobId: job3.id,
       status: OrderProductionStatus.WAITING_FOR_EDITING,
     },
   });
@@ -691,8 +691,8 @@ async function main() {
     where: { id: "inv-003" },
     update: {
       publicId: "INV-PUB-00002",
-      jobId: booking3.jobId,
-      jobNumber: booking3.jobNumber,
+      jobId: job3.id,
+      jobNumber: job3.jobNumber,
       orderId: order3.id,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
@@ -706,8 +706,8 @@ async function main() {
     create: {
       id: "inv-003",
       publicId: "INV-PUB-00002",
-      jobId: booking3.jobId,
-      jobNumber: booking3.jobNumber,
+      jobId: job3.id,
+      jobNumber: job3.jobNumber,
       orderId: order3.id,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
@@ -726,8 +726,8 @@ async function main() {
       where: { id: "pay-003a" },
       update: {
         publicId: "PAY-00002",
-        jobId: booking3.jobId,
-        jobNumber: booking3.jobNumber,
+        jobId: job3.id,
+        jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,
         amount: 20,
         method: PaymentMethod.CASH,
@@ -736,8 +736,8 @@ async function main() {
       create: {
         id: "pay-003a",
         publicId: "PAY-00002",
-        jobId: booking3.jobId,
-        jobNumber: booking3.jobNumber,
+        jobId: job3.id,
+        jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,
         amount: 20,
         method: PaymentMethod.CASH,
@@ -748,23 +748,23 @@ async function main() {
       where: { id: "pay-003b" },
       update: {
         publicId: "PAY-00003",
-        jobId: booking3.jobId,
-        jobNumber: booking3.jobNumber,
+        jobId: job3.id,
+        jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,
         amount: 380,
         method: PaymentMethod.KNET,
-        paymentType: PaymentType.BASE,
+        paymentType: PaymentType.FINAL,
         notes: "Full session payment",
       },
       create: {
         id: "pay-003b",
         publicId: "PAY-00003",
-        jobId: booking3.jobId,
-        jobNumber: booking3.jobNumber,
+        jobId: job3.id,
+        jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,
         amount: 380,
         method: PaymentMethod.KNET,
-        paymentType: PaymentType.BASE,
+        paymentType: PaymentType.FINAL,
         notes: "Full session payment",
       },
     }),
@@ -799,16 +799,18 @@ async function main() {
     )
   `;
   await prisma.$executeRaw`
-    INSERT INTO "identifier_sequences" ("scope", "year", "lastValue", "createdAt", "updatedAt")
+    INSERT INTO "identifier_sequences" ("scope", "year", "kind", "lastValue", "createdAt", "updatedAt")
     SELECT
       split_part("jobNumber", '-', 1),
       split_part("jobNumber", '-', 2)::INTEGER,
+      'JOB',
       MAX(split_part("jobNumber", '-', 3)::INTEGER),
       CURRENT_TIMESTAMP,
       CURRENT_TIMESTAMP
-    FROM "bookings"
+    FROM "jobs"
+    WHERE "jobNumber" IS NOT NULL
     GROUP BY split_part("jobNumber", '-', 1), split_part("jobNumber", '-', 2)::INTEGER
-    ON CONFLICT ("scope", "year") DO UPDATE SET
+    ON CONFLICT ("scope", "year", "kind") DO UPDATE SET
       "lastValue" = GREATEST("identifier_sequences"."lastValue", EXCLUDED."lastValue"),
       "updatedAt" = CURRENT_TIMESTAMP
   `;

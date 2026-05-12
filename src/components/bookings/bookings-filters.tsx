@@ -64,7 +64,7 @@ export function BookingsFilters({ packageOptions }: BookingsFiltersProps) {
           <SelectItem value="all">All Statuses</SelectItem>
           <SelectItem value="PENDING">Pending</SelectItem>
           <SelectItem value="CONFIRMED">Confirmed</SelectItem>
-          <SelectItem value="COMPLETED">Completed</SelectItem>
+          <SelectItem value="CHECKED_IN">Checked In</SelectItem>
           <SelectItem value="CANCELLED">Cancelled</SelectItem>
         </SelectContent>
       </Select>

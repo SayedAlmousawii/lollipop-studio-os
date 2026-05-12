@@ -187,7 +187,7 @@ export async function getCustomerById(
 
   const bookings = row.bookings.map((booking) => ({
     id: booking.id,
-    jobNumber: booking.jobNumber,
+    jobNumber: booking.jobNumber ?? "Pending",
     sessionDate: formatSessionDate(booking.sessionDate),
     sessionType: formatEnum(booking.sessionType),
     department: booking.department.name,
@@ -675,8 +675,8 @@ function mapBookingStatus(status: BookingStatus): BookingStatusLabel {
       return "Pending";
     case BookingStatus.CONFIRMED:
       return "Confirmed";
-    case BookingStatus.COMPLETED:
-      return "Completed";
+    case BookingStatus.CHECKED_IN:
+      return "Checked In";
     case BookingStatus.CANCELLED:
       return "Cancelled";
     case BookingStatus.NO_SHOW:
@@ -716,7 +716,7 @@ function mapOrderStatus(status: OrderStatus): OrderStatusLabel {
 function buildRecentHistory(
   bookings: Array<{
     id: string;
-    jobNumber: string;
+    jobNumber: string | null;
     sessionDate: Date;
     status: BookingStatus;
   }>,
@@ -730,8 +730,8 @@ function buildRecentHistory(
   return [
     ...bookings.map((booking) => ({
       id: `booking-${booking.id}`,
-      label: `Job ${booking.jobNumber}`,
-      detail: `Job ${booking.jobNumber} · ${mapBookingStatus(booking.status)}`,
+      label: `Job ${booking.jobNumber ?? "Pending"}`,
+      detail: `Job ${booking.jobNumber ?? "Pending"} · ${mapBookingStatus(booking.status)}`,
       date: formatSessionDate(booking.sessionDate),
       sortDate: booking.sessionDate,
       href: `/bookings/${booking.id}`,

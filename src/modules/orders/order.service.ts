@@ -669,7 +669,7 @@ export async function getOrderEditingWorkflowById(
                 id: true,
                 remainingAmount: true,
                 payments: {
-                  where: { paymentType: PaymentType.BASE },
+                  where: { paymentType: PaymentType.FINAL },
                   select: { id: true },
                   take: 1,
                 },
@@ -1477,7 +1477,7 @@ export async function updateOrderEditingWorkflow(
               select: {
                 remainingAmount: true,
                 payments: {
-                  where: { paymentType: PaymentType.BASE },
+                  where: { paymentType: PaymentType.FINAL },
                   select: { id: true },
                   take: 1,
                 },
@@ -2368,6 +2368,9 @@ export async function createOrderFromBookingWithClient(
   }
   if (!booking.package) {
     throw new Error("Booking package is required to create an order");
+  }
+  if (!booking.jobId || !booking.jobNumber) {
+    throw new Error("Booking must have a job before an order can be created");
   }
   if (booking.order) {
     await client.editingJob.upsert({

@@ -398,7 +398,7 @@ export async function getInvoices({
 
   return rows.map((row) => ({
     id: row.id,
-    jobNumber: row.jobNumber,
+    jobNumber: row.jobNumber ?? "Pending",
     invoiceNumber: row.invoiceNumber,
     customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
@@ -442,7 +442,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
 
   return {
     id: row.id,
-    jobNumber: row.jobNumber,
+    jobNumber: row.jobNumber ?? "Pending",
     invoiceNumber: row.invoiceNumber,
     customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
@@ -460,7 +460,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     payments: row.payments.map((payment) => ({
       id: payment.id,
       publicId: payment.publicId,
-      jobNumber: payment.jobNumber,
+      jobNumber: payment.jobNumber ?? "Pending",
       amount: formatMoney(payment.amount),
       method: formatEnum(payment.method),
       paymentType: formatEnum(payment.paymentType),
@@ -768,13 +768,13 @@ async function findPrimaryWorkflowInvoiceForBooking(
   input: {
     bookingId: string;
     orderId: string | null;
-    jobId: string;
+    jobId: string | null;
   }
 ): Promise<{ id: string; status: InvoiceStatus } | null> {
   const invoices = await client.invoice.findMany({
     where: {
       parentInvoiceId: null,
-      jobId: input.jobId,
+      ...(input.jobId ? { jobId: input.jobId } : {}),
       OR: [
         { bookingId: input.bookingId },
         ...(input.orderId ? [{ orderId: input.orderId }] : []),

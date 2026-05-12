@@ -19,13 +19,13 @@ function mapSessionType(
 }
 
 function mapBookingStatus(
-  status: "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"
+  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CANCELLED" | "NO_SHOW"
 ): "Pending" | "Confirmed" | "Cancelled" {
   switch (status) {
     case "PENDING":
       return "Pending";
     case "CONFIRMED":
-    case "COMPLETED":
+    case "CHECKED_IN":
       return "Confirmed";
     case "CANCELLED":
     case "NO_SHOW":

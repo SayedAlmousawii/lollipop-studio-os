@@ -220,7 +220,7 @@ export async function recordPOSPaymentAction(
   const parsed = recordPaymentSchema.safeParse({
     amount: formData.get("amount"),
     method: formData.get("method"),
-    paymentType: PaymentType.BASE,
+    paymentType: PaymentType.FINAL,
     paidAt,
     reference: formData.get("reference") || undefined,
     notes: formData.get("notes") || undefined,

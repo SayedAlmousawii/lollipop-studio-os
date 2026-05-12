@@ -46,7 +46,7 @@ export interface BookingPhotographerOption {
 export type BookingStatusFilter =
   | "PENDING"
   | "CONFIRMED"
-  | "COMPLETED"
+  | "CHECKED_IN"
   | "CANCELLED";
 
 export type BookingDateFilter = "today" | "week" | "month";
@@ -117,7 +117,7 @@ export interface BookingDetail {
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
   [BookingStatus.PENDING]: [BookingStatus.CONFIRMED, BookingStatus.CANCELLED],
   [BookingStatus.CONFIRMED]: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW],
-  [BookingStatus.COMPLETED]: [],
+  [BookingStatus.CHECKED_IN]: [],
   [BookingStatus.CANCELLED]: [],
   [BookingStatus.NO_SHOW]: [],
 };
@@ -125,7 +125,7 @@ const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
 const BOOKING_STATUS_FILTERS = new Set<BookingStatusFilter>([
   "PENDING",
   "CONFIRMED",
-  "COMPLETED",
+  "CHECKED_IN",
   "CANCELLED",
 ]);
 
@@ -195,7 +195,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
 
   return rows.map((row) => ({
     id: row.id,
-    jobNumber: row.jobNumber,
+    jobNumber: row.jobNumber ?? "Pending",
     customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
@@ -340,8 +340,8 @@ export async function updateBooking(
         if (!booking) {
           throw new Error("Booking not found");
         }
-        if (booking.status === BookingStatus.COMPLETED) {
-          throw new Error("Completed bookings cannot be edited");
+        if (booking.status === BookingStatus.CHECKED_IN) {
+          throw new Error("Checked-in bookings cannot be edited");
         }
         if (
           booking.status === BookingStatus.CANCELLED ||
@@ -375,10 +375,12 @@ export async function updateBooking(
           };
         });
 
-        await tx.job.update({
-          where: { id: booking.jobId },
-          data: { customerId: data.customerId },
-        });
+        if (booking.jobId) {
+          await tx.job.update({
+            where: { id: booking.jobId },
+            data: { customerId: data.customerId },
+          });
+        }
 
         return tx.booking.update({
           where: { id: bookingId },
@@ -409,8 +411,7 @@ export async function updateBooking(
 
 export async function updateBookingStatus(
   bookingId: string,
-  nextStatus: UpdateBookingStatusInput["nextStatus"],
-  actorContext: ActorContext = {}
+  nextStatus: UpdateBookingStatusInput["nextStatus"]
 ) {
   const data = updateBookingStatusSchema.parse({ bookingId, nextStatus });
 
@@ -457,15 +458,6 @@ export async function updateBookingStatus(
           where: { id: data.bookingId },
           data: { status: data.nextStatus },
         });
-
-        if (data.nextStatus === BookingStatus.COMPLETED) {
-          await createOrderFromBookingWithClient(
-            tx,
-            data.bookingId,
-            OrderStatus.ACTIVE,
-            actorContext
-          );
-        }
 
         if (data.nextStatus === BookingStatus.NO_SHOW) {
           await tx.invoice.updateMany({
@@ -603,13 +595,13 @@ export async function recordBasePaymentAndComplete(
         const payment = await recordPaymentWithClient(tx, invoice.id, {
           amount: data.amount,
           method: data.method,
-          paymentType: PaymentType.BASE,
+          paymentType: PaymentType.FINAL,
           notes: data.notes,
         }, actorContext);
 
         await tx.booking.update({
           where: { id: booking.id },
-          data: { status: BookingStatus.COMPLETED },
+          data: { status: BookingStatus.CHECKED_IN },
         });
 
         const order = await createOrderFromBookingWithClient(
@@ -631,7 +623,7 @@ export async function recordBasePaymentAndComplete(
             paymentId: payment.id,
             amount: new Prisma.Decimal(data.amount).toFixed(3),
             method: data.method,
-            paymentType: PaymentType.BASE,
+            paymentType: PaymentType.FINAL,
             notes: data.notes ?? null,
           },
         });
@@ -640,13 +632,13 @@ export async function recordBasePaymentAndComplete(
           orderId: order.id,
           userId: actorContext.actorUserId ?? null,
           type: OrderActivityType.NOTE_ADDED,
-          title: "Booking completed",
+          title: "Booking checked in",
           description:
-            "Booking moved from Confirmed to Completed after the base payment was recorded.",
+            "Booking moved from Confirmed to Checked In after the base payment was recorded.",
           metadata: {
             bookingId: booking.id,
             previousStatus: BookingStatus.CONFIRMED,
-            nextStatus: BookingStatus.COMPLETED,
+            nextStatus: BookingStatus.CHECKED_IN,
           },
         });
 
@@ -908,15 +900,15 @@ function formatSessionDate(date: Date): string {
 }
 
 function mapBookingStatus(
-  status: "PENDING" | "CONFIRMED" | "COMPLETED" | "CANCELLED" | "NO_SHOW"
+  status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CANCELLED" | "NO_SHOW"
 ): BookingStatusLabel {
   switch (status) {
     case "PENDING":
       return "Pending";
     case "CONFIRMED":
       return "Confirmed";
-    case "COMPLETED":
-      return "Completed";
+    case "CHECKED_IN":
+      return "Checked In";
     case "CANCELLED":
       return "Cancelled";
     case "NO_SHOW":
@@ -929,7 +921,7 @@ function mapEditableBooking(
 ): EditableBooking {
   return {
     id: row.id,
-    jobNumber: row.jobNumber,
+    jobNumber: row.jobNumber ?? "Pending",
     customerId: row.customerId,
     customerPhone: formatCustomerPhone(row.customer.phone),
     packageId: row.package?.id ?? "",
@@ -950,7 +942,7 @@ function mapEditableBooking(
       notes: theme.notes ?? "",
     })),
     canEdit:
-      row.status !== BookingStatus.COMPLETED &&
+      row.status !== BookingStatus.CHECKED_IN &&
       row.status !== BookingStatus.CANCELLED &&
       row.status !== BookingStatus.NO_SHOW,
   };
@@ -966,7 +958,7 @@ function mapBookingDetail(
 
   return {
     id: row.id,
-    jobNumber: row.jobNumber,
+    jobNumber: row.jobNumber ?? "Pending",
     customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
@@ -984,7 +976,7 @@ function mapBookingDetail(
       notes: theme.notes ?? "",
     })),
     canEdit:
-      row.status !== BookingStatus.COMPLETED &&
+      row.status !== BookingStatus.CHECKED_IN &&
       row.status !== BookingStatus.CANCELLED &&
       row.status !== BookingStatus.NO_SHOW,
     canRecordDeposit: row.status === BookingStatus.PENDING && !hasDeposit,
