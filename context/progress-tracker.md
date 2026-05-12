@@ -37,6 +37,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 63 follow-up: POS totals now label the no-invoice state as a preview, and editing-start gating now treats the paid 20 KD deposit as satisfying the base-payment prerequisite when no Final Invoice payment exists yet.
 - Feature 63: Final invoice POS — order invoice creation/sync now targets a fresh FinancialCase-scoped `InvoiceType.FINAL`, POS displays the Deposit Invoice deduction by number without mutating final invoice totals, final payments use `PaymentType.FINAL`, package price snapshots are set through selection, and old invoice promotion helpers were removed.
 - Feature 62: Deposit invoice display — booking detail now renders the locked Deposit Invoice from the booking read model, shows paid deposit context plus live package price and remaining balance only for confirmed bookings, and omits the section when no deposit invoice exists.
 - Feature 61: Check-in rewrite — confirmed bookings now expose a Check In action that creates the JOB reference, Job, Order, FinancialCase job stamp, and `CHECKED_IN` status atomically; checked-in detail pages show both BK and JOB references plus the order link.

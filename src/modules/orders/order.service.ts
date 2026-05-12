@@ -125,6 +125,7 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
   "CLOSED",
 ]);
 const MAX_CUSTOMER_ORDER_HISTORY_LIMIT = 100;
+const REQUIRED_BASE_PAYMENT_AMOUNT = new Prisma.Decimal(20);
 const FINAL_PARENT_INVOICE_WHERE = {
   parentInvoiceId: null,
   invoiceType: InvoiceType.FINAL,
@@ -1564,10 +1565,13 @@ export async function updateOrderEditingWorkflow(
           throw new Error("Delivered orders cannot be moved through editing");
         }
 
-        const basePaymentVerified = hasBasePayment(order.invoices);
+        const depositPaidAmount = sumDepositInvoicePaidAmount(
+          order.booking.financialCase?.invoices ?? []
+        );
+        const basePaymentVerified = hasBasePayment(order.invoices, depositPaidAmount);
         const outstandingBalance = calculateFinalBalanceDue(
           order.invoices,
-          sumDepositInvoicePaidAmount(order.booking.financialCase?.invoices ?? [])
+          depositPaidAmount
         );
         const now = new Date();
         let editingJob = order.editingJob;
@@ -3758,11 +3762,11 @@ function mapOrderEditingWorkflow(
     targetPhotoCount > 0
       ? Math.min(Math.round((editedPhotoCount / targetPhotoCount) * 100), 100)
       : 0;
-  const basePaymentVerified = hasBasePayment(order.invoices);
-  const outstandingBalance = calculateFinalBalanceDue(
-    order.invoices,
-    sumDepositInvoicePaidAmount(order.booking.financialCase?.invoices ?? [])
+  const depositPaidAmount = sumDepositInvoicePaidAmount(
+    order.booking.financialCase?.invoices ?? []
   );
+  const basePaymentVerified = hasBasePayment(order.invoices, depositPaidAmount);
+  const outstandingBalance = calculateFinalBalanceDue(order.invoices, depositPaidAmount);
   const productionStatus =
     order.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
 
@@ -4683,9 +4687,13 @@ function isProductionReadyForDelivery(order: DeliveryOrderState): boolean {
 }
 
 function hasBasePayment(
-  invoices: Array<{ payments: Array<{ id: string }> }>
+  invoices: Array<{ payments: Array<{ id: string }> }>,
+  depositPaidAmount: Prisma.Decimal = zeroMoney()
 ): boolean {
-  return invoices.some((invoice) => invoice.payments.length > 0);
+  return (
+    invoices.some((invoice) => invoice.payments.length > 0) ||
+    depositPaidAmount.greaterThanOrEqualTo(REQUIRED_BASE_PAYMENT_AMOUNT)
+  );
 }
 
 function assertEditingReadyToStart(

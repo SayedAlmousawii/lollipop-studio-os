@@ -130,7 +130,11 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                 value={`-${formatKD(invoice.depositPaidAmount)}`}
               />
             ) : null}
-            <MoneyRow label="Final invoice total" value={formatKD(totalAmount)} strong />
+            <MoneyRow
+              label={invoice ? "Final invoice total" : "Preview total"}
+              value={formatKD(totalAmount)}
+              strong
+            />
           </div>
 
           {invoice ? (
