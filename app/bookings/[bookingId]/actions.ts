@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -25,11 +26,12 @@ export async function checkInBookingAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
+  let result: Awaited<ReturnType<typeof checkInBooking>>;
   try {
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.BOOKING_STATUS_UPDATE
     );
-    await checkInBooking(parsed.data, {
+    result = await checkInBooking(parsed.data, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
@@ -45,5 +47,5 @@ export async function checkInBookingAction(
   revalidatePath("/orders");
   revalidatePath("/invoices");
 
-  return { success: "Booking checked in." };
+  redirect(`/orders/${result.orderId}/sales`);
 }

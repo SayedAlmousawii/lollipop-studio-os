@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { useActionState } from "react";
+import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { ArrowRightLeft, Lock, PackageOpen } from "lucide-react";
 import {
@@ -146,6 +146,7 @@ export function POSPhotoCountCard({ workspace }: POSPackageCompositionProps) {
             <div className="space-y-2">
               <Label htmlFor="selectedPhotoCount">Selected photos</Label>
               <Input
+                key={`${workspace.currentPackage?.id ?? "none"}:${workspace.selectedPhotoCount}`}
                 id="selectedPhotoCount"
                 name="selectedPhotoCount"
                 type="number"

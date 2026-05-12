@@ -393,7 +393,10 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const originalPackage = order.originalPackage;
   const packageItems = currentPackage ? mapPOSPackageItems(currentPackage.items) : [];
   const includedPhotoCount = currentPackage?.photoCount ?? originalPackage?.photoCount ?? 0;
-  const selectedPhotoCount = order.selectedPhotoCount ?? includedPhotoCount;
+  const selectedPhotoCount =
+    order.selectedPhotoCount && order.selectedPhotoCount > 0
+      ? order.selectedPhotoCount
+      : includedPhotoCount;
   const extraPhotoCount = Math.max(selectedPhotoCount - includedPhotoCount, 0);
   const extraPhotoTotalDecimal = extraPhotoOption.price.mul(extraPhotoCount);
   const addOns = mapPOSAddOns(order.orderAddOns);
@@ -877,7 +880,7 @@ export async function updateOrderPackage(
           }),
           tx.package.findUnique({
             where: { id: data.packageId },
-            select: { id: true, name: true, price: true, isActive: true },
+            select: { id: true, name: true, price: true, photoCount: true, isActive: true },
           }),
         ]);
 
@@ -909,6 +912,12 @@ export async function updateOrderPackage(
           data: {
             finalPackage: { connect: { id: selectedPackage.id } },
             finalPackagePriceSnapshot: selectedPackage.price,
+            selectedPhotoCount:
+              order.selectedPhotoCount === null ||
+              order.selectedPhotoCount === 0 ||
+              order.selectedPhotoCount === previousIncludedPhotoCount
+                ? selectedPackage.photoCount
+                : undefined,
           },
         });
 
@@ -2421,7 +2430,7 @@ export async function createOrderFromBookingWithClient(
       jobId: true,
       jobNumber: true,
       customer: { select: { id: true } },
-      package: { select: { id: true, price: true } },
+      package: { select: { id: true, price: true, photoCount: true } },
       order: { select: { id: true } },
     },
   });
@@ -2465,7 +2474,7 @@ export async function createOrderFromBookingWithClient(
       originalPackageId: booking.package.id,
       finalPackageId: booking.package.id,
       originalPackagePriceSnapshot: booking.package.price,
-      selectedPhotoCount: 0,
+      selectedPhotoCount: booking.package.photoCount,
       status: initialStatus,
       editingJob: {
         create: {
