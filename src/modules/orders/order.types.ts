@@ -426,6 +426,8 @@ export interface POSInvoiceSummary {
   extraPhotoTotal: number;
   invoiceTotal: number;
   paidAmount: number;
+  depositInvoiceNumber: string | null;
+  depositPaidAmount: number;
   remainingAmount: number;
   lineItems: POSInvoiceLineItem[];
 }

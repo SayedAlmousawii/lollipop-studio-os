@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 63 final invoice POS is complete: POS now creates and syncs a fresh `InvoiceType.FINAL` invoice scoped by `FinancialCase`, keeps Deposit Invoice records separate, displays the paid deposit deduction by invoice number in the sales summary, and records final-balance payments as `PaymentType.FINAL`.
 - Feature 62 deposit invoice display is complete: booking detail pages now show the locked Deposit Invoice with BK reference, paid deposit amount, live package context, and remaining-at-session only while the booking is `CONFIRMED`.
 - Feature 61 check-in rewrite is complete: confirmed bookings now check in without payment, atomically generate a `JOB-DEPT-YEAR-XXXXX` reference, create the Job and `WAITING_SELECTION` Order, stamp the FinancialCase, and move the booking to `CHECKED_IN`.
 - Feature 60 booking confirmation rewrite is complete: pending bookings now remain reference-free, deposit recording atomically generates the BK reference, creates the FinancialCase, issues/pays/closes the locked Deposit Invoice, and confirmed bookings no longer use the removed base-payment-at-booking flow.
@@ -23,7 +24,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Clerk owns auth/session state; Prisma `User` is the source of truth for Studio OS staff role and internal identity. `User.clerkId` is a nullable unique link, first resolved by matching Clerk primary email to an unlinked Prisma user.
 - Auth centralised: server-side lookup in `src/lib/auth`; permission checks in `src/lib/permissions` backed by Prisma roles (not Clerk roles). Unlinked Clerk users redirect to `/unauthorized`. Dashboard/app routes gated by Next.js 16 `proxy.ts`.
 - High-risk server actions pass `actorUserId` into service-layer operations for order activity and delivery-completion attribution.
-- Session workflow: one rolling primary invoice per job thread; duplicate primary workflow invoices are blocked by service validation and partial unique indexes.
+- Session workflow: Deposit and Final invoices are separate FinancialCase-scoped records; the Final Invoice is the rolling order invoice, while the locked Deposit Invoice is read-only context for deduction display.
 - `Order.deliveryCompletedById` (FK to `User`) is the active delivery actor reference; `deliveryCompletedBy` (free-text) is a non-authoritative legacy fallback only.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Job/BK reference generation self-heals if `identifier_sequences` falls behind existing canonical `Job.jobNumber` or `Booking.publicId` rows.
@@ -36,6 +37,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 63: Final invoice POS — order invoice creation/sync now targets a fresh FinancialCase-scoped `InvoiceType.FINAL`, POS displays the Deposit Invoice deduction by number without mutating final invoice totals, final payments use `PaymentType.FINAL`, package price snapshots are set through selection, and old invoice promotion helpers were removed.
 - Feature 62: Deposit invoice display — booking detail now renders the locked Deposit Invoice from the booking read model, shows paid deposit context plus live package price and remaining balance only for confirmed bookings, and omits the section when no deposit invoice exists.
 - Feature 61: Check-in rewrite — confirmed bookings now expose a Check In action that creates the JOB reference, Job, Order, FinancialCase job stamp, and `CHECKED_IN` status atomically; checked-in detail pages show both BK and JOB references plus the order link.
 - Feature 60: Booking confirmation rewrite — pending bookings no longer consume references or create jobs; deposit recording creates the BK reference, FinancialCase, locked closed Deposit Invoice, and deposit payment atomically; base-payment booking flow was removed; pending bookings can be hard-deleted.
