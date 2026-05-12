@@ -338,28 +338,36 @@ export async function getInvoices({
         include: {
           customer: { select: { phone: true } },
           order: { select: { jobNumber: true } },
-          booking: { select: { jobNumber: true } },
+          booking: { select: { publicId: true, jobNumber: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
     "Failed to fetch invoices"
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    jobNumber: row.jobNumber ?? "Pending",
-    invoiceNumber: row.invoiceNumber,
-    customerPhone: formatCustomerPhone(row.customer.phone),
-    orderId: row.orderId,
-    bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.jobNumber),
-    totalAmount: formatMoney(row.totalAmount),
-    paidAmount: formatMoney(row.paidAmount),
-    remainingAmount: formatMoney(row.remainingAmount),
-    status: mapInvoiceStatus(row.status),
-    isLocked: row.isLocked,
-    createdAt: formatDate(row.createdAt),
-  }));
+  return rows.map((row) => {
+    const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+
+    return {
+      id: row.id,
+      jobNumber: displayJobNumber ?? "Pending",
+      invoiceNumber: row.invoiceNumber,
+      customerPhone: formatCustomerPhone(row.customer.phone),
+      orderId: row.orderId,
+      bookingId: row.bookingId,
+      referenceLabel: formatInvoiceReference(
+        row.invoiceType,
+        row.booking?.publicId,
+        displayJobNumber
+      ),
+      totalAmount: formatMoney(row.totalAmount),
+      paidAmount: formatMoney(row.paidAmount),
+      remainingAmount: formatMoney(row.remainingAmount),
+      status: mapInvoiceStatus(row.status),
+      isLocked: row.isLocked,
+      createdAt: formatDate(row.createdAt),
+    };
+  });
 }
 
 export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> {
@@ -374,7 +382,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
         include: {
           customer: { select: { phone: true } },
           order: { select: { jobNumber: true } },
-          booking: { select: { jobNumber: true } },
+          booking: { select: { publicId: true, jobNumber: true } },
           parentInvoice: { select: { id: true, invoiceNumber: true } },
           payments: { orderBy: { paidAt: "desc" } },
           lineItems: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
@@ -389,14 +397,20 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
 
   if (!row) return null;
 
+  const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+
   return {
     id: row.id,
-    jobNumber: row.jobNumber ?? "Pending",
+    jobNumber: displayJobNumber ?? "Pending",
     invoiceNumber: row.invoiceNumber,
     customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
     bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.jobNumber),
+    referenceLabel: formatInvoiceReference(
+      row.invoiceType,
+      row.booking?.publicId,
+      displayJobNumber
+    ),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
@@ -1098,9 +1112,27 @@ function formatEnum(value: string): string {
     .join(" ");
 }
 
-function formatInvoiceReference(jobNumber: string | null | undefined): string {
+function resolveInvoiceDisplayJobNumber(invoice: {
+  jobNumber: string | null;
+  order: { jobNumber: string | null } | null;
+  booking: { jobNumber: string | null } | null;
+}): string | null {
+  return invoice.jobNumber ?? invoice.order?.jobNumber ?? invoice.booking?.jobNumber ?? null;
+}
+
+function formatInvoiceReference(
+  invoiceType: InvoiceType | null | undefined,
+  bookingReference: string | null | undefined,
+  jobNumber: string | null | undefined
+): string {
+  if (invoiceType === InvoiceType.DEPOSIT && bookingReference) {
+    return `Booking ${bookingReference}`;
+  }
   if (jobNumber) {
     return `Job ${jobNumber}`;
   }
-  return "Job pending";
+  if (bookingReference) {
+    return `Booking ${bookingReference}`;
+  }
+  return "Reference pending";
 }

@@ -210,18 +210,25 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
     "Failed to fetch bookings"
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
-    customerPhone: formatCustomerPhone(row.customer.phone),
-    sessionDate: formatSessionDate(row.sessionDate),
-    sessionTime: row.sessionTime,
-    department: row.department.name,
-    package: row.package?.name ?? "—",
-    status: mapBookingStatus(row.status),
-    paymentStatus: mapDepositStatus(row.invoices),
-    assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
-  }));
+  return rows.map((row) => {
+    const paymentStatus = mapDepositStatus(row.invoices);
+
+    return {
+      id: row.id,
+      jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
+      customerPhone: formatCustomerPhone(row.customer.phone),
+      sessionDate: formatSessionDate(row.sessionDate),
+      sessionTime: row.sessionTime,
+      department: row.department.name,
+      package: row.package?.name ?? "—",
+      status: mapBookingStatus(row.status),
+      paymentStatus,
+      assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
+      canDeletePending:
+        row.status === BookingStatus.PENDING && paymentStatus !== "Paid",
+      canCheckIn: row.status === BookingStatus.CONFIRMED,
+    };
+  });
 }
 
 export async function getBookingFilterOptions(): Promise<BookingFilterOption[]> {
@@ -671,6 +678,16 @@ export async function checkInBooking(
         await tx.financialCase.update({
           where: { id: booking.financialCase.id },
           data: { jobId: job.id },
+        });
+
+        await tx.invoice.updateMany({
+          where: { financialCaseId: booking.financialCase.id },
+          data: { jobId: job.id, jobNumber },
+        });
+
+        await tx.payment.updateMany({
+          where: { financialCaseId: booking.financialCase.id },
+          data: { jobId: job.id, jobNumber },
         });
 
         await tx.booking.update({

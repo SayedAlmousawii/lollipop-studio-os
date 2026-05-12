@@ -2,6 +2,8 @@
 
 import { MoreHorizontal } from "lucide-react";
 import Link from "next/link";
+import { CheckInDropdownItem } from "@/components/bookings/check-in-dropdown-item";
+import { DeletePendingBookingDropdownItem } from "@/components/bookings/delete-pending-booking-dropdown-item";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -41,6 +43,8 @@ export interface Booking {
   status: BookingStatus;
   paymentStatus: PaymentStatus;
   assignedPhotographerName: string;
+  canDeletePending: boolean;
+  canCheckIn: boolean;
 }
 
 interface BookingsTableProps {
@@ -81,6 +85,8 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
 function TableRowWithActions({ booking }: { booking: Booking }) {
   const canRecordDeposit =
     booking.status === "Pending" && booking.paymentStatus !== "Paid";
+  const showStatusActions =
+    booking.canDeletePending || booking.canCheckIn || booking.status === "Confirmed";
 
   return (
     <TableRow className="border-border hover:bg-surface-soft">
@@ -136,9 +142,15 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
                 }
               />
             ) : null}
-            {booking.status === "Confirmed" ? (
+            {showStatusActions ? (
               <>
                 <DropdownMenuSeparator />
+                {booking.canCheckIn ? (
+                  <CheckInDropdownItem bookingId={booking.id} />
+                ) : null}
+                {booking.canDeletePending ? (
+                  <DeletePendingBookingDropdownItem bookingId={booking.id} />
+                ) : null}
                 <BookingStatusActions
                   bookingId={booking.id}
                   status={booking.status}
