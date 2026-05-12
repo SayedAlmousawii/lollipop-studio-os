@@ -25,7 +25,11 @@ export function DeletePendingBookingDropdownItem({
       <input type="hidden" name="bookingId" value={bookingId} />
       <DropdownSubmitButton />
       {state.errors?._global ? (
-        <p className="max-w-64 px-2 py-1 text-xs leading-5 text-danger">
+        <p
+          aria-live="assertive"
+          role="alert"
+          className="max-w-64 px-2 py-1 text-xs leading-5 text-danger"
+        >
           {state.errors._global[0]}
         </p>
       ) : null}

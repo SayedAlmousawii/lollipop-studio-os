@@ -17,7 +17,13 @@ export type CreateTestBookingActionState = {
   token?: number;
 };
 
-export async function createTestBookingAction(): Promise<CreateTestBookingActionState> {
+export async function createTestBookingAction(
+  _prevState?: CreateTestBookingActionState,
+  _formData?: FormData
+): Promise<CreateTestBookingActionState> {
+  void _prevState;
+  void _formData;
+
   try {
     await createDevelopmentTestBooking();
   } catch (error) {

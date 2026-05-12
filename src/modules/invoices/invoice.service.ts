@@ -631,16 +631,21 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
     invoice.totalAmount.minus(effectivePaidAmount),
     0
   );
-  let status: InvoiceStatus =
-    invoice.status === InvoiceStatus.DRAFT ? InvoiceStatus.DRAFT : InvoiceStatus.ISSUED;
+  let status: InvoiceStatus = invoice.status;
   if (
-    effectivePaidAmount.greaterThan(0) &&
-    effectivePaidAmount.lessThan(invoice.totalAmount)
+    invoice.status !== InvoiceStatus.CLOSED &&
+    invoice.status !== InvoiceStatus.DRAFT
   ) {
-    status = InvoiceStatus.PARTIAL;
-  }
-  if (effectivePaidAmount.greaterThanOrEqualTo(invoice.totalAmount)) {
-    status = InvoiceStatus.PAID;
+    status = InvoiceStatus.ISSUED;
+    if (
+      effectivePaidAmount.greaterThan(0) &&
+      effectivePaidAmount.lessThan(invoice.totalAmount)
+    ) {
+      status = InvoiceStatus.PARTIAL;
+    }
+    if (effectivePaidAmount.greaterThanOrEqualTo(invoice.totalAmount)) {
+      status = InvoiceStatus.PAID;
+    }
   }
 
   await client.invoice.update({

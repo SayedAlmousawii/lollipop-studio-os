@@ -899,6 +899,14 @@ export async function updateOrderPackage(
         if (!previousPackage) throw new Error("Order has no package price");
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const previousIncludedPhotoCount = previousPackage.photoCount;
+        const nextSelectedPhotoCount =
+          order.selectedPhotoCount === null ||
+          order.selectedPhotoCount === 0 ||
+          order.selectedPhotoCount === previousIncludedPhotoCount
+            ? selectedPackage.photoCount
+            : order.selectedPhotoCount > previousIncludedPhotoCount
+              ? Math.max(order.selectedPhotoCount, selectedPackage.photoCount)
+              : undefined;
 
         await tx.orderAddOn.deleteMany({
           where: {
@@ -912,12 +920,7 @@ export async function updateOrderPackage(
           data: {
             finalPackage: { connect: { id: selectedPackage.id } },
             finalPackagePriceSnapshot: selectedPackage.price,
-            selectedPhotoCount:
-              order.selectedPhotoCount === null ||
-              order.selectedPhotoCount === 0 ||
-              order.selectedPhotoCount === previousIncludedPhotoCount
-                ? selectedPackage.photoCount
-                : undefined,
+            selectedPhotoCount: nextSelectedPhotoCount,
           },
         });
 
@@ -3224,8 +3227,8 @@ function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
           isLocked: invoice.isLocked,
           packageAdjustmentBaseline:
             originalPackagePriceSnapshot ??
-            order.finalPackage?.price.toNumber() ??
             order.originalPackage?.price.toNumber() ??
+            order.finalPackage?.price.toNumber() ??
             0,
         }
       : null,
