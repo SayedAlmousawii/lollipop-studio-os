@@ -5,6 +5,7 @@ import { PageContainer } from "@/components/layout/page-container";
 import { BookingsFilters } from "@/components/bookings/bookings-filters";
 import { BookingsTable } from "@/components/bookings/bookings-table";
 import {
+  getAssignablePhotographers,
   getBookingFilterOptions,
   getBookings,
   parseBookingFilters,
@@ -12,9 +13,10 @@ import {
 
 export default async function BookingsPage(props: PageProps<"/bookings">) {
   const filters = parseBookingFilters(await props.searchParams);
-  const [bookings, packageOptions] = await Promise.all([
+  const [bookings, packageOptions, photographers] = await Promise.all([
     getBookings(filters),
     getBookingFilterOptions(),
+    getAssignablePhotographers(),
   ]);
 
   return (
@@ -42,7 +44,7 @@ export default async function BookingsPage(props: PageProps<"/bookings">) {
         <BookingsFilters packageOptions={packageOptions} />
 
         {/* Table */}
-        <BookingsTable bookings={bookings} />
+        <BookingsTable bookings={bookings} photographers={photographers} />
       </div>
     </PageContainer>
   );

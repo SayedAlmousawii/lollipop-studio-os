@@ -24,7 +24,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { EditableBooking } from "@/modules/bookings/booking.service";
+import type {
+  EditableBooking,
+  RecommendedPhotographer,
+} from "@/modules/bookings/booking.service";
 
 const SESSION_TYPES = [
   { value: "NEWBORN", label: "Newborn" },
@@ -51,6 +54,7 @@ interface EditBookingFormProps {
   packages: PackageOption[];
   photographers: BookingOption[];
   departments: BookingOption[];
+  recommendedPhotographer: RecommendedPhotographer;
 }
 
 export function EditBookingForm({
@@ -59,6 +63,7 @@ export function EditBookingForm({
   packages,
   photographers,
   departments,
+  recommendedPhotographer,
 }: EditBookingFormProps) {
   const packageOptions = useMemo(
     () => mergePackageOptions(packages, booking),
@@ -331,6 +336,11 @@ export function EditBookingForm({
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-text-muted">
+              {recommendedPhotographer
+                ? `Recommended: ${recommendedPhotographer.name}`
+                : "No photographer history found"}
+            </p>
             <FieldError messages={state.errors?.assignedPhotographerId} />
           </div>
         </div>

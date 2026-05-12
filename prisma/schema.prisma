@@ -169,6 +169,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   assignedBookings    Booking[]       @relation("AssignedPhotographer")
+  assignedJobs        Job[]           @relation("JobAssignedPhotographer")
   assignedEditingJobs EditingJob[]    @relation("AssignedEditor")
   orderActivities     OrderActivity[]
   deliveryCompletions Order[]         @relation("DeliveryCompletedBy")
@@ -215,23 +216,27 @@ model FinancialCase {
 }
 
 model Job {
-  id         String   @id @default(cuid())
-  jobNumber  String   @unique
-  customerId String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  jobNumber              String   @unique
+  customerId             String
+  assignedPhotographerId String?
+  socialMediaConsent     Boolean?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
-  customer       Customer        @relation(fields: [customerId], references: [id])
-  booking        Booking?
-  order          Order?
-  editingJob     EditingJob?
-  productionJob  ProductionJob?
-  invoices       Invoice[]
-  payments       Payment[]
-  financialCases FinancialCase[]
+  customer             Customer        @relation(fields: [customerId], references: [id])
+  assignedPhotographer User?           @relation("JobAssignedPhotographer", fields: [assignedPhotographerId], references: [id])
+  booking              Booking?
+  order                Order?
+  editingJob           EditingJob?
+  productionJob        ProductionJob?
+  invoices             Invoice[]
+  payments             Payment[]
+  financialCases       FinancialCase[]
 
   @@unique([id, customerId])
   @@index([customerId])
+  @@index([assignedPhotographerId])
   @@map("jobs")
 }
 

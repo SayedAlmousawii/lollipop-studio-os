@@ -1,54 +1,32 @@
 "use client";
 
-import { useActionState } from "react";
-import { useFormStatus } from "react-dom";
-import {
-  checkInBookingAction,
-  type CheckInBookingActionState,
-} from "@/app/bookings/[bookingId]/actions";
 import { Button } from "@/components/ui/button";
+import type {
+  BookingPhotographerOption,
+  RecommendedPhotographer,
+} from "@/modules/bookings/booking.service";
+import { CheckInDialog } from "./check-in-dialog";
 
 interface CheckInButtonProps {
   bookingId: string;
+  assignedPhotographerId: string;
+  photographers: BookingPhotographerOption[];
+  recommendedPhotographer: RecommendedPhotographer;
 }
 
-export function CheckInButton({ bookingId }: CheckInButtonProps) {
-  const [state, formAction] = useActionState<
-    CheckInBookingActionState,
-    FormData
-  >(checkInBookingAction, {});
-
+export function CheckInButton({
+  bookingId,
+  assignedPhotographerId,
+  photographers,
+  recommendedPhotographer,
+}: CheckInButtonProps) {
   return (
-    <form action={formAction} className="space-y-2">
-      <input type="hidden" name="bookingId" value={bookingId} />
-      <SubmitButton />
-      {state.errors?._global ? (
-        <p className="text-sm text-danger" role="alert" aria-live="assertive">
-          {state.errors._global[0]}
-        </p>
-      ) : null}
-    </form>
-  );
-}
-
-function SubmitButton() {
-  const { pending } = useFormStatus();
-
-  return (
-    <Button
-      type="submit"
-      disabled={pending}
-      onClick={(event) => {
-        if (
-          !window.confirm(
-            "Check in this booking? This creates the JOB reference and order and cannot be undone."
-          )
-        ) {
-          event.preventDefault();
-        }
-      }}
-    >
-      {pending ? "Checking in..." : "Check In"}
-    </Button>
+    <CheckInDialog
+      bookingId={bookingId}
+      assignedPhotographerId={assignedPhotographerId}
+      photographers={photographers}
+      recommendedPhotographer={recommendedPhotographer}
+      trigger={<Button>Check In</Button>}
+    />
   );
 }
