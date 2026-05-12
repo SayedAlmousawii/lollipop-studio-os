@@ -1113,7 +1113,8 @@ export async function updateOrderPackage(
         await tx.orderAddOn.deleteMany({
           where: {
             orderId,
-            packageItem: { packageId: previousPackage.id },
+            orderPackageId: orderPackage.id,
+            packageItemId: { not: null },
           },
         });
 
@@ -1202,8 +1203,13 @@ export async function upgradeOrderPackageItem(
         const order = await tx.order.findUnique({
           where: { id: orderId },
           include: {
-            originalPackage: { select: { id: true, price: true, photoCount: true } },
-            finalPackage: { select: { id: true, price: true, photoCount: true } },
+            packages: {
+              where: { id: data.orderPackageId },
+              include: {
+                package: { select: { id: true, price: true, photoCount: true } },
+              },
+              take: 1,
+            },
             invoices: {
               where: FINAL_PARENT_INVOICE_WHERE,
               select: { id: true, isLocked: true },
@@ -1224,8 +1230,9 @@ export async function upgradeOrderPackageItem(
           throw new Error("Invoice is locked. Use the adjustment flow before changing package composition.");
         }
 
-        const currentPackage = order.finalPackage ?? order.originalPackage;
-        if (!currentPackage) throw new Error("Order has no current package");
+        const orderPackage = order.packages[0] ?? null;
+        if (!orderPackage) throw new Error("Package line not found on this order");
+        const currentPackage = orderPackage.package;
 
         const [currentItem, newProduct] = await Promise.all([
           tx.packageItem.findUnique({
@@ -1264,6 +1271,7 @@ export async function upgradeOrderPackageItem(
         const existingAddOn = await tx.orderAddOn.findFirst({
           where: {
             orderId,
+            orderPackageId: orderPackage.id,
             packageItemId: currentItem.id,
           },
           select: { id: true },
@@ -1273,6 +1281,7 @@ export async function upgradeOrderPackageItem(
               where: { id: existingAddOn.id },
               data: {
                 productId: newProduct.id,
+                orderPackageId: orderPackage.id,
                 nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
                 priceSnapshot: unitDelta,
                 quantity: currentItem.quantity,
@@ -1283,6 +1292,7 @@ export async function upgradeOrderPackageItem(
           : await tx.orderAddOn.create({
               data: {
                 orderId,
+                orderPackageId: orderPackage.id,
                 productId: newProduct.id,
                 packageItemId: currentItem.id,
                 nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
@@ -1308,6 +1318,7 @@ export async function upgradeOrderPackageItem(
           description: `${currentItem.product.name} changed to ${newProduct.name} for ${formatSignedMoney(adjustmentTotal)}.`,
           metadata: {
             orderAddOnId: addOn.id,
+            orderPackageId: orderPackage.id,
             packageItemId: currentItem.id,
             previousProductId: currentItem.productId,
             previousProductName: currentItem.product.name,
@@ -1657,6 +1668,14 @@ export async function updateOrderSelectedPhotoCount(
         }
 
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const previousExtraPhotoCharge = await calculateOrderPackageLineExtraPhotoTotal(
+          tx,
+          {
+            sessionTypeId: orderPackage.sessionTypeId,
+            extraDigitalCount: orderPackage.extraDigitalCount,
+            extraPrintCount: orderPackage.extraPrintCount,
+          }
+        );
         await tx.orderPackage.update({
           where: { id: orderPackage.id },
           data: {
@@ -1672,6 +1691,7 @@ export async function updateOrderSelectedPhotoCount(
           previousAddOns,
           previousSelectedPhotoCount: null,
           previousIncludedPhotoCount: currentPackage.photoCount,
+          previousExtraPhotoCharge,
         });
 
         if (
@@ -2657,7 +2677,14 @@ export async function createOrderFromBookingWithClient(
       jobId: true,
       jobNumber: true,
       customer: { select: { id: true } },
-      package: { select: { id: true, price: true, photoCount: true } },
+      package: {
+        select: {
+          id: true,
+          price: true,
+          photoCount: true,
+          packageFamily: { select: { sessionTypeId: true } },
+        },
+      },
       packages: {
         include: {
           package: { select: { id: true, price: true, photoCount: true } },
@@ -2699,6 +2726,22 @@ export async function createOrderFromBookingWithClient(
     return booking.order;
   }
 
+  const fallbackSessionTypeId =
+    firstPackageLine?.sessionTypeId ??
+    booking.package?.packageFamily.sessionTypeId ??
+    null;
+  const orderPackageLines =
+    booking.packages.length > 0
+      ? booking.packages
+      : [
+          {
+            packageId: firstPackage.id,
+            sessionTypeId: fallbackSessionTypeId,
+            sortOrder: 0,
+            package: firstPackage,
+          },
+        ];
+
   const order = await client.order.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.ORDER),
@@ -2714,17 +2757,7 @@ export async function createOrderFromBookingWithClient(
         0
       ) || firstPackage.photoCount,
       packages: {
-        create: (booking.packages.length > 0
-          ? booking.packages
-          : [
-              {
-                packageId: firstPackage.id,
-                sessionTypeId: "",
-                sortOrder: 0,
-                package: firstPackage,
-              },
-            ]
-        ).map((line, index) => {
+        create: orderPackageLines.map((line, index) => {
           if (!line.sessionTypeId) {
             throw new Error("Booking package session type is required to create an order");
           }
@@ -3443,6 +3476,35 @@ function zeroMoney(): Prisma.Decimal {
   return new Prisma.Decimal(0);
 }
 
+async function calculateOrderPackageLineExtraPhotoTotal(
+  client: Prisma.TransactionClient,
+  input: {
+    sessionTypeId: string;
+    extraDigitalCount: number;
+    extraPrintCount: number;
+  }
+): Promise<Prisma.Decimal> {
+  const pricingRows = await client.sessionTypeExtraPhotoPricing.findMany({
+    where: {
+      sessionTypeId: input.sessionTypeId,
+      mediaType: { in: [MediaType.DIGITAL, MediaType.PRINT] },
+    },
+    select: { mediaType: true, unitPrice: true },
+  });
+  const priceByMedia = new Map(
+    pricingRows.map((row) => [row.mediaType, row.unitPrice])
+  );
+  const digitalUnitPrice = priceByMedia.get(MediaType.DIGITAL);
+  const printUnitPrice = priceByMedia.get(MediaType.PRINT);
+  if (!digitalUnitPrice || !printUnitPrice) {
+    throw new Error("Extra-photo pricing is required for this package line");
+  }
+
+  return digitalUnitPrice
+    .mul(input.extraDigitalCount)
+    .plus(printUnitPrice.mul(input.extraPrintCount));
+}
+
 async function syncOrderSingularFieldsFromFirstPackageLine(
   client: Prisma.TransactionClient,
   orderId: string
@@ -3461,7 +3523,6 @@ async function syncOrderSingularFieldsFromFirstPackageLine(
   await client.order.update({
     where: { id: orderId },
     data: {
-      originalPackageId: firstLine.packageId,
       finalPackageId: firstLine.packageId,
       originalPackagePriceSnapshot: firstLine.originalPackagePriceSnapshot,
       finalPackagePriceSnapshot: firstLine.finalPackagePriceSnapshot,

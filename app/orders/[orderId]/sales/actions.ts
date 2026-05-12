@@ -77,6 +77,7 @@ export async function upgradeOrderPackageItemAction(
   formData: FormData
 ): Promise<POSCompositionActionState> {
   const parsed = upgradeOrderPackageItemSchema.safeParse({
+    orderPackageId: formData.get("orderPackageId"),
     packageItemId: formData.get("packageItemId"),
     newProductId: formData.get("newProductId"),
   });

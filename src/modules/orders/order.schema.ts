@@ -7,6 +7,35 @@ import {
   ORDER_SELECTION_STATUS_VALUES,
 } from "./order.constants";
 
+function requiredIntegerInput({
+  requiredMessage,
+  integerMessage,
+  minMessage,
+}: {
+  requiredMessage: string;
+  integerMessage: string;
+  minMessage: string;
+}) {
+  return z.preprocess(
+    (value) => {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "number") return String(value);
+      return value;
+    },
+    z
+      .string()
+      .trim()
+      .min(1, requiredMessage)
+      .transform((value) => Number(value))
+      .pipe(
+        z
+          .number()
+          .int(integerMessage)
+          .min(0, minMessage)
+      )
+  );
+}
+
 export const orderAddOnSchema = z.object({
   productId: z.string().trim().min(1).optional(),
   name: z.string().trim().min(1, "Add-on name is required"),
@@ -54,6 +83,7 @@ export const updateOrderPackageSchema = z.object({
 });
 
 export const upgradeOrderPackageItemSchema = z.object({
+  orderPackageId: z.string().trim().min(1, "Package line is required"),
   packageItemId: z.string().trim().min(1, "Package item is required"),
   newProductId: z.string().trim().min(1, "Replacement product is required"),
 });
@@ -68,18 +98,21 @@ export const removeOrderAddOnSchema = z.object({
 
 export const updateOrderSelectedPhotoCountSchema = z.object({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
-  selectedPhotoCount: z.coerce
-    .number()
-    .int("Selected photos must be a whole number")
-    .min(0, "Selected photos cannot be negative"),
-  extraDigitalCount: z.coerce
-    .number()
-    .int("Digital extras must be a whole number")
-    .min(0, "Digital extras cannot be negative"),
-  extraPrintCount: z.coerce
-    .number()
-    .int("Print extras must be a whole number")
-    .min(0, "Print extras cannot be negative"),
+  selectedPhotoCount: requiredIntegerInput({
+    requiredMessage: "Selected photos are required",
+    integerMessage: "Selected photos must be a whole number",
+    minMessage: "Selected photos cannot be negative",
+  }),
+  extraDigitalCount: requiredIntegerInput({
+    requiredMessage: "Digital extras are required",
+    integerMessage: "Digital extras must be a whole number",
+    minMessage: "Digital extras cannot be negative",
+  }),
+  extraPrintCount: requiredIntegerInput({
+    requiredMessage: "Print extras are required",
+    integerMessage: "Print extras must be a whole number",
+    minMessage: "Print extras cannot be negative",
+  }),
 });
 
 export const updateOrderEditingWorkflowSchema = z.object({

@@ -527,6 +527,7 @@ model OrderPackage {
   order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
   package     Package     @relation(fields: [packageId], references: [id])
   sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+  orderAddOns OrderAddOn[]
 
   @@index([orderId, sortOrder])
   @@index([packageId])
@@ -608,6 +609,7 @@ model OrderActivity {
 model OrderAddOn {
   id            String   @id @default(cuid())
   orderId       String
+  orderPackageId String?
   productId     String?
   packageItemId String?
   nameSnapshot  String
@@ -618,11 +620,13 @@ model OrderAddOn {
   updatedAt     DateTime @updatedAt
 
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderPackage OrderPackage? @relation(fields: [orderPackageId], references: [id], onDelete: SetNull)
   product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
   packageItem PackageItem? @relation(fields: [packageItemId], references: [id], onDelete: SetNull)
 
-  @@unique([orderId, packageItemId])
+  @@unique([orderId, orderPackageId, packageItemId])
   @@index([orderId])
+  @@index([orderPackageId])
   @@index([productId])
   @@index([packageItemId])
   @@map("order_add_ons")

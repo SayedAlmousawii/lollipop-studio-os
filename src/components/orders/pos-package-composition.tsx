@@ -44,6 +44,13 @@ interface POSPackageCompositionProps {
 
 export function POSPackageComposition({ workspace }: POSPackageCompositionProps) {
   const locked = workspace.invoice?.isLocked ?? false;
+  const packagePriceTotal =
+    workspace.packageLines.length > 0
+      ? workspace.packageLines.reduce(
+          (sum, line) => sum + line.currentPackage.price,
+          0
+        )
+      : workspace.currentPackage?.price ?? 0;
 
   return (
     <Card id="package-composition">
@@ -86,6 +93,7 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
                     key={item.id}
                     item={item}
                     orderId={workspace.orderId}
+                    orderPackageId={line.id}
                     productOptions={workspace.productOptions}
                     locked={locked}
                   />
@@ -108,7 +116,7 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
         <div className="space-y-2 border-t border-border pt-4 text-sm">
           <MoneyLine
             label="Package price"
-            value={workspace.currentPackage?.priceLabel ?? "0.000 KD"}
+            value={formatKD(packagePriceTotal)}
             strong
           />
         </div>
@@ -241,6 +249,7 @@ function PackageUpgradeDialog({
     updateOrderPackageAction.bind(null, orderId),
     {}
   );
+  const packageSelectId = `packageId-${line.id}`;
 
   return (
     <Dialog>
@@ -261,9 +270,9 @@ function PackageUpgradeDialog({
           <input type="hidden" name="orderPackageId" value={line.id} />
           <input type="hidden" name="packageId" value={selectedPackageId} />
           <div className="space-y-2">
-            <Label htmlFor="packageId">Package</Label>
+            <Label htmlFor={packageSelectId}>Package</Label>
             <Select value={selectedPackageId} onValueChange={setSelectedPackageId}>
-              <SelectTrigger id="packageId">
+              <SelectTrigger id={packageSelectId}>
                 <SelectValue placeholder="Select package..." />
               </SelectTrigger>
               <SelectContent>
@@ -290,11 +299,13 @@ function PackageUpgradeDialog({
 function DeliverableCard({
   item,
   orderId,
+  orderPackageId,
   productOptions,
   locked,
 }: {
   item: POSPackageItem;
   orderId: string;
+  orderPackageId: string;
   productOptions: POSProductOption[];
   locked: boolean;
 }) {
@@ -322,6 +333,7 @@ function DeliverableCard({
       </p>
       <ItemUpgradeDialog
         orderId={orderId}
+        orderPackageId={orderPackageId}
         item={item}
         options={replacementOptions}
         locked={locked}
@@ -332,11 +344,13 @@ function DeliverableCard({
 
 function ItemUpgradeDialog({
   orderId,
+  orderPackageId,
   item,
   options,
   locked,
 }: {
   orderId: string;
+  orderPackageId: string;
   item: POSPackageItem;
   options: POSProductOption[];
   locked: boolean;
@@ -370,6 +384,7 @@ function ItemUpgradeDialog({
           </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="space-y-4">
+          <input type="hidden" name="orderPackageId" value={orderPackageId} />
           <input type="hidden" name="packageItemId" value={item.id} />
           <input type="hidden" name="newProductId" value={selectedProductId} />
           <div className="space-y-2">

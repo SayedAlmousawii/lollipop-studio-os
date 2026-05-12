@@ -35,6 +35,7 @@ export interface OrderInvoiceSyncInput {
   previousAddOns: OrderAddOnLine[];
   previousSelectedPhotoCount?: number | null;
   previousIncludedPhotoCount?: number | null;
+  previousExtraPhotoCharge?: Prisma.Decimal;
 }
 
 export interface OrderInvoiceSyncSummary {
@@ -261,8 +262,19 @@ export async function syncOrderInvoiceForFinancialEdit(
   const nextAddOns = mapOrderAddOnRows(order.orderAddOns);
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
-  const previousExtraPhotoCharge = new Prisma.Decimal(0);
   const nextExtraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
+  const previousExtraPhotoCharge =
+    input.previousExtraPhotoCharge ??
+    (order.packages.length > 0
+      ? nextExtraPhotoCharge
+      : await calculateExtraPhotoCharge(client, {
+          selectedPhotoCount: input.previousSelectedPhotoCount,
+          includedPhotoCount:
+            input.previousIncludedPhotoCount ??
+            order.finalPackage?.photoCount ??
+            order.originalPackage?.photoCount ??
+            0,
+        }));
   const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
   const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
   const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);

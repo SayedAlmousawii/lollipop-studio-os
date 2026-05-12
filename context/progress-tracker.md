@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70c follow-up fixes are complete: multi-package POS/order displays now use real package-line counts and aggregate package totals, package-line photo forms reject blank numeric fields, invoice sync preserves previous extra-photo totals, and package-item upgrade add-ons are scoped to a specific `OrderPackage`.
 - Feature 70c order multi-package flow is complete: check-in now creates `OrderPackage` rows from booking package lines, POS package/extras edits operate per line, Final Invoice totals and snapshot lines aggregate across order package lines using session-type digital/print extra-photo pricing, and order detail surfaces package-line breakdowns with aggregate totals.
 - Feature 70b booking multi-package flow is complete: booking create/edit now writes `BookingPackage` rows, keeps legacy singular booking fields stamped from the first line, uses aggregate package duration for calendar rendering and booking detail, and records deposit invoices from an editable `>= 20 KD` payment-time amount.
 - Feature 70a multi-package schema foundation is complete: `BookingPackage` and `OrderPackage` line tables now mirror the existing singular booking/order package fields while leaving current flows wired to the legacy columns until 70b/70c.
@@ -33,6 +34,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Package item upgrade add-ons now carry `OrderAddOn.orderPackageId`; this disambiguates identical package templates used on multiple order package lines.
 - Order writes now treat `OrderPackage` rows as the package source of truth while dual-writing legacy singular order package fields from the first package line until the 70d cleanup.
 - Extra selected photos are now stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, and emitted as per-line/per-media Final Invoice lines.
 - Booking writes now treat package lines as the scheduling source of truth while dual-writing `Booking.packageId` and `Booking.sessionType` from the first selected line until the 70d cleanup.
@@ -67,6 +69,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70c follow-up: fixed package-line count/total display edge cases, blank numeric coercion, previous extra-photo invoice deltas, original package baseline preservation, fallback order package session typing, and line-scoped package item upgrade add-ons.
 - Feature 70c: Order multi-package flow — check-in creates order package lines from booking packages, POS supports independent per-line package upgrades plus digital/print extra-photo counts, Final Invoice line building emits package/base/bundle/upgrade/extra-photo rows per line, and order detail aggregates line totals/deliverables.
 - Feature 70b: Booking multi-package flow — add/edit booking forms now manage ordered package lines with quantities, booking services replace line rows and dual-write legacy fields, booking detail/calendar read aggregate duration, and deposit recording accepts an editable amount of at least 20 KD.
 - Feature 70a: Multi-package schema foundation — added `BookingPackage` and `OrderPackage` models, back-relations on booking/order/package/session type, migration backfill from singular package fields, and seed mirroring rows for seeded bookings/orders.

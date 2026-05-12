@@ -347,7 +347,7 @@ function OverviewTab({ order }: { order: OrderDetail }) {
           <CardContent className="space-y-5">
             <InfoGrid
               items={[
-                ["Packages", String(order.packageLines.length || 1)],
+                ["Packages", String(order.packageLines.length)],
                 ["Photo limit", order.includedPhotoCount],
                 ["Selected photos", selectedPhotosLabel],
                 ["Bundle adjustment", order.bundleAdjustment],

@@ -36,9 +36,9 @@ export default async function SalesPage(
 function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
   const packageAmount =
-    workspace.packageLines.reduce((sum, line) => sum + line.packageSubtotal, 0) ||
-    workspace.currentPackage?.price ||
-    0;
+    workspace.packageLines.length > 0
+      ? workspace.packageLines.reduce((sum, line) => sum + line.packageSubtotal, 0)
+      : workspace.currentPackage?.price ?? 0;
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
     invoice?.invoiceTotal ??
