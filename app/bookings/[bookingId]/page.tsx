@@ -150,6 +150,7 @@ function DepositInvoiceSection({ booking }: { booking: BookingDetail }) {
   if (!depositInvoice) return null;
 
   const remainingBalanceLabel = booking.packageRemainingBalanceLabel;
+  const statusLabel = getDepositInvoiceStatusLabel(depositInvoice.status);
   const showPackageContext =
     booking.status === BookingStatus.CONFIRMED &&
     booking.packageName !== "—" &&
@@ -159,7 +160,7 @@ function DepositInvoiceSection({ booking }: { booking: BookingDetail }) {
   const items: Array<[string, string]> = [
     ["Invoice number", depositInvoice.invoiceNumber],
     ["BK reference", booking.bookingReference],
-    ["Deposit amount", `${depositInvoice.totalAmount} — Paid`],
+    ["Deposit amount", `${depositInvoice.totalAmount} - ${statusLabel}`],
   ];
 
   if (showPackageContext) {
@@ -181,18 +182,43 @@ function DepositInvoiceSection({ booking }: { booking: BookingDetail }) {
               {depositInvoice.invoiceNumber}
             </p>
             <p className="text-sm text-text-secondary">
-              Deposit invoice is paid and locked.
+              {depositInvoice.isLocked
+                ? `Deposit invoice is ${statusLabel.toLowerCase()} and locked.`
+                : `Deposit invoice is ${statusLabel.toLowerCase()}.`}
             </p>
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-2.5 py-0.5 text-xs font-medium text-success">
-            <LockKeyhole className="h-3.5 w-3.5" />
-            Locked
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <PaymentStatusBadge status={statusLabel} />
+            {depositInvoice.isLocked ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-2.5 py-0.5 text-xs font-medium text-success">
+                <LockKeyhole className="h-3.5 w-3.5" />
+                Locked
+              </span>
+            ) : null}
+          </div>
         </div>
         <InfoGrid items={items} />
       </div>
     </Section>
   );
+}
+
+function getDepositInvoiceStatusLabel(
+  status: NonNullable<BookingDetail["depositInvoice"]>["status"]
+): "Paid" | "Partial" | "Unpaid" {
+  switch (status) {
+    case "PAID":
+    case "CLOSED":
+      return "Paid";
+    case "PARTIAL":
+      return "Partial";
+    case "ISSUED":
+      return "Unpaid";
+    case "DRAFT":
+      return "Unpaid";
+    default:
+      return "Unpaid";
+  }
 }
 
 function Section({
