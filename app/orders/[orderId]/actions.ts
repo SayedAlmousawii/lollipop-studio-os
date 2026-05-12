@@ -49,14 +49,24 @@ export type UpdateDeliveryActionState = {
   errorCode?: WorkflowGuardErrorCode;
 };
 
-export async function createOrderInvoiceAction(orderId: string): Promise<void> {
+export async function createOrderInvoiceAction(
+  orderId: string,
+  formData?: FormData
+): Promise<void> {
   const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_CREATE);
   const invoice = await createInvoiceForOrder(orderId, {
     actorUserId: appUser.id, actorRole: appUser.role,
   });
+  const shouldReturnToSales = formData?.get("returnTo") === "sales";
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
+  if (shouldReturnToSales) {
+    revalidatePath(`/orders/${orderId}/sales`);
+  }
   revalidatePath("/invoices");
+  if (shouldReturnToSales) {
+    redirect(`/orders/${orderId}/sales`);
+  }
   redirect(`/invoices/${invoice.id}`);
 }
 

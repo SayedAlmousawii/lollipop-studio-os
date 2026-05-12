@@ -168,6 +168,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
               )
             ) : (
               <form action={createOrderInvoiceAction.bind(null, workspace.orderId)}>
+                <input type="hidden" name="returnTo" value="sales" />
                 <Button type="submit" className="w-full">
                   Create Invoice
                 </Button>
