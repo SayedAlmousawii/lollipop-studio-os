@@ -3,7 +3,10 @@ import { ChevronLeft } from "lucide-react";
 import { DevCreateTestBookingButton } from "@/components/bookings/dev-create-test-booking-button";
 import { PageContainer } from "@/components/layout/page-container";
 import { NewBookingForm } from "@/components/bookings/new-booking-form";
-import { getAssignablePhotographers } from "@/modules/bookings/booking.service";
+import {
+  getAssignablePhotographers,
+  getRecommendedPhotographer,
+} from "@/modules/bookings/booking.service";
 import { getCustomers } from "@/modules/customers/customer.service";
 import { getActiveStudioDepartments } from "@/modules/departments/studio-department.service";
 import { getPackages } from "@/modules/packages/package.service";
@@ -25,6 +28,9 @@ export default async function NewBookingPage(props: PageProps<"/bookings/new">) 
   const packages = allPackages
     .filter((p) => p.status === "Active")
     .map((p) => ({ id: p.id, name: p.name, price: p.price }));
+  const recommendedPhotographer = initialCustomerId
+    ? await getRecommendedPhotographer(initialCustomerId)
+    : null;
 
   return (
     <PageContainer>
@@ -70,6 +76,7 @@ export default async function NewBookingPage(props: PageProps<"/bookings/new">) 
             photographers={photographers}
             departments={departments}
             initialCustomerId={initialCustomerId}
+            recommendedPhotographer={recommendedPhotographer}
           />
         </div>
       </div>

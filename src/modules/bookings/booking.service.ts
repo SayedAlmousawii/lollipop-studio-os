@@ -46,6 +46,8 @@ export interface BookingPhotographerOption {
   name: string;
 }
 
+export type RecommendedPhotographer = BookingPhotographerOption | null;
+
 export type BookingStatusFilter =
   | "PENDING"
   | "CONFIRMED"
@@ -93,6 +95,7 @@ export interface EditableBooking {
 
 export interface BookingDetail {
   id: string;
+  customerId: string;
   status: BookingStatus;
   bookingReference: string;
   jobNumber: string | null;
@@ -104,6 +107,7 @@ export interface BookingDetail {
   packageName: string;
   packagePriceLabel: string;
   department: string;
+  assignedPhotographerId: string;
   assignedPhotographerName: string;
   bookingStatus: BookingStatusLabel;
   depositStatus: PaymentStatus;
@@ -177,7 +181,9 @@ export function parseBookingFilters(filters: {
   };
 }
 
-export async function getBookings(filters: BookingFilters = {}): Promise<Booking[]> {
+export async function getBookings(
+  filters: BookingFilters = {}
+): Promise<Booking[]> {
   const rows = await withRetry(
     () => {
       const where = buildBookingsWhere(filters);
@@ -188,7 +194,7 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
           customer: { select: { phone: true } },
           package: { select: { name: true, price: true } },
           department: { select: { name: true } },
-          assignedPhotographer: { select: { name: true } },
+          assignedPhotographer: { select: { id: true, name: true } },
           invoices: {
             where: {
               payments: { some: { paymentType: PaymentType.DEPOSIT } },
@@ -210,11 +216,23 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
     "Failed to fetch bookings"
   );
 
-  return rows.map((row) => {
+  const recommendedByCustomer = new Map<string, RecommendedPhotographer>();
+
+  return Promise.all(rows.map(async (row) => {
     const paymentStatus = mapDepositStatus(row.invoices);
+    let recommendedPhotographer: RecommendedPhotographer = null;
+    if (row.status === BookingStatus.CONFIRMED) {
+      if (recommendedByCustomer.has(row.customerId)) {
+        recommendedPhotographer = recommendedByCustomer.get(row.customerId) ?? null;
+      } else {
+        recommendedPhotographer = await getRecommendedPhotographer(row.customerId);
+        recommendedByCustomer.set(row.customerId, recommendedPhotographer);
+      }
+    }
 
     return {
       id: row.id,
+      customerId: row.customerId,
       jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
       customerPhone: formatCustomerPhone(row.customer.phone),
       sessionDate: formatSessionDate(row.sessionDate),
@@ -223,12 +241,14 @@ export async function getBookings(filters: BookingFilters = {}): Promise<Booking
       package: row.package?.name ?? "—",
       status: mapBookingStatus(row.status),
       paymentStatus,
+      assignedPhotographerId: row.assignedPhotographer?.id ?? "",
       assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
+      recommendedPhotographer,
       canDeletePending:
         row.status === BookingStatus.PENDING && paymentStatus !== "Paid",
       canCheckIn: row.status === BookingStatus.CONFIRMED,
     };
-  });
+  }));
 }
 
 export async function getBookingFilterOptions(): Promise<BookingFilterOption[]> {
@@ -254,6 +274,46 @@ export async function getAssignablePhotographers(): Promise<
       }),
     "Failed to fetch photographers"
   );
+}
+
+export async function getRecommendedPhotographer(
+  customerId: string
+): Promise<RecommendedPhotographer> {
+  if (!customerId.trim()) return null;
+
+  const rows = await withRetry(
+    () =>
+      db.booking.findMany({
+        where: {
+          customerId,
+          assignedPhotographerId: { not: null },
+        },
+        select: {
+          assignedPhotographerId: true,
+          assignedPhotographer: { select: { id: true, name: true } },
+        },
+      }),
+    "Failed to fetch recommended photographer"
+  );
+
+  const counts = new Map<string, { photographer: BookingPhotographerOption; count: number }>();
+  for (const row of rows) {
+    if (!row.assignedPhotographerId || !row.assignedPhotographer) continue;
+    const current = counts.get(row.assignedPhotographerId);
+    counts.set(row.assignedPhotographerId, {
+      photographer: row.assignedPhotographer,
+      count: (current?.count ?? 0) + 1,
+    });
+  }
+
+  let recommendation: { photographer: BookingPhotographerOption; count: number } | null = null;
+  for (const item of counts.values()) {
+    if (!recommendation || item.count > recommendation.count) {
+      recommendation = item;
+    }
+  }
+
+  return recommendation?.photographer ?? null;
 }
 
 export async function createBookingInDb(
@@ -651,6 +711,17 @@ export async function checkInBooking(
           throw new Error("Booking financial case is already linked to a job");
         }
 
+        const photographer = await tx.user.findFirst({
+          where: {
+            id: data.assignedPhotographerId,
+            role: UserRole.PHOTOGRAPHER,
+          },
+          select: { id: true },
+        });
+        if (!photographer) {
+          throw new Error("Assigned photographer not found");
+        }
+
         const jobNumber = await generateJobNumber(tx, {
           departmentCode: booking.department.code,
           sessionDate: booking.sessionDate,
@@ -659,13 +730,19 @@ export async function checkInBooking(
           data: {
             jobNumber,
             customerId: booking.customerId,
+            assignedPhotographerId: data.assignedPhotographerId,
+            socialMediaConsent: data.socialMediaConsent,
           },
           select: { id: true },
         });
 
         await tx.booking.update({
           where: { id: booking.id },
-          data: { jobId: job.id, jobNumber },
+          data: {
+            jobId: job.id,
+            jobNumber,
+            assignedPhotographerId: data.assignedPhotographerId,
+          },
         });
 
         const order = await createOrderFromBookingWithClient(
@@ -1089,6 +1166,7 @@ function mapBookingDetail(
 
   return {
     id: row.id,
+    customerId: row.customerId,
     status: row.status,
     bookingReference: row.publicId ?? "Pending",
     jobNumber: row.jobNumber,
@@ -1100,6 +1178,7 @@ function mapBookingDetail(
     packageName: row.package?.name ?? "—",
     packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
     department: row.department.name,
+    assignedPhotographerId: row.assignedPhotographer?.id ?? "",
     assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
     bookingStatus: mapBookingStatus(row.status),
     depositStatus: hasDeposit ? "Paid" : "Unpaid",

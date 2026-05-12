@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import Link from "next/link";
-import { CheckInDropdownItem } from "@/components/bookings/check-in-dropdown-item";
+import { CheckInDialog } from "@/components/bookings/check-in-dialog";
 import { DeletePendingBookingDropdownItem } from "@/components/bookings/delete-pending-booking-dropdown-item";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -31,9 +32,14 @@ import {
 } from "./payment-status-badge";
 import { BookingStatusActions } from "./booking-status-actions";
 import { RecordDepositDialog } from "./record-deposit-dialog";
+import type {
+  BookingPhotographerOption,
+  RecommendedPhotographer,
+} from "@/modules/bookings/booking.service";
 
 export interface Booking {
   id: string;
+  customerId: string;
   jobNumber: string;
   customerPhone: string;
   sessionDate: string;
@@ -42,16 +48,19 @@ export interface Booking {
   package: string;
   status: BookingStatus;
   paymentStatus: PaymentStatus;
+  assignedPhotographerId: string;
   assignedPhotographerName: string;
+  recommendedPhotographer: RecommendedPhotographer;
   canDeletePending: boolean;
   canCheckIn: boolean;
 }
 
 interface BookingsTableProps {
   bookings: Booking[];
+  photographers: BookingPhotographerOption[];
 }
 
-export function BookingsTable({ bookings }: BookingsTableProps) {
+export function BookingsTable({ bookings, photographers }: BookingsTableProps) {
   return (
     <div className="overflow-x-auto rounded-[14px] border border-border bg-surface">
       <Table>
@@ -74,7 +83,11 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
         </TableHeader>
         <TableBody>
           {bookings.map((booking) => (
-            <TableRowWithActions key={booking.id} booking={booking} />
+            <TableRowWithActions
+              key={booking.id}
+              booking={booking}
+              photographers={photographers}
+            />
           ))}
         </TableBody>
       </Table>
@@ -82,7 +95,14 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
   );
 }
 
-function TableRowWithActions({ booking }: { booking: Booking }) {
+function TableRowWithActions({
+  booking,
+  photographers,
+}: {
+  booking: Booking;
+  photographers: BookingPhotographerOption[];
+}) {
+  const [checkInDialogOpen, setCheckInDialogOpen] = useState(false);
   const canRecordDeposit =
     booking.status === "Pending" && booking.paymentStatus !== "Paid";
   const showStatusActions =
@@ -115,6 +135,17 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
         {booking.assignedPhotographerName}
       </TableCell>
       <TableCell>
+        {booking.canCheckIn ? (
+          <CheckInDialog
+            bookingId={booking.id}
+            assignedPhotographerId={booking.assignedPhotographerId}
+            photographers={photographers}
+            recommendedPhotographer={booking.recommendedPhotographer}
+            open={checkInDialogOpen}
+            onOpenChange={setCheckInDialogOpen}
+            errorClassName="text-xs leading-5 text-danger"
+          />
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger
             className={cn(
@@ -146,7 +177,14 @@ function TableRowWithActions({ booking }: { booking: Booking }) {
               <>
                 <DropdownMenuSeparator />
                 {booking.canCheckIn ? (
-                  <CheckInDropdownItem bookingId={booking.id} />
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setCheckInDialogOpen(true);
+                    }}
+                  >
+                    Check In
+                  </DropdownMenuItem>
                 ) : null}
                 {booking.canDeletePending ? (
                   <DeletePendingBookingDropdownItem bookingId={booking.id} />

@@ -11,7 +11,9 @@ import { PageContainer } from "@/components/layout/page-container";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  getAssignablePhotographers,
   getBookingById,
+  getRecommendedPhotographer,
   type BookingDetail,
 } from "@/modules/bookings/booking.service";
 
@@ -22,6 +24,11 @@ export default async function BookingDetailPage(
   const booking = await getBookingById(bookingId);
 
   if (!booking) notFound();
+
+  const [photographers, recommendedPhotographer] = await Promise.all([
+    getAssignablePhotographers(),
+    getRecommendedPhotographer(booking.customerId),
+  ]);
 
   const referenceLine = booking.jobNumber
     ? `Booking ${booking.bookingReference} · Job ${booking.jobNumber}`
@@ -90,7 +97,14 @@ export default async function BookingDetailPage(
               trigger={<Button variant="outline">Record Deposit</Button>}
             />
           ) : null}
-          {booking.canCheckIn ? <CheckInButton bookingId={booking.id} /> : null}
+          {booking.canCheckIn ? (
+            <CheckInButton
+              bookingId={booking.id}
+              assignedPhotographerId={booking.assignedPhotographerId}
+              photographers={photographers}
+              recommendedPhotographer={recommendedPhotographer}
+            />
+          ) : null}
           {booking.isCheckedIn ? (
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center rounded-full bg-success-soft px-2.5 py-0.5 text-xs font-medium text-success">

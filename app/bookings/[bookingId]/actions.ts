@@ -20,6 +20,8 @@ export async function checkInBookingAction(
 ): Promise<CheckInBookingActionState> {
   const parsed = checkInBookingSchema.safeParse({
     bookingId: formData.get("bookingId"),
+    assignedPhotographerId: formData.get("assignedPhotographerId"),
+    socialMediaConsent: formData.get("socialMediaConsent"),
   });
 
   if (!parsed.success) {

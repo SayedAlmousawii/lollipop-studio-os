@@ -5,6 +5,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 65 review follow-up is complete: booking-list recommendation reads now cache per customer within the request, and booking edit pages avoid showing a stale photographer recommendation after the customer picker changes while still fetching the initial hint with lower latency.
+- Feature 64 dropdown check-in follow-up is complete: booking table check-in dialogs now stay mounted outside the Radix dropdown menu, so selecting Check In from the dropdown opens the same dialog as the booking detail page.
+- Feature 64 photographer assignment and check-in dialog is complete: check-in now requires a selected photographer and explicit social-media consent in the dialog, writes both onto `Job` atomically, updates booking assignment when changed, and booking forms surface history-based photographer recommendations without making assignment mandatory.
 - Booking/invoice review follow-up is complete: pending-delete errors now announce accessibly, invoice recalculation preserves `CLOSED` status, order package adjustment baselines prefer the original package price, package changes clamp selected photo counts upward for larger packages, and the dev test-booking action now matches `useActionState`'s current signature.
 - Delivery pickup completion hotfix is complete: the delivery transition map now allows the existing `Picked up` action to complete orders directly from `READY_FOR_PICKUP` and `CUSTOMER_NOTIFIED`.
 - Development workflow reset is fixed: the dev reset action now clears `FinancialCase` rows before deleting bookings, so lifecycle-era test data can be reset without foreign-key failures.
@@ -26,6 +29,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Pending bookings are calendar holds only: no `publicId`, `jobNumber`, `jobId`, `Job`, `FinancialCase`, or invoice is created until the 20 KD deposit is recorded; pending cancellation uses hard deletion.
 - Booking confirmation is atomic: deposit recording creates the `BK-DEPT-YEAR-XXXXX` reference, `FinancialCase`, locked closed Deposit Invoice, and deposit payment in one transaction.
 - Booking check-in is atomic and payment-free: check-in creates the canonical `Job`, stores `Booking.jobId/jobNumber`, creates the initial `WAITING_SELECTION` Order, stamps `FinancialCase.jobId`, and consumes the `JOB` reference permanently.
+- Job records now store the assigned photographer and explicit social-media consent captured at check-in; consent is not defaulted server-side.
 - `Booking.publicId`, `Booking.jobNumber`, `Booking.jobId`, `Invoice.jobNumber`, `Invoice.jobId`, `Payment.jobNumber`, and `Payment.jobId` are nullable while Specs 60–63 move reference creation to the correct lifecycle stages.
 - `User.active` soft-delete is live; `requireCurrentAppUser()` redirects inactive users to `/unauthorized`; audit history is preserved.
 - Clerk owns auth/session state; Prisma `User` is the source of truth for Studio OS staff role and internal identity. `User.clerkId` is a nullable unique link, first resolved by matching Clerk primary email to an unlinked Prisma user.
@@ -44,6 +48,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 65 review follow-up: cached repeated recommendation lookups in bookings list, hid stale edit-form recommendation hints after customer changes, and started edit-page recommendation fetches earlier.
+- Feature 64 follow-up: fixed booking-table dropdown check-in by controlling the dialog at the row level instead of mounting it inside dropdown content.
+- Feature 64: Photographer assignment and check-in dialog — check-in uses a dialog instead of `window.confirm`, requires photographer plus explicit consent, persists both on `Job`, updates booking assignment inside the transaction, and adds customer-history photographer recommendations to check-in and booking forms.
 - Booking/invoice review follow-up: added live-announced pending-delete errors, preserved `CLOSED` invoice status during recalculation, corrected package-adjustment baseline fallback ordering, clamped package-change selected photo counts for larger inclusions, and aligned the dev test-booking action signature with `useActionState`.
 - Delivery pickup completion hotfix: delivery transitions now permit direct completion from `READY_FOR_PICKUP` and `CUSTOMER_NOTIFIED`, matching the existing `Picked up` action that closes the order immediately.
 - Hydration follow-up: table action menu triggers were switched from `DropdownMenuTrigger asChild` wrapping `Button` to native Radix triggers styled with shared button variants.

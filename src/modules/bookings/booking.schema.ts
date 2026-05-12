@@ -85,6 +85,12 @@ export type DeletePendingBookingInput = z.infer<
 
 export const checkInBookingSchema = z.object({
   bookingId: z.string().min(1, "Booking is required"),
+  assignedPhotographerId: z.string().trim().min(1, "Photographer is required"),
+  socialMediaConsent: z.preprocess(
+    (value) =>
+      value === "true" ? true : value === "false" ? false : value,
+    z.boolean({ error: "Social media consent is required" })
+  ),
 });
 
 export type CheckInBookingInput = z.infer<typeof checkInBookingSchema>;

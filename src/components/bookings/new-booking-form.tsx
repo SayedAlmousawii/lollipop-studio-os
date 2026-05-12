@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { createBooking, type ActionState } from "@/app/bookings/new/actions";
+import type { RecommendedPhotographer } from "@/modules/bookings/booking.service";
 
 const SESSION_TYPES = [
   { value: "NEWBORN", label: "Newborn" },
@@ -39,6 +40,7 @@ interface NewBookingFormProps {
   photographers: { id: string; name: string }[];
   departments: { id: string; name: string; code: string }[];
   initialCustomerId?: string;
+  recommendedPhotographer: RecommendedPhotographer;
 }
 
 function SubmitButton({ disabled }: { disabled: boolean }) {
@@ -194,6 +196,7 @@ export function NewBookingForm({
   photographers,
   departments,
   initialCustomerId,
+  recommendedPhotographer,
 }: NewBookingFormProps) {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [selectedSessionType, setSelectedSessionType] = useState("");
@@ -312,7 +315,7 @@ export function NewBookingForm({
         <select
           id="assignedPhotographerId"
           name="assignedPhotographerId"
-          defaultValue=""
+          defaultValue={recommendedPhotographer?.id ?? ""}
           className="flex h-10 w-full rounded-sm border border-(--color-border) bg-(--color-surface) px-3 py-2 text-sm text-(--color-text-primary) focus:outline-none focus:ring-2 focus:ring-(--color-accent) focus:ring-offset-0 disabled:opacity-50"
         >
           <option value="">Unassigned</option>
@@ -322,6 +325,13 @@ export function NewBookingForm({
             </option>
           ))}
         </select>
+        <p className="text-xs text-text-muted">
+          {initialCustomerId
+            ? recommendedPhotographer
+              ? `Recommended from session history: ${recommendedPhotographer.name}`
+              : "No photographer history found"
+            : "Select a customer from history to show a recommendation."}
+        </p>
         <FieldError messages={state.errors?.assignedPhotographerId} />
       </div>
 

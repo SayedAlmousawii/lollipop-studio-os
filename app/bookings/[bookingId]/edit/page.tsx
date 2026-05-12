@@ -5,6 +5,7 @@ import { getCustomers } from "@/modules/customers/customer.service";
 import {
   getAssignablePhotographers,
   getEditableBookingById,
+  getRecommendedPhotographer,
 } from "@/modules/bookings/booking.service";
 import { getActiveStudioDepartments } from "@/modules/departments/studio-department.service";
 import { getPackages } from "@/modules/packages/package.service";
@@ -13,16 +14,27 @@ export default async function EditBookingPage(
   props: PageProps<"/bookings/[bookingId]/edit">
 ) {
   const { bookingId } = await props.params;
-  const [booking, allCustomers, allPackages, photographers, departments] =
-    await Promise.all([
-      getEditableBookingById(bookingId),
-      getCustomers(),
-      getPackages(),
-      getAssignablePhotographers(),
-      getActiveStudioDepartments(),
-    ]);
+  const bookingPromise = getEditableBookingById(bookingId);
+  const customersPromise = getCustomers();
+  const packagesPromise = getPackages();
+  const photographersPromise = getAssignablePhotographers();
+  const departmentsPromise = getActiveStudioDepartments();
+
+  const booking = await bookingPromise;
 
   if (!booking) notFound();
+
+  const recommendedPhotographerPromise = getRecommendedPhotographer(
+    booking.customerId
+  );
+  const [allCustomers, allPackages, photographers, departments, recommendedPhotographer] =
+    await Promise.all([
+      customersPromise,
+      packagesPromise,
+      photographersPromise,
+      departmentsPromise,
+      recommendedPhotographerPromise,
+    ]);
 
   const customers = allCustomers.map((customer) => ({
     id: customer.id,
@@ -42,6 +54,7 @@ export default async function EditBookingPage(
         packages={packages}
         photographers={photographers}
         departments={departments}
+        recommendedPhotographer={recommendedPhotographer}
       />
     </PageContainer>
   );
