@@ -47,6 +47,7 @@ export async function updateOrderPackageAction(
   formData: FormData
 ): Promise<POSCompositionActionState> {
   const parsed = updateOrderPackageSchema.safeParse({
+    orderPackageId: formData.get("orderPackageId"),
     packageId: formData.get("packageId"),
   });
 
@@ -172,7 +173,10 @@ export async function updateOrderSelectedPhotoCountAction(
   formData: FormData
 ): Promise<POSCompositionActionState> {
   const parsed = updateOrderSelectedPhotoCountSchema.safeParse({
+    orderPackageId: formData.get("orderPackageId"),
     selectedPhotoCount: formData.get("selectedPhotoCount"),
+    extraDigitalCount: formData.get("extraDigitalCount"),
+    extraPrintCount: formData.get("extraPrintCount"),
   });
 
   if (!parsed.success) {

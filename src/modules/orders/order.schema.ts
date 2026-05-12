@@ -49,6 +49,7 @@ export const updateOrderSelectionWorkflowSchema = z.object({
 });
 
 export const updateOrderPackageSchema = z.object({
+  orderPackageId: z.string().trim().min(1, "Package line is required"),
   packageId: z.string().trim().min(1, "Package is required"),
 });
 
@@ -66,10 +67,19 @@ export const removeOrderAddOnSchema = z.object({
 });
 
 export const updateOrderSelectedPhotoCountSchema = z.object({
+  orderPackageId: z.string().trim().min(1, "Package line is required"),
   selectedPhotoCount: z.coerce
     .number()
     .int("Selected photos must be a whole number")
     .min(0, "Selected photos cannot be negative"),
+  extraDigitalCount: z.coerce
+    .number()
+    .int("Digital extras must be a whole number")
+    .min(0, "Digital extras cannot be negative"),
+  extraPrintCount: z.coerce
+    .number()
+    .int("Print extras must be a whole number")
+    .min(0, "Print extras cannot be negative"),
 });
 
 export const updateOrderEditingWorkflowSchema = z.object({

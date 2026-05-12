@@ -2,6 +2,7 @@ import {
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
+  MediaType,
   OrderActivityType,
   OrderStatus,
   Prisma,
@@ -117,6 +118,10 @@ export async function createInvoiceForOrderWithClient(
       booking: { select: { financialCase: { select: { id: true } } } },
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
+      packages: {
+        include: { package: { select: { price: true } } },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
       orderAddOns: {
         select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
@@ -133,14 +138,16 @@ export async function createInvoiceForOrderWithClient(
   });
   if (existingInvoice) return existingInvoice;
 
-  const packageAmount = order.finalPackage?.price ?? order.originalPackage?.price;
+  const packageAmount =
+    order.packages.length > 0
+      ? order.packages.reduce(
+          (sum, line) =>
+            sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
+          new Prisma.Decimal(0)
+        )
+      : order.finalPackage?.price ?? order.originalPackage?.price;
   if (!packageAmount) throw new Error("Order has no package price");
-  const includedPhotoCount =
-    order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
-  const extraPhotoCharge = await calculateExtraPhotoCharge(client, {
-    selectedPhotoCount: order.selectedPhotoCount,
-    includedPhotoCount,
-  });
+  const extraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
   const totalAmount = packageAmount
     .plus(sumAddOns(mapOrderAddOnRows(order.orderAddOns)))
     .plus(extraPhotoCharge);
@@ -203,6 +210,10 @@ export async function syncOrderInvoiceForFinancialEdit(
       booking: { select: { financialCase: { select: { id: true } } } },
       finalPackage: { select: { price: true, photoCount: true } },
       originalPackage: { select: { price: true, photoCount: true } },
+      packages: {
+        include: { package: { select: { price: true } } },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
       orderAddOns: {
         select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
@@ -215,7 +226,14 @@ export async function syncOrderInvoiceForFinancialEdit(
     throw new Error("Order financial case is required to sync a final invoice");
   }
 
-  const packagePrice = order.finalPackage?.price ?? order.originalPackage?.price;
+  const packagePrice =
+    order.packages.length > 0
+      ? order.packages.reduce(
+          (sum, line) =>
+            sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
+          new Prisma.Decimal(0)
+        )
+      : order.finalPackage?.price ?? order.originalPackage?.price;
   if (!packagePrice) throw new Error("Order has no package price");
 
   const existingWorkflowInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
@@ -243,16 +261,8 @@ export async function syncOrderInvoiceForFinancialEdit(
   const nextAddOns = mapOrderAddOnRows(order.orderAddOns);
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
-  const includedPhotoCount =
-    order.finalPackage?.photoCount ?? order.originalPackage?.photoCount ?? 0;
-  const previousExtraPhotoCharge = await calculateExtraPhotoCharge(client, {
-    selectedPhotoCount: input.previousSelectedPhotoCount,
-    includedPhotoCount: input.previousIncludedPhotoCount ?? includedPhotoCount,
-  });
-  const nextExtraPhotoCharge = await calculateExtraPhotoCharge(client, {
-    selectedPhotoCount: order.selectedPhotoCount,
-    includedPhotoCount,
-  });
+  const previousExtraPhotoCharge = new Prisma.Decimal(0);
+  const nextExtraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
   const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
   const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
   const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
@@ -269,9 +279,15 @@ export async function syncOrderInvoiceForFinancialEdit(
   }
 
   const packageAdjustmentBaseline =
-    order.originalPackagePriceSnapshot ??
-    order.originalPackage?.price ??
-    packagePrice;
+    order.packages.length > 0
+      ? order.packages.reduce(
+          (sum, line) =>
+            sum.plus(line.originalPackagePriceSnapshot ?? line.package.price),
+          new Prisma.Decimal(0)
+        )
+      : order.originalPackagePriceSnapshot ??
+        order.originalPackage?.price ??
+        packagePrice;
   const packageAdjustmentAmount = packagePrice.minus(packageAdjustmentBaseline);
   const addOnAdjustmentAmount = nextSelectionAddOnTotal.minus(previousSelectionAddOnTotal);
   const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
@@ -815,6 +831,23 @@ async function buildInvoiceLineItems(
       finalPackage: {
         select: { id: true, name: true, price: true, photoCount: true, bundleAdjustment: true },
       },
+      packages: {
+        include: {
+          package: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              photoCount: true,
+              bundleAdjustment: true,
+              items: {
+                select: { quantity: true, priceSnapshot: true },
+              },
+            },
+          },
+        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
       orderAddOns: {
         select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
@@ -822,6 +855,93 @@ async function buildInvoiceLineItems(
     },
   });
   if (!order) throw new Error("Order not found");
+
+  if (order.packages.length > 0) {
+    const lines: SnapshotInvoiceLineItem[] = [];
+    let sortOrder = 0;
+
+    for (const orderPackage of order.packages) {
+      const packageRow = orderPackage.package;
+      const packageBaseTotal = packageRow.items.reduce(
+        (sum, item) => sum.plus(item.priceSnapshot.mul(item.quantity)),
+        new Prisma.Decimal(0)
+      );
+      const baseAmount = packageBaseTotal.equals(0)
+        ? packageRow.price.minus(packageRow.bundleAdjustment)
+        : packageBaseTotal;
+      lines.push(
+        createLineItem({
+          lineType: InvoiceLineType.PACKAGE_BASE,
+          description: packageRow.name,
+          unitPrice: baseAmount,
+          sortOrder: sortOrder++,
+        })
+      );
+
+      if (!packageRow.bundleAdjustment.equals(0)) {
+        lines.push(
+          createLineItem({
+            lineType: InvoiceLineType.BUNDLE_ADJUSTMENT,
+            description: `${packageRow.name} bundle adjustment`,
+            unitPrice: packageRow.bundleAdjustment,
+            sortOrder: sortOrder++,
+          })
+        );
+      }
+
+      const originalSnapshot =
+        orderPackage.originalPackagePriceSnapshot ?? packageRow.price;
+      const finalSnapshot =
+        orderPackage.finalPackagePriceSnapshot ?? packageRow.price;
+      const upgradeAmount = finalSnapshot.minus(originalSnapshot);
+      if (!upgradeAmount.equals(0)) {
+        lines.push(
+          createLineItem({
+            lineType: InvoiceLineType.PACKAGE_UPGRADE,
+            description: `Package upgrade (${packageRow.name})`,
+            unitPrice: upgradeAmount,
+            sortOrder: sortOrder++,
+          })
+        );
+      }
+
+      for (const mediaType of [MediaType.DIGITAL, MediaType.PRINT] as const) {
+        const quantity =
+          mediaType === MediaType.DIGITAL
+            ? orderPackage.extraDigitalCount
+            : orderPackage.extraPrintCount;
+        if (quantity <= 0) continue;
+        const unitPrice = await getExtraPhotoUnitPriceWithClient(
+          client,
+          orderPackage.sessionTypeId,
+          mediaType
+        );
+        lines.push(
+          createLineItem({
+            lineType: InvoiceLineType.EXTRA_PHOTOS,
+            description: `Extra photos - ${formatEnum(mediaType)} (${packageRow.name})`,
+            quantity,
+            unitPrice,
+            sortOrder: sortOrder++,
+          })
+        );
+      }
+    }
+
+    for (const addOn of order.orderAddOns) {
+      lines.push(
+        createLineItem({
+          lineType: InvoiceLineType.ADD_ON,
+          description: addOn.nameSnapshot,
+          quantity: addOn.quantity,
+          unitPrice: addOn.priceSnapshot,
+          sortOrder: sortOrder++,
+        })
+      );
+    }
+
+    return lines;
+  }
 
   const originalPackage = order.originalPackage;
   const finalPackage = order.finalPackage;
@@ -947,6 +1067,64 @@ async function calculateExtraPhotoCharge(
   }
 
   return extraPhotoOption.canonicalPrice.mul(extraPhotoCount);
+}
+
+async function calculateOrderPackageExtraPhotoTotal(
+  client: DbClient,
+  orderId: string
+): Promise<Prisma.Decimal> {
+  const lines = await client.orderPackage.findMany({
+    where: { orderId },
+    select: {
+      sessionTypeId: true,
+      extraDigitalCount: true,
+      extraPrintCount: true,
+    },
+  });
+  if (lines.length === 0) return new Prisma.Decimal(0);
+
+  let total = new Prisma.Decimal(0);
+  for (const line of lines) {
+    if (line.extraDigitalCount > 0) {
+      const unitPrice = await getExtraPhotoUnitPriceWithClient(
+        client,
+        line.sessionTypeId,
+        MediaType.DIGITAL
+      );
+      total = total.plus(unitPrice.mul(line.extraDigitalCount));
+    }
+    if (line.extraPrintCount > 0) {
+      const unitPrice = await getExtraPhotoUnitPriceWithClient(
+        client,
+        line.sessionTypeId,
+        MediaType.PRINT
+      );
+      total = total.plus(unitPrice.mul(line.extraPrintCount));
+    }
+  }
+  return total;
+}
+
+async function getExtraPhotoUnitPriceWithClient(
+  client: DbClient,
+  sessionTypeId: string,
+  mediaType: MediaType
+): Promise<Prisma.Decimal> {
+  const row = await client.sessionTypeExtraPhotoPricing.findUnique({
+    where: {
+      sessionTypeId_mediaType: {
+        sessionTypeId,
+        mediaType,
+      },
+    },
+    select: { unitPrice: true },
+  });
+  if (!row) {
+    throw new Error(
+      `Extra-photo unit price is missing for session type "${sessionTypeId}" and media type "${mediaType}".`
+    );
+  }
+  return row.unitPrice;
 }
 
 function mapInvoiceLineItem(row: {

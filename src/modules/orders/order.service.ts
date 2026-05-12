@@ -11,6 +11,7 @@ import {
   PaymentType,
   Prisma,
   ProductCategory,
+  MediaType,
   UserRole,
 } from "@prisma/client";
 import { addDays } from "date-fns";
@@ -93,6 +94,7 @@ import type {
   POSInvoiceSummary,
   POSPackage,
   POSPackageItem,
+  POSPackageLine,
   POSPackageOption,
   POSProductOption,
   POSWorkspace,
@@ -265,7 +267,7 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
 export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   orderId: string
 ): Promise<POSWorkspace | null> {
-  const [order, packageRows, productRows, addOnCatalogRows, extraPhotoOption] =
+  const [order, packageRows, productRows, addOnCatalogRows, extraPhotoPricingRows] =
     await withRetry(
       () =>
         Promise.all([
@@ -320,6 +322,25 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                   },
                 },
               },
+              packages: {
+                include: {
+                  sessionType: { select: { id: true, name: true } },
+                  package: {
+                    select: {
+                      id: true,
+                      name: true,
+                      price: true,
+                      photoCount: true,
+                      bundleAdjustment: true,
+                      items: {
+                        select: packageItemDisplaySelect,
+                        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                      },
+                    },
+                  },
+                },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
               invoices: {
                 where: FINAL_PARENT_INVOICE_WHERE,
                 select: {
@@ -366,6 +387,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
               price: true,
               photoCount: true,
               bundleAdjustment: true,
+              packageFamily: { select: { sessionTypeId: true } },
             },
             orderBy: { price: "asc" },
           }),
@@ -383,7 +405,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
             select: { id: true, name: true, category: true, canonicalPrice: true },
             orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
           }),
-          getExtraPhotoAddOnOption(),
+          db.sessionTypeExtraPhotoPricing.findMany({
+            select: { sessionTypeId: true, mediaType: true, unitPrice: true },
+          }),
         ]),
       "Failed to fetch POS workspace"
     );
@@ -393,19 +417,41 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const currentPackage = order.finalPackage ?? order.originalPackage ?? null;
   const depositInvoice = order.booking.financialCase?.invoices[0] ?? null;
   const originalPackage = order.originalPackage;
-  const packageItems = currentPackage ? mapPOSPackageItems(currentPackage.items) : [];
-  const includedPhotoCount = currentPackage?.photoCount ?? originalPackage?.photoCount ?? 0;
+  const packageLines = mapPOSPackageLines({
+    lines: order.packages,
+    packageOptions: packageRows,
+    pricingRows: extraPhotoPricingRows,
+  });
+  const packageItems =
+    packageLines.length > 0
+      ? packageLines.flatMap((line) => line.packageItems)
+      : currentPackage
+        ? mapPOSPackageItems(currentPackage.items)
+        : [];
+  const includedPhotoCount =
+    packageLines.reduce((sum, line) => sum + line.includedPhotoCount, 0) ||
+    currentPackage?.photoCount ||
+    originalPackage?.photoCount ||
+    0;
   const selectedPhotoCount =
-    order.selectedPhotoCount && order.selectedPhotoCount > 0
+    packageLines.reduce((sum, line) => sum + line.selectedPhotoCount, 0) ||
+    (order.selectedPhotoCount && order.selectedPhotoCount > 0
       ? order.selectedPhotoCount
-      : includedPhotoCount;
-  const extraPhotoCount = Math.max(selectedPhotoCount - includedPhotoCount, 0);
-  const extraPhotoTotalDecimal = extraPhotoOption.price.mul(extraPhotoCount);
+      : includedPhotoCount);
+  const extraPhotoCount =
+    packageLines.reduce((sum, line) => sum + line.extraPhotoCount, 0) ||
+    Math.max(selectedPhotoCount - includedPhotoCount, 0);
+  const extraPhotoTotalDecimal = new Prisma.Decimal(
+    packageLines.reduce((sum, line) => sum + line.extraPhotoTotal, 0)
+  );
   const addOns = mapPOSAddOns(order.orderAddOns);
   const addOnTotal = sumOrderAddOnRowsDecimal(order.orderAddOns);
-  const packageBaseTotal = currentPackage
-    ? currentPackage.price.minus(currentPackage.bundleAdjustment)
-    : zeroMoney();
+  const packageBaseTotal =
+    packageLines.length > 0
+      ? new Prisma.Decimal(packageLines.reduce((sum, line) => sum + line.packageSubtotal, 0))
+      : currentPackage
+        ? currentPackage.price.minus(currentPackage.bundleAdjustment)
+        : zeroMoney();
   const paidAmount = order.invoices[0]?.paidAmount ?? zeroMoney();
 
   return {
@@ -419,13 +465,14 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     customerPhone: formatCustomerPhone(order.customer.phone),
     originalPackage: originalPackage ? mapPOSPackage(originalPackage) : null,
     currentPackage: currentPackage ? mapPOSPackage(currentPackage) : null,
+    packageLines,
     packageItems,
     bundleAdjustment: currentPackage?.bundleAdjustment.toNumber() ?? 0,
     rawDeliverableTotal: sumPOSPackageItemsDecimal(packageItems).toNumber(),
     includedPhotoCount,
     selectedPhotoCount,
     extraPhotoCount,
-    extraPhotoUnitPrice: extraPhotoOption.price.toNumber(),
+    extraPhotoUnitPrice: packageLines[0]?.extraDigitalUnitPrice ?? 0,
     extraPhotoTotal: extraPhotoTotalDecimal.toNumber(),
     addOns,
     addOnTotal: addOnTotal.toNumber(),
@@ -546,8 +593,38 @@ export async function recordPOSPaymentForOrder(
 
 function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   const summary = mapOrderRow(row);
-  const includedPhotoCount = row.finalPackage?.photoCount ?? row.originalPackage?.photoCount ?? null;
-  const selectedPhotoCount = row.selectedPhotoCount ?? null;
+  const packageLines = row.packages.map((line) => {
+    const selectedPhotoCount = line.selectedPhotoCount ?? line.package.photoCount;
+    const extraPhotoCount = line.extraDigitalCount + line.extraPrintCount;
+    const originalSnapshot = line.originalPackagePriceSnapshot;
+    const finalSnapshot = line.finalPackagePriceSnapshot;
+    const upgradeStatus =
+      originalSnapshot && finalSnapshot && !originalSnapshot.equals(finalSnapshot)
+        ? `Upgraded ${formatSignedMoney(finalSnapshot.minus(originalSnapshot))}`
+        : "No upgrade";
+    return {
+      id: line.id,
+      packageName: line.package.name,
+      sessionTypeName: line.sessionType.name,
+      includedPhotoCount: line.package.photoCount,
+      selectedPhotoCount,
+      extraDigitalCount: line.extraDigitalCount,
+      extraPrintCount: line.extraPrintCount,
+      extraPhotoCount,
+      upgradeStatus,
+      bundleAdjustment: formatSignedMoney(new Prisma.Decimal(line.package.bundleAdjustment)),
+      packageItems: mapPackageItemDisplays(line.package.items),
+    };
+  });
+  const includedPhotoCount =
+    packageLines.reduce((sum, line) => sum + line.includedPhotoCount, 0) ||
+    row.finalPackage?.photoCount ||
+    row.originalPackage?.photoCount ||
+    null;
+  const selectedPhotoCount =
+    packageLines.reduce((sum, line) => sum + line.selectedPhotoCount, 0) ||
+    row.selectedPhotoCount ||
+    null;
   const editingStatus = row.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
   const productionStatus = row.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
   const workflowStatus = mapWorkflowStatus({
@@ -573,7 +650,13 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
         ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
         : "—",
     addonsSummary: formatAddOnsSummary(mapStructuredAddOns(row.orderAddOns)),
-    packageItems: activePackage ? mapPackageItemDisplays(activePackage.items) : [],
+    packageItems:
+      packageLines.length > 0
+        ? packageLines.flatMap((line) => line.packageItems)
+        : activePackage
+          ? mapPackageItemDisplays(activePackage.items)
+          : [],
+    packageLines,
     bundleAdjustment: activePackage
       ? formatSignedMoney(new Prisma.Decimal(activePackage.bundleAdjustment))
       : formatSignedMoney(zeroMoney()),
@@ -966,8 +1049,13 @@ export async function updateOrderPackage(
           tx.order.findUnique({
             where: { id: orderId },
             include: {
-              originalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
-              finalPackage: { select: { id: true, name: true, price: true, photoCount: true } },
+              packages: {
+                where: { id: data.orderPackageId },
+                include: {
+                  package: { select: { id: true, name: true, price: true, photoCount: true } },
+                },
+                take: 1,
+              },
               invoices: {
                 where: FINAL_PARENT_INVOICE_WHERE,
                 select: { id: true, isLocked: true },
@@ -982,7 +1070,14 @@ export async function updateOrderPackage(
           }),
           tx.package.findUnique({
             where: { id: data.packageId },
-            select: { id: true, name: true, price: true, photoCount: true, isActive: true },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              photoCount: true,
+              isActive: true,
+              packageFamily: { select: { sessionTypeId: true } },
+            },
           }),
         ]);
 
@@ -997,39 +1092,45 @@ export async function updateOrderPackage(
           throw new Error("Selected package is not available");
         }
 
-        const previousPackage = order.finalPackage ?? order.originalPackage;
+        const orderPackage = order.packages[0] ?? null;
+        if (!orderPackage) throw new Error("Package line not found on this order");
+        const previousPackage = orderPackage.package;
         if (!previousPackage) throw new Error("Order has no package price");
+        if (selectedPackage.packageFamily.sessionTypeId !== orderPackage.sessionTypeId) {
+          throw new Error("Selected package does not belong to this line's session type");
+        }
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const previousIncludedPhotoCount = previousPackage.photoCount;
         const nextSelectedPhotoCount =
-          order.selectedPhotoCount === null ||
-          order.selectedPhotoCount === 0 ||
-          order.selectedPhotoCount === previousIncludedPhotoCount
+          orderPackage.selectedPhotoCount === null ||
+          orderPackage.selectedPhotoCount === 0 ||
+          orderPackage.selectedPhotoCount === previousIncludedPhotoCount
             ? selectedPackage.photoCount
-            : order.selectedPhotoCount > previousIncludedPhotoCount
-              ? Math.max(order.selectedPhotoCount, selectedPackage.photoCount)
+            : orderPackage.selectedPhotoCount > previousIncludedPhotoCount
+              ? Math.max(orderPackage.selectedPhotoCount, selectedPackage.photoCount)
               : undefined;
 
         await tx.orderAddOn.deleteMany({
           where: {
             orderId,
-            packageItemId: { not: null },
+            packageItem: { packageId: previousPackage.id },
           },
         });
 
-        await tx.order.update({
-          where: { id: orderId },
+        await tx.orderPackage.update({
+          where: { id: orderPackage.id },
           data: {
-            finalPackage: { connect: { id: selectedPackage.id } },
+            package: { connect: { id: selectedPackage.id } },
             finalPackagePriceSnapshot: selectedPackage.price,
             selectedPhotoCount: nextSelectedPhotoCount,
           },
         });
+        await syncOrderSingularFieldsFromFirstPackageLine(tx, orderId);
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
           previousAddOns,
-          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousSelectedPhotoCount: null,
           previousIncludedPhotoCount,
         });
 
@@ -1042,10 +1143,11 @@ export async function updateOrderPackage(
           await recordOrderActivity(tx, {
             orderId,
             userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.PACKAGE_CHANGED,
-            title: "Package changed",
+            type: OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+            title: "Package line changed",
             description: `${previousPackage.name} changed to ${selectedPackage.name}.`,
             metadata: {
+              orderPackageId: orderPackage.id,
               previousPackageId: previousPackage.id,
               previousPackageName: previousPackage.name,
               nextPackageId: selectedPackage.id,
@@ -1514,8 +1616,13 @@ export async function updateOrderSelectedPhotoCount(
         const order = await tx.order.findUnique({
           where: { id: orderId },
           include: {
-            originalPackage: { select: { price: true, photoCount: true } },
-            finalPackage: { select: { price: true, photoCount: true } },
+            packages: {
+              where: { id: data.orderPackageId },
+              include: {
+                package: { select: { price: true, photoCount: true } },
+              },
+              take: 1,
+            },
             invoices: {
               where: FINAL_PARENT_INVOICE_WHERE,
               select: { id: true, isLocked: true },
@@ -1542,37 +1649,52 @@ export async function updateOrderSelectedPhotoCount(
           throw new Error("Invoice is locked. Use the adjustment flow before changing selected photos.");
         }
 
-        const currentPackage = order.finalPackage ?? order.originalPackage;
-        if (!currentPackage) throw new Error("Order has no package price");
+        const orderPackage = order.packages[0] ?? null;
+        if (!orderPackage) throw new Error("Package line not found on this order");
+        const currentPackage = orderPackage.package;
         if (data.selectedPhotoCount < currentPackage.photoCount) {
           throw new Error("Selected photos cannot be below included package photos");
         }
 
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
-        await tx.order.update({
-          where: { id: orderId },
-          data: { selectedPhotoCount: data.selectedPhotoCount },
+        await tx.orderPackage.update({
+          where: { id: orderPackage.id },
+          data: {
+            selectedPhotoCount: data.selectedPhotoCount,
+            extraDigitalCount: data.extraDigitalCount,
+            extraPrintCount: data.extraPrintCount,
+          },
         });
+        await syncOrderSelectedPhotoCountFromPackageLines(tx, orderId);
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
           previousAddOns,
-          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousSelectedPhotoCount: null,
           previousIncludedPhotoCount: currentPackage.photoCount,
         });
 
-        if (order.selectedPhotoCount !== data.selectedPhotoCount) {
+        if (
+          orderPackage.selectedPhotoCount !== data.selectedPhotoCount ||
+          orderPackage.extraDigitalCount !== data.extraDigitalCount ||
+          orderPackage.extraPrintCount !== data.extraPrintCount
+        ) {
           await recordOrderActivity(tx, {
             orderId,
             userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.SELECTION_UPDATED,
-            title: "Selected photo count updated",
+            type: OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
+            title: "Package line photo selection updated",
             description: `Selected photos changed to ${data.selectedPhotoCount}.`,
             metadata: {
-              previousSelectedPhotoCount: order.selectedPhotoCount,
+              orderPackageId: orderPackage.id,
+              previousSelectedPhotoCount: orderPackage.selectedPhotoCount,
               nextSelectedPhotoCount: data.selectedPhotoCount,
               includedPhotoCount: currentPackage.photoCount,
-              extraPhotoCount: Math.max(data.selectedPhotoCount - currentPackage.photoCount, 0),
+              previousExtraDigitalCount: orderPackage.extraDigitalCount,
+              previousExtraPrintCount: orderPackage.extraPrintCount,
+              nextExtraDigitalCount: data.extraDigitalCount,
+              nextExtraPrintCount: data.extraPrintCount,
+              extraPhotoCount: data.extraDigitalCount + data.extraPrintCount,
             },
           });
         }
@@ -2536,6 +2658,12 @@ export async function createOrderFromBookingWithClient(
       jobNumber: true,
       customer: { select: { id: true } },
       package: { select: { id: true, price: true, photoCount: true } },
+      packages: {
+        include: {
+          package: { select: { id: true, price: true, photoCount: true } },
+        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
       order: { select: { id: true } },
     },
   });
@@ -2543,7 +2671,9 @@ export async function createOrderFromBookingWithClient(
   if (!booking) {
     throw new Error("Booking not found");
   }
-  if (!booking.package) {
+  const firstPackageLine = booking.packages[0] ?? null;
+  const firstPackage = firstPackageLine?.package ?? booking.package;
+  if (!firstPackage) {
     throw new Error("Booking package is required to create an order");
   }
   if (!booking.jobId || !booking.jobNumber) {
@@ -2576,10 +2706,37 @@ export async function createOrderFromBookingWithClient(
       jobNumber: booking.jobNumber,
       bookingId: booking.id,
       customerId: booking.customer.id,
-      originalPackageId: booking.package.id,
-      finalPackageId: booking.package.id,
-      originalPackagePriceSnapshot: booking.package.price,
-      selectedPhotoCount: booking.package.photoCount,
+      originalPackageId: firstPackage.id,
+      finalPackageId: firstPackage.id,
+      originalPackagePriceSnapshot: firstPackage.price,
+      selectedPhotoCount: booking.packages.reduce(
+        (sum, line) => sum + line.package.photoCount,
+        0
+      ) || firstPackage.photoCount,
+      packages: {
+        create: (booking.packages.length > 0
+          ? booking.packages
+          : [
+              {
+                packageId: firstPackage.id,
+                sessionTypeId: "",
+                sortOrder: 0,
+                package: firstPackage,
+              },
+            ]
+        ).map((line, index) => {
+          if (!line.sessionTypeId) {
+            throw new Error("Booking package session type is required to create an order");
+          }
+          return {
+            packageId: line.packageId,
+            sessionTypeId: line.sessionTypeId,
+            originalPackagePriceSnapshot: line.package.price,
+            selectedPhotoCount: line.package.photoCount,
+            sortOrder: line.sortOrder ?? index,
+          };
+        }),
+      },
       status: initialStatus,
       editingJob: {
         create: {
@@ -2604,8 +2761,8 @@ export async function createOrderFromBookingWithClient(
     metadata: {
       bookingId: booking.id,
       jobNumber: booking.jobNumber,
-      originalPackageId: booking.package.id,
-      finalPackageId: booking.package.id,
+      originalPackageId: firstPackage.id,
+      finalPackageId: firstPackage.id,
     },
   });
 
@@ -2781,6 +2938,23 @@ function fetchOrderByIdWithClient(
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           },
         },
+      },
+      packages: {
+        include: {
+          sessionType: { select: { name: true } },
+          package: {
+            select: {
+              name: true,
+              photoCount: true,
+              bundleAdjustment: true,
+              items: {
+                select: packageItemDisplaySelect,
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
+            },
+          },
+        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       editingJob: {
         select: {
@@ -3269,6 +3443,54 @@ function zeroMoney(): Prisma.Decimal {
   return new Prisma.Decimal(0);
 }
 
+async function syncOrderSingularFieldsFromFirstPackageLine(
+  client: Prisma.TransactionClient,
+  orderId: string
+): Promise<void> {
+  const firstLine = await client.orderPackage.findFirst({
+    where: { orderId },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: {
+      packageId: true,
+      originalPackagePriceSnapshot: true,
+      finalPackagePriceSnapshot: true,
+    },
+  });
+  if (!firstLine) return;
+
+  await client.order.update({
+    where: { id: orderId },
+    data: {
+      originalPackageId: firstLine.packageId,
+      finalPackageId: firstLine.packageId,
+      originalPackagePriceSnapshot: firstLine.originalPackagePriceSnapshot,
+      finalPackagePriceSnapshot: firstLine.finalPackagePriceSnapshot,
+    },
+  });
+}
+
+async function syncOrderSelectedPhotoCountFromPackageLines(
+  client: Prisma.TransactionClient,
+  orderId: string
+): Promise<void> {
+  const lines = await client.orderPackage.findMany({
+    where: { orderId },
+    select: {
+      selectedPhotoCount: true,
+      package: { select: { photoCount: true } },
+    },
+  });
+  const selectedPhotoCount = lines.reduce(
+    (sum, line) => sum + (line.selectedPhotoCount ?? line.package.photoCount),
+    0
+  );
+
+  await client.order.update({
+    where: { id: orderId },
+    data: { selectedPhotoCount },
+  });
+}
+
 function sumDepositInvoicePaidAmount(
   invoices: Array<{ paidAmount: Prisma.Decimal }>
 ): Prisma.Decimal {
@@ -3626,6 +3848,97 @@ function mapPOSAddOns(
       });
     }
     return entries;
+  });
+}
+
+function mapPOSPackageLines(input: {
+  lines: Array<{
+    id: string;
+    sortOrder: number;
+    sessionTypeId: string;
+    selectedPhotoCount: number | null;
+    extraDigitalCount: number;
+    extraPrintCount: number;
+    originalPackagePriceSnapshot: Prisma.Decimal | null;
+    finalPackagePriceSnapshot: Prisma.Decimal | null;
+    sessionType: { id: string; name: string };
+    package: {
+      id: string;
+      name: string;
+      price: Prisma.Decimal;
+      photoCount: number;
+      bundleAdjustment: Prisma.Decimal;
+      items: Parameters<typeof mapPOSPackageItems>[0];
+    };
+  }>;
+  packageOptions: Array<{
+    id: string;
+    name: string;
+    price: Prisma.Decimal;
+    packageFamily: { sessionTypeId: string };
+  }>;
+  pricingRows: Array<{
+    sessionTypeId: string;
+    mediaType: MediaType;
+    unitPrice: Prisma.Decimal;
+  }>;
+}): POSPackageLine[] {
+  const priceByKey = new Map(
+    input.pricingRows.map((row) => [
+      `${row.sessionTypeId}:${row.mediaType}`,
+      row.unitPrice,
+    ])
+  );
+
+  return input.lines.map((line) => {
+    const currentPackage = line.package;
+    const selectedPhotoCount = line.selectedPhotoCount ?? currentPackage.photoCount;
+    const extraPhotoCount = line.extraDigitalCount + line.extraPrintCount;
+    const digitalUnitPrice =
+      priceByKey.get(`${line.sessionTypeId}:${MediaType.DIGITAL}`) ?? zeroMoney();
+    const printUnitPrice =
+      priceByKey.get(`${line.sessionTypeId}:${MediaType.PRINT}`) ?? zeroMoney();
+    const extraPhotoTotal = digitalUnitPrice
+      .mul(line.extraDigitalCount)
+      .plus(printUnitPrice.mul(line.extraPrintCount));
+    const originalPrice = line.originalPackagePriceSnapshot ?? currentPackage.price;
+    const finalPrice = line.finalPackagePriceSnapshot ?? currentPackage.price;
+    const upgradeDelta = finalPrice.minus(originalPrice);
+    const packageSubtotal = finalPrice.plus(extraPhotoTotal);
+    const scopedPackageOptions = input.packageOptions.filter(
+      (option) => option.packageFamily.sessionTypeId === line.sessionTypeId
+    );
+
+    return {
+      id: line.id,
+      sortOrder: line.sortOrder,
+      sessionTypeId: line.sessionTypeId,
+      sessionTypeName: line.sessionType.name,
+      originalPackage: mapPOSPackage({
+        ...currentPackage,
+        price: originalPrice,
+      }),
+      currentPackage: mapPOSPackage({
+        ...currentPackage,
+        price: finalPrice,
+      }),
+      packageItems: mapPOSPackageItems(currentPackage.items),
+      includedPhotoCount: currentPackage.photoCount,
+      selectedPhotoCount,
+      extraDigitalCount: line.extraDigitalCount,
+      extraPrintCount: line.extraPrintCount,
+      extraPhotoCount,
+      extraDigitalUnitPrice: digitalUnitPrice.toNumber(),
+      extraPrintUnitPrice: printUnitPrice.toNumber(),
+      extraPhotoTotal: extraPhotoTotal.toNumber(),
+      packageSubtotal: packageSubtotal.toNumber(),
+      upgradeDelta: upgradeDelta.toNumber(),
+      upgradeDeltaLabel: formatSignedMoney(upgradeDelta),
+      packageOptions: mapPOSPackageOptions(scopedPackageOptions, {
+        id: currentPackage.id,
+        price: finalPrice,
+      }),
+    };
   });
 }
 
