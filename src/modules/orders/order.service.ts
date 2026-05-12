@@ -393,12 +393,17 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const originalPackage = order.originalPackage;
   const packageItems = currentPackage ? mapPOSPackageItems(currentPackage.items) : [];
   const includedPhotoCount = currentPackage?.photoCount ?? originalPackage?.photoCount ?? 0;
-  const selectedPhotoCount = order.selectedPhotoCount ?? includedPhotoCount;
+  const selectedPhotoCount =
+    order.selectedPhotoCount && order.selectedPhotoCount > 0
+      ? order.selectedPhotoCount
+      : includedPhotoCount;
   const extraPhotoCount = Math.max(selectedPhotoCount - includedPhotoCount, 0);
   const extraPhotoTotalDecimal = extraPhotoOption.price.mul(extraPhotoCount);
   const addOns = mapPOSAddOns(order.orderAddOns);
   const addOnTotal = sumOrderAddOnRowsDecimal(order.orderAddOns);
-  const packageBaseTotal = currentPackage?.price ?? zeroMoney();
+  const packageBaseTotal = currentPackage
+    ? currentPackage.price.minus(currentPackage.bundleAdjustment)
+    : zeroMoney();
   const paidAmount = order.invoices[0]?.paidAmount ?? zeroMoney();
 
   return {
@@ -611,19 +616,15 @@ export async function getOrderSelectionWorkflowById(
 
   const manualAddOnTotal = sumAddOnsDecimal(addOns);
   const invoice = order.invoices[0] ?? null;
-  const recognizedPackageBaseline = invoice
-    ? invoice.totalAmount
-        .minus(manualAddOnTotal)
-        .minus(await calculateExtraPhotoCharge({
-          selectedPhotoCount: order.selectedPhotoCount,
-          includedPhotoCount,
-        }))
-    : currentPackage.price;
+  const packageAdjustmentBaseline =
+    order.originalPackagePriceSnapshot ??
+    order.originalPackage?.price ??
+    currentPackage.price;
   const packageOptions = buildSelectionPackageOptions({
     packages: packageRows,
     currentPackage,
     selectedPhotos,
-    recognizedPackageBaseline,
+    packageAdjustmentBaseline,
   });
   const recommendedPackage =
     packageOptions.find((option) => option.isRecommended) ?? null;
@@ -879,7 +880,7 @@ export async function updateOrderPackage(
           }),
           tx.package.findUnique({
             where: { id: data.packageId },
-            select: { id: true, name: true, price: true, isActive: true },
+            select: { id: true, name: true, price: true, photoCount: true, isActive: true },
           }),
         ]);
 
@@ -898,6 +899,14 @@ export async function updateOrderPackage(
         if (!previousPackage) throw new Error("Order has no package price");
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const previousIncludedPhotoCount = previousPackage.photoCount;
+        const nextSelectedPhotoCount =
+          order.selectedPhotoCount === null ||
+          order.selectedPhotoCount === 0 ||
+          order.selectedPhotoCount === previousIncludedPhotoCount
+            ? selectedPackage.photoCount
+            : order.selectedPhotoCount > previousIncludedPhotoCount
+              ? Math.max(order.selectedPhotoCount, selectedPackage.photoCount)
+              : undefined;
 
         await tx.orderAddOn.deleteMany({
           where: {
@@ -911,12 +920,12 @@ export async function updateOrderPackage(
           data: {
             finalPackage: { connect: { id: selectedPackage.id } },
             finalPackagePriceSnapshot: selectedPackage.price,
+            selectedPhotoCount: nextSelectedPhotoCount,
           },
         });
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
-          previousPackagePrice: previousPackage.price,
           previousAddOns,
           previousSelectedPhotoCount: order.selectedPhotoCount,
           previousIncludedPhotoCount,
@@ -940,7 +949,7 @@ export async function updateOrderPackage(
               nextPackageId: selectedPackage.id,
               nextPackageName: selectedPackage.name,
               packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              recognizedPackageBaseline: invoiceSummary.recognizedPackageBaseline.toFixed(3),
+              packageAdjustmentBaseline: invoiceSummary.packageAdjustmentBaseline.toFixed(3),
             },
           });
         }
@@ -1082,7 +1091,6 @@ export async function upgradeOrderPackageItem(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
-          previousPackagePrice: currentPackage.price,
           previousAddOns,
           previousSelectedPhotoCount: order.selectedPhotoCount,
           previousIncludedPhotoCount: currentPackage.photoCount,
@@ -1214,7 +1222,6 @@ export async function addOrderProductAddOn(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
-          previousPackagePrice: currentPackage.price,
           previousAddOns,
           previousSelectedPhotoCount: order.selectedPhotoCount,
           previousIncludedPhotoCount: currentPackage.photoCount,
@@ -1339,7 +1346,6 @@ export async function removeOrderAddOn(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
-          previousPackagePrice: currentPackage.price,
           previousAddOns,
           previousSelectedPhotoCount: order.selectedPhotoCount,
           previousIncludedPhotoCount: currentPackage.photoCount,
@@ -1448,7 +1454,6 @@ export async function updateOrderSelectedPhotoCount(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
-          previousPackagePrice: currentPackage.price,
           previousAddOns,
           previousSelectedPhotoCount: order.selectedPhotoCount,
           previousIncludedPhotoCount: currentPackage.photoCount,
@@ -2145,9 +2150,9 @@ export async function updateOrder(
         if (!selectedPackage) {
           throw new Error("Selected package does not exist");
         }
-        const previousPackagePrice =
+        const currentPackagePrice =
           order.finalPackage?.price ?? order.originalPackage?.price;
-        if (!previousPackagePrice) {
+        if (!currentPackagePrice) {
           throw new Error("Order has no package price");
         }
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
@@ -2180,7 +2185,6 @@ export async function updateOrder(
         }
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
-          previousPackagePrice,
           previousAddOns,
           previousSelectedPhotoCount: order.selectedPhotoCount,
           previousIncludedPhotoCount,
@@ -2204,7 +2208,7 @@ export async function updateOrder(
               nextPackageId: selectedPackage.id,
               nextPackageName: selectedPackage.name,
               packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              recognizedPackageBaseline: invoiceSummary.recognizedPackageBaseline.toFixed(3),
+              packageAdjustmentBaseline: invoiceSummary.packageAdjustmentBaseline.toFixed(3),
             },
           });
         }
@@ -2429,7 +2433,7 @@ export async function createOrderFromBookingWithClient(
       jobId: true,
       jobNumber: true,
       customer: { select: { id: true } },
-      package: { select: { id: true, price: true } },
+      package: { select: { id: true, price: true, photoCount: true } },
       order: { select: { id: true } },
     },
   });
@@ -2473,7 +2477,7 @@ export async function createOrderFromBookingWithClient(
       originalPackageId: booking.package.id,
       finalPackageId: booking.package.id,
       originalPackagePriceSnapshot: booking.package.price,
-      selectedPhotoCount: 0,
+      selectedPhotoCount: booking.package.photoCount,
       status: initialStatus,
       editingJob: {
         create: {
@@ -3192,11 +3196,16 @@ type EditableOrderRow = NonNullable<Awaited<ReturnType<typeof fetchEditableOrder
 function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
   const addOns = mapStructuredAddOns(order.orderAddOns);
   const invoice = order.invoices[0] ?? null;
+  const originalPackagePriceSnapshot =
+    order.originalPackagePriceSnapshot?.toNumber() ??
+    order.originalPackage?.price.toNumber() ??
+    null;
 
   return {
     id: order.id,
     customerPhone: formatCustomerPhone(order.customer.phone),
     bookingDate: formatDate(order.booking.sessionDate),
+    originalPackagePriceSnapshot,
     originalPackage: order.originalPackage ? mapEditPackage(order.originalPackage) : null,
     finalPackage: order.finalPackage ? mapEditPackage(order.finalPackage) : null,
     selectedPhotos:
@@ -3216,7 +3225,11 @@ function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
           remainingAmount: invoice.remainingAmount.toNumber(),
           status: mapInvoiceStatus(invoice.status),
           isLocked: invoice.isLocked,
-          recognizedPackageBaseline: invoice.totalAmount.minus(sumAddOnsDecimal(addOns)).toNumber(),
+          packageAdjustmentBaseline:
+            originalPackagePriceSnapshot ??
+            order.originalPackage?.price.toNumber() ??
+            order.finalPackage?.price.toNumber() ??
+            0,
         }
       : null,
   };
@@ -3251,7 +3264,7 @@ function buildSelectionPackageOptions(input: {
     photoCount: number;
   };
   selectedPhotos: number;
-  recognizedPackageBaseline: Prisma.Decimal;
+  packageAdjustmentBaseline: Prisma.Decimal;
 }): OrderSelectionPackageOption[] {
   const byId = new Map<string, typeof input.currentPackage>();
   for (const packageOption of input.packages) {
@@ -3270,7 +3283,7 @@ function buildSelectionPackageOptions(input: {
   );
 
   return sortedPackages.map((packageOption) => {
-    const upgradeDifference = packageOption.price.minus(input.recognizedPackageBaseline);
+    const upgradeDifference = packageOption.price.minus(input.packageAdjustmentBaseline);
     return {
       id: packageOption.id,
       name: packageOption.name,
@@ -3342,20 +3355,6 @@ async function getExtraPhotoAddOnOption(): Promise<{
     throw new Error("Extra-photo product price is required");
   }
   return { price: option.canonicalPrice };
-}
-
-async function calculateExtraPhotoCharge(input: {
-  selectedPhotoCount?: number | null;
-  includedPhotoCount: number;
-}): Promise<Prisma.Decimal> {
-  const extraPhotoCount = Math.max(
-    (input.selectedPhotoCount ?? input.includedPhotoCount) - input.includedPhotoCount,
-    0
-  );
-  if (extraPhotoCount === 0) return zeroMoney();
-
-  const option = await getExtraPhotoAddOnOption();
-  return option.price.mul(extraPhotoCount);
 }
 
 function resolveSelectionFinancialAction(input: {

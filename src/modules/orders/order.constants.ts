@@ -164,10 +164,12 @@ export const ORDER_WORKFLOW_TRANSITIONS = {
     [OrderDeliveryStatus.READY_FOR_PICKUP]: [
       OrderDeliveryStatus.READY_FOR_PICKUP,
       OrderDeliveryStatus.CUSTOMER_NOTIFIED,
+      OrderDeliveryStatus.COMPLETED,
       OrderDeliveryStatus.PICKED_UP,
     ],
     [OrderDeliveryStatus.CUSTOMER_NOTIFIED]: [
       OrderDeliveryStatus.CUSTOMER_NOTIFIED,
+      OrderDeliveryStatus.COMPLETED,
       OrderDeliveryStatus.PICKED_UP,
     ],
     [OrderDeliveryStatus.PICKED_UP]: [

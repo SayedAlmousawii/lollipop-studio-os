@@ -277,6 +277,7 @@ export interface EditableOrder {
   id: string;
   customerPhone: string;
   bookingDate: string;
+  originalPackagePriceSnapshot: number | null;
   originalPackage: OrderEditPackage | null;
   finalPackage: OrderEditPackage | null;
   selectedPhotos: number;
@@ -294,7 +295,7 @@ export interface EditableOrderInvoiceSummary {
   remainingAmount: number;
   status: InvoiceStatusLabel;
   isLocked: boolean;
-  recognizedPackageBaseline: number;
+  packageAdjustmentBaseline: number;
 }
 
 export interface OrderPaymentStage {

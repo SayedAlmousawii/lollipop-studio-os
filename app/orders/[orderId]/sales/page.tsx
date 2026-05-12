@@ -36,11 +36,10 @@ export default async function SalesPage(
 function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
   const packageAmount = workspace.currentPackage?.price ?? 0;
-  const bundleAdjustment = workspace.bundleAdjustment;
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
     invoice?.invoiceTotal ??
-    packageAmount + bundleAdjustment + extraPhotoAmount + workspace.addOnTotal;
+    packageAmount + extraPhotoAmount + workspace.addOnTotal;
 
   return (
     <aside className={styles.financialSidebar}>
@@ -110,9 +109,6 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                     label={`Deposit${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
                     value={`-${formatKD(invoice.depositPaidAmount)}`}
                   />
-                ) : null}
-                {bundleAdjustment !== 0 ? (
-                  <MoneyRow label="Bundle adjustment" value={formatKD(bundleAdjustment)} />
                 ) : null}
                 {extraPhotoAmount > 0 ? (
                   <MoneyRow

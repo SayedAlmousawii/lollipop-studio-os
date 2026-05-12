@@ -31,7 +31,6 @@ type SnapshotInvoiceLineItem = Omit<
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
-  previousPackagePrice: Prisma.Decimal;
   previousAddOns: OrderAddOnLine[];
   previousSelectedPhotoCount?: number | null;
   previousIncludedPhotoCount?: number | null;
@@ -47,7 +46,7 @@ export interface OrderInvoiceSyncSummary {
   packageAdjustmentAmount: Prisma.Decimal;
   addOnAdjustmentAmount: Prisma.Decimal;
   totalAdjustmentAmount: Prisma.Decimal;
-  recognizedPackageBaseline: Prisma.Decimal;
+  packageAdjustmentBaseline: Prisma.Decimal;
   createdInvoice: boolean;
 }
 
@@ -269,10 +268,11 @@ export async function syncOrderInvoiceForFinancialEdit(
     });
   }
 
-  const recognizedPackageBaseline = existingInvoice
-    ? existingInvoice.totalAmount.minus(previousSelectionAddOnTotal)
-    : input.previousPackagePrice;
-  const packageAdjustmentAmount = packagePrice.minus(recognizedPackageBaseline);
+  const packageAdjustmentBaseline =
+    order.originalPackagePriceSnapshot ??
+    order.originalPackage?.price ??
+    packagePrice;
+  const packageAdjustmentAmount = packagePrice.minus(packageAdjustmentBaseline);
   const addOnAdjustmentAmount = nextSelectionAddOnTotal.minus(previousSelectionAddOnTotal);
   const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
 
@@ -313,7 +313,7 @@ export async function syncOrderInvoiceForFinancialEdit(
     packageAdjustmentAmount,
     addOnAdjustmentAmount,
     totalAdjustmentAmount,
-    recognizedPackageBaseline,
+    packageAdjustmentBaseline,
     createdInvoice: !existingInvoice,
   };
 }
@@ -338,28 +338,33 @@ export async function getInvoices({
         include: {
           customer: { select: { phone: true } },
           order: { select: { jobNumber: true } },
-          booking: { select: { jobNumber: true } },
+          booking: { select: { publicId: true, jobNumber: true } },
         },
         orderBy: { createdAt: "desc" },
       }),
     "Failed to fetch invoices"
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    jobNumber: row.jobNumber ?? "Pending",
-    invoiceNumber: row.invoiceNumber,
-    customerPhone: formatCustomerPhone(row.customer.phone),
-    orderId: row.orderId,
-    bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.jobNumber),
-    totalAmount: formatMoney(row.totalAmount),
-    paidAmount: formatMoney(row.paidAmount),
-    remainingAmount: formatMoney(row.remainingAmount),
-    status: mapInvoiceStatus(row.status),
-    isLocked: row.isLocked,
-    createdAt: formatDate(row.createdAt),
-  }));
+  return rows.map((row) => {
+    const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+
+    return {
+      id: row.id,
+      jobNumber: displayJobNumber ?? "Pending",
+      invoiceNumber: row.invoiceNumber,
+      invoiceType: row.invoiceType,
+      customerPhone: formatCustomerPhone(row.customer.phone),
+      orderId: row.orderId,
+      bookingId: row.bookingId,
+      referenceLabel: formatInvoiceReference(row.booking?.publicId),
+      totalAmount: formatMoney(row.totalAmount),
+      paidAmount: formatMoney(row.paidAmount),
+      remainingAmount: formatMoney(row.remainingAmount),
+      status: mapInvoiceStatus(row.status),
+      isLocked: row.isLocked,
+      createdAt: formatDate(row.createdAt),
+    };
+  });
 }
 
 export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> {
@@ -374,7 +379,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
         include: {
           customer: { select: { phone: true } },
           order: { select: { jobNumber: true } },
-          booking: { select: { jobNumber: true } },
+          booking: { select: { publicId: true, jobNumber: true } },
           parentInvoice: { select: { id: true, invoiceNumber: true } },
           payments: { orderBy: { paidAt: "desc" } },
           lineItems: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
@@ -389,17 +394,36 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
 
   if (!row) return null;
 
+  const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+  const lineItemsAreComputed =
+    !row.isLocked &&
+    row.lineItems.length === 0 &&
+    row.orderId !== null &&
+    row.invoiceType === InvoiceType.FINAL;
+  const computedLineItems =
+    lineItemsAreComputed && row.orderId
+      ? await buildInvoiceLineItems(db, row.orderId)
+      : null;
+  const depositInvoice =
+    row.invoiceType === InvoiceType.FINAL && row.financialCaseId
+      ? await findDepositInvoiceForFinancialCase(row.financialCaseId)
+      : null;
+
   return {
     id: row.id,
-    jobNumber: row.jobNumber ?? "Pending",
+    jobNumber: displayJobNumber ?? "Pending",
     invoiceNumber: row.invoiceNumber,
+    invoiceType: row.invoiceType,
     customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
     bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.jobNumber),
+    referenceLabel: formatInvoiceReference(row.booking?.publicId),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
+    depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
+    depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
+    lineItemsAreComputed,
     status: mapInvoiceStatus(row.status),
     isLocked: row.isLocked,
     createdAt: formatDate(row.createdAt),
@@ -423,7 +447,9 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
       totalAmount: formatMoney(invoice.totalAmount),
       status: mapInvoiceStatus(invoice.status),
     })),
-    lineItems: row.lineItems.map(mapInvoiceLineItem),
+    lineItems:
+      computedLineItems?.map((item, index) => mapComputedInvoiceLineItem(item, index)) ??
+      row.lineItems.map(mapInvoiceLineItem),
   };
 }
 
@@ -592,23 +618,39 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
   });
   if (!invoice) throw new Error("Invoice not found");
 
-  const paidAmount = invoice.payments.reduce(
+  const directPaidAmount = invoice.payments.reduce(
     (sum, payment) => sum.plus(payment.amount),
     new Prisma.Decimal(0)
   );
-  const remainingAmount = Prisma.Decimal.max(invoice.totalAmount.minus(paidAmount), 0);
-  let status: InvoiceStatus =
-    invoice.status === InvoiceStatus.DRAFT ? InvoiceStatus.DRAFT : InvoiceStatus.ISSUED;
-  if (paidAmount.greaterThan(0) && paidAmount.lessThan(invoice.totalAmount)) {
-    status = InvoiceStatus.PARTIAL;
-  }
-  if (paidAmount.greaterThanOrEqualTo(invoice.totalAmount)) {
-    status = InvoiceStatus.PAID;
+  const depositCreditAmount =
+    invoice.invoiceType === InvoiceType.FINAL && invoice.financialCaseId
+      ? await getDepositCreditAmountForFinancialCase(client, invoice.financialCaseId)
+      : new Prisma.Decimal(0);
+  const effectivePaidAmount = directPaidAmount.plus(depositCreditAmount);
+  const remainingAmount = Prisma.Decimal.max(
+    invoice.totalAmount.minus(effectivePaidAmount),
+    0
+  );
+  let status: InvoiceStatus = invoice.status;
+  if (
+    invoice.status !== InvoiceStatus.CLOSED &&
+    invoice.status !== InvoiceStatus.DRAFT
+  ) {
+    status = InvoiceStatus.ISSUED;
+    if (
+      effectivePaidAmount.greaterThan(0) &&
+      effectivePaidAmount.lessThan(invoice.totalAmount)
+    ) {
+      status = InvoiceStatus.PARTIAL;
+    }
+    if (effectivePaidAmount.greaterThanOrEqualTo(invoice.totalAmount)) {
+      status = InvoiceStatus.PAID;
+    }
   }
 
   await client.invoice.update({
     where: { id },
-    data: { paidAmount, remainingAmount, status },
+    data: { paidAmount: directPaidAmount, remainingAmount, status },
   });
 }
 
@@ -929,6 +971,35 @@ function mapInvoiceLineItem(row: {
   };
 }
 
+function mapComputedInvoiceLineItem(
+  row: SnapshotInvoiceLineItem,
+  index: number
+): InvoiceLineItem {
+  return {
+    id: `computed-${row.sortOrder}-${index}`,
+    lineType: row.lineType,
+    description: row.description,
+    quantity: row.quantity ?? 1,
+    unitPrice: formatComputedMoney(row.unitPrice),
+    lineTotal: formatComputedMoney(row.lineTotal),
+    sortOrder: row.sortOrder ?? index,
+    createdAt: "",
+  };
+}
+
+function formatComputedMoney(value: SnapshotInvoiceLineItem["unitPrice"]): string {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toFixed" in value &&
+    typeof value.toFixed === "function"
+  ) {
+    return formatMoney(value);
+  }
+
+  return `${Number(value).toFixed(3)} KD`;
+}
+
 export async function createAdjustmentInvoice(
   parentInvoiceId: string,
   data: CreateAdjustmentInvoiceInput,
@@ -1098,9 +1169,55 @@ function formatEnum(value: string): string {
     .join(" ");
 }
 
-function formatInvoiceReference(jobNumber: string | null | undefined): string {
-  if (jobNumber) {
-    return `Job ${jobNumber}`;
+function resolveInvoiceDisplayJobNumber(invoice: {
+  jobNumber: string | null;
+  order: { jobNumber: string | null } | null;
+  booking: { jobNumber: string | null } | null;
+}): string | null {
+  return invoice.jobNumber ?? invoice.order?.jobNumber ?? invoice.booking?.jobNumber ?? null;
+}
+
+async function getDepositCreditAmountForFinancialCase(
+  client: DbClient,
+  financialCaseId: string
+): Promise<Prisma.Decimal> {
+  const invoice = await client.invoice.findFirst({
+    where: {
+      financialCaseId,
+      invoiceType: InvoiceType.DEPOSIT,
+      parentInvoiceId: null,
+    },
+    select: {
+      paidAmount: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return invoice?.paidAmount ?? new Prisma.Decimal(0);
+}
+
+async function findDepositInvoiceForFinancialCase(
+  financialCaseId: string
+): Promise<{ invoiceNumber: string; paidAmount: Prisma.Decimal } | null> {
+  return db.invoice.findFirst({
+    where: {
+      financialCaseId,
+      invoiceType: InvoiceType.DEPOSIT,
+      parentInvoiceId: null,
+    },
+    select: {
+      invoiceNumber: true,
+      paidAmount: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+function formatInvoiceReference(
+  bookingReference: string | null | undefined
+): string {
+  if (bookingReference) {
+    return bookingReference;
   }
-  return "Job pending";
+  return "Pending";
 }

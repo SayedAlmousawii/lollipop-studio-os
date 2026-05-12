@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { closeInvoiceAction } from "@/app/invoices/actions";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,9 +31,9 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
         <TableHeader>
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Invoice Number</TableHead>
-            <TableHead className="text-text-secondary">Job Number</TableHead>
             <TableHead className="text-text-secondary">Customer Phone</TableHead>
-            <TableHead className="text-text-secondary">Reference</TableHead>
+            <TableHead className="text-text-secondary">Job Number</TableHead>
+            <TableHead className="text-text-secondary">Booking Ref</TableHead>
             <TableHead className="text-text-secondary">Total</TableHead>
             <TableHead className="text-text-secondary">Paid</TableHead>
             <TableHead className="text-text-secondary">Remaining</TableHead>
@@ -55,11 +56,11 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
                 <TableCell className="font-medium text-text-primary">
                   {invoice.invoiceNumber}
                 </TableCell>
-                <TableCell className="text-sm font-medium text-text-primary">
-                  {invoice.jobNumber}
-                </TableCell>
                 <TableCell className="text-sm tabular-nums text-text-primary">
                   {invoice.customerPhone}
+                </TableCell>
+                <TableCell className="text-sm font-medium text-text-primary">
+                  {invoice.jobNumber}
                 </TableCell>
                 <TableCell className="text-sm text-text-secondary">
                   {invoice.referenceLabel}
@@ -84,11 +85,14 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
                 </TableCell>
                 <TableCell>
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span className="sr-only">Open actions</span>
-                      </Button>
+                    <DropdownMenuTrigger
+                      className={cn(
+                        buttonVariants({ variant: "ghost", size: "icon" }),
+                        "h-8 w-8"
+                      )}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                      <span className="sr-only">Open actions</span>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem asChild>

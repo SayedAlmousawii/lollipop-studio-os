@@ -6,24 +6,26 @@ import {
   checkInBookingAction,
   type CheckInBookingActionState,
 } from "@/app/bookings/[bookingId]/actions";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-interface CheckInButtonProps {
+interface CheckInDropdownItemProps {
   bookingId: string;
 }
 
-export function CheckInButton({ bookingId }: CheckInButtonProps) {
+export function CheckInDropdownItem({
+  bookingId,
+}: CheckInDropdownItemProps) {
   const [state, formAction] = useActionState<
     CheckInBookingActionState,
     FormData
   >(checkInBookingAction, {});
 
   return (
-    <form action={formAction} className="space-y-2">
+    <form action={formAction} className="space-y-1">
       <input type="hidden" name="bookingId" value={bookingId} />
-      <SubmitButton />
+      <DropdownSubmitButton>Check In</DropdownSubmitButton>
       {state.errors?._global ? (
-        <p className="text-sm text-danger" role="alert" aria-live="assertive">
+        <p className="max-w-64 px-2 py-1 text-xs leading-5 text-danger">
           {state.errors._global[0]}
         </p>
       ) : null}
@@ -31,11 +33,11 @@ export function CheckInButton({ bookingId }: CheckInButtonProps) {
   );
 }
 
-function SubmitButton() {
+function DropdownSubmitButton({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus();
 
   return (
-    <Button
+    <button
       type="submit"
       disabled={pending}
       onClick={(event) => {
@@ -47,8 +49,12 @@ function SubmitButton() {
           event.preventDefault();
         }
       }}
+      className={cn(
+        "flex w-full select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50",
+        "text-text-primary"
+      )}
     >
-      {pending ? "Checking in..." : "Check In"}
-    </Button>
+      {pending ? "Checking in..." : children}
+    </button>
   );
 }
