@@ -352,6 +352,7 @@ export async function getInvoices({
       id: row.id,
       jobNumber: displayJobNumber ?? "Pending",
       invoiceNumber: row.invoiceNumber,
+      invoiceType: row.invoiceType,
       customerPhone: formatCustomerPhone(row.customer.phone),
       orderId: row.orderId,
       bookingId: row.bookingId,
@@ -394,11 +395,20 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
   if (!row) return null;
 
   const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+  const depositInvoice =
+    row.invoiceType === InvoiceType.FINAL && row.financialCaseId
+      ? await findDepositInvoiceForFinancialCase(row.financialCaseId)
+      : null;
+  const depositPaidAmount = depositInvoice?.paidAmount ?? null;
+  const netRemainingAmount = depositPaidAmount
+    ? Prisma.Decimal.max(row.remainingAmount.minus(depositPaidAmount), 0)
+    : null;
 
   return {
     id: row.id,
     jobNumber: displayJobNumber ?? "Pending",
     invoiceNumber: row.invoiceNumber,
+    invoiceType: row.invoiceType,
     customerPhone: formatCustomerPhone(row.customer.phone),
     orderId: row.orderId,
     bookingId: row.bookingId,
@@ -406,6 +416,9 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
     remainingAmount: formatMoney(row.remainingAmount),
+    depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
+    depositPaidAmount: depositPaidAmount ? formatMoney(depositPaidAmount) : null,
+    netRemainingAmount: netRemainingAmount ? formatMoney(netRemainingAmount) : null,
     status: mapInvoiceStatus(row.status),
     isLocked: row.isLocked,
     createdAt: formatDate(row.createdAt),
@@ -1110,6 +1123,23 @@ function resolveInvoiceDisplayJobNumber(invoice: {
   booking: { jobNumber: string | null } | null;
 }): string | null {
   return invoice.jobNumber ?? invoice.order?.jobNumber ?? invoice.booking?.jobNumber ?? null;
+}
+
+async function findDepositInvoiceForFinancialCase(
+  financialCaseId: string
+): Promise<{ invoiceNumber: string; paidAmount: Prisma.Decimal } | null> {
+  return db.invoice.findFirst({
+    where: {
+      financialCaseId,
+      invoiceType: InvoiceType.DEPOSIT,
+      parentInvoiceId: null,
+    },
+    select: {
+      invoiceNumber: true,
+      paidAmount: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
 }
 
 function formatInvoiceReference(

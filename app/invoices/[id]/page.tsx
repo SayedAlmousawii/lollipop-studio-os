@@ -29,6 +29,8 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
   const createAdjustment = createAdjustmentInvoiceAction.bind(null, invoice.id);
   const issue = issueInvoiceAction.bind(null, invoice.id);
   const close = closeInvoiceAction.bind(null, invoice.id);
+  const displayedRemainingAmount =
+    invoice.netRemainingAmount ?? invoice.remainingAmount;
 
   return (
     <PageContainer>
@@ -55,9 +57,31 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
         <div className="grid gap-4 md:grid-cols-4">
           <Metric label="Total" value={invoice.totalAmount} />
           <Metric label="Paid" value={invoice.paidAmount} />
-          <Metric label="Remaining" value={invoice.remainingAmount} />
+          <Metric label="Remaining" value={displayedRemainingAmount} />
           <Metric label="Locked" value={invoice.isLocked ? "Yes" : "No"} />
         </div>
+
+        {invoice.depositInvoiceNumber && invoice.depositPaidAmount ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Financial Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <MoneyRow label="Total" value={invoice.totalAmount} />
+              <MoneyRow
+                label={`Deposit (${invoice.depositInvoiceNumber})`}
+                value={`-${invoice.depositPaidAmount}`}
+              />
+              <div className="border-t border-border pt-2">
+                <MoneyRow
+                  label="Remaining balance"
+                  value={displayedRemainingAmount}
+                  strong
+                />
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {invoice.parentInvoiceId && invoice.parentInvoiceNumber ? (
           <Card>
@@ -90,7 +114,12 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
                   <CardTitle className="text-base">Record Payment</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <RecordPaymentForm invoiceId={invoice.id} />
+                  <RecordPaymentForm
+                    invoiceId={invoice.id}
+                    defaultPaymentType={
+                      invoice.invoiceType === "FINAL" ? "FINAL" : undefined
+                    }
+                  />
                 </CardContent>
               </Card>
             ) : (
@@ -159,6 +188,27 @@ function Metric({ label, value }: { label: string; value: string }) {
         <p className="mt-2 text-lg font-semibold text-text-primary">{value}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function MoneyRow({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 ${
+        strong ? "font-semibold text-text-primary" : "text-text-secondary"
+      }`}
+    >
+      <span>{label}</span>
+      <span className="tabular-nums">{value}</span>
+    </div>
   );
 }
 

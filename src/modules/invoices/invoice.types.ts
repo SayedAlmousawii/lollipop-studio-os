@@ -1,3 +1,5 @@
+import type { InvoiceType } from "@prisma/client";
+
 export type InvoiceStatusLabel = "Draft" | "Issued" | "Partial" | "Paid" | "Closed";
 
 export type InvoiceLineType =
@@ -24,6 +26,7 @@ export interface InvoiceListItem {
   id: string;
   jobNumber: string;
   invoiceNumber: string;
+  invoiceType: InvoiceType | null;
   customerPhone: string;
   orderId: string | null;
   bookingId: string | null;
@@ -37,6 +40,9 @@ export interface InvoiceListItem {
 }
 
 export interface InvoiceDetail extends InvoiceListItem {
+  depositInvoiceNumber: string | null;
+  depositPaidAmount: string | null;
+  netRemainingAmount: string | null;
   notes: string;
   parentInvoiceId: string | null;
   parentInvoiceNumber: string | null;

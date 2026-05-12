@@ -18,9 +18,13 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface RecordPaymentFormProps {
   invoiceId: string;
+  defaultPaymentType?: string;
 }
 
-export function RecordPaymentForm({ invoiceId }: RecordPaymentFormProps) {
+export function RecordPaymentForm({
+  invoiceId,
+  defaultPaymentType = "DEPOSIT",
+}: RecordPaymentFormProps) {
   const [state, formAction] = useActionState<RecordPaymentActionState, FormData>(
     recordPaymentAction.bind(null, invoiceId),
     {}
@@ -38,7 +42,10 @@ export function RecordPaymentForm({ invoiceId }: RecordPaymentFormProps) {
           {state.success}
         </p>
       ) : null}
-      <PaymentFields errors={state.errors} />
+      <PaymentFields
+        errors={state.errors}
+        defaultPaymentType={defaultPaymentType}
+      />
       <SubmitButton />
     </form>
   );
@@ -46,8 +53,10 @@ export function RecordPaymentForm({ invoiceId }: RecordPaymentFormProps) {
 
 function PaymentFields({
   errors,
+  defaultPaymentType,
 }: {
   errors?: RecordPaymentActionState["errors"];
+  defaultPaymentType: string;
 }) {
   const { pending } = useFormStatus();
   const [paidAt, setPaidAt] = useState("");
@@ -74,6 +83,7 @@ function PaymentFields({
         label="Payment Type"
         name="paymentType"
         options={["DEPOSIT", "FINAL", "UPGRADE", "ADDON", "OTHER"]}
+        defaultValue={defaultPaymentType}
         disabled={pending}
         error={errors?.paymentType}
       />
@@ -181,19 +191,25 @@ function SelectField({
   label,
   name,
   options,
+  defaultValue,
   disabled,
   error,
 }: {
   label: string;
   name: string;
   options: string[];
+  defaultValue?: string;
   disabled?: boolean;
   error?: string[];
 }) {
+  const fallbackValue = options.includes(defaultValue ?? "")
+    ? defaultValue
+    : options[0];
+
   return (
     <div className="space-y-2">
       <Label htmlFor={name}>{label}</Label>
-      <Select name={name} required disabled={disabled} defaultValue={options[0]}>
+      <Select name={name} required disabled={disabled} defaultValue={fallbackValue}>
         <SelectTrigger id={name} aria-invalid={error?.length ? true : undefined}>
           <SelectValue />
         </SelectTrigger>
