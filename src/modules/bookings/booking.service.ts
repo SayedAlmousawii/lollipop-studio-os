@@ -93,6 +93,7 @@ export interface EditableBooking {
 
 export interface BookingDetail {
   id: string;
+  status: BookingStatus;
   bookingReference: string;
   jobNumber: string | null;
   orderId: string | null;
@@ -117,6 +118,15 @@ export interface BookingDetail {
   canDeletePending: boolean;
   canCheckIn: boolean;
   isCheckedIn: boolean;
+  depositInvoice: {
+    id: string;
+    invoiceNumber: string;
+    totalAmount: string;
+    paidAmount: string;
+    status: InvoiceStatus;
+    isLocked: boolean;
+  } | null;
+  packageRemainingBalanceLabel: string | null;
 }
 
 const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
@@ -821,16 +831,45 @@ const editableBookingInclude = {
   },
   invoices: {
     where: {
-      payments: { some: { paymentType: PaymentType.DEPOSIT } },
+      invoiceType: InvoiceType.DEPOSIT,
     },
+    orderBy: { createdAt: "desc" },
     take: 1,
     select: {
       id: true,
+      createdAt: true,
+      invoiceNumber: true,
+      totalAmount: true,
+      paidAmount: true,
       status: true,
+      isLocked: true,
       payments: {
         where: { paymentType: PaymentType.DEPOSIT },
         select: { id: true, amount: true },
         take: 1,
+      },
+    },
+  },
+  financialCase: {
+    select: {
+      invoices: {
+        where: { invoiceType: InvoiceType.DEPOSIT },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          createdAt: true,
+          invoiceNumber: true,
+          totalAmount: true,
+          paidAmount: true,
+          status: true,
+          isLocked: true,
+          payments: {
+            where: { paymentType: PaymentType.DEPOSIT },
+            select: { id: true, amount: true },
+            take: 1,
+          },
+        },
       },
     },
   },
@@ -1024,10 +1063,16 @@ function mapEditableBooking(
 function mapBookingDetail(
   row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
 ): BookingDetail {
-  const hasDeposit = hasDepositPayment(row.invoices);
+  const depositInvoices = dedupeAndSortDepositInvoices([
+    ...row.invoices,
+    ...(row.financialCase?.invoices ?? []),
+  ]);
+  const hasDeposit = hasDepositPayment(depositInvoices);
+  const depositInvoice = depositInvoices[0] ?? null;
 
   return {
     id: row.id,
+    status: row.status,
     bookingReference: row.publicId ?? "Pending",
     jobNumber: row.jobNumber,
     orderId: row.order?.id ?? null,
@@ -1055,6 +1100,19 @@ function mapBookingDetail(
     canDeletePending: row.status === BookingStatus.PENDING && !hasDeposit,
     canCheckIn: row.status === BookingStatus.CONFIRMED,
     isCheckedIn: row.status === BookingStatus.CHECKED_IN,
+    depositInvoice: depositInvoice
+      ? {
+          id: depositInvoice.id,
+          invoiceNumber: depositInvoice.invoiceNumber,
+          totalAmount: formatPrice(depositInvoice.totalAmount),
+          paidAmount: formatPrice(depositInvoice.paidAmount),
+          status: depositInvoice.status,
+          isLocked: depositInvoice.isLocked,
+        }
+      : null,
+    packageRemainingBalanceLabel: row.package
+      ? formatPrice(row.package.price.minus(BOOKING_DEPOSIT_AMOUNT))
+      : null,
   };
 }
 
@@ -1074,6 +1132,22 @@ function hasDepositPayment(
     | undefined
 ): boolean {
   return invoices?.some((invoice) => (invoice.payments?.length ?? 0) > 0) ?? false;
+}
+
+function dedupeAndSortDepositInvoices<
+  T extends { id: string; createdAt: Date; payments?: Array<{ id: string }> }
+>(invoices: T[]): T[] {
+  return Array.from(
+    invoices.reduce((map, invoice) => {
+      const existing = map.get(invoice.id);
+      if (!existing || existing.createdAt < invoice.createdAt) {
+        map.set(invoice.id, invoice);
+      }
+      return map;
+    }, new Map<string, T>())
+  )
+    .map(([, invoice]) => invoice)
+    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
 }
 
 function formatInputDate(date: Date): string {

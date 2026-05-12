@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 62 deposit invoice display is complete: booking detail pages now show the locked Deposit Invoice with BK reference, paid deposit amount, live package context, and remaining-at-session only while the booking is `CONFIRMED`.
 - Feature 61 check-in rewrite is complete: confirmed bookings now check in without payment, atomically generate a `JOB-DEPT-YEAR-XXXXX` reference, create the Job and `WAITING_SELECTION` Order, stamp the FinancialCase, and move the booking to `CHECKED_IN`.
 - Feature 60 booking confirmation rewrite is complete: pending bookings now remain reference-free, deposit recording atomically generates the BK reference, creates the FinancialCase, issues/pays/closes the locked Deposit Invoice, and confirmed bookings no longer use the removed base-payment-at-booking flow.
 - Feature 59 schema foundation is complete: bookings can exist without job references, `FinancialCase` is in place, invoice/payment grouping fields are nullable for the 60–63 rollout, and job-scoped composite ownership constraints have been removed.
@@ -35,6 +36,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 62: Deposit invoice display — booking detail now renders the locked Deposit Invoice from the booking read model, shows paid deposit context plus live package price and remaining balance only for confirmed bookings, and omits the section when no deposit invoice exists.
 - Feature 61: Check-in rewrite — confirmed bookings now expose a Check In action that creates the JOB reference, Job, Order, FinancialCase job stamp, and `CHECKED_IN` status atomically; checked-in detail pages show both BK and JOB references plus the order link.
 - Feature 60: Booking confirmation rewrite — pending bookings no longer consume references or create jobs; deposit recording creates the BK reference, FinancialCase, locked closed Deposit Invoice, and deposit payment atomically; base-payment booking flow was removed; pending bookings can be hard-deleted.
 - Feature 59: Schema foundation — added FinancialCase, nullable lifecycle reference fields, InvoiceType, order package price snapshots, identifier sequence kind, CHECKED_IN/FINAL enum replacements, and removed jobId composite ownership anchors for booking/order/invoice/payment.
