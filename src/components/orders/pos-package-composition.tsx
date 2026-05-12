@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
+  POSPackageLine,
   POSPackageItem,
   POSProductOption,
   POSWorkspace,
@@ -43,6 +44,13 @@ interface POSPackageCompositionProps {
 
 export function POSPackageComposition({ workspace }: POSPackageCompositionProps) {
   const locked = workspace.invoice?.isLocked ?? false;
+  const packagePriceTotal =
+    workspace.packageLines.length > 0
+      ? workspace.packageLines.reduce(
+          (sum, line) => sum + line.currentPackage.price,
+          0
+        )
+      : workspace.currentPackage?.price ?? 0;
 
   return (
     <Card id="package-composition">
@@ -60,29 +68,45 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-medium text-text-primary">
-              {workspace.currentPackage?.name ?? "No package selected"}
-            </p>
-            <p className="text-sm text-text-secondary">
-              {workspace.includedPhotoCount} included photos · {workspace.currentPackage?.priceLabel ?? "0.000 KD"}
-            </p>
-          </div>
-          <PackageUpgradeDialog workspace={workspace} locked={locked} />
-        </div>
+        <div className="space-y-4">
+          {workspace.packageLines.map((line) => (
+            <div key={line.id} className="space-y-4 rounded-md border border-border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-medium text-text-primary">
+                    {line.currentPackage.name}
+                  </p>
+                  <p className="text-sm text-text-secondary">
+                    {line.sessionTypeName} · {line.includedPhotoCount} included photos · {line.currentPackage.priceLabel}
+                  </p>
+                </div>
+                <PackageUpgradeDialog
+                  orderId={workspace.orderId}
+                  line={line}
+                  locked={locked}
+                />
+              </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
-          {workspace.packageItems.map((item) => (
-            <DeliverableCard
-              key={item.id}
-              item={item}
-              orderId={workspace.orderId}
-              productOptions={workspace.productOptions}
-              locked={locked}
-            />
+              <div className="grid gap-3 md:grid-cols-2">
+                {line.packageItems.map((item) => (
+                  <DeliverableCard
+                    key={item.id}
+                    item={item}
+                    orderId={workspace.orderId}
+                    orderPackageId={line.id}
+                    productOptions={workspace.productOptions}
+                    locked={locked}
+                  />
+                ))}
+                {line.packageItems.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
+                    Structured package deliverables will appear here when available.
+                  </div>
+                ) : null}
+              </div>
+            </div>
           ))}
-          {workspace.packageItems.length === 0 ? (
+          {workspace.packageLines.length === 0 ? (
             <div className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
               Structured package deliverables will appear here when available.
             </div>
@@ -92,7 +116,7 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
         <div className="space-y-2 border-t border-border pt-4 text-sm">
           <MoneyLine
             label="Package price"
-            value={workspace.currentPackage?.priceLabel ?? "0.000 KD"}
+            value={formatKD(packagePriceTotal)}
             strong
           />
         </div>
@@ -103,10 +127,6 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
 
 export function POSPhotoCountCard({ workspace }: POSPackageCompositionProps) {
   const locked = workspace.invoice?.isLocked ?? false;
-  const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
-    updateOrderSelectedPhotoCountAction.bind(null, workspace.orderId),
-    {}
-  );
 
   return (
     <Card>
@@ -120,82 +140,121 @@ export function POSPhotoCountCard({ workspace }: POSPackageCompositionProps) {
             Invoice is locked. Selected-photo changes require the future adjustment flow.
           </div>
         ) : null}
-        <div className="rounded-md border border-border bg-surface-soft p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-text-primary">
-                {workspace.includedPhotoCount} Included Edited Photos
-              </p>
-              <p className="mt-1 text-xs uppercase text-text-muted">DIGITAL</p>
-            </div>
-            <Badge variant="secondary" className="rounded-md">
-              Included
-            </Badge>
-          </div>
-          {workspace.extraPhotoCount > 0 ? (
-            <p className="mt-3 text-sm text-text-secondary">
-              {workspace.extraPhotoCount} extra selected · {workspace.extraPhotoCount} x{" "}
-              {formatKD(workspace.extraPhotoUnitPrice)} = {formatKD(workspace.extraPhotoTotal)}
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-text-secondary">No extra-photo charge</p>
-          )}
+        <div className="space-y-4">
+          {workspace.packageLines.map((line) => (
+            <POSPhotoLineForm
+              key={line.id}
+              orderId={workspace.orderId}
+              line={line}
+              locked={locked}
+            />
+          ))}
         </div>
-        <form action={formAction} className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-            <div className="space-y-2">
-              <Label htmlFor="selectedPhotoCount">Selected photos</Label>
-              <Input
-                key={`${workspace.currentPackage?.id ?? "none"}:${workspace.selectedPhotoCount}`}
-                id="selectedPhotoCount"
-                name="selectedPhotoCount"
-                type="number"
-                min={workspace.includedPhotoCount}
-                step={1}
-                defaultValue={workspace.selectedPhotoCount}
-                disabled={locked}
-                aria-invalid={
-                  state.errors?.selectedPhotoCount?.length ||
-                  state.errors?._global?.length
-                    ? true
-                    : undefined
-                }
-              />
-            </div>
-            <SubmitButton label="Update Count" disabled={locked} />
-          </div>
-          <div className="grid gap-2 text-xs text-text-secondary sm:grid-cols-3">
-            <span>Included: {workspace.includedPhotoCount}</span>
-            <span>Selected: {workspace.selectedPhotoCount}</span>
-            <span>Extra: {workspace.extraPhotoCount}</span>
-          </div>
-          <FieldError messages={state.errors?.selectedPhotoCount} />
-          <GlobalError messages={state.errors?._global} />
-        </form>
       </CardContent>
     </Card>
   );
 }
 
-function PackageUpgradeDialog({
-  workspace,
+function POSPhotoLineForm({
+  orderId,
+  line,
   locked,
 }: {
-  workspace: POSWorkspace;
+  orderId: string;
+  line: POSPackageLine;
   locked: boolean;
 }) {
-  const [selectedPackageId, setSelectedPackageId] = useState(
-    workspace.currentPackage?.id ?? workspace.packageOptions[0]?.id ?? ""
-  );
   const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
-    updateOrderPackageAction.bind(null, workspace.orderId),
+    updateOrderSelectedPhotoCountAction.bind(null, orderId),
     {}
   );
 
   return (
+    <form action={formAction} className="space-y-3 rounded-md border border-border bg-surface-soft p-4">
+      <input type="hidden" name="orderPackageId" value={line.id} />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-text-primary">
+            {line.currentPackage.name}
+          </p>
+          <p className="mt-1 text-xs uppercase text-text-muted">{line.sessionTypeName}</p>
+        </div>
+        <Badge variant="secondary" className="rounded-md">
+          {line.includedPhotoCount} included
+        </Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-4 md:items-end">
+        <div className="space-y-2">
+          <Label htmlFor={`selectedPhotoCount-${line.id}`}>Selected</Label>
+          <Input
+            id={`selectedPhotoCount-${line.id}`}
+            name="selectedPhotoCount"
+            type="number"
+            min={line.includedPhotoCount}
+            step={1}
+            defaultValue={line.selectedPhotoCount}
+            disabled={locked}
+          />
+          <FieldError messages={state.errors?.selectedPhotoCount} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`extraDigitalCount-${line.id}`}>Digital extras</Label>
+          <Input
+            id={`extraDigitalCount-${line.id}`}
+            name="extraDigitalCount"
+            type="number"
+            min={0}
+            step={1}
+            defaultValue={line.extraDigitalCount}
+            disabled={locked}
+          />
+          <FieldError messages={state.errors?.extraDigitalCount} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`extraPrintCount-${line.id}`}>Print extras</Label>
+          <Input
+            id={`extraPrintCount-${line.id}`}
+            name="extraPrintCount"
+            type="number"
+            min={0}
+            step={1}
+            defaultValue={line.extraPrintCount}
+            disabled={locked}
+          />
+          <FieldError messages={state.errors?.extraPrintCount} />
+        </div>
+        <SubmitButton label="Update" disabled={locked} />
+      </div>
+      <p className="text-xs text-text-secondary">
+        Digital {line.extraDigitalCount} x {formatKD(line.extraDigitalUnitPrice)} · Print {line.extraPrintCount} x {formatKD(line.extraPrintUnitPrice)} · Total {formatKD(line.extraPhotoTotal)}
+      </p>
+      <GlobalError messages={state.errors?._global} />
+    </form>
+  );
+}
+
+function PackageUpgradeDialog({
+  orderId,
+  line,
+  locked,
+}: {
+  orderId: string;
+  line: POSPackageLine;
+  locked: boolean;
+}) {
+  const [selectedPackageId, setSelectedPackageId] = useState(
+    line.currentPackage.id ?? line.packageOptions[0]?.id ?? ""
+  );
+  const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
+    updateOrderPackageAction.bind(null, orderId),
+    {}
+  );
+  const packageSelectId = `packageId-${line.id}`;
+
+  return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" disabled={locked || workspace.packageOptions.length === 0}>
+        <Button variant="outline" disabled={locked || line.packageOptions.length === 0}>
           <ArrowRightLeft className="h-4 w-4" />
           Upgrade Package
         </Button>
@@ -208,15 +267,16 @@ function PackageUpgradeDialog({
           </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="space-y-4">
+          <input type="hidden" name="orderPackageId" value={line.id} />
           <input type="hidden" name="packageId" value={selectedPackageId} />
           <div className="space-y-2">
-            <Label htmlFor="packageId">Package</Label>
+            <Label htmlFor={packageSelectId}>Package</Label>
             <Select value={selectedPackageId} onValueChange={setSelectedPackageId}>
-              <SelectTrigger id="packageId">
+              <SelectTrigger id={packageSelectId}>
                 <SelectValue placeholder="Select package..." />
               </SelectTrigger>
               <SelectContent>
-                {workspace.packageOptions.map((option) => (
+                {line.packageOptions.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
                     {option.name} · {option.priceLabel} · {option.upgradeDeltaLabel}
                     {option.isCurrentPackage ? " · Current" : ""}
@@ -239,11 +299,13 @@ function PackageUpgradeDialog({
 function DeliverableCard({
   item,
   orderId,
+  orderPackageId,
   productOptions,
   locked,
 }: {
   item: POSPackageItem;
   orderId: string;
+  orderPackageId: string;
   productOptions: POSProductOption[];
   locked: boolean;
 }) {
@@ -271,6 +333,7 @@ function DeliverableCard({
       </p>
       <ItemUpgradeDialog
         orderId={orderId}
+        orderPackageId={orderPackageId}
         item={item}
         options={replacementOptions}
         locked={locked}
@@ -281,11 +344,13 @@ function DeliverableCard({
 
 function ItemUpgradeDialog({
   orderId,
+  orderPackageId,
   item,
   options,
   locked,
 }: {
   orderId: string;
+  orderPackageId: string;
   item: POSPackageItem;
   options: POSProductOption[];
   locked: boolean;
@@ -319,6 +384,7 @@ function ItemUpgradeDialog({
           </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="space-y-4">
+          <input type="hidden" name="orderPackageId" value={orderPackageId} />
           <input type="hidden" name="packageItemId" value={item.id} />
           <input type="hidden" name="newProductId" value={selectedProductId} />
           <div className="space-y-2">

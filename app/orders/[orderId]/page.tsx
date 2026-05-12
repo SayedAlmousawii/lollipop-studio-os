@@ -347,18 +347,13 @@ function OverviewTab({ order }: { order: OrderDetail }) {
           <CardContent className="space-y-5">
             <InfoGrid
               items={[
-                ["Package", order.finalPackageName],
+                ["Packages", String(order.packageLines.length)],
                 ["Photo limit", order.includedPhotoCount],
                 ["Selected photos", selectedPhotosLabel],
                 ["Bundle adjustment", order.bundleAdjustment],
               ]}
             />
-            <DeliverableList
-              title="Included in Package"
-              items={order.packageItems}
-              emptyLabel="No structured package items have been added yet."
-              photoCountLabel={`${order.includedPhotoCount} Photos`}
-            />
+            <PackageLineList lines={order.packageLines} />
             <AddOnList items={order.paidAddOns} />
           </CardContent>
         </Card>
@@ -377,6 +372,42 @@ function OverviewTab({ order }: { order: OrderDetail }) {
         <RelatedRecords order={order} />
         <ActivityPanel items={order.recentActivity} />
       </div>
+    </div>
+  );
+}
+
+function PackageLineList({ lines }: { lines: OrderDetail["packageLines"] }) {
+  if (lines.length === 0) {
+    return (
+      <p className="text-sm text-text-secondary">
+        No structured package lines have been added yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {lines.map((line) => (
+        <div key={line.id} className="space-y-3 rounded-md border border-border bg-surface-soft p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-text-primary">{line.packageName}</p>
+              <p className="text-xs text-text-secondary">
+                {line.sessionTypeName} · {line.upgradeStatus}
+              </p>
+            </div>
+            <p className="text-xs text-text-secondary">
+              {line.selectedPhotoCount} selected · {line.extraPhotoCount} extra
+            </p>
+          </div>
+          <DeliverableList
+            title="Included"
+            items={line.packageItems}
+            emptyLabel="No structured package items have been added yet."
+            photoCountLabel={`${line.includedPhotoCount} Photos`}
+          />
+        </div>
+      ))}
     </div>
   );
 }

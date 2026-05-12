@@ -9,6 +9,9 @@ import type { OrderActivityTimelineItem } from "@/modules/orders/order-activity.
 const ACTIVITY_TYPE_LABELS: Record<OrderActivityType, string> = {
   ORDER_CREATED: "Order Created",
   PACKAGE_CHANGED: "Package Changed",
+  ORDER_PACKAGE_ADDED: "Package Line Added",
+  ORDER_PACKAGE_LINE_CHANGED: "Package Line Changed",
+  ORDER_PACKAGE_EXTRAS_CHANGED: "Package Extras Changed",
   ADD_ON_CHANGED: "Add-on Changed",
   PAYMENT_RECEIVED: "Payment Received",
   INVOICE_ADJUSTED: "Invoice Adjusted",
@@ -48,7 +51,13 @@ const FILTER_GROUPS: { value: FilterGroup; label: string; types?: OrderActivityT
   {
     value: "package",
     label: "Package / Add-ons",
-    types: ["PACKAGE_CHANGED", "ADD_ON_CHANGED"],
+    types: [
+      "PACKAGE_CHANGED",
+      "ORDER_PACKAGE_ADDED",
+      "ORDER_PACKAGE_LINE_CHANGED",
+      "ORDER_PACKAGE_EXTRAS_CHANGED",
+      "ADD_ON_CHANGED",
+    ],
   },
 ];
 

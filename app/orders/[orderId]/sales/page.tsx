@@ -35,7 +35,10 @@ export default async function SalesPage(
 
 function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
-  const packageAmount = workspace.currentPackage?.price ?? 0;
+  const packageAmount =
+    workspace.packageLines.length > 0
+      ? workspace.packageLines.reduce((sum, line) => sum + line.packageSubtotal, 0)
+      : workspace.currentPackage?.price ?? 0;
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
     invoice?.invoiceTotal ??
@@ -99,10 +102,20 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
               ))
             ) : (
               <>
-                <MoneyRow
-                  label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
-                  value={formatKD(packageAmount)}
-                />
+                {workspace.packageLines.length > 0 ? (
+                  workspace.packageLines.map((line) => (
+                    <MoneyRow
+                      key={line.id}
+                      label={`Package (${line.currentPackage.name})`}
+                      value={formatKD(line.packageSubtotal)}
+                    />
+                  ))
+                ) : (
+                  <MoneyRow
+                    label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
+                    value={formatKD(packageAmount)}
+                  />
+                )}
                 {invoice?.depositPaidAmount &&
                 !(invoice.renderMode === "SNAPSHOT" && invoice.lineItems.length === 0) ? (
                   <MoneyRow

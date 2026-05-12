@@ -74,6 +74,7 @@ export interface OrderDetail extends Order {
   extraPhotoCount: string;
   addonsSummary: string;
   packageItems: PackageItemDisplay[];
+  packageLines: OrderPackageLineDisplay[];
   bundleAdjustment: string;
   paidAddOns: OrderAddOnDisplay[];
   selectionStatus: string;
@@ -84,6 +85,20 @@ export interface OrderDetail extends Order {
   workflowSteps: OrderWorkflowStep[];
   recentActivity: OrderActivityPreviewItem[];
   notes: string;
+}
+
+export interface OrderPackageLineDisplay {
+  id: string;
+  packageName: string;
+  sessionTypeName: string;
+  includedPhotoCount: number;
+  selectedPhotoCount: number;
+  extraDigitalCount: number;
+  extraPrintCount: number;
+  extraPhotoCount: number;
+  upgradeStatus: string;
+  bundleAdjustment: string;
+  packageItems: PackageItemDisplay[];
 }
 
 export interface OrderSelectionWorkflow {
@@ -349,6 +364,7 @@ export interface POSWorkspace {
   customerPhone: string;
   originalPackage: POSPackage | null;
   currentPackage: POSPackage | null;
+  packageLines: POSPackageLine[];
   packageItems: POSPackageItem[];
   bundleAdjustment: number;
   rawDeliverableTotal: number;
@@ -363,6 +379,28 @@ export interface POSWorkspace {
   productOptions: POSProductOption[];
   addOnCatalog: POSAddOnCatalogItem[];
   invoice: POSInvoiceSummary | null;
+}
+
+export interface POSPackageLine {
+  id: string;
+  sortOrder: number;
+  sessionTypeId: string;
+  sessionTypeName: string;
+  originalPackage: POSPackage;
+  currentPackage: POSPackage;
+  packageItems: POSPackageItem[];
+  includedPhotoCount: number;
+  selectedPhotoCount: number;
+  extraDigitalCount: number;
+  extraPrintCount: number;
+  extraPhotoCount: number;
+  extraDigitalUnitPrice: number;
+  extraPrintUnitPrice: number;
+  extraPhotoTotal: number;
+  packageSubtotal: number;
+  upgradeDelta: number;
+  upgradeDeltaLabel: string;
+  packageOptions: POSPackageOption[];
 }
 
 export interface POSPackage {
