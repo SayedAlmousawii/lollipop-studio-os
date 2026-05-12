@@ -36,8 +36,6 @@ export default async function SalesPage(
 function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
   const packageAmount = workspace.currentPackage?.price ?? 0;
-  const bundleAdjustment = workspace.bundleAdjustment;
-  const packageBaseAmount = packageAmount - bundleAdjustment;
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
     invoice?.invoiceTotal ??
@@ -103,7 +101,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
               <>
                 <MoneyRow
                   label={`Package${workspace.currentPackage ? ` (${workspace.currentPackage.name})` : ""}`}
-                  value={formatKD(bundleAdjustment !== 0 ? packageBaseAmount : packageAmount)}
+                  value={formatKD(packageAmount)}
                 />
                 {invoice?.depositPaidAmount &&
                 !(invoice.renderMode === "SNAPSHOT" && invoice.lineItems.length === 0) ? (
@@ -111,9 +109,6 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                     label={`Deposit${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
                     value={`-${formatKD(invoice.depositPaidAmount)}`}
                   />
-                ) : null}
-                {bundleAdjustment !== 0 ? (
-                  <MoneyRow label="Bundle adjustment" value={formatKD(bundleAdjustment)} />
                 ) : null}
                 {extraPhotoAmount > 0 ? (
                   <MoneyRow

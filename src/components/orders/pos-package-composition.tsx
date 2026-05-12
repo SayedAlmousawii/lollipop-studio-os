@@ -90,9 +90,6 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
         </div>
 
         <div className="space-y-2 border-t border-border pt-4 text-sm">
-          <MoneyLine label="Raw total" value={formatKD(workspace.rawDeliverableTotal)} />
-          <MoneyLine label="Bundle adjustment" value={formatSignedKD(workspace.bundleAdjustment)} />
-          <div className="h-px bg-border" />
           <MoneyLine
             label="Package price"
             value={workspace.currentPackage?.priceLabel ?? "0.000 KD"}
@@ -397,8 +394,4 @@ function GlobalError({ messages }: { messages?: string[] }) {
 
 function formatKD(value: number): string {
   return `${value.toFixed(3)} KD`;
-}
-
-function formatSignedKD(value: number): string {
-  return `${value > 0 ? "+" : ""}${formatKD(value)}`;
 }
