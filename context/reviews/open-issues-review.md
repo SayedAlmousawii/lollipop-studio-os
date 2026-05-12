@@ -1,5 +1,6 @@
 # Open Issues Review
 **Date:** 2026-05-07
+**Last annotated:** 2026-05-12 — Answered questions marked below; open items unchanged.
 
 ---
 
@@ -42,9 +43,10 @@
 **Issue:** The order overview tab duplicates workflow progress that is already visible elsewhere. It does not surface deliverables.  
 **Fix:** Remove the redundant workflow block; replace it with a deliverables section showing selected photo count, add-ons, albums, and canvases.
 
-### Customer Lookup — Prioritize Phone Number
+### Customer Lookup — Prioritize Phone Number ✅ Resolved (Feature 55e)
 **Issue:** Customers are currently searched and referenced primarily by name. Phone numbers are not enforced as real/valid.  
 **Fix:** Make phone number the primary lookup key. Enforce a valid phone number format on customer creation/edit so the field is reliable.
+**Resolution:** Phone number is now required, validated, and is the primary search/display key across bookings, orders, and invoices.
 
 ### Calendar Page — Needs Overhaul
 **Issue:** The calendar page needs significant UX and functional improvement.  
@@ -62,9 +64,13 @@
 
 ## Design Decisions Needed
 
-### Booking Cancellation — Pending vs. Confirmed Flow
+### Booking Cancellation — Pending vs. Confirmed Flow ✅ Answered (lifecycle review, 2026-05-12)
 **Question:** Should cancelling a pending booking and cancelling a confirmed booking follow the same flow, or trigger different behaviour (e.g., different notifications, refund rules, status transitions)?  
 **Decision needed:** Define the cancellation rules for each booking state before implementing any cancel action.
+**Answer:**
+- **Pending booking cancelled** → hard delete. No `CANCELLED` status, no record remains, no references consumed.
+- **Confirmed booking cancelled** → `BookingStatus.CANCELLED`. FinancialCase remains with the settled Deposit Invoice and no `jobOrderId`. JOB reference never consumed. BK reference stays consumed for audit integrity.
+- Notification and refund rules are out of scope for V1.
 
 ### Delivery Tab — Clarify Button Intent
 **Question:** The delivery tab currently shows "Prepare," "Ready for Pickup," and "Complete" actions. What is the intended distinction between each state?  
@@ -75,15 +81,17 @@
 **Question:** Do we have a consistent API/router layer, or is business logic leaking into page components?  
 **Action:** Conduct a structural audit — confirm that all data mutations go through server actions or API routes, and that page/component files contain no direct DB calls.
 
-### Invoice Scope — What Should It Show?
+### Invoice Scope — What Should It Show? ✅ Answered (pos-and-invoice-design-review, 2026-05-12)
 **Question:** Should the invoice page include package info, deliverables, and order context — or only payment history, method, and type?  
 **Current state:** Invoice page shows only payment records. Package/deliverable data lives on the order page.  
 **Decision needed:** Keep them separated (recommended for clean module ownership) or add an order summary section to the invoice.
+**Answer:** Show both on the invoice page — top section: InvoiceLineItem snapshot (package, bundle adjustment, add-ons, upgrade delta); bottom section: payment history. This is a UI-only change; the data already exists via `InvoiceLineItem` rows written at lock/delivery. Small spec scope, no schema work needed. (See spec to be written.)
 
-### Upgrade Payment — Where to Record?
+### Upgrade Payment — Where to Record? ✅ Answered (lifecycle review, 2026-05-12)
 **Question:** Should upgrade payments be recorded on the job/order page or the invoice page?  
 **Current state:** Upgrade is a `PaymentType` option (`DEPOSIT | BASE | UPGRADE | ADDON | OTHER`) recorded on the invoice page via `RecordPaymentForm`. The order financials tab shows payment history but does not allow direct recording.  
 **Recommendation:** Keep on invoice page. Surface the calculated upgrade amount clearly after selection is completed so staff knows what to collect.
+**Answer:** Confirmed — keep on invoice/POS page. `PaymentType.BASE` is retired; the new enum is `DEPOSIT | FINAL | UPGRADE | ADDON | OTHER`. `FINAL` = remaining balance payment against the Final Invoice at POS. Upgrade payments use type `UPGRADE`. The POS payment dialog (Feature 57f) is the primary recording surface.
 
 ---
 
@@ -127,18 +135,3 @@ One improvement I’d probably recommend later: add a dedicated field like showI
 
 
 ---------------
-
-
-Doable, and not a bad idea, but I’d be careful with it.
-
-For this dashboard POS lookup, a suggestion dropdown could be excellent if staff often know only part of the number or customer name. It would make the flow feel fast: type 55…, see matching customers, click one, then show their orders / open Sales.
-
-The main tradeoff: suggestions should not hit the server on every keystroke. We’d want:
-
-Debounce, maybe 250-400ms.
-Minimum length, probably 3 or 4 digits.
-Small result limit, maybe 5.
-Lightweight endpoint/service that returns only id, name, phone.
-Keyboard support and a clear “Search” fallback.
-No order fetching until a suggestion is selected or the form is submitted.
-My take: good idea for a later polish unit, but not needed for 57e’s acceptance criteria. The current submit-based lookup is simpler, safer, and avoids chatter. A suggestion dropdown would be a nice 57e.1 or dashboard search enhancement once the POS flow is stable.

@@ -13,11 +13,12 @@ What Studio OS is, its end-to-end workflow, V1 feature scope, and what is out of
 
 | Phase | Key Actions | Status Transition |
 |---|---|---|
-| Booking | Customer selects package + date; deposit paid | PENDING → CONFIRMED |
-| Session | Customer arrives; session conducted | — |
-| Post-session | Base package payment made; photos uploaded | → WAITING_SELECTION |
-| Selection | Customer selects photos; system evaluates vs package | — |
-| Payment adj. | Keep package (pay add-ons) OR upgrade package (pay diff) | — |
+| Pending Booking | Customer selects package + date; calendar hold only; no references consumed | PENDING (hard-deleted on cancel) |
+| Confirmation | Deposit paid → BK reference generated + FinancialCase created + Deposit Invoice issued atomically | PENDING → CONFIRMED |
+| Check-In | Customer arrives → JOB reference generated + Job/Order created + FinancialCase stamped | CONFIRMED → CHECKED_IN |
+| Post-session | Photos uploaded; selection begins | → WAITING_SELECTION |
+| Selection / POS | Customer selects photos; Final Invoice created; upgrade or add-ons finalized | — |
+| Payment adj. | Pay remaining balance (FINAL payment type) OR upgrade package (UPGRADE payment type) | — |
 | Editing | Assigned to editor; revisions loop; customer approves | → EDITING → APPROVED |
 | Production | Prints in-house; albums via vendor | → PRODUCTION → READY |
 | Delivery | Customer notified; pickup completed | → DELIVERED |
@@ -38,7 +39,7 @@ What Studio OS is, its end-to-end workflow, V1 feature scope, and what is out of
 - Customer management (parent + children + session history)
 - Booking system (calendar, deposit, session type, themes)
 - Package system (predefined packages, upgrade/replacement, deliverables)
-- Invoice & payment system (deposit → base → upgrade/add-ons)
+- Invoice & payment system (deposit invoice at confirmation → final invoice at POS → upgrade/add-on payments)
 - Photo selection (track count vs package limit, suggest upgrade vs add-on)
 - Editing workflow (assign, status, revision loop)
 - Production tracking (print jobs + album jobs)
@@ -49,7 +50,7 @@ What Studio OS is, its end-to-end workflow, V1 feature scope, and what is out of
 - State-driven workflow — no manual guessing of where a session stands
 - Packages are templates; orders store snapshots (not live references)
 - Orders are dynamic — they evolve after photo selection
-- Payments are multi-stage (deposit → base → upgrade/add-on)
+- Payments are multi-stage (deposit → final balance → upgrade/add-on); `BASE` payment type is retired, replaced by `FINAL`
 - Each department updates only its own status
 - All actions must be traceable (who + when)
 

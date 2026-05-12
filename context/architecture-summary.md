@@ -37,6 +37,7 @@ src/
 │   ├── bookings/
 │   ├── packages/
 │   ├── orders/
+│   ├── financial-cases/  # FinancialCase grouping entity
 │   ├── invoices/
 │   ├── payments/
 │   ├── editing/
@@ -53,10 +54,11 @@ src/
 | Module | Owns | Does NOT Own |
 |---|---|---|
 | Customers | parent profile, phone, children, session history | invoices, job statuses |
-| Bookings | date/time, dept, session type, status, photographer, themes, deposit status | final invoice, package upgrade logic |
+| Bookings | date/time, dept, session type, status, photographer, themes; BK reference generated at confirmation | final invoice, package upgrade logic |
 | Packages | templates, prices, included items, add-on definitions, upgrade rules | customer-specific orders |
-| Orders | original package, final package, selected photos, deliverables, add-ons, order state | — |
-| Invoices/Payments | invoice total, deposit, base payment, upgrade payment, add-on payment, method, status | — |
+| Orders | original package, final package, selected photos, deliverables, add-ons, order state, price snapshots | — |
+| FinancialCase | financial grouping hub — owns all Invoices and Payments for a workflow thread; bridges Booking → Job | does not own operational workflow state |
+| Invoices/Payments | invoice total, deposit invoice, final invoice, upgrade payment, add-on payment, method, status | — |
 | Editing | assigned editor, edit status, revision loop, approval status | — |
 | Production | print job, album design, vendor album, pickup status | — |
 | Commissions | upgrade tracking, commission calc, commission status, reports | — |
@@ -92,17 +94,18 @@ src/
 ## 4. Core Invariants (never violate)
 
 1. DB is source of truth — not Google Calendar, WhatsApp, or Synology
-2. Booking cannot be confirmed until 20 KD deposit is recorded
-3. Session cannot move to editing until base package payment is recorded
-4. Package upgrade = replace final package (not add a second line)
-5. Upgrade charge = final package price − original paid package price
-6. Commission created only from package upgrade revenue
-7. Every payment, package change, commission change, price override = audit logged
-8. Editing / printing / album / pickup are separate sub-statuses (not one flat status)
-9. Staff can only update their responsible workflow area (unless manager/admin)
-10. Order must not be marked delivered until all required production jobs are complete
-11. Manual overrides must store: who changed it, when, and why
-12. Package template edits must not retroactively change old invoices/orders
+2. Pending bookings consume no references (no BK, no JOB, no invoice numbers); they are calendar holds only and are hard-deleted on cancellation
+3. Booking confirmation is atomic: generates BK reference + creates FinancialCase + issues Deposit Invoice (20 KD, immediately PAID + LOCKED)
+4. Session cannot move to editing until the Final Invoice remaining balance is fully paid (`PaymentType.FINAL`) — `BASE` is retired
+5. Package upgrade = replace final package (not add a second line)
+6. Upgrade charge = final package price − original paid package price
+7. Commission created only from package upgrade revenue
+8. Every payment, package change, commission change, price override = audit logged
+9. Editing / printing / album / pickup are separate sub-statuses (not one flat status)
+10. Staff can only update their responsible workflow area (unless manager/admin)
+11. Order must not be marked delivered until all required production jobs are complete
+12. Manual overrides must store: who changed it, when, and why
+13. Package template edits must not retroactively change old invoices/orders
 
 ---
 

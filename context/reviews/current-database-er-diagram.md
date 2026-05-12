@@ -2,6 +2,20 @@
 
 _Generated: 2026-05-09 | Source: `prisma/schema.prisma` | Updated for Clerk staff identity linkage._
 
+> ⚠️ **STALE — Last updated 2026-05-09. Schema has changed significantly since.**
+> Feature 59 (schema foundation) introduced breaking changes not reflected here:
+> - `FinancialCase` model added — not shown in diagram
+> - `Invoice.financialCaseId`, `Invoice.invoiceType` added; `Invoice.jobId` and `Invoice.jobNumber` are now nullable
+> - `Payment.financialCaseId` added; `Payment.jobId` and `Payment.jobNumber` are now nullable
+> - `Booking.jobId`, `Booking.jobNumber` are now nullable
+> - `identifier_sequences` has a `kind` field — not shown
+> - `Order.originalPackagePriceSnapshot`, `Order.finalPackagePriceSnapshot` added
+> - `BookingStatus.CHECKED_IN` replaces `COMPLETED`; `PaymentType.FINAL` replaces `BASE`
+> - Job-scoped composite ownership constraints on Invoice/Payment removed
+>
+> **Do not use this diagram as the authoritative schema reference.** Read `prisma/schema.prisma` directly.
+> Full redraw planned after Feature 63 when the schema is stable.
+
 ---
 
 ## Summary
