@@ -216,12 +216,19 @@ export async function getBookings(
     "Failed to fetch bookings"
   );
 
+  const recommendedByCustomer = new Map<string, RecommendedPhotographer>();
+
   return Promise.all(rows.map(async (row) => {
     const paymentStatus = mapDepositStatus(row.invoices);
-    const recommendedPhotographer =
-      row.status === BookingStatus.CONFIRMED
-        ? await getRecommendedPhotographer(row.customerId)
-        : null;
+    let recommendedPhotographer: RecommendedPhotographer = null;
+    if (row.status === BookingStatus.CONFIRMED) {
+      if (recommendedByCustomer.has(row.customerId)) {
+        recommendedPhotographer = recommendedByCustomer.get(row.customerId) ?? null;
+      } else {
+        recommendedPhotographer = await getRecommendedPhotographer(row.customerId);
+        recommendedByCustomer.set(row.customerId, recommendedPhotographer);
+      }
+    }
 
     return {
       id: row.id,

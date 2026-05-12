@@ -89,6 +89,7 @@ export function EditBookingForm({
 
   const selectedPackage =
     packageOptions.find((item) => item.id === selectedPackageId) ?? null;
+  const showRecommendedPhotographer = selectedCustomerId === booking.customerId;
   const saveDisabled =
     !booking.canEdit ||
     customers.length === 0 ||
@@ -337,7 +338,7 @@ export function EditBookingForm({
               </SelectContent>
             </Select>
             <p className="text-xs text-text-muted">
-              {recommendedPhotographer
+              {showRecommendedPhotographer && recommendedPhotographer
                 ? `Recommended: ${recommendedPhotographer.name}`
                 : "No photographer history found"}
             </p>
