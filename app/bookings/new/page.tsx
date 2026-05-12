@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
+import { DevCreateTestBookingButton } from "@/components/bookings/dev-create-test-booking-button";
 import { PageContainer } from "@/components/layout/page-container";
 import { NewBookingForm } from "@/components/bookings/new-booking-form";
 import { getAssignablePhotographers } from "@/modules/bookings/booking.service";
@@ -46,6 +47,20 @@ export default async function NewBookingPage(props: PageProps<"/bookings/new">) 
             Fill in the details below to create a new studio booking.
           </p>
         </div>
+
+        {process.env.NODE_ENV === "development" ? (
+          <div className="rounded-lg border border-warning/30 bg-warning-soft p-4 text-warning">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Development quick action</p>
+                <p className="text-sm">
+                  Create a preset pending booking from existing active records.
+                </p>
+              </div>
+              <DevCreateTestBookingButton />
+            </div>
+          </div>
+        ) : null}
 
         {/* Form card */}
         <div className="rounded-lg border border-(--color-border) bg-(--color-surface) p-8">

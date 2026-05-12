@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Development booking shortcut is complete: `/bookings/new` now exposes a dev-only `Create Test Booking` action that creates a preset pending booking from existing active customer/package/department records and immediately redirects to `/bookings`.
 - Hydration follow-up is complete: table action menus now use Radix dropdown triggers directly with shared button styling, avoiding the `DropdownMenuTrigger asChild` + custom `Button` composition that was producing unstable hydration around action buttons.
 - Feature 63 final invoice POS is complete: POS now creates and syncs a fresh `InvoiceType.FINAL` invoice scoped by `FinancialCase`, keeps Deposit Invoice records separate, displays the paid deposit deduction by invoice number in the sales summary, and records final-balance payments as `PaymentType.FINAL`.
 - Feature 62 deposit invoice display is complete: booking detail pages now show the locked Deposit Invoice with BK reference, paid deposit amount, live package context, and remaining-at-session only while the booking is `CONFIRMED`.
@@ -16,6 +17,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Development-only booking shortcuts must keep using the real booking service and existing active references; the `/bookings/new` quick action creates a normal `PENDING` booking with preset session data, then redirects to `/bookings` instead of bypassing booking validation or workflow rules.
 - Lifecycle revision foundation is live: `BookingStatus.CHECKED_IN` replaces the old booking `COMPLETED` state, `PaymentType.FINAL` replaces `BASE`, `InvoiceType` exists, and `identifier_sequences` is keyed by `scope/year/kind`.
 - Pending bookings are calendar holds only: no `publicId`, `jobNumber`, `jobId`, `Job`, `FinancialCase`, or invoice is created until the 20 KD deposit is recorded; pending cancellation uses hard deletion.
 - Booking confirmation is atomic: deposit recording creates the `BK-DEPT-YEAR-XXXXX` reference, `FinancialCase`, locked closed Deposit Invoice, and deposit payment in one transaction.
@@ -79,6 +81,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 54c: Confirmed bookings now expose a destructive "Record No-Show" action with confirmation, preserve a distinct `No-Show` label, and automatically close+lock any existing primary booking invoice when the no-show transition is confirmed.
 - Feature 54b: Added a production queue page so signed-in users with access can see in-flight production orders from the main app navigation.
 - Feature 54a: Editing queue page at `/editing` — `getEditingQueue()` service function, `EditingQueueItem` type, `EditingQueueTable` component; gated by `WORKFLOW_EDITING_UPDATE` permission (EDITOR + ADMIN only).
+- Dev booking shortcut: `/bookings/new` now exposes a development-only `Create Test Booking` action that creates a preset pending booking from existing active records through the real booking service, then redirects to `/bookings`.
 - Feature 54 (review): Operational page completion review — gap analysis across all 8 areas; sub-units 54a (editing queue), 54b (production queue), 54c (booking no-show UI), 54d (orders date+editor filters), 54e (ready-for-pickup quick filter) defined in `context/reviews/feature-54-operational-review.md`.
 - Feature 52f: Service-layer permission enforcement — ActorContext extended with role; editing, production, and delivery workflow service functions now assert permissions independently of the call site.
 - Feature 52e: Guard-blocked audit log — GUARD_BLOCKED activity type added; high-risk guard failures for delivery completion and production readiness now recorded in the order activity timeline.
