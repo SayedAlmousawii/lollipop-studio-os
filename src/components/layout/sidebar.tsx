@@ -17,6 +17,7 @@ import {
   Printer,
   ReceiptText,
   Settings,
+  Tags,
   Truck,
   User,
   Users,
@@ -78,6 +79,7 @@ export function Sidebar({ showProductionLink, showProductsLink }: SidebarProps) 
         items: [
           ...section.items.slice(0, packageIndex + 1),
           { label: "Products", href: "/products", icon: Image },
+          { label: "Pricing", href: "/pricing", icon: Tags },
           ...section.items.slice(packageIndex + 1),
         ],
       };
