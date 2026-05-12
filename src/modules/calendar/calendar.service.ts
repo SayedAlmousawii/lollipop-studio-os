@@ -39,7 +39,14 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
       db.booking.findMany({
         include: {
           customer: { select: { name: true } },
-          package: { select: { name: true } },
+          package: { select: { name: true, durationMinutes: true } },
+          packages: {
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+            select: {
+              quantity: true,
+              package: { select: { name: true, durationMinutes: true } },
+            },
+          },
           department: { select: { name: true } },
           assignedPhotographer: { select: { name: true } },
         },
@@ -51,18 +58,39 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
   return rows.map((row) => {
     const sessionType = mapSessionType(row.sessionType);
     const colors = SESSION_TYPE_COLORS[sessionType];
+    const packageLinesDuration = row.packages.reduce(
+      (total, line) => total + line.package.durationMinutes * line.quantity,
+      0
+    );
+    const durationMinutes =
+      packageLinesDuration > 0
+        ? packageLinesDuration
+        : row.package?.durationMinutes ?? 60;
+    const end = new Date(row.sessionDate);
+    end.setMinutes(end.getMinutes() + durationMinutes);
+    const packageName =
+      row.packages.length > 0
+        ? row.packages
+            .map((line) =>
+              line.quantity > 1
+                ? `${line.package.name} x${line.quantity}`
+                : line.package.name
+            )
+            .join(", ")
+        : row.package?.name ?? "—";
+
     return {
       id: row.id,
       title: row.customer.name,
       start: row.sessionDate.toISOString(),
-      end: row.sessionDate.toISOString(),
+      end: end.toISOString(),
       ...colors,
       extendedProps: {
         customerName: row.customer.name,
         sessionType,
         status: mapBookingStatus(row.status),
         department: row.department.name,
-        packageName: row.package?.name ?? "—",
+        packageName,
         photographerName: row.assignedPhotographer?.name ?? "—",
       },
     };

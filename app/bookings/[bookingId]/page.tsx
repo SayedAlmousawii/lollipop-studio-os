@@ -43,15 +43,7 @@ export default async function BookingDetailPage(
     ["Customer phone", booking.customerPhone],
     ["Session date", booking.sessionDate],
     ["Session time", booking.sessionTime],
-    ["Session type", booking.sessionType],
-    [
-      "Package",
-      `${booking.packageName}${
-        booking.packagePriceLabel !== "—"
-          ? ` · ${booking.packagePriceLabel}`
-          : ""
-      }`,
-    ],
+    ["Total duration", booking.totalDurationLabel],
     ["Department", booking.department],
     ["Assigned photographer", booking.assignedPhotographerName],
     ["Booking status", booking.bookingStatus],
@@ -126,6 +118,31 @@ export default async function BookingDetailPage(
           <InfoGrid items={summaryItems} />
         </Section>
 
+        <Section title="Packages">
+          <div className="space-y-3">
+            {booking.packages.map((line) => (
+              <div
+                key={line.id}
+                className="grid gap-3 rounded-md border border-border p-3 md:grid-cols-[1fr_auto]"
+              >
+                <div>
+                  <p className="text-sm font-medium text-text-primary">
+                    {line.packageName}
+                  </p>
+                  <p className="text-xs text-text-secondary">
+                    {line.departmentName} · {line.sessionTypeName} ·{" "}
+                    {line.packageFamilyName}
+                  </p>
+                </div>
+                <div className="text-sm text-text-secondary md:text-right">
+                  <p>Qty {line.quantity}</p>
+                  <p>{line.durationContributionLabel}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
         {booking.depositInvoice ? (
           <DepositInvoiceSection booking={booking} />
         ) : null}
@@ -167,8 +184,7 @@ function DepositInvoiceSection({ booking }: { booking: BookingDetail }) {
   const statusLabel = getDepositInvoiceStatusLabel(depositInvoice.status);
   const showPackageContext =
     booking.status === BookingStatus.CONFIRMED &&
-    booking.packageName !== "—" &&
-    booking.packagePriceLabel !== "—" &&
+    booking.packages.length > 0 &&
     remainingBalanceLabel !== null;
 
   const items: Array<[string, string]> = [
@@ -179,8 +195,7 @@ function DepositInvoiceSection({ booking }: { booking: BookingDetail }) {
 
   if (showPackageContext) {
     items.push(
-      ["Package", booking.packageName],
-      ["Package full price", booking.packagePriceLabel],
+      ["Packages", `${booking.packages.length} selected`],
       ["Remaining at session", remainingBalanceLabel]
     );
   }

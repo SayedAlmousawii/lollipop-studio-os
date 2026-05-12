@@ -56,18 +56,21 @@ function DepositFields({
   return (
     <>
       <div className="space-y-2">
-        <Label htmlFor="deposit-amount">Amount</Label>
+        <Label htmlFor="deposit-amount">Amount (KD)</Label>
         <Input
           id="deposit-amount"
           name="amount"
           type="number"
           step="0.001"
-          min="0.001"
+          min="20"
           defaultValue="20.000"
           required
           disabled={pending}
           aria-invalid={errors?.amount?.length ? true : undefined}
         />
+        <p className="text-xs text-text-muted">
+          Default is 20 KD. Increase only if agreed with the customer.
+        </p>
         <FieldError messages={errors?.amount} />
       </div>
       <div className="space-y-2">

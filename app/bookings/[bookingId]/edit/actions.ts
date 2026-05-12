@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { updateBookingSchema } from "@/modules/bookings/booking.schema";
 import { updateBooking } from "@/modules/bookings/booking.service";
-import { parseThemeInput } from "@/modules/bookings/booking.utils";
+import {
+  parsePackageLines,
+  parseThemeInput,
+} from "@/modules/bookings/booking.utils";
 
 export type UpdateBookingActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -25,13 +28,12 @@ export async function updateBookingAction(
 
   const parsed = updateBookingSchema.safeParse({
     customerId: formData.get("customerId"),
-    packageId: formData.get("packageId"),
+    packages: parsePackageLines(formData),
     date: sessionDate,
     sessionTime: formData.get("sessionTime"),
     departmentId: formData.get("departmentId"),
     assignedPhotographerId:
       formData.get("assignedPhotographerId") || undefined,
-    sessionType: formData.get("sessionType"),
     notes: formData.get("notes") || undefined,
     themes: parseThemeInput(formData.get("themes")),
   });

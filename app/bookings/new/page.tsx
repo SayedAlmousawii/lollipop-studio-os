@@ -27,7 +27,18 @@ export default async function NewBookingPage(props: PageProps<"/bookings/new">) 
 
   const packages = allPackages
     .filter((p) => p.status === "Active")
-    .map((p) => ({ id: p.id, name: p.name, price: p.price }));
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      durationMinutes: p.durationMinutes,
+      departmentId: p.departmentId,
+      departmentName: p.departmentName,
+      sessionTypeId: p.sessionTypeId,
+      sessionTypeName: p.sessionTypeName,
+      packageFamilyId: p.packageFamilyId,
+      packageFamilyName: p.packageFamilyName,
+    }));
   const recommendedPhotographer = initialCustomer
     ? await getRecommendedPhotographer(initialCustomer.id)
     : null;
