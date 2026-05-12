@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 67 package taxonomy foundation is complete: `SessionType` and `PackageFamily` catalog tables are in place under `StudioDepartment`, the legacy booking enum is now `BookingSessionType`, and seed creates the 11 V1 session types plus one default family per type.
 - POS create-invoice navigation hotfix is complete: creating the Final Invoice from `/orders/[orderId]/sales` now refreshes back into the sales workspace instead of taking staff to the invoice detail page.
 - Feature 65 follow-up is complete: the optional customer-phone prefill on `/bookings/new` now fails closed and returns `null` if the enrichment lookup throws, so the page still renders.
 - Feature 66 POS selection status on payment is complete: the POS payment dialog now requires a deliberate photo-selection status while orders are waiting for selection, records the payment and non-regressive selection update in one transaction, and advances selected orders to `SELECTION_COMPLETED`.
@@ -27,6 +28,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Package taxonomy foundation is live: `SessionType` is now a catalog model under `StudioDepartment`, while `Booking.sessionType` still uses the renamed legacy `BookingSessionType` enum until the Spec 70 booking/package-line migration.
 - Booking creation accepts customer phone instead of customer id; existing customer names are display-only during booking creation and are not overwritten from the new booking form.
 - Development workflow reset must delete `FinancialCase` rows before `Booking` rows because booking-linked financial cases are now part of the booking lifecycle and use a restrictive foreign key.
 - Development-only booking shortcuts must keep using the real booking service and existing active references; the `/bookings/new` quick action creates a normal `PENDING` booking with preset session data, then redirects to `/bookings` instead of bypassing booking validation or workflow rules.
@@ -53,6 +55,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 67: Package taxonomy foundation — added `SessionType` and `PackageFamily` catalog models and migration, renamed the legacy booking enum to `BookingSessionType`, and seeded 11 department-scoped session types with matching `_DEFAULT` families.
 - POS create-invoice navigation hotfix: the shared order invoice action now honors a POS return marker, revalidates the sales route, and redirects back to `/orders/[orderId]/sales` only for the sales-page form.
 - Feature 65 follow-up: hardened the optional `/bookings/new` customer prefill lookup so lookup failures return `null` instead of rejecting the page load.
 - Feature 66: POS selection status on payment — sales payment recording now requires a Not Yet / In Progress / Selected ToggleGroup for `WAITING_SELECTION` orders, validates the choice client and server side, prevents selection-status regression, and advances `Selected` payments to `SELECTION_COMPLETED` in the same transaction as the payment.

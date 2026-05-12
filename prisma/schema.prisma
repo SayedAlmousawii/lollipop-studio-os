@@ -23,7 +23,7 @@ enum CustomerStatus {
   INACTIVE
 }
 
-enum SessionType {
+enum BookingSessionType {
   NEWBORN
   KIDS
   FAMILY
@@ -324,9 +324,43 @@ model StudioDepartment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bookings Booking[]
+  bookings     Booking[]
+  sessionTypes SessionType[]
 
   @@map("studio_departments")
+}
+
+model SessionType {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  departmentId String
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department      StudioDepartment @relation(fields: [departmentId], references: [id])
+  packageFamilies PackageFamily[]
+
+  @@index([departmentId, isActive, sortOrder])
+  @@map("session_types")
+}
+
+model PackageFamily {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  sessionTypeId String
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+
+  @@index([sessionTypeId, isActive, sortOrder])
+  @@map("package_families")
 }
 
 model Booking {
@@ -338,7 +372,7 @@ model Booking {
   packageId              String?
   sessionDate            DateTime
   sessionTime            String
-  sessionType            SessionType
+  sessionType            BookingSessionType
   departmentId           String
   status                 BookingStatus @default(PENDING)
   assignedPhotographerId String?

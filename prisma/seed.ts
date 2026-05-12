@@ -1,4 +1,5 @@
 import {
+  BookingSessionType,
   BookingStatus,
   CustomerStatus,
   InvoiceStatus,
@@ -10,7 +11,6 @@ import {
   PaymentType,
   ProductCategory,
   PrismaClient,
-  SessionType,
   UserRole,
 } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -42,6 +42,88 @@ const SEEDED_USER_EMAIL_NORMALIZATIONS = [
     clerkTestEmail: "editor+clerk_test@lollipopstudioos.dev",
   },
 ] as const;
+
+const SESSION_TYPE_CATALOG = [
+  { code: "NB_NEWBORN", name: "Newborn", departmentCode: "NB", sortOrder: 10 },
+  { code: "NB_MATERNITY", name: "Maternity", departmentCode: "NB", sortOrder: 20 },
+  {
+    code: "NB_GENDER_REVEAL",
+    name: "Gender Reveal",
+    departmentCode: "NB",
+    sortOrder: 30,
+  },
+  { code: "NB_HOSPITAL", name: "Hospital", departmentCode: "NB", sortOrder: 40 },
+  { code: "KD_REGULAR", name: "Regular", departmentCode: "KD", sortOrder: 10 },
+  { code: "KD_BIRTHDAY", name: "Birthday", departmentCode: "KD", sortOrder: 20 },
+  { code: "KD_SPECIAL", name: "Special", departmentCode: "KD", sortOrder: 30 },
+  {
+    code: "KD_MINI_SPECIAL",
+    name: "Mini Special",
+    departmentCode: "KD",
+    sortOrder: 40,
+  },
+  {
+    code: "KD_SPECIAL_OCCASION",
+    name: "Special Occasion",
+    departmentCode: "KD",
+    sortOrder: 50,
+  },
+  { code: "KD_FAMILY", name: "Family", departmentCode: "KD", sortOrder: 60 },
+  { code: "KD_DUCK", name: "Duck", departmentCode: "KD", sortOrder: 70 },
+] as const;
+
+async function seedPackageTaxonomyCatalog() {
+  const departments = await prisma.studioDepartment.findMany({
+    where: { code: { in: ["NB", "KD"] } },
+    select: { id: true, code: true },
+  });
+  const departmentByCode = new Map(
+    departments.map((department) => [department.code, department])
+  );
+
+  for (const sessionType of SESSION_TYPE_CATALOG) {
+    const department = departmentByCode.get(sessionType.departmentCode);
+    if (!department) {
+      throw new Error(
+        `Cannot seed session type "${sessionType.code}" because department "${sessionType.departmentCode}" does not exist.`
+      );
+    }
+
+    const row = await prisma.sessionType.upsert({
+      where: { code: sessionType.code },
+      update: {
+        name: sessionType.name,
+        departmentId: department.id,
+        isActive: true,
+        sortOrder: sessionType.sortOrder,
+      },
+      create: {
+        code: sessionType.code,
+        name: sessionType.name,
+        departmentId: department.id,
+        isActive: true,
+        sortOrder: sessionType.sortOrder,
+      },
+    });
+
+    await prisma.packageFamily.upsert({
+      where: { code: `${sessionType.code}_DEFAULT` },
+      update: {
+        name: `${sessionType.name} Packages`,
+        sessionTypeId: row.id,
+        isActive: true,
+        sortOrder: 10,
+      },
+      create: {
+        code: `${sessionType.code}_DEFAULT`,
+        name: `${sessionType.name} Packages`,
+        sessionTypeId: row.id,
+        isActive: true,
+        sortOrder: 10,
+      },
+    });
+  }
+}
 
 async function normalizeSeededUserEmails() {
   for (const { legacyEmail, clerkTestEmail } of SEEDED_USER_EMAIL_NORMALIZATIONS) {
@@ -410,6 +492,8 @@ async function main() {
     }),
   ]);
 
+  await seedPackageTaxonomyCatalog();
+
   const [job1, job2, job3] = await Promise.all([
     prisma.job.upsert({
       where: { jobNumber: "PH-2026-00001" },
@@ -451,7 +535,7 @@ async function main() {
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionTime: "10:00",
-      sessionType: SessionType.NEWBORN,
+      sessionType: BookingSessionType.NEWBORN,
       departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
@@ -470,7 +554,7 @@ async function main() {
       packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionTime: "10:00",
-      sessionType: SessionType.NEWBORN,
+      sessionType: BookingSessionType.NEWBORN,
       departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
@@ -551,7 +635,7 @@ async function main() {
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionTime: "14:00",
-      sessionType: SessionType.KIDS,
+      sessionType: BookingSessionType.KIDS,
       departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       assignedPhotographerId: null,
@@ -569,7 +653,7 @@ async function main() {
       packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionTime: "14:00",
-      sessionType: SessionType.KIDS,
+      sessionType: BookingSessionType.KIDS,
       departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       notes: "Waiting for deposit confirmation",
@@ -587,7 +671,7 @@ async function main() {
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionTime: "11:00",
-      sessionType: SessionType.FAMILY,
+      sessionType: BookingSessionType.FAMILY,
       departmentId: kidsDepartment.id,
       status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,
@@ -606,7 +690,7 @@ async function main() {
       packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionTime: "11:00",
-      sessionType: SessionType.FAMILY,
+      sessionType: BookingSessionType.FAMILY,
       departmentId: kidsDepartment.id,
       status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,
