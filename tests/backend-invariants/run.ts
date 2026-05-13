@@ -21,6 +21,9 @@ async function main() {
     const { runScopedAddOnDeleteInvariantTest } = await import(
       "./scoped-add-on-delete.invariant"
     );
+    const { runDuplicateBookingPackageInvariantTest } = await import(
+      "./duplicate-booking-package.invariant"
+    );
 
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
@@ -28,6 +31,7 @@ async function main() {
     await runPOSPricingDisplayInvariantTest();
     await runCalendarSessionTypeDisplayInvariantTest();
     await runScopedAddOnDeleteInvariantTest();
+    await runDuplicateBookingPackageInvariantTest();
   });
 
   process.stdout.write("backend invariant tests passed\n");

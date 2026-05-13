@@ -399,6 +399,7 @@ model BookingPackage {
   package     Package     @relation(fields: [packageId], references: [id])
   sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
 
+  @@unique([bookingId, packageId])
   @@index([bookingId, sortOrder])
   @@index([packageId])
   @@index([sessionTypeId])
