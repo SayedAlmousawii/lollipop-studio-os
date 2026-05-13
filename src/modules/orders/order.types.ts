@@ -371,7 +371,6 @@ export interface POSWorkspace {
   includedPhotoCount: number;
   selectedPhotoCount: number;
   extraPhotoCount: number;
-  extraPhotoUnitPrice: number;
   extraPhotoTotal: number;
   addOns: POSAddOn[];
   addOnTotal: number;

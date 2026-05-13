@@ -402,8 +402,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   );
   const addOns = mapPOSAddOns(order.orderAddOns);
   const addOnTotal = sumOrderAddOnRowsDecimal(order.orderAddOns);
-  const packageBaseTotal =
-    new Prisma.Decimal(packageLines.reduce((sum, line) => sum + line.packageSubtotal, 0));
+  const packageBaseTotal = new Prisma.Decimal(
+    packageLines.reduce((sum, line) => sum + line.currentPackage.price, 0)
+  );
   const paidAmount = order.invoices[0]?.paidAmount ?? zeroMoney();
   const currentPackage = packageLines[0]?.currentPackage ?? null;
   const originalPackage = packageLines[0]?.originalPackage ?? null;
@@ -427,7 +428,6 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     includedPhotoCount,
     selectedPhotoCount,
     extraPhotoCount,
-    extraPhotoUnitPrice: packageLines[0]?.extraDigitalUnitPrice ?? 0,
     extraPhotoTotal: extraPhotoTotalDecimal.toNumber(),
     addOns,
     addOnTotal: addOnTotal.toNumber(),

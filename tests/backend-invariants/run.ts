@@ -12,10 +12,14 @@ async function main() {
     const { runSelectedPhotoAggregateInvariantTest } = await import(
       "./selected-photo-aggregate.invariant"
     );
+    const { runPOSPricingDisplayInvariantTest } = await import(
+      "./pos-pricing-display.invariant"
+    );
 
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();
+    await runPOSPricingDisplayInvariantTest();
   });
 
   process.stdout.write("backend invariant tests passed\n");

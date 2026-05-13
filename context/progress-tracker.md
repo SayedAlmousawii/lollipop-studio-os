@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70e.4 POS pricing display cleanup is complete: POS workspace no longer exposes a first-line-only extra-photo unit price, package lines retain separate digital/print unit prices, and POS financial display treats extra photos as a summed total across package lines.
 - Feature 70e.3 selected-photo source of truth is complete: order detail, POS, and editing target totals now derive selected photos from `OrderPackage` lines through a shared aggregate helper, while the remaining `Order.selectedPhotoCount` field is only synchronized from package-line writes as a cached aggregate.
 - Feature 70e.2 POS canonicalization is complete: legacy order edit now redirects to POS, the writable selection workflow form/action is retired, and order detail keeps selection read-only with POS navigation for package, photo, add-on, invoice, and final-payment work.
 - Feature 70e.1 invoice math correctness is complete: Final Invoice computed previews and locked snapshots now emit each package line at its final package price snapshot without a separate upgrade delta line, while original package price snapshots remain the adjustment/commission baseline.
@@ -78,6 +79,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70e.4: POS pricing display cleanup — removed the top-level first-line extra-photo unit price from the POS workspace, kept extra-photo unit prices per package line, corrected POS package/extra-photo display totals, and added backend invariant coverage for mixed session-type pricing.
 - Feature 70e.3: Selected photo count source of truth — added a shared package-line aggregate helper, converted order detail/POS/editing selected-photo reads away from stale order-level fallback, synchronized the remaining order-level cache from package-line writes, and added backend invariant coverage for aggregate drift.
 - Feature 70e.2: POS canonicalization and duplicate surface retirement — audited legacy edit/selection coverage, redirected `/orders/[orderId]/edit` to POS, removed legacy edit and selection workflow forms/actions, and converted the order detail selection tab to read-only POS navigation.
 - Feature 70e.1: Corrected Final Invoice package line math so computed previews and locked snapshots reconcile to `Invoice.totalAmount` for upgraded, non-upgraded, and mixed multi-package orders without double-counting upgrade deltas.
