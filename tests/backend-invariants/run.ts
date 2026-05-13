@@ -18,12 +18,16 @@ async function main() {
     const { runCalendarSessionTypeDisplayInvariantTest } = await import(
       "./calendar-session-type-display.invariant"
     );
+    const { runScopedAddOnDeleteInvariantTest } = await import(
+      "./scoped-add-on-delete.invariant"
+    );
 
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();
     await runPOSPricingDisplayInvariantTest();
     await runCalendarSessionTypeDisplayInvariantTest();
+    await runScopedAddOnDeleteInvariantTest();
   });
 
   process.stdout.write("backend invariant tests passed\n");

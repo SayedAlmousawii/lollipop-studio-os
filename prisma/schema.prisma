@@ -600,7 +600,7 @@ model OrderAddOn {
   updatedAt     DateTime @updatedAt
 
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderPackage OrderPackage? @relation(fields: [orderPackageId], references: [id], onDelete: SetNull)
+  orderPackage OrderPackage? @relation(fields: [orderPackageId], references: [id], onDelete: Cascade)
   product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
   packageItem PackageItem? @relation(fields: [packageItemId], references: [id], onDelete: SetNull)
 
