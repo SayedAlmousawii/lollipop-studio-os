@@ -820,11 +820,6 @@ async function buildInvoiceLineItems(
               id: true,
               name: true,
               price: true,
-              photoCount: true,
-              bundleAdjustment: true,
-              items: {
-                select: { quantity: true, priceSnapshot: true },
-              },
             },
           },
         },
@@ -844,48 +839,16 @@ async function buildInvoiceLineItems(
 
   for (const orderPackage of order.packages) {
     const packageRow = orderPackage.package;
-    const packageBaseTotal = packageRow.items.reduce(
-      (sum, item) => sum.plus(item.priceSnapshot.mul(item.quantity)),
-      new Prisma.Decimal(0)
-    );
-    const baseAmount = packageBaseTotal.equals(0)
-      ? packageRow.price.minus(packageRow.bundleAdjustment)
-      : packageBaseTotal;
+    const finalSnapshot =
+      orderPackage.finalPackagePriceSnapshot ?? packageRow.price;
     lines.push(
       createLineItem({
         lineType: InvoiceLineType.PACKAGE_BASE,
         description: packageRow.name,
-        unitPrice: baseAmount,
+        unitPrice: finalSnapshot,
         sortOrder: sortOrder++,
       })
     );
-
-    if (!packageRow.bundleAdjustment.equals(0)) {
-      lines.push(
-        createLineItem({
-          lineType: InvoiceLineType.BUNDLE_ADJUSTMENT,
-          description: `${packageRow.name} bundle adjustment`,
-          unitPrice: packageRow.bundleAdjustment,
-          sortOrder: sortOrder++,
-        })
-      );
-    }
-
-    const originalSnapshot =
-      orderPackage.originalPackagePriceSnapshot ?? packageRow.price;
-    const finalSnapshot =
-      orderPackage.finalPackagePriceSnapshot ?? packageRow.price;
-    const upgradeAmount = finalSnapshot.minus(originalSnapshot);
-    if (!upgradeAmount.equals(0)) {
-      lines.push(
-        createLineItem({
-          lineType: InvoiceLineType.PACKAGE_UPGRADE,
-          description: `Package upgrade (${packageRow.name})`,
-          unitPrice: upgradeAmount,
-          sortOrder: sortOrder++,
-        })
-      );
-    }
 
     for (const mediaType of [MediaType.DIGITAL, MediaType.PRINT] as const) {
       const quantity =
