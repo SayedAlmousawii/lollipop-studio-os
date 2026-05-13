@@ -4,6 +4,8 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
 
+const DEFAULT_PRISMA_COMMAND_TIMEOUT_MS = 300_000;
+
 function getBaseDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -27,6 +29,8 @@ function runPrismaCommand(args: string[], databaseUrl: string) {
       DATABASE_URL: databaseUrl,
     },
     stdio: "inherit",
+    timeout: Number(process.env.PRISMA_CMD_TIMEOUT ?? DEFAULT_PRISMA_COMMAND_TIMEOUT_MS),
+    killSignal: "SIGTERM",
   });
 }
 
