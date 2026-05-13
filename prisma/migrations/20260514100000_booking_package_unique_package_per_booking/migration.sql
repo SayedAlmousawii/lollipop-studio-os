@@ -1,3 +1,7 @@
+BEGIN;
+
+LOCK TABLE "booking_packages" IN ACCESS EXCLUSIVE MODE;
+
 WITH duplicate_booking_packages AS (
   SELECT
     "bookingId",
@@ -30,3 +34,5 @@ WHERE duplicate."id" = duplicates."id"
 
 CREATE UNIQUE INDEX "booking_packages_bookingId_packageId_key"
   ON "booking_packages"("bookingId", "packageId");
+
+COMMIT;
