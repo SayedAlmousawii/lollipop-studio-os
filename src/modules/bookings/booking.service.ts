@@ -1,5 +1,4 @@
 import {
-  BookingSessionType,
   BookingStatus,
   InvoiceStatus,
   InvoiceType,
@@ -80,7 +79,7 @@ export interface EditableBooking {
   packagePriceLabel: string;
   sessionDate: string;
   sessionTime: string;
-  sessionType: BookingSessionType;
+  sessionType: string;
   departmentId: string;
   department: string;
   assignedPhotographerId: string;
@@ -179,13 +178,6 @@ const BOOKING_DATE_FILTERS = new Set<BookingDateFilter>([
 
 const MIN_BOOKING_DEPOSIT_AMOUNT = new Prisma.Decimal(20);
 
-const SESSION_TYPE_CODE_TO_LEGACY: Record<string, BookingSessionType> = {
-  NB_NEWBORN: BookingSessionType.NEWBORN,
-  KD_REGULAR: BookingSessionType.KIDS,
-  KD_FAMILY: BookingSessionType.FAMILY,
-  NB_MATERNITY: BookingSessionType.MATERNITY,
-};
-
 export function parseBookingFilters(filters: {
   search?: string | string[];
   status?: string | string[];
@@ -222,7 +214,6 @@ export async function getBookings(
         where,
         include: {
           customer: { select: { phone: true } },
-          package: { select: { name: true, price: true } },
           packages: {
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
             select: {
@@ -284,7 +275,7 @@ export async function getBookings(
                   : line.package.name
               )
               .join(", ")
-          : row.package?.name ?? "—",
+          : "—",
       status: mapBookingStatus(row.status),
       paymentStatus,
       assignedPhotographerId: row.assignedPhotographer?.id ?? "",
@@ -374,7 +365,6 @@ export async function createBookingInDb(
         });
 
         const packageLines = await resolveBookingPackageLines(tx, data.packages);
-        const firstLine = packageLines[0];
 
         await validateBookingReferences(tx, {
           customerId,
@@ -387,10 +377,8 @@ export async function createBookingInDb(
         return tx.booking.create({
           data: {
             customerId,
-            packageId: firstLine.packageId,
             sessionDate: data.sessionDate,
             sessionTime: data.sessionTime,
-            sessionType: firstLine.legacySessionType,
             departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
@@ -471,8 +459,6 @@ export async function updateBooking(
         }
 
         const packageLines = await resolveBookingPackageLines(tx, data.packages);
-        const firstLine = packageLines[0];
-
         await validateBookingReferences(tx, {
           customerId: data.customerId,
           packageIds: packageLines.map((line) => line.packageId),
@@ -511,10 +497,8 @@ export async function updateBooking(
           where: { id: bookingId },
           data: {
             customerId: data.customerId,
-            packageId: firstLine.packageId,
             sessionDate: data.date,
             sessionTime: data.sessionTime,
-            sessionType: firstLine.legacySessionType,
             departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
@@ -912,7 +896,6 @@ export async function getBookingDurationMinutes(
 type ResolvedBookingPackageLine = {
   packageId: string;
   sessionTypeId: string;
-  legacySessionType: BookingSessionType;
   quantity: number;
   sortOrder: number;
 };
@@ -975,9 +958,6 @@ async function resolveBookingPackageLines(
     return {
       packageId: line.packageId,
       sessionTypeId: pkg.packageFamily.sessionType.id,
-      legacySessionType:
-        SESSION_TYPE_CODE_TO_LEGACY[pkg.packageFamily.sessionType.code] ??
-        BookingSessionType.OTHER,
       quantity: line.quantity,
       sortOrder: line.sortOrder,
     };
@@ -1103,14 +1083,6 @@ function validateStatusTransition(
 
 const editableBookingInclude = {
   customer: { select: { name: true, phone: true } },
-  package: {
-    select: {
-      id: true,
-      name: true,
-      price: true,
-      durationMinutes: true,
-    },
-  },
   packages: {
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     select: {
@@ -1243,16 +1215,11 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
               : []),
             { jobNumber: containsFilter },
             {
-              OR: [
-                {
-                  packages: {
-                    some: {
-                      package: { name: containsFilter },
-                    },
-                  },
+              packages: {
+                some: {
+                  package: { name: containsFilter },
                 },
-                { package: { is: { name: containsFilter } } },
-              ],
+              },
             },
             {
               department: {
@@ -1377,12 +1344,12 @@ function mapEditableBooking(
     jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
     customerId: row.customerId,
     customerPhone: formatCustomerPhone(row.customer.phone),
-    packageId: row.package?.id ?? "",
-    packageName: row.package?.name ?? "—",
-    packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
+    packageId: packageSummaries[0]?.packageId ?? "",
+    packageName: packageSummaries[0]?.packageName ?? "—",
+    packagePriceLabel: packageSummaries[0]?.packagePriceLabel ?? "—",
     sessionDate: formatInputDate(row.sessionDate),
     sessionTime: row.sessionTime,
-    sessionType: row.sessionType,
+    sessionType: packageSummaries[0]?.sessionTypeName ?? "—",
     departmentId: row.department.id,
     department: row.department.name,
     assignedPhotographerId: row.assignedPhotographer?.id ?? "",
@@ -1430,9 +1397,9 @@ function mapBookingDetail(
     customerPhone: formatCustomerPhone(row.customer.phone),
     sessionDate: formatSessionDate(row.sessionDate),
     sessionTime: row.sessionTime,
-    sessionType: formatEnum(row.sessionType),
-    packageName: row.package?.name ?? "—",
-    packagePriceLabel: row.package ? formatPrice(row.package.price) : "—",
+    sessionType: packageSummaries[0]?.sessionTypeName ?? "—",
+    packageName: packageSummaries[0]?.packageName ?? "—",
+    packagePriceLabel: packageSummaries[0]?.packagePriceLabel ?? "—",
     department: row.department.name,
     assignedPhotographerId: row.assignedPhotographer?.id ?? "",
     assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
@@ -1475,7 +1442,7 @@ function getBookingDurationFromRow(
   row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
 ): number {
   const packageDuration = sumPackageDuration(row.packages);
-  return packageDuration > 0 ? packageDuration : row.package?.durationMinutes ?? 0;
+  return packageDuration;
 }
 
 function mapBookingPackages(

@@ -31,7 +31,7 @@ interface SelectionWorkflowFormProps {
 
 export function SelectionWorkflowForm({ selection }: SelectionWorkflowFormProps) {
   const resetKey = [
-    selection.finalPackageId,
+    selection.packageId,
     selection.extraPhotoCount,
     selection.addOns
       .map((addOn) => `${addOn.productId ?? addOn.name}:${addOn.price}`)
@@ -42,7 +42,7 @@ export function SelectionWorkflowForm({ selection }: SelectionWorkflowFormProps)
 }
 
 function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
-  const [selectedPackageId, setSelectedPackageId] = useState(selection.finalPackageId);
+  const [selectedPackageId, setSelectedPackageId] = useState(selection.packageId);
   const [extraPhotos, setExtraPhotos] = useState(selection.extraPhotoCount);
   const [addOns, setAddOns] = useState<OrderAddOn[]>(
     selection.addOns.map((addOn) => ({
@@ -129,17 +129,17 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="finalPackageId">Final package</Label>
+                <Label htmlFor="packageId">Final package</Label>
                 <Select
-                  name="finalPackageId"
+                  name="packageId"
                   value={selectedPackageId}
                   onValueChange={setSelectedPackageId}
                   disabled={selection.packageOptions.length === 0}
                   required
                 >
                   <SelectTrigger
-                    id="finalPackageId"
-                    aria-invalid={state.errors?.finalPackageId?.length ? true : undefined}
+                    id="packageId"
+                    aria-invalid={state.errors?.packageId?.length ? true : undefined}
                   >
                     <SelectValue placeholder="Select package..." />
                   </SelectTrigger>
@@ -151,7 +151,7 @@ function SelectionWorkflowFormBody({ selection }: SelectionWorkflowFormProps) {
                     ))}
                   </SelectContent>
                 </Select>
-                <FieldError messages={state.errors?.finalPackageId} />
+                <FieldError messages={state.errors?.packageId} />
               </div>
 
               <div className="grid gap-3 lg:grid-cols-2">

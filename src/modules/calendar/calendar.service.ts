@@ -2,22 +2,6 @@ import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { SESSION_TYPE_COLORS, type CalendarBooking } from "@/components/calendar/calendar-mock-data";
 
-function mapSessionType(
-  sessionType: "NEWBORN" | "KIDS" | "FAMILY" | "MATERNITY" | "OTHER"
-): "Newborn" | "Kids" | "Family" | "Other" {
-  switch (sessionType) {
-    case "NEWBORN":
-      return "Newborn";
-    case "KIDS":
-      return "Kids";
-    case "FAMILY":
-      return "Family";
-    case "MATERNITY":
-    case "OTHER":
-      return "Other";
-  }
-}
-
 function mapBookingStatus(
   status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CANCELLED" | "NO_SHOW"
 ): "Pending" | "Confirmed" | "Cancelled" {
@@ -39,12 +23,12 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
       db.booking.findMany({
         include: {
           customer: { select: { name: true } },
-          package: { select: { name: true, durationMinutes: true } },
           packages: {
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
             select: {
               quantity: true,
               package: { select: { name: true, durationMinutes: true } },
+              sessionType: { select: { name: true } },
             },
           },
           department: { select: { name: true } },
@@ -56,7 +40,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
   );
 
   return rows.map((row) => {
-    const sessionType = mapSessionType(row.sessionType);
+    const sessionType = mapCalendarSessionType(row.packages[0]?.sessionType.name);
     const colors = SESSION_TYPE_COLORS[sessionType];
     const packageLinesDuration = row.packages.reduce(
       (total, line) => total + line.package.durationMinutes * line.quantity,
@@ -65,7 +49,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
     const durationMinutes =
       packageLinesDuration > 0
         ? packageLinesDuration
-        : row.package?.durationMinutes ?? 60;
+        : 60;
     const end = new Date(row.sessionDate);
     end.setMinutes(end.getMinutes() + durationMinutes);
     const packageName =
@@ -77,7 +61,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
                 : line.package.name
             )
             .join(", ")
-        : row.package?.name ?? "—";
+        : "—";
 
     return {
       id: row.id,
@@ -96,3 +80,21 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
     };
   });
 }
+
+function mapCalendarSessionType(
+  sessionTypeName: string | null | undefined
+): "Newborn" | "Kids" | "Family" | "Other" {
+  if (sessionTypeName === "Newborn") return "Newborn";
+  if (sessionTypeName === "Family") return "Family";
+  if (sessionTypeName && KIDS_SESSION_TYPE_NAMES.has(sessionTypeName)) return "Kids";
+  return "Other";
+}
+
+const KIDS_SESSION_TYPE_NAMES = new Set([
+  "Regular",
+  "Birthday",
+  "Special",
+  "Mini Special",
+  "Special Occasion",
+  "Duck",
+]);

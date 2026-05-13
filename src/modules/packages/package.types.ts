@@ -19,8 +19,7 @@ export interface Package {
   bundleAdjustment: string;
   bundleAdjustmentValue: number;
   bookingCount: number;
-  originalOrderCount: number;
-  finalOrderCount: number;
+  orderCount: number;
   activeReferenceCount: number;
   totalReferenceCount: number;
   deliverableSummary: string;

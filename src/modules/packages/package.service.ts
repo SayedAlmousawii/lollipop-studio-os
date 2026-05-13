@@ -84,23 +84,10 @@ export async function getPackages(filters: PackageFilters = {}): Promise<Package
             include: { product: true },
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           },
-          bookings: {
-            where: { status: { in: ACTIVE_BOOKING_STATUSES } },
-            select: { id: true },
-          },
-          originalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
-            select: { id: true },
-          },
-          finalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
-            select: { id: true },
-          },
           _count: {
             select: {
-              bookings: true,
-              originalOrders: true,
-              finalOrders: true,
+              bookingPackages: true,
+              orderPackages: true,
             },
           },
         },
@@ -113,7 +100,13 @@ export async function getPackages(filters: PackageFilters = {}): Promise<Package
     "Failed to fetch packages"
   );
 
-  return rows.map(mapPackageWithItems);
+  const activeReferenceCounts = await getActiveReferenceCountsByPackageId(
+    rows.map((row) => row.id)
+  );
+
+  return rows.map((row) =>
+    mapPackageWithItems(row, activeReferenceCounts.get(row.id) ?? 0)
+  );
 }
 
 export async function getActivePackageOptions(): Promise<PackageOption[]> {
@@ -162,29 +155,19 @@ export async function getPackageWithItems(id: string): Promise<PackageWithItems 
           },
           _count: {
             select: {
-              bookings: true,
-              originalOrders: true,
-              finalOrders: true,
+              bookingPackages: true,
+              orderPackages: true,
             },
-          },
-          bookings: {
-            where: { status: { in: ACTIVE_BOOKING_STATUSES } },
-            select: { id: true },
-          },
-          originalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
-            select: { id: true },
-          },
-          finalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
-            select: { id: true },
           },
         },
       }),
     "Failed to fetch package"
   );
 
-  return row ? mapPackageWithItems(row) : null;
+  if (!row) return null;
+
+  const activeReferenceCounts = await getActiveReferenceCountsByPackageId([row.id]);
+  return mapPackageWithItems(row, activeReferenceCounts.get(row.id) ?? 0);
 }
 
 export async function createPackage(input: CreatePackageInput): Promise<{ id: string }> {
@@ -226,6 +209,8 @@ export async function updatePackage(
   const data = updatePackageSchema.parse(input);
 
   return db.$transaction(async (tx) => {
+    await lockPackageForUpdate(tx, id);
+
     const existing = await tx.package.findUnique({
       where: { id },
       include: {
@@ -282,7 +267,7 @@ export async function updatePackage(
       },
       select: { id: true },
     });
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function getPackageTaxonomyOptions(): Promise<PackageTaxonomyOptions> {
@@ -376,6 +361,8 @@ export function parsePackageFilters(
 
 export async function archivePackage(id: string): Promise<void> {
   await db.$transaction(async (tx) => {
+    await lockPackageForUpdate(tx, id);
+
     const packageRow = await tx.package.findUnique({
       where: { id },
       select: { id: true },
@@ -390,8 +377,7 @@ export async function archivePackage(id: string): Promise<void> {
     const totalReferences = await getTotalReferenceCounts(tx, id);
     if (
       totalReferences.bookingCount > 0 ||
-      totalReferences.originalOrderCount > 0 ||
-      totalReferences.finalOrderCount > 0
+      totalReferences.orderCount > 0
     ) {
       await tx.package.update({
         where: { id },
@@ -401,7 +387,7 @@ export async function archivePackage(id: string): Promise<void> {
     }
 
     await tx.package.delete({ where: { id } });
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 async function resolvePackageItems(
@@ -492,13 +478,10 @@ async function assertNoLockedInvoicesForPackage(
       OR: [
         {
           order: {
-            OR: [
-              { originalPackageId: packageId },
-              { finalPackageId: packageId },
-            ],
+            packages: { some: { packageId } },
           },
         },
-        { booking: { packageId } },
+        { booking: { packages: { some: { packageId } } } },
       ],
     },
     select: { id: true },
@@ -516,47 +499,81 @@ async function assertPackageCanBeArchived(
   const activeReferences = await getActiveReferenceCounts(client, packageId);
   if (
     activeReferences.activeBookingCount > 0 ||
-    activeReferences.activeOriginalOrderCount > 0 ||
-    activeReferences.activeFinalOrderCount > 0
+    activeReferences.activeOrderCount > 0
   ) {
     throw new PackageArchiveBlockedError();
   }
 }
 
-async function getActiveReferenceCounts(client: DbClient, packageId: string) {
-  const [activeBookingCount, activeOriginalOrderCount, activeFinalOrderCount] =
-    await Promise.all([
-      client.booking.count({
-        where: {
-          packageId,
-          status: { in: ACTIVE_BOOKING_STATUSES },
-        },
-      }),
-      client.order.count({
-        where: {
-          originalPackageId: packageId,
-          status: { in: ACTIVE_ORDER_STATUSES },
-        },
-      }),
-      client.order.count({
-        where: {
-          finalPackageId: packageId,
-          status: { in: ACTIVE_ORDER_STATUSES },
-        },
-      }),
-    ]);
+async function lockPackageForUpdate(
+  client: Prisma.TransactionClient,
+  packageId: string
+): Promise<void> {
+  await client.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "packages" WHERE id = ${packageId} FOR UPDATE
+  `;
+}
 
-  return { activeBookingCount, activeOriginalOrderCount, activeFinalOrderCount };
+async function getActiveReferenceCounts(client: DbClient, packageId: string) {
+  const [activeBookingCount, activeOrderCount] = await Promise.all([
+    client.bookingPackage.count({
+      where: {
+        packageId,
+        booking: { status: { in: ACTIVE_BOOKING_STATUSES } },
+      },
+    }),
+    client.orderPackage.count({
+      where: {
+        packageId,
+        order: { status: { in: ACTIVE_ORDER_STATUSES } },
+      },
+    }),
+  ]);
+
+  return { activeBookingCount, activeOrderCount };
 }
 
 async function getTotalReferenceCounts(client: DbClient, packageId: string) {
-  const [bookingCount, originalOrderCount, finalOrderCount] = await Promise.all([
-    client.booking.count({ where: { packageId } }),
-    client.order.count({ where: { originalPackageId: packageId } }),
-    client.order.count({ where: { finalPackageId: packageId } }),
+  const [bookingCount, orderCount] = await Promise.all([
+    client.bookingPackage.count({ where: { packageId } }),
+    client.orderPackage.count({ where: { packageId } }),
   ]);
 
-  return { bookingCount, originalOrderCount, finalOrderCount };
+  return { bookingCount, orderCount };
+}
+
+async function getActiveReferenceCountsByPackageId(
+  packageIds: string[]
+): Promise<Map<string, number>> {
+  if (packageIds.length === 0) return new Map();
+
+  const [bookingCounts, orderCounts] = await Promise.all([
+    db.bookingPackage.groupBy({
+      by: ["packageId"],
+      where: {
+        packageId: { in: packageIds },
+        booking: { status: { in: ACTIVE_BOOKING_STATUSES } },
+      },
+      _count: { _all: true },
+    }),
+    db.orderPackage.groupBy({
+      by: ["packageId"],
+      where: {
+        packageId: { in: packageIds },
+        order: { status: { in: ACTIVE_ORDER_STATUSES } },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const row of bookingCounts) {
+    counts.set(row.packageId, row._count._all);
+  }
+  for (const row of orderCounts) {
+    counts.set(row.packageId, (counts.get(row.packageId) ?? 0) + row._count._all);
+  }
+  return counts;
 }
 
 function hasCommercialFieldChanges(
@@ -599,7 +616,10 @@ function comparePackageItems(
   return a.productId.localeCompare(b.productId);
 }
 
-function mapPackageWithItems(row: PackageWithItemsRow): PackageWithItems {
+function mapPackageWithItems(
+  row: PackageWithItemsRow,
+  activeReferenceCount: number
+): PackageWithItems {
   return {
     id: row.id,
     name: row.name,
@@ -616,13 +636,11 @@ function mapPackageWithItems(row: PackageWithItemsRow): PackageWithItems {
     departmentName: row.packageFamily.sessionType.department.name,
     bundleAdjustment: formatSignedPrice(row.bundleAdjustment),
     bundleAdjustmentValue: row.bundleAdjustment.toNumber(),
-    bookingCount: row._count.bookings,
-    originalOrderCount: row._count.originalOrders,
-    finalOrderCount: row._count.finalOrders,
-    activeReferenceCount:
-      row.bookings.length + row.originalOrders.length + row.finalOrders.length,
+    bookingCount: row._count.bookingPackages,
+    orderCount: row._count.orderPackages,
+    activeReferenceCount,
     totalReferenceCount:
-      row._count.bookings + row._count.originalOrders + row._count.finalOrders,
+      row._count.bookingPackages + row._count.orderPackages,
     deliverableSummary: summarizePackageDeliverables(row),
     status: row.isActive ? "Active" : "Inactive",
     isActive: row.isActive,
@@ -697,22 +715,9 @@ type PackageWithItemsRow = Prisma.PackageGetPayload<{
     };
     _count: {
       select: {
-        bookings: true;
-        originalOrders: true;
-        finalOrders: true;
+        bookingPackages: true;
+        orderPackages: true;
       };
-    };
-    bookings: {
-      where: { status: { in: typeof ACTIVE_BOOKING_STATUSES } };
-      select: { id: true };
-    };
-    originalOrders: {
-      where: { status: { in: typeof ACTIVE_ORDER_STATUSES } };
-      select: { id: true };
-    };
-    finalOrders: {
-      where: { status: { in: typeof ACTIVE_ORDER_STATUSES } };
-      select: { id: true };
     };
   };
 }>;

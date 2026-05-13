@@ -31,7 +31,7 @@ export async function updateOrderAction(
   });
 
   const parsed = updateOrderSchema.safeParse({
-    finalPackageId: formData.get("finalPackageId"),
+    packageId: formData.get("packageId"),
     selectedPhotos: formData.get("selectedPhotos"),
     addOns,
     notes: formData.get("notes") || undefined,
