@@ -356,6 +356,7 @@ After all 70e units:
 - **Make POS canonical.** POS already owns package changes, selected photos, digital/print extras, add-ons, invoice preview, and final payment. Duplicating that workflow in order detail tabs creates drift and first-line-only bugs.
 - **Retire before rebuilding.** The legacy edit page and writable selection workflow tab should be deleted or made inaccessible if audit confirms POS has equivalent capability. Do not rebuild them as parallel POS surfaces.
 - **Use `OrderPackage` as the package-line truth.** The multi-package architecture only works if line-specific fields live on line rows and aggregate reads are derived from those rows.
+- **Block package session-type overrides for now.** Existing order package changes must stay inside the line's stored session type. Cross-session changes would alter extra-photo pricing and invoice consequences, so they require a future explicit permissioned, audited repricing workflow rather than an implicit POS package swap.
 - **Defer full cleanup until critical invariants are protected.** Duplicate helper removal, calendar color mapping, and schema uniqueness gaps matter, but they should not delay fixing invoice and data-loss bugs.
 - **Backend invariant tests are mandatory.** These bugs are mostly service-layer consistency bugs; UI tests alone would not catch them reliably.
 

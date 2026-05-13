@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70e.5c package session-type override policy is complete: order package changes intentionally stay within the line's stored session type, with cross-session overrides deferred to a future permissioned, audited repricing workflow.
 - Feature 70e.5b calendar session-type display cleanup is complete: calendar bucketing now uses stable `SessionType.code` and `Department.code` values instead of display-name allowlists, preserving Family as a session-code override inside the Kids department.
 - Feature 70e.5a extra-photo pricing lookup cleanup is complete: invoice service now uses the transaction-client-compatible lookup exported by pricing service, leaving pricing service as the single source of extra-photo unit-price query logic.
 - Feature 70e.4 POS pricing display cleanup is complete: POS workspace no longer exposes a first-line-only extra-photo unit price, package lines retain separate digital/print unit prices, and POS financial display treats extra photos as a summed total across package lines.
@@ -76,11 +77,13 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - POS is the canonical writable workspace for order package changes, selected photos, digital and print extra photos, add-ons, invoice preview, and final payment; the legacy edit order route redirects there and order detail selection is read-only.
 - Selected-photo totals are derived from `OrderPackage.selectedPhotoCount`, falling back to the package included count only when a line value is intentionally null; `Order.selectedPhotoCount` remains temporarily as a synchronized cache, not a read source.
 - `Order.addOns` JSON is deprecated; `OrderAddOn` rows with snapshot fields are the active source of truth.
+- Order package changes are scoped to each line's stored session type; cross-session overrides are intentionally blocked until a future permissioned, audited repricing workflow defines the audit and pricing behavior.
 - Editing start requires: selection complete + editor assigned + full invoice balance settled; assignment stays allowed while any outstanding balance is surfaced in-tab with an upgrade-payment modal.
 - Order completion requires: pickup recorded + production status READY_FOR_PICKUP or COMPLETED + settled payment or explicit admin override reason.
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70e.5c: Package session-type override policy — documented the existing cross-session package-change block as intentional, because changing a line's session type changes extra-photo pricing and invoice consequences and needs a future audited manager workflow.
 - Feature 70e.5b: Calendar session-type display cleanup — replaced display-name allowlist bucketing with stable session-type and department code mapping, and added invariant coverage for new department-scoped session type codes.
 - Feature 70e.5a: Extra-photo pricing lookup cleanup — exported a transaction-client-compatible pricing lookup from pricing service and removed the duplicate invoice-side unit-price query.
 - Feature 70e.4: POS pricing display cleanup — removed the top-level first-line extra-photo unit price from the POS workspace, kept extra-photo unit prices per package line, corrected POS package/extra-photo display totals, and added backend invariant coverage for mixed session-type pricing.
