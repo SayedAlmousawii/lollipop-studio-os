@@ -8,11 +8,13 @@ async function main() {
     process.env.DATABASE_URL = databaseUrl;
 
     const { runPackageOptionsSmokeTest } = await import("./package-options.smoke");
+    const { runInvoiceMathInvariantTest } = await import("./invoice-math.invariant");
 
     await runPackageOptionsSmokeTest();
+    await runInvoiceMathInvariantTest();
   });
 
-  process.stdout.write("backend invariant smoke test passed\n");
+  process.stdout.write("backend invariant tests passed\n");
 }
 
 main().catch((error: unknown) => {
