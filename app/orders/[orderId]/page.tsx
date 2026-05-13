@@ -17,7 +17,6 @@ import { EditingWorkflowForm } from "@/components/orders/editing-workflow-form";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { ProductionWorkflowForm } from "@/components/orders/production-workflow-form";
-import { SelectionWorkflowForm } from "@/components/orders/selection-workflow-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -130,12 +129,6 @@ export default async function OrderDetailPage(
 
           <div className="mt-5 flex flex-wrap gap-3">
             <Button asChild>
-              <Link href={`/orders/${order.id}/edit`}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Edit Order
-              </Link>
-            </Button>
-            <Button variant="outline" asChild>
               <Link href={`/orders/${order.id}/sales`}>
                 <ShoppingCart className="mr-2 h-4 w-4" />
                 Open Sales View
@@ -463,7 +456,23 @@ function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
           />
         </CardContent>
       </Card>
-      <SelectionWorkflowForm selection={selection} />
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Selection Workspace</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-text-secondary">
+            Package decisions, selected photos, digital and print extras, add-ons,
+            invoice preview, and final payment are managed in POS.
+          </p>
+          <Button asChild>
+            <Link href={`/orders/${selection.orderId}/sales`}>
+              <ShoppingCart className="mr-2 h-4 w-4" />
+              Open POS
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
