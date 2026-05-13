@@ -37,7 +37,10 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
   const invoice = workspace.invoice;
   const packageAmount =
     workspace.packageLines.length > 0
-      ? workspace.packageLines.reduce((sum, line) => sum + line.packageSubtotal, 0)
+      ? workspace.packageLines.reduce(
+          (sum, line) => sum + line.currentPackage.price,
+          0
+        )
       : workspace.currentPackage?.price ?? 0;
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
@@ -107,7 +110,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                     <MoneyRow
                       key={line.id}
                       label={`Package (${line.currentPackage.name})`}
-                      value={formatKD(line.packageSubtotal)}
+                      value={formatKD(line.currentPackage.price)}
                     />
                   ))
                 ) : (
@@ -125,7 +128,7 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
                 ) : null}
                 {extraPhotoAmount > 0 ? (
                   <MoneyRow
-                    label={`Extra Photos (${workspace.extraPhotoCount})`}
+                    label={`Extra photos total (${workspace.extraPhotoCount})`}
                     value={formatKD(extraPhotoAmount)}
                   />
                 ) : null}
