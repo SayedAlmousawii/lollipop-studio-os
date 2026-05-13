@@ -174,13 +174,15 @@ if (data.addOns.length > 0) {
 ---
 
 ### M4. Session type lock on package change blocks the spec's "allow override" intent
+**Status:** Converted to documented decision in Feature 70e.5c.
+
 **Where:** [order.service.ts:1051-1053](../../src/modules/orders/order.service.ts#L1051-L1053) and [order.service.ts:2350-2354](../../src/modules/orders/order.service.ts#L2350-L2354)
 
 **Problem:** `updateOrderPackage` rejects any new package whose family is in a different session type than the line's current `sessionTypeId`. Spec 70c said "scoped to the line's session type by default; allow override to switch session type if needed." Current implementation is "block, no override."
 
 **Severity:** Medium (workflow restriction not in spec).
 
-**Fix direction:** Either accept the restriction (and update spec) or add an override path. The restriction is defensible — switching session types changes invoice pricing — but it should be a documented decision.
+**Resolution:** The restriction is intentional for now. `OrderPackage.sessionTypeId` owns session-scoped extra-photo pricing and invoice consequences for the line, so cross-session package changes require a future explicit permissioned, audited repricing workflow rather than an implicit POS package swap.
 
 ---
 

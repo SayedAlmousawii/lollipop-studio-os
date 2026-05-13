@@ -112,6 +112,10 @@ In `src/modules/commissions/`:
 - Per-line commission rows (if commission breakdown is stored): one per upgraded line. Order-level commission record stays as the parent.
 - Commission reports group by order but show line-level contributions on detail views.
 
+### Package Session-Type Override Policy
+
+Package changes on an existing order line must stay inside that line's stored session type. Cross-session package changes are intentionally blocked because `OrderPackage.sessionTypeId` owns extra-photo pricing and invoice consequences for the line; changing it after order creation would require an explicit permissioned, audited repricing workflow that is outside Spec 70c/70e. Staff who need a different session type should create the correct package composition before check-in or follow a future manager override spec that defines audit fields, permission, and customer-facing pricing behavior.
+
 ### Deliverables / order detail aggregation
 
 New helpers in `order.service.ts`:
@@ -130,7 +134,7 @@ Order detail read model exposes both per-line breakdowns and the aggregates.
 
 - One panel per `OrderPackage` (vertical list). Each panel contains:
   - Header: package name, department, session type
-  - Package change picker (scoped to the line's session type by default; allow override to switch session type if needed)
+  - Package change picker scoped to the line's session type
   - Price delta display: `Original 60 KD → Final 90 KD (+30 KD)`
   - Extra photo inputs: Digital count, Print count, with computed line totals using the Spec 69 prices
   - Per-line subtotal
