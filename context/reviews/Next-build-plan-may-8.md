@@ -302,6 +302,141 @@ One booking, two packages — one job with two orders, or two separate jobs? Con
 
 ---
 
+## Feature 64 - Photographer Assignment & Check-In Dialog ✅ Complete
+
+### Summary
+Move photographer assignment into a purposeful check-in dialog that collects two required data points — assigned photographer and social media consent — before completing check-in.
+
+### Key Behavior
+- `window.confirm()` replaced by a shadcn Dialog in both `CheckInButton` and `CheckInDropdownItem`
+- Dialog requires photographer selection and explicit social media consent toggle before submission
+- `getRecommendedPhotographer(customerId)` pre-fills the picker from booking history (read-only — never auto-assigns)
+- `Job` gains `assignedPhotographerId` and `socialMediaConsent` fields; both written inside the `checkInBooking()` transaction
+- New/edit booking forms show a recommended photographer note
+
+---
+
+## Feature 65 - Booking Customer Phone Lookup & Find-or-Create ✅ Complete
+
+### Summary
+Replace the name-based customer combobox on the new booking form with a phone-first lookup. Phone is the unique customer key; if no match exists a new customer is created in the same transaction.
+
+### Key Behavior
+- Phone required; name optional on the new booking form
+- `findOrCreateCustomerByPhone(tx, { phone, name? })` runs inside the `createBookingInDb` transaction
+- Existing customer's name is never overwritten by the submitted name field
+- Live server-action-backed phone suggestions reuse `getCustomerPhoneSuggestions`
+- `initialCustomerId` query param resolves to phone server-side; `getCustomers()` call removed entirely
+
+---
+
+## Feature 66 - Selection Status on POS Payment Dialog ✅ Complete
+
+### Summary
+Force employees to declare the customer's photo selection status every time a payment is recorded in the POS. A required three-option ToggleGroup (`Not Yet`, `In Progress`, `Selected`) is added to the record payment dialog.
+
+### Key Behavior
+- Field is required; no option is pre-selected; submit is blocked until a choice is made
+- `Selected` advances `OrderStatus` to `SELECTION_COMPLETED` in the same transaction as the payment
+- Status update is no-regression: `In Progress` and `Not Yet` never revert a more advanced status
+- Field is hidden once the order has passed the selection stage
+
+---
+
+## Feature 67 - Package Taxonomy Foundation ✅ Complete
+
+### Summary
+Schema + seed introducing two catalog tables — `SessionType` and `PackageFamily` — scoped under `StudioDepartment`. No booking, order, or package model is rewired in this unit.
+
+### Key Behavior
+- New `SessionType` model (table) replaces the previous `SessionType` Prisma enum (renamed to `BookingSessionType`)
+- New `PackageFamily` model links session types to package groupings
+- 11 session types seeded (4 NB + 7 KD) with department-prefixed codes; 11 default families seeded
+- Seed is idempotent; no admin CRUD UI (catalog stays seed-driven)
+
+---
+
+## Feature 68 - Package Model Upgrade ✅ Complete
+
+### Summary
+Link every `Package` into the taxonomy (Department → Session Type → Package Family) and give every package a duration. Downstream specs use the session type for scoped pickers and pricing.
+
+### Key Behavior
+- `Package.packageFamilyId` (non-nullable FK) and `Package.durationMinutes` added
+- `getPackageSessionType(packageId)` helper returns the transitive session type and department
+- Package admin UI gains Department → Session Type → Family cascade create/edit and list filters by department and session type
+- Duration is per-package; service layer rejects `durationMinutes <= 0`
+
+---
+
+## Feature 69 - Session-Type Extra-Photo Pricing ✅ Complete
+
+### Summary
+Introduce a session-type-scoped pricing catalog for extra photos, split by media type (digital vs print). Replaces the single `addon-extra-photo` product with structured rows keyed by `(sessionTypeId, mediaType)`.
+
+### Key Behavior
+- New `MediaType` enum (`DIGITAL`, `PRINT`) and `SessionTypeExtraPhotoPricing` model
+- 22 rows seeded (11 session types × 2 media types); seed is idempotent with placeholder prices
+- `getExtraPhotoUnitPrice(sessionTypeId, mediaType)` service helper added in new `src/modules/pricing/` module
+- Read-only admin catalog page so owner can verify seeded prices
+- Existing `calculateExtraPhotoCharge` left untouched; wired in Spec 70c
+
+---
+
+## Feature 70a - Multi-Package Schema Foundation ✅ Complete
+
+### Summary
+Additive schema introducing `BookingPackage` and `OrderPackage` join tables. Every existing column on `Booking` and `Order` is untouched — behavior is wired in 70b and 70c.
+
+### Key Behavior
+- `BookingPackage`: `bookingId`, `packageId`, `sessionTypeId`, `quantity`, `sortOrder`; cascade-deletes with booking
+- `OrderPackage`: `orderId`, `packageId`, `sessionTypeId`, price snapshots, `extraDigitalCount`, `extraPrintCount`, `sortOrder`
+- Seed creates one `BookingPackage` / `OrderPackage` per existing booking/order mirroring the singular `packageId`
+
+---
+
+## Feature 70b - Booking Multi-Package Flow ✅ Complete
+
+### Summary
+Wire booking creation and edit flows onto `BookingPackage`. The add/edit form switches from a single package picker to a multi-package picker; booking duration becomes the aggregate of all selected package durations.
+
+### Key Behavior
+- Booking form: multi-package picker with quantity, sortOrder, and aggregated duration display; minimum one package required
+- `getBookingDurationMinutes(bookingId)` aggregates duration; calendar overlap and rendering read from it
+- Record-deposit dialog gains an editable amount input (default 20 KD, minimum 20 KD, no upper bound)
+- Singular `Booking.packageId` and `Booking.sessionType` dual-written from the first `BookingPackage` line for compatibility until 70d
+
+---
+
+## Feature 70c - Order Multi-Package Flow ✅ Complete
+
+### Summary
+Wire the Order, POS, invoice line builder, commission service, and deliverables view onto `OrderPackage`. Every package on an order is independently upgradable with its own price snapshots and per-line extra-photo counts.
+
+### Key Behavior
+- Check-in creates one `OrderPackage` per `BookingPackage` with `originalPackagePriceSnapshot` set
+- POS workspace: one panel per `OrderPackage` with independent upgrade, digital/print extra-photo inputs, and per-line subtotal
+- Final Invoice emits one `PACKAGE_BASE` + `BUNDLE_ADJUSTMENT` + `PACKAGE_UPGRADE` + `EXTRA_PHOTOS` set per line; unit prices from `getExtraPhotoUnitPrice`
+- Commission = `Σ max(0, finalSnapshot − originalSnapshot)` across `OrderPackage` rows
+- Selection workflow is per-line; `OrderSelectionStatus.COMPLETED` rolls up when every line is complete
+- Singular `Order.originalPackageId` / `finalPackageId` and order-level snapshots dual-written from the first line until 70d
+
+---
+
+## Feature 70d - Singular Field Retirement ✅ Complete
+
+### Summary
+Remove the singular package and session-type fields kept alive for compatibility by 70b/70c. Drop `BookingSessionType` enum. Retire the legacy `addon-extra-photo` product and `calculateExtraPhotoCharge` helper.
+
+### Key Behavior
+- Schema drops: `Booking.packageId`, `Booking.sessionType`, `Order.originalPackageId`, `Order.finalPackageId`, `Order.originalPackagePriceSnapshot`, `Order.finalPackagePriceSnapshot`
+- `BookingSessionType` Prisma enum removed; `calculateExtraPhotoCharge` function removed
+- `addon-extra-photo` product deactivated with `[RETIRED]` prefix
+- Dual-write stamping logic and reverse enum mapping helpers removed from service layer
+- Repo-wide grep audit required before merge: zero non-test hits on dropped identifiers
+
+---
+
 # Phase 6 - Financial History, Reporting, And Commission Foundation
 
 ## Goal
