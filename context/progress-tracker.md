@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70e.5d scoped add-on delete behavior is complete: add-ons tied to an `OrderPackage` cascade when that package line is deleted, while unscoped order add-ons remain attached to the order.
 - Feature 70e.5c package session-type override policy is complete: order package changes intentionally stay within the line's stored session type, with cross-session overrides deferred to a future permissioned, audited repricing workflow.
 - Feature 70e.5b calendar session-type display cleanup is complete: calendar bucketing now uses stable `SessionType.code` and `Department.code` values instead of display-name allowlists, preserving Family as a session-code override inside the Kids department.
 - Feature 70e.5a extra-photo pricing lookup cleanup is complete: invoice service now uses the transaction-client-compatible lookup exported by pricing service, leaving pricing service as the single source of extra-photo unit-price query logic.
@@ -83,6 +84,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70e.5d: Scoped add-on delete behavior — changed `OrderAddOn.orderPackageId` to cascade with deleted package lines and added backend invariant coverage that scoped add-ons are removed while unscoped add-ons remain.
 - Feature 70e.5c: Package session-type override policy — documented the existing cross-session package-change block as intentional, because changing a line's session type changes extra-photo pricing and invoice consequences and needs a future audited manager workflow.
 - Feature 70e.5b: Calendar session-type display cleanup — replaced display-name allowlist bucketing with stable session-type and department code mapping, and added invariant coverage for new department-scoped session type codes.
 - Feature 70e.5a: Extra-photo pricing lookup cleanup — exported a transaction-client-compatible pricing lookup from pricing service and removed the duplicate invoice-side unit-price query.
