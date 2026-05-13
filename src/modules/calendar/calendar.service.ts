@@ -1,6 +1,10 @@
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
-import { SESSION_TYPE_COLORS, type CalendarBooking } from "@/components/calendar/calendar-mock-data";
+import {
+  SESSION_TYPE_COLORS,
+  type CalendarBooking,
+  type CalendarSessionType,
+} from "@/components/calendar/calendar-mock-data";
 
 function mapBookingStatus(
   status: "PENDING" | "CONFIRMED" | "CHECKED_IN" | "CANCELLED" | "NO_SHOW"
@@ -28,10 +32,15 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
             select: {
               quantity: true,
               package: { select: { name: true, durationMinutes: true } },
-              sessionType: { select: { name: true } },
+              sessionType: {
+                select: {
+                  code: true,
+                  department: { select: { code: true } },
+                },
+              },
             },
           },
-          department: { select: { name: true } },
+          department: { select: { name: true, code: true } },
           assignedPhotographer: { select: { name: true } },
         },
         orderBy: { sessionDate: "asc" },
@@ -40,7 +49,11 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
   );
 
   return rows.map((row) => {
-    const sessionType = mapCalendarSessionType(row.packages[0]?.sessionType.name);
+    const firstLineSessionType = row.packages[0]?.sessionType;
+    const sessionType = mapCalendarSessionType({
+      sessionTypeCode: firstLineSessionType?.code,
+      departmentCode: firstLineSessionType?.department.code ?? row.department.code,
+    });
     const colors = SESSION_TYPE_COLORS[sessionType];
     const packageLinesDuration = row.packages.reduce(
       (total, line) => total + line.package.durationMinutes * line.quantity,
@@ -81,20 +94,35 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
   });
 }
 
-function mapCalendarSessionType(
-  sessionTypeName: string | null | undefined
-): "Newborn" | "Kids" | "Family" | "Other" {
-  if (sessionTypeName === "Newborn") return "Newborn";
-  if (sessionTypeName === "Family") return "Family";
-  if (sessionTypeName && KIDS_SESSION_TYPE_NAMES.has(sessionTypeName)) return "Kids";
+export function mapCalendarSessionType(input: {
+  sessionTypeCode?: string | null;
+  departmentCode?: string | null;
+}): CalendarSessionType {
+  const sessionTypeCode = normalizeTaxonomyCode(input.sessionTypeCode);
+  if (sessionTypeCode) {
+    const sessionBucket = CALENDAR_SESSION_TYPE_BY_CODE[sessionTypeCode];
+    if (sessionBucket) return sessionBucket;
+  }
+
+  const departmentCode = normalizeTaxonomyCode(input.departmentCode);
+  if (departmentCode) {
+    return CALENDAR_SESSION_TYPE_BY_DEPARTMENT_CODE[departmentCode] ?? "Other";
+  }
+
   return "Other";
 }
 
-const KIDS_SESSION_TYPE_NAMES = new Set([
-  "Regular",
-  "Birthday",
-  "Special",
-  "Mini Special",
-  "Special Occasion",
-  "Duck",
-]);
+function normalizeTaxonomyCode(code: string | null | undefined): string | null {
+  const normalized = code?.trim().toUpperCase();
+  return normalized ? normalized : null;
+}
+
+const CALENDAR_SESSION_TYPE_BY_CODE: Record<string, CalendarSessionType> = {
+  NB_NEWBORN: "Newborn",
+  KD_FAMILY: "Family",
+};
+
+const CALENDAR_SESSION_TYPE_BY_DEPARTMENT_CODE: Record<string, CalendarSessionType> = {
+  NB: "Newborn",
+  KD: "Kids",
+};

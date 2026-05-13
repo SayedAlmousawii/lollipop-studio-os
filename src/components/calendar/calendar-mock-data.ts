@@ -1,3 +1,5 @@
+export type CalendarSessionType = "Newborn" | "Kids" | "Family" | "Other";
+
 export type CalendarBooking = {
   id: string;
   title: string;
@@ -8,7 +10,7 @@ export type CalendarBooking = {
   borderColor: string;
   extendedProps: {
     customerName: string;
-    sessionType: "Newborn" | "Kids" | "Family" | "Other";
+    sessionType: CalendarSessionType;
     status: "Pending" | "Confirmed" | "Cancelled";
     department?: string;
     packageName: string;
