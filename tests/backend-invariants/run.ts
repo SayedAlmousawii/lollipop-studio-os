@@ -15,11 +15,15 @@ async function main() {
     const { runPOSPricingDisplayInvariantTest } = await import(
       "./pos-pricing-display.invariant"
     );
+    const { runCalendarSessionTypeDisplayInvariantTest } = await import(
+      "./calendar-session-type-display.invariant"
+    );
 
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();
     await runPOSPricingDisplayInvariantTest();
+    await runCalendarSessionTypeDisplayInvariantTest();
   });
 
   process.stdout.write("backend invariant tests passed\n");

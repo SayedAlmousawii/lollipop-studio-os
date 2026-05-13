@@ -161,6 +161,8 @@ if (data.addOns.length > 0) {
 ---
 
 ### M3. Calendar session-type coloring is hardcoded by name
+**Status:** Fixed in Feature 70e.5b.
+
 **Where:** [calendar.service.ts:84-100](../../src/modules/calendar/calendar.service.ts#L84-L100)
 
 **Problem:** `mapCalendarSessionType` is a string-name allowlist of 6 Kids session types. New session types added via seed (e.g., owner adds "School") will silently bucket to "Other" with no visual distinction.
