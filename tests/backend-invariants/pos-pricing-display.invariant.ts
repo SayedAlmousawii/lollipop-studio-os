@@ -37,6 +37,17 @@ export async function runPOSPricingDisplayInvariantTest(): Promise<void> {
         { name: "POS Pricing Session B", digital: 9, print: 11, total: 31 },
       ]
     );
+    const displayedPackageTotal = workspace.packageLines.reduce(
+      (sum, line) => sum + line.currentPackage.price,
+      0
+    );
+    const subtotalIncludingExtras = workspace.packageLines.reduce(
+      (sum, line) => sum + line.packageSubtotal,
+      0
+    );
+
+    assert.equal(displayedPackageTotal, 140);
+    assert.notEqual(displayedPackageTotal, subtotalIncludingExtras);
     assert.equal(
       workspace.extraPhotoTotal,
       workspace.packageLines.reduce((sum, line) => sum + line.extraPhotoTotal, 0)
