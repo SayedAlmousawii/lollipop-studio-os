@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import type { ExtraPhotoPricingRow } from "./pricing.types";
 
+type ExtraPhotoPricingClient = typeof db | Prisma.TransactionClient;
+
 export const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
   DIGITAL: "Digital",
   PRINT: "Print",
@@ -21,20 +23,28 @@ export async function getExtraPhotoUnitPrice(
   sessionTypeId: string,
   mediaType: MediaType
 ): Promise<Prisma.Decimal> {
-  const row = await withRetry(
-    () =>
-      db.sessionTypeExtraPhotoPricing.findUnique({
-        where: {
-          sessionTypeId_mediaType: {
-            sessionTypeId,
-            mediaType,
-          },
-        },
-        select: { unitPrice: true },
-      }),
-    "Failed to fetch extra-photo unit price"
+  return withRetry(
+    () => getExtraPhotoUnitPriceWithClient(db, sessionTypeId, mediaType),
+    "Failed to fetch extra-photo unit price",
+    3,
+    (error) => !(error instanceof ExtraPhotoPricingNotFoundError)
   );
+}
 
+export async function getExtraPhotoUnitPriceWithClient(
+  client: ExtraPhotoPricingClient,
+  sessionTypeId: string,
+  mediaType: MediaType
+): Promise<Prisma.Decimal> {
+  const row = await client.sessionTypeExtraPhotoPricing.findUnique({
+    where: {
+      sessionTypeId_mediaType: {
+        sessionTypeId,
+        mediaType,
+      },
+    },
+    select: { unitPrice: true },
+  });
   if (!row) {
     throw new ExtraPhotoPricingNotFoundError(sessionTypeId, mediaType);
   }
