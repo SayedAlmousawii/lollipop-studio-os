@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70d package-service review follow-up is complete: package update/archive guards now lock the package row inside serializable transactions, and package list/detail reads compute active references with grouped counts instead of loading relation rows.
 - Feature 70d review follow-up is complete: the retired extra-photo product is soft-retired in migration, calendar Kids session coloring covers all live Kids session types, legacy selection extra-photo preview uses catalog pricing, package changes reject session-incompatible packages, and package reference counts are no longer duplicated.
 - Feature 70d singular field retirement is complete: Booking and Order now rely on package-line join tables only, the legacy booking session enum and singular package/order columns are removed from Prisma, and the old extra-photo product/helper path is retired.
 - Feature 70c follow-up fixes are complete: multi-package POS/order displays now use real package-line counts and aggregate package totals, package-line photo forms reject blank numeric fields, invoice sync preserves previous extra-photo totals, and package-item upgrade add-ons are scoped to a specific `OrderPackage`.
@@ -70,6 +71,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70d package-service review follow-up: made package update/archive guard checks atomic with row locking plus serializable transactions, and replaced materialized active reference relation rows with grouped counts.
 - Feature 70d review follow-up: soft-retired `addon-extra-photo`, restored selection extra-photo catalog pricing, removed package fallback selection, guarded incompatible session package changes, expanded Kids calendar mapping, and unified package order reference counts.
 - Feature 70d: Singular field retirement — removed legacy Booking/Order package columns, dropped `BookingSessionType`, retired `calculateExtraPhotoCharge`, retired the `addon-extra-photo` product path, and converted remaining readers to package-line data.
 - Feature 70c follow-up: fixed package-line count/total display edge cases, blank numeric coercion, previous extra-photo invoice deltas, original package baseline preservation, fallback order package session typing, and line-scoped package item upgrade add-ons.

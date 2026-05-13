@@ -84,14 +84,6 @@ export async function getPackages(filters: PackageFilters = {}): Promise<Package
             include: { product: true },
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           },
-          bookingPackages: {
-            where: { booking: { status: { in: ACTIVE_BOOKING_STATUSES } } },
-            select: { id: true },
-          },
-          orderPackages: {
-            where: { order: { status: { in: ACTIVE_ORDER_STATUSES } } },
-            select: { id: true },
-          },
           _count: {
             select: {
               bookingPackages: true,
@@ -108,7 +100,13 @@ export async function getPackages(filters: PackageFilters = {}): Promise<Package
     "Failed to fetch packages"
   );
 
-  return rows.map(mapPackageWithItems);
+  const activeReferenceCounts = await getActiveReferenceCountsByPackageId(
+    rows.map((row) => row.id)
+  );
+
+  return rows.map((row) =>
+    mapPackageWithItems(row, activeReferenceCounts.get(row.id) ?? 0)
+  );
 }
 
 export async function getActivePackageOptions(): Promise<PackageOption[]> {
@@ -161,20 +159,15 @@ export async function getPackageWithItems(id: string): Promise<PackageWithItems 
               orderPackages: true,
             },
           },
-          bookingPackages: {
-            where: { booking: { status: { in: ACTIVE_BOOKING_STATUSES } } },
-            select: { id: true },
-          },
-          orderPackages: {
-            where: { order: { status: { in: ACTIVE_ORDER_STATUSES } } },
-            select: { id: true },
-          },
         },
       }),
     "Failed to fetch package"
   );
 
-  return row ? mapPackageWithItems(row) : null;
+  if (!row) return null;
+
+  const activeReferenceCounts = await getActiveReferenceCountsByPackageId([row.id]);
+  return mapPackageWithItems(row, activeReferenceCounts.get(row.id) ?? 0);
 }
 
 export async function createPackage(input: CreatePackageInput): Promise<{ id: string }> {
@@ -216,6 +209,8 @@ export async function updatePackage(
   const data = updatePackageSchema.parse(input);
 
   return db.$transaction(async (tx) => {
+    await lockPackageForUpdate(tx, id);
+
     const existing = await tx.package.findUnique({
       where: { id },
       include: {
@@ -272,7 +267,7 @@ export async function updatePackage(
       },
       select: { id: true },
     });
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 export async function getPackageTaxonomyOptions(): Promise<PackageTaxonomyOptions> {
@@ -366,6 +361,8 @@ export function parsePackageFilters(
 
 export async function archivePackage(id: string): Promise<void> {
   await db.$transaction(async (tx) => {
+    await lockPackageForUpdate(tx, id);
+
     const packageRow = await tx.package.findUnique({
       where: { id },
       select: { id: true },
@@ -390,7 +387,7 @@ export async function archivePackage(id: string): Promise<void> {
     }
 
     await tx.package.delete({ where: { id } });
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 async function resolvePackageItems(
@@ -508,6 +505,15 @@ async function assertPackageCanBeArchived(
   }
 }
 
+async function lockPackageForUpdate(
+  client: Prisma.TransactionClient,
+  packageId: string
+): Promise<void> {
+  await client.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "packages" WHERE id = ${packageId} FOR UPDATE
+  `;
+}
+
 async function getActiveReferenceCounts(client: DbClient, packageId: string) {
   const [activeBookingCount, activeOrderCount] = await Promise.all([
     client.bookingPackage.count({
@@ -534,6 +540,40 @@ async function getTotalReferenceCounts(client: DbClient, packageId: string) {
   ]);
 
   return { bookingCount, orderCount };
+}
+
+async function getActiveReferenceCountsByPackageId(
+  packageIds: string[]
+): Promise<Map<string, number>> {
+  if (packageIds.length === 0) return new Map();
+
+  const [bookingCounts, orderCounts] = await Promise.all([
+    db.bookingPackage.groupBy({
+      by: ["packageId"],
+      where: {
+        packageId: { in: packageIds },
+        booking: { status: { in: ACTIVE_BOOKING_STATUSES } },
+      },
+      _count: { _all: true },
+    }),
+    db.orderPackage.groupBy({
+      by: ["packageId"],
+      where: {
+        packageId: { in: packageIds },
+        order: { status: { in: ACTIVE_ORDER_STATUSES } },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const row of bookingCounts) {
+    counts.set(row.packageId, row._count._all);
+  }
+  for (const row of orderCounts) {
+    counts.set(row.packageId, (counts.get(row.packageId) ?? 0) + row._count._all);
+  }
+  return counts;
 }
 
 function hasCommercialFieldChanges(
@@ -576,7 +616,10 @@ function comparePackageItems(
   return a.productId.localeCompare(b.productId);
 }
 
-function mapPackageWithItems(row: PackageWithItemsRow): PackageWithItems {
+function mapPackageWithItems(
+  row: PackageWithItemsRow,
+  activeReferenceCount: number
+): PackageWithItems {
   return {
     id: row.id,
     name: row.name,
@@ -595,8 +638,7 @@ function mapPackageWithItems(row: PackageWithItemsRow): PackageWithItems {
     bundleAdjustmentValue: row.bundleAdjustment.toNumber(),
     bookingCount: row._count.bookingPackages,
     orderCount: row._count.orderPackages,
-    activeReferenceCount:
-      row.bookingPackages.length + row.orderPackages.length,
+    activeReferenceCount,
     totalReferenceCount:
       row._count.bookingPackages + row._count.orderPackages,
     deliverableSummary: summarizePackageDeliverables(row),
@@ -676,14 +718,6 @@ type PackageWithItemsRow = Prisma.PackageGetPayload<{
         bookingPackages: true;
         orderPackages: true;
       };
-    };
-    bookingPackages: {
-      where: { booking: { status: { in: typeof ACTIVE_BOOKING_STATUSES } } };
-      select: { id: true };
-    };
-    orderPackages: {
-      where: { order: { status: { in: typeof ACTIVE_ORDER_STATUSES } } };
-      select: { id: true };
     };
   };
 }>;
