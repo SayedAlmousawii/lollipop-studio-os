@@ -15,22 +15,16 @@ import {
   updateOrderDeliveryWorkflowSchema,
   updateOrderEditingWorkflowSchema,
   updateOrderProductionWorkflowSchema,
-  updateOrderSelectionWorkflowSchema,
 } from "@/modules/orders/order.schema";
 import {
   updateOrderDeliveryWorkflow,
   updateOrderEditingWorkflow,
   updateOrderProductionWorkflow,
-  updateOrderSelectionWorkflow,
 } from "@/modules/orders/order.service";
 import {
   WorkflowGuardError,
   type WorkflowGuardErrorCode,
 } from "@/modules/orders/order.errors";
-
-export type UpdateSelectionActionState = {
-  errors?: Partial<Record<string, string[]>>;
-};
 
 export type UpdateEditingActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -68,70 +62,6 @@ export async function createOrderInvoiceAction(
     redirect(`/orders/${orderId}/sales`);
   }
   redirect(`/invoices/${invoice.id}`);
-}
-
-export async function updateSelectionWorkflowAction(
-  orderId: string,
-  _prev: UpdateSelectionActionState,
-  formData: FormData
-): Promise<UpdateSelectionActionState> {
-  const unresolvedAddOnCount = Number(formData.get("unresolvedAddOnCount") ?? 0);
-  if (Number.isFinite(unresolvedAddOnCount) && unresolvedAddOnCount > 0) {
-    return {
-      errors: {
-        _global: ["Resolve or remove every archived add-on row before saving this selection."],
-      },
-    };
-  }
-
-  const addOnProductIds = formData.getAll("addOnProductId");
-  const hasUnresolvedAddOn = addOnProductIds.some(
-    (productId) => typeof productId !== "string" || productId.trim() === ""
-  );
-  if (hasUnresolvedAddOn) {
-    return {
-      errors: {
-        _global: ["Resolve or remove every archived add-on row before saving this selection."],
-      },
-    };
-  }
-
-  const addOns = addOnProductIds.flatMap((productId) => {
-    const safeProductId = typeof productId === "string" ? productId.trim() : "";
-    if (!safeProductId) return [];
-
-    return [{ productId: safeProductId, name: "Selected add-on", price: 0 }];
-  });
-
-  const parsed = updateOrderSelectionWorkflowSchema.safeParse({
-    packageId: formData.get("packageId"),
-    extraPhotos: formData.get("extraPhotos"),
-    addOns,
-    notes: formData.get("notes") || undefined,
-    completeSelection: formData.get("completeSelection") === "true",
-  });
-
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
-
-  try {
-    const appUser = await requireCurrentAppUserPermission(
-      PERMISSIONS.ORDER_FINANCIAL_UPDATE
-    );
-    await updateOrderSelectionWorkflow(orderId, parsed.data, {
-      actorUserId: appUser.id, actorRole: appUser.role,
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Unable to update selection workflow";
-    return { errors: { _global: [message] } };
-  }
-
-  revalidatePath("/orders");
-  revalidatePath(`/orders/${orderId}`);
-  revalidatePath("/invoices");
-  return {};
 }
 
 export async function updateEditingWorkflowAction(
