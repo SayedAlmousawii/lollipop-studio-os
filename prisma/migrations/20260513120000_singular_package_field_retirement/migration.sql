@@ -12,4 +12,10 @@ ALTER TABLE "orders" DROP COLUMN IF EXISTS "finalPackagePriceSnapshot";
 
 DROP TYPE IF EXISTS "BookingSessionType";
 
-DELETE FROM "products" WHERE "id" = 'addon-extra-photo';
+UPDATE "products"
+SET
+  "name" = '[RETIRED] Extra photo',
+  "isActive" = false,
+  "isPackageDeliverable" = false,
+  "isAddOn" = false
+WHERE "id" = 'addon-extra-photo';

@@ -659,6 +659,7 @@ export async function getOrderSelectionWorkflowById(
           include: {
             packages: {
               include: {
+                sessionType: { select: { id: true } },
                 package: {
                   select: {
                     id: true,
@@ -736,7 +737,7 @@ export async function getOrderSelectionWorkflowById(
 
   const addOns = mapStructuredAddOns(order.orderAddOns);
   const firstLine = order.packages[0] ?? null;
-  const currentPackage = firstLine?.package ?? packageRows[0] ?? null;
+  const currentPackage = firstLine?.package ?? null;
   if (!currentPackage) {
     throw new Error("Order has no package available for selection workflow");
   }
@@ -759,7 +760,10 @@ export async function getOrderSelectionWorkflowById(
   const originalPackagePrice =
     firstLine?.originalPackagePriceSnapshot ?? currentPackage.price;
   const packageUpgradeDifference = currentPackage.price.minus(originalPackagePrice);
-  const extraPhotoUnitPrice = zeroMoney();
+  const extraPhotoUnitPrice =
+    extraPhotoCount > 0
+      ? await getExtraPhotoUnitPriceForOrderLine(firstLine.sessionType.id)
+      : zeroMoney();
   const extraPhotoCharge = extraPhotoUnitPrice.mul(extraPhotoCount);
   const selectionAddOnTotal = manualAddOnTotal.plus(extraPhotoCharge);
   const packageItems = mapPackageItemDisplays(currentPackage.items);
@@ -2309,6 +2313,7 @@ export async function updateOrder(
             include: {
               packages: {
                 include: {
+                  sessionType: { select: { id: true } },
                   package: { select: { id: true, name: true, price: true, photoCount: true } },
                 },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -2321,7 +2326,13 @@ export async function updateOrder(
           }),
           tx.package.findUnique({
             where: { id: data.packageId },
-            select: { id: true, name: true, price: true, photoCount: true },
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              photoCount: true,
+              packageFamily: { select: { sessionTypeId: true } },
+            },
           }),
         ]);
 
@@ -2336,6 +2347,11 @@ export async function updateOrder(
         }
         const firstLine = order.packages[0] ?? null;
         if (!firstLine) throw new Error("Order has no package line");
+        if (selectedPackage.packageFamily.sessionTypeId !== firstLine.sessionType.id) {
+          throw new Error(
+            "Selected package is not compatible with this package line's session"
+          );
+        }
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const previousNotes = order.notes?.trim() ?? "";
         const previousIncludedPhotoCount = firstLine.package.photoCount;
@@ -3390,6 +3406,24 @@ async function calculateOrderPackageLineExtraPhotoTotal(
   return digitalUnitPrice
     .mul(input.extraDigitalCount)
     .plus(printUnitPrice.mul(input.extraPrintCount));
+}
+
+async function getExtraPhotoUnitPriceForOrderLine(
+  sessionTypeId: string
+): Promise<Prisma.Decimal> {
+  const row = await db.sessionTypeExtraPhotoPricing.findUnique({
+    where: {
+      sessionTypeId_mediaType: {
+        sessionTypeId,
+        mediaType: MediaType.DIGITAL,
+      },
+    },
+    select: { unitPrice: true },
+  });
+  if (!row) {
+    throw new Error("Extra-photo pricing is required for this package line");
+  }
+  return row.unitPrice;
 }
 
 async function syncOrderSingularFieldsFromFirstPackageLine(

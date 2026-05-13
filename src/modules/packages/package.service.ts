@@ -380,8 +380,7 @@ export async function archivePackage(id: string): Promise<void> {
     const totalReferences = await getTotalReferenceCounts(tx, id);
     if (
       totalReferences.bookingCount > 0 ||
-      totalReferences.originalOrderCount > 0 ||
-      totalReferences.finalOrderCount > 0
+      totalReferences.orderCount > 0
     ) {
       await tx.package.update({
         where: { id },
@@ -503,47 +502,38 @@ async function assertPackageCanBeArchived(
   const activeReferences = await getActiveReferenceCounts(client, packageId);
   if (
     activeReferences.activeBookingCount > 0 ||
-    activeReferences.activeOriginalOrderCount > 0 ||
-    activeReferences.activeFinalOrderCount > 0
+    activeReferences.activeOrderCount > 0
   ) {
     throw new PackageArchiveBlockedError();
   }
 }
 
 async function getActiveReferenceCounts(client: DbClient, packageId: string) {
-  const [activeBookingCount, activeOriginalOrderCount, activeFinalOrderCount] =
-    await Promise.all([
-      client.bookingPackage.count({
-        where: {
-          packageId,
-          booking: { status: { in: ACTIVE_BOOKING_STATUSES } },
-        },
-      }),
-      client.orderPackage.count({
-        where: {
-          packageId,
-          order: { status: { in: ACTIVE_ORDER_STATUSES } },
-        },
-      }),
-      client.orderPackage.count({
-        where: {
-          packageId,
-          order: { status: { in: ACTIVE_ORDER_STATUSES } },
-        },
-      }),
-    ]);
+  const [activeBookingCount, activeOrderCount] = await Promise.all([
+    client.bookingPackage.count({
+      where: {
+        packageId,
+        booking: { status: { in: ACTIVE_BOOKING_STATUSES } },
+      },
+    }),
+    client.orderPackage.count({
+      where: {
+        packageId,
+        order: { status: { in: ACTIVE_ORDER_STATUSES } },
+      },
+    }),
+  ]);
 
-  return { activeBookingCount, activeOriginalOrderCount, activeFinalOrderCount };
+  return { activeBookingCount, activeOrderCount };
 }
 
 async function getTotalReferenceCounts(client: DbClient, packageId: string) {
-  const [bookingCount, originalOrderCount, finalOrderCount] = await Promise.all([
+  const [bookingCount, orderCount] = await Promise.all([
     client.bookingPackage.count({ where: { packageId } }),
-    client.orderPackage.count({ where: { packageId } }),
     client.orderPackage.count({ where: { packageId } }),
   ]);
 
-  return { bookingCount, originalOrderCount, finalOrderCount };
+  return { bookingCount, orderCount };
 }
 
 function hasCommercialFieldChanges(
@@ -604,8 +594,7 @@ function mapPackageWithItems(row: PackageWithItemsRow): PackageWithItems {
     bundleAdjustment: formatSignedPrice(row.bundleAdjustment),
     bundleAdjustmentValue: row.bundleAdjustment.toNumber(),
     bookingCount: row._count.bookingPackages,
-    originalOrderCount: row._count.orderPackages,
-    finalOrderCount: 0,
+    orderCount: row._count.orderPackages,
     activeReferenceCount:
       row.bookingPackages.length + row.orderPackages.length,
     totalReferenceCount:

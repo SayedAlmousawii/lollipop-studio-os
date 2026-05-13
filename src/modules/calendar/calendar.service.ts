@@ -86,8 +86,15 @@ function mapCalendarSessionType(
 ): "Newborn" | "Kids" | "Family" | "Other" {
   if (sessionTypeName === "Newborn") return "Newborn";
   if (sessionTypeName === "Family") return "Family";
-  if (sessionTypeName === "Regular" || sessionTypeName === "Birthday") {
-    return "Kids";
-  }
+  if (sessionTypeName && KIDS_SESSION_TYPE_NAMES.has(sessionTypeName)) return "Kids";
   return "Other";
 }
+
+const KIDS_SESSION_TYPE_NAMES = new Set([
+  "Regular",
+  "Birthday",
+  "Special",
+  "Mini Special",
+  "Special Occasion",
+  "Duck",
+]);
