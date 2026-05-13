@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Backend invariant schema isolation hotfix is complete: the harness now sets both Prisma schema and Postgres search_path URL parameters, verifies `current_schema()` before fixtures run, and PrismaPg clients now receive the schema option from `DATABASE_URL`.
 - Feature 70e.5e duplicate booking package protection is complete: `BookingPackage` now enforces one row per `(bookingId, packageId)`, with migration cleanup that collapses existing duplicate quantities before adding the unique index.
 - Feature 70e.5d scoped add-on delete behavior is complete: add-ons tied to an `OrderPackage` cascade when that package line is deleted, while unscoped order add-ons remain attached to the order.
 - Feature 70e.5c package session-type override policy is complete: order package changes intentionally stay within the line's stored session type, with cross-session overrides deferred to a future permissioned, audited repricing workflow.

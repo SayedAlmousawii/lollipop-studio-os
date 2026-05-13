@@ -9,8 +9,10 @@ function createClient() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set");
 
+  const schema = new URL(url).searchParams.get("schema") ?? undefined;
+
   return new PrismaClient({
-    adapter: new PrismaPg(url),
+    adapter: new PrismaPg(url, { schema }),
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 }

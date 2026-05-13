@@ -18,7 +18,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
 
-const prisma = new PrismaClient({ adapter: new PrismaPg(url) });
+const schema = new URL(url).searchParams.get("schema") ?? undefined;
+const prisma = new PrismaClient({ adapter: new PrismaPg(url, { schema }) });
 
 const SEEDED_USER_EMAIL_NORMALIZATIONS = [
   {
