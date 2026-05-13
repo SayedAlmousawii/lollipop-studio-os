@@ -68,6 +68,7 @@ import {
   type UpgradeOrderPackageItemInput,
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
+import { getOrderTotalSelectedPhotoCount } from "./order.utils";
 import type {
   EditableOrder,
   EditingQueueItem,
@@ -393,11 +394,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const packageItems = packageLines.flatMap((line) => line.packageItems);
   const includedPhotoCount =
     packageLines.reduce((sum, line) => sum + line.includedPhotoCount, 0);
-  const selectedPhotoCount =
-    packageLines.reduce((sum, line) => sum + line.selectedPhotoCount, 0) ||
-    (order.selectedPhotoCount && order.selectedPhotoCount > 0
-      ? order.selectedPhotoCount
-      : includedPhotoCount);
+  const selectedPhotoCount = getOrderTotalSelectedPhotoCount(order.packages);
   const extraPhotoCount =
     packageLines.reduce((sum, line) => sum + line.extraPhotoCount, 0);
   const extraPhotoTotalDecimal = new Prisma.Decimal(
@@ -578,10 +575,7 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   });
   const includedPhotoCount =
     packageLines.reduce((sum, line) => sum + line.includedPhotoCount, 0) || null;
-  const selectedPhotoCount =
-    packageLines.reduce((sum, line) => sum + line.selectedPhotoCount, 0) ||
-    row.selectedPhotoCount ||
-    null;
+  const selectedPhotoCount = getOrderTotalSelectedPhotoCount(row.packages) || null;
   const editingStatus = row.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
   const productionStatus = row.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
   const workflowStatus = mapWorkflowStatus({
@@ -741,8 +735,12 @@ export async function getOrderSelectionWorkflowById(
   if (!currentPackage) {
     throw new Error("Order has no package available for selection workflow");
   }
-  const includedPhotoCount = currentPackage.photoCount;
-  const selectedPhotos = order.selectedPhotoCount || includedPhotoCount;
+  const includedPhotoCount =
+    order.packages.reduce(
+      (sum, line) => sum + line.package.photoCount,
+      0
+    ) || currentPackage.photoCount;
+  const selectedPhotos = getOrderTotalSelectedPhotoCount(order.packages);
   const extraPhotoCount = Math.max(selectedPhotos - includedPhotoCount, 0);
 
   const manualAddOnTotal = sumAddOnsDecimal(addOns);
@@ -1078,7 +1076,7 @@ export async function updateOrderPackage(
             selectedPhotoCount: nextSelectedPhotoCount,
           },
         });
-        await syncOrderSingularFieldsFromFirstPackageLine(tx, orderId);
+        await syncOrderSelectedPhotoCountFromPackageLines(tx, orderId);
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
@@ -1258,7 +1256,7 @@ export async function upgradeOrderPackageItem(
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
           previousAddOns,
-          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: currentPackage.photoCount,
         });
 
@@ -1342,6 +1340,12 @@ export async function addOrderProductAddOn(
                 },
                 orderBy: { createdAt: "asc" },
               },
+              packages: {
+                select: {
+                  selectedPhotoCount: true,
+                  package: { select: { photoCount: true } },
+                },
+              },
             },
           }),
           tx.product.findUnique({
@@ -1382,7 +1386,7 @@ export async function addOrderProductAddOn(
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
           previousAddOns,
-          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: null,
         });
 
@@ -1460,6 +1464,12 @@ export async function removeOrderAddOn(
               },
               orderBy: { createdAt: "asc" },
             },
+            packages: {
+              select: {
+                selectedPhotoCount: true,
+                package: { select: { photoCount: true } },
+              },
+            },
           },
         });
 
@@ -1502,7 +1512,7 @@ export async function removeOrderAddOn(
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
           previousAddOns,
-          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: null,
         });
 
@@ -2364,10 +2374,10 @@ export async function updateOrder(
             selectedPhotoCount: data.selectedPhotos,
           },
         });
+        await syncOrderSelectedPhotoCountFromPackageLines(tx, orderId);
         await tx.order.update({
           where: { id: orderId },
           data: {
-            selectedPhotoCount: data.selectedPhotos,
             addOns: data.addOns,
             notes: data.notes?.trim() ? data.notes.trim() : null,
           },
@@ -2388,7 +2398,7 @@ export async function updateOrder(
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
           previousAddOns,
-          previousSelectedPhotoCount: order.selectedPhotoCount,
+          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount,
         });
 
@@ -2683,10 +2693,6 @@ export async function createOrderFromBookingWithClient(
       jobNumber: booking.jobNumber,
       bookingId: booking.id,
       customerId: booking.customer.id,
-      selectedPhotoCount: booking.packages.reduce(
-        (sum, line) => sum + line.package.photoCount,
-        0
-      ),
       packages: {
         create: booking.packages.map((line, index) => {
           if (!line.sessionTypeId) {
@@ -2715,6 +2721,7 @@ export async function createOrderFromBookingWithClient(
     },
     select: { id: true },
   });
+  await syncOrderSelectedPhotoCountFromPackageLines(client, order.id);
 
   await recordOrderActivity(client, {
     orderId: order.id,
@@ -3426,16 +3433,8 @@ async function getExtraPhotoUnitPriceForOrderLine(
   return row.unitPrice;
 }
 
-async function syncOrderSingularFieldsFromFirstPackageLine(
-  client: Prisma.TransactionClient,
-  orderId: string
-): Promise<void> {
-  void client;
-  void orderId;
-}
-
 async function syncOrderSelectedPhotoCountFromPackageLines(
-  client: Prisma.TransactionClient,
+  client: OrderWriteClient,
   orderId: string
 ): Promise<void> {
   const lines = await client.orderPackage.findMany({
@@ -3445,10 +3444,7 @@ async function syncOrderSelectedPhotoCountFromPackageLines(
       package: { select: { photoCount: true } },
     },
   });
-  const selectedPhotoCount = lines.reduce(
-    (sum, line) => sum + (line.selectedPhotoCount ?? line.package.photoCount),
-    0
-  );
+  const selectedPhotoCount = getOrderTotalSelectedPhotoCount(lines);
 
   await client.order.update({
     where: { id: orderId },
@@ -3500,9 +3496,7 @@ function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
     originalPackage: currentPackage ? mapEditPackage(currentPackage) : null,
     finalPackage: currentPackage ? mapEditPackage(currentPackage) : null,
     selectedPhotos:
-      order.selectedPhotoCount ??
-      currentPackage?.photoCount ??
-      0,
+      getOrderTotalSelectedPhotoCount(order.packages),
     addOns,
     orderStatus: mapOrderStatus(order.status),
     notes: order.notes ?? "",
@@ -4094,7 +4088,6 @@ function mapOrderEditingWorkflow(
         invoices: Array<{ paidAmount: Prisma.Decimal }>;
       } | null;
     };
-    selectedPhotoCount: number | null;
     packages: Array<{
       selectedPhotoCount: number | null;
       package: { photoCount: number };
@@ -4121,12 +4114,7 @@ function mapOrderEditingWorkflow(
   const editedPhotoCount = editingJob?.editedPhotoCount ?? 0;
   const revisionCount = editingJob?.revisionCount ?? 0;
   const estimatedEditingCompletionAt = editingJob?.estimatedEditingCompletionAt ?? null;
-  const packageTargetPhotoCount = order.packages.reduce(
-    (sum, line) => sum + (line.selectedPhotoCount ?? line.package.photoCount),
-    0
-  );
-  const targetPhotoCount =
-    packageTargetPhotoCount || order.selectedPhotoCount || 0;
+  const targetPhotoCount = getOrderTotalSelectedPhotoCount(order.packages);
   const progressPercent =
     targetPhotoCount > 0
       ? Math.min(Math.round((editedPhotoCount / targetPhotoCount) * 100), 100)

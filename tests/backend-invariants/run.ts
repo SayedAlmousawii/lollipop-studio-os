@@ -9,9 +9,13 @@ async function main() {
 
     const { runPackageOptionsSmokeTest } = await import("./package-options.smoke");
     const { runInvoiceMathInvariantTest } = await import("./invoice-math.invariant");
+    const { runSelectedPhotoAggregateInvariantTest } = await import(
+      "./selected-photo-aggregate.invariant"
+    );
 
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
+    await runSelectedPhotoAggregateInvariantTest();
   });
 
   process.stdout.write("backend invariant tests passed\n");
