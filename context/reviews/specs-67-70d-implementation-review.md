@@ -148,6 +148,8 @@ if (data.addOns.length > 0) {
 ---
 
 ### M2. Duplicated `getExtraPhotoUnitPrice` implementation
+**Status:** Fixed in Feature 70e.5a.
+
 **Where:** [pricing.service.ts:20-43](../../src/modules/pricing/pricing.service.ts#L20-L43) and [invoice.service.ts:987-1007](../../src/modules/invoices/invoice.service.ts#L987-L1007)
 
 **Problem:** Spec 69 defined `getExtraPhotoUnitPrice` in `pricing.service.ts`, but `invoice.service.ts` redefines a `getExtraPhotoUnitPriceWithClient` doing the same query because the pricing module doesn't expose a transaction-client variant. Two copies of the same business logic, two error messages that will drift, two callers to keep aligned.

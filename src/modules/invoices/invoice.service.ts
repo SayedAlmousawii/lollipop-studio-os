@@ -14,6 +14,7 @@ import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
+import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
 import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
 import type {
   InvoiceDetail,
@@ -945,28 +946,6 @@ async function calculateOrderPackageExtraPhotoTotal(
     }
   }
   return total;
-}
-
-async function getExtraPhotoUnitPriceWithClient(
-  client: DbClient,
-  sessionTypeId: string,
-  mediaType: MediaType
-): Promise<Prisma.Decimal> {
-  const row = await client.sessionTypeExtraPhotoPricing.findUnique({
-    where: {
-      sessionTypeId_mediaType: {
-        sessionTypeId,
-        mediaType,
-      },
-    },
-    select: { unitPrice: true },
-  });
-  if (!row) {
-    throw new Error(
-      `Extra-photo unit price is missing for session type "${sessionTypeId}" and media type "${mediaType}".`
-    );
-  }
-  return row.unitPrice;
 }
 
 function mapInvoiceLineItem(row: {
