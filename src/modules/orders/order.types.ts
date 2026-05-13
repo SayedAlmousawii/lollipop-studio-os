@@ -65,8 +65,8 @@ export interface CustomerOrderHistoryItem {
 export interface OrderDetail extends Order {
   customerId: string;
   bookingId: string;
-  originalPackageId: string | null;
-  finalPackageId: string | null;
+  packageLinePackageId: string | null;
+  packageId: string | null;
   sessionDateTime: string;
   sessionType: string;
   selectedPhotoCount: string;
@@ -104,7 +104,7 @@ export interface OrderPackageLineDisplay {
 export interface OrderSelectionWorkflow {
   orderId: string;
   orderStatus: OrderStatusLabel;
-  finalPackageId: string;
+  packageId: string;
   originalPackageName: string;
   finalPackageName: string;
   packageItems: PackageItemDisplay[];

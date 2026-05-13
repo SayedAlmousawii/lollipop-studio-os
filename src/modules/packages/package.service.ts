@@ -84,23 +84,18 @@ export async function getPackages(filters: PackageFilters = {}): Promise<Package
             include: { product: true },
             orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
           },
-          bookings: {
-            where: { status: { in: ACTIVE_BOOKING_STATUSES } },
+          bookingPackages: {
+            where: { booking: { status: { in: ACTIVE_BOOKING_STATUSES } } },
             select: { id: true },
           },
-          originalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
-            select: { id: true },
-          },
-          finalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
+          orderPackages: {
+            where: { order: { status: { in: ACTIVE_ORDER_STATUSES } } },
             select: { id: true },
           },
           _count: {
             select: {
-              bookings: true,
-              originalOrders: true,
-              finalOrders: true,
+              bookingPackages: true,
+              orderPackages: true,
             },
           },
         },
@@ -162,21 +157,16 @@ export async function getPackageWithItems(id: string): Promise<PackageWithItems 
           },
           _count: {
             select: {
-              bookings: true,
-              originalOrders: true,
-              finalOrders: true,
+              bookingPackages: true,
+              orderPackages: true,
             },
           },
-          bookings: {
-            where: { status: { in: ACTIVE_BOOKING_STATUSES } },
+          bookingPackages: {
+            where: { booking: { status: { in: ACTIVE_BOOKING_STATUSES } } },
             select: { id: true },
           },
-          originalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
-            select: { id: true },
-          },
-          finalOrders: {
-            where: { status: { in: ACTIVE_ORDER_STATUSES } },
+          orderPackages: {
+            where: { order: { status: { in: ACTIVE_ORDER_STATUSES } } },
             select: { id: true },
           },
         },
@@ -492,13 +482,10 @@ async function assertNoLockedInvoicesForPackage(
       OR: [
         {
           order: {
-            OR: [
-              { originalPackageId: packageId },
-              { finalPackageId: packageId },
-            ],
+            packages: { some: { packageId } },
           },
         },
-        { booking: { packageId } },
+        { booking: { packages: { some: { packageId } } } },
       ],
     },
     select: { id: true },
@@ -526,22 +513,22 @@ async function assertPackageCanBeArchived(
 async function getActiveReferenceCounts(client: DbClient, packageId: string) {
   const [activeBookingCount, activeOriginalOrderCount, activeFinalOrderCount] =
     await Promise.all([
-      client.booking.count({
+      client.bookingPackage.count({
         where: {
           packageId,
-          status: { in: ACTIVE_BOOKING_STATUSES },
+          booking: { status: { in: ACTIVE_BOOKING_STATUSES } },
         },
       }),
-      client.order.count({
+      client.orderPackage.count({
         where: {
-          originalPackageId: packageId,
-          status: { in: ACTIVE_ORDER_STATUSES },
+          packageId,
+          order: { status: { in: ACTIVE_ORDER_STATUSES } },
         },
       }),
-      client.order.count({
+      client.orderPackage.count({
         where: {
-          finalPackageId: packageId,
-          status: { in: ACTIVE_ORDER_STATUSES },
+          packageId,
+          order: { status: { in: ACTIVE_ORDER_STATUSES } },
         },
       }),
     ]);
@@ -551,9 +538,9 @@ async function getActiveReferenceCounts(client: DbClient, packageId: string) {
 
 async function getTotalReferenceCounts(client: DbClient, packageId: string) {
   const [bookingCount, originalOrderCount, finalOrderCount] = await Promise.all([
-    client.booking.count({ where: { packageId } }),
-    client.order.count({ where: { originalPackageId: packageId } }),
-    client.order.count({ where: { finalPackageId: packageId } }),
+    client.bookingPackage.count({ where: { packageId } }),
+    client.orderPackage.count({ where: { packageId } }),
+    client.orderPackage.count({ where: { packageId } }),
   ]);
 
   return { bookingCount, originalOrderCount, finalOrderCount };
@@ -616,13 +603,13 @@ function mapPackageWithItems(row: PackageWithItemsRow): PackageWithItems {
     departmentName: row.packageFamily.sessionType.department.name,
     bundleAdjustment: formatSignedPrice(row.bundleAdjustment),
     bundleAdjustmentValue: row.bundleAdjustment.toNumber(),
-    bookingCount: row._count.bookings,
-    originalOrderCount: row._count.originalOrders,
-    finalOrderCount: row._count.finalOrders,
+    bookingCount: row._count.bookingPackages,
+    originalOrderCount: row._count.orderPackages,
+    finalOrderCount: 0,
     activeReferenceCount:
-      row.bookings.length + row.originalOrders.length + row.finalOrders.length,
+      row.bookingPackages.length + row.orderPackages.length,
     totalReferenceCount:
-      row._count.bookings + row._count.originalOrders + row._count.finalOrders,
+      row._count.bookingPackages + row._count.orderPackages,
     deliverableSummary: summarizePackageDeliverables(row),
     status: row.isActive ? "Active" : "Inactive",
     isActive: row.isActive,
@@ -697,21 +684,16 @@ type PackageWithItemsRow = Prisma.PackageGetPayload<{
     };
     _count: {
       select: {
-        bookings: true;
-        originalOrders: true;
-        finalOrders: true;
+        bookingPackages: true;
+        orderPackages: true;
       };
     };
-    bookings: {
-      where: { status: { in: typeof ACTIVE_BOOKING_STATUSES } };
+    bookingPackages: {
+      where: { booking: { status: { in: typeof ACTIVE_BOOKING_STATUSES } } };
       select: { id: true };
     };
-    originalOrders: {
-      where: { status: { in: typeof ACTIVE_ORDER_STATUSES } };
-      select: { id: true };
-    };
-    finalOrders: {
-      where: { status: { in: typeof ACTIVE_ORDER_STATUSES } };
+    orderPackages: {
+      where: { order: { status: { in: typeof ACTIVE_ORDER_STATUSES } } };
       select: { id: true };
     };
   };

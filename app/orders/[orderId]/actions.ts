@@ -104,7 +104,7 @@ export async function updateSelectionWorkflowAction(
   });
 
   const parsed = updateOrderSelectionWorkflowSchema.safeParse({
-    finalPackageId: formData.get("finalPackageId"),
+    packageId: formData.get("packageId"),
     extraPhotos: formData.get("extraPhotos"),
     addOns,
     notes: formData.get("notes") || undefined,

@@ -1,5 +1,4 @@
 import {
-  BookingSessionType,
   BookingStatus,
   CustomerStatus,
   InvoiceStatus,
@@ -72,14 +71,6 @@ const SESSION_TYPE_CATALOG = [
   { code: "KD_FAMILY", name: "Family", departmentCode: "KD", sortOrder: 60 },
   { code: "KD_DUCK", name: "Duck", departmentCode: "KD", sortOrder: 70 },
 ] as const;
-
-const BOOKING_SESSION_TYPE_TO_SESSION_TYPE_CODE: Record<BookingSessionType, string> = {
-  [BookingSessionType.NEWBORN]: "NB_NEWBORN",
-  [BookingSessionType.KIDS]: "KD_REGULAR",
-  [BookingSessionType.FAMILY]: "KD_FAMILY",
-  [BookingSessionType.MATERNITY]: "NB_MATERNITY",
-  [BookingSessionType.OTHER]: "KD_REGULAR",
-};
 
 async function seedPackageTaxonomyCatalog() {
   const departments = await prisma.studioDepartment.findMany({
@@ -197,8 +188,7 @@ async function seedExtraPhotoPricingCatalog() {
   }
 }
 
-async function getSessionTypeIdForBookingSessionType(sessionType: BookingSessionType) {
-  const code = BOOKING_SESSION_TYPE_TO_SESSION_TYPE_CODE[sessionType];
+async function getSessionTypeIdForCode(code: string) {
   const row = await prisma.sessionType.findUnique({
     where: { code },
     select: { id: true },
@@ -206,7 +196,7 @@ async function getSessionTypeIdForBookingSessionType(sessionType: BookingSession
 
   if (!row) {
     throw new Error(
-      `Cannot create package line for booking session type "${sessionType}" because session type "${code}" does not exist.`
+      `Cannot create package line because session type "${code}" does not exist.`
     );
   }
 
@@ -216,13 +206,13 @@ async function getSessionTypeIdForBookingSessionType(sessionType: BookingSession
 async function syncSeededBookingPackage({
   bookingId,
   packageId,
-  sessionType,
+  sessionTypeCode,
 }: {
   bookingId: string;
   packageId: string;
-  sessionType: BookingSessionType;
+  sessionTypeCode: string;
 }) {
-  const sessionTypeId = await getSessionTypeIdForBookingSessionType(sessionType);
+  const sessionTypeId = await getSessionTypeIdForCode(sessionTypeCode);
 
   await prisma.$transaction([
     prisma.bookingPackage.deleteMany({ where: { bookingId } }),
@@ -241,19 +231,19 @@ async function syncSeededBookingPackage({
 async function syncSeededOrderPackage({
   orderId,
   packageId,
-  sessionType,
+  sessionTypeCode,
   originalPackagePriceSnapshot,
   finalPackagePriceSnapshot,
   selectedPhotoCount,
 }: {
   orderId: string;
   packageId: string;
-  sessionType: BookingSessionType;
+  sessionTypeCode: string;
   originalPackagePriceSnapshot?: number;
   finalPackagePriceSnapshot?: number;
   selectedPhotoCount?: number;
 }) {
-  const sessionTypeId = await getSessionTypeIdForBookingSessionType(sessionType);
+  const sessionTypeId = await getSessionTypeIdForCode(sessionTypeCode);
 
   await prisma.$transaction([
     prisma.orderPackage.deleteMany({ where: { orderId } }),
@@ -486,29 +476,6 @@ async function main() {
 
   const addOnOptions = await Promise.all([
     prisma.product.upsert({
-      where: { id: "addon-extra-photo" },
-      update: {
-        name: "Extra photo",
-        category: ProductCategory.OTHER,
-        canonicalPrice: 5,
-        isActive: true,
-        isPackageDeliverable: false,
-        isAddOn: true,
-        sortOrder: 10,
-      },
-      create: {
-        id: "addon-extra-photo",
-        name: "Extra photo",
-        category: ProductCategory.OTHER,
-        canonicalPrice: 5,
-        description: "Extra-photo unit price",
-        isActive: true,
-        isPackageDeliverable: false,
-        isAddOn: true,
-        sortOrder: 10,
-      },
-    }),
-    prisma.product.upsert({
       where: { id: "addon-canvas-30x40" },
       update: {
         name: "Canvas 30x40",
@@ -702,10 +669,8 @@ async function main() {
       jobNumber: "PH-2026-00001",
       jobId: job1.id,
       customerId: customerFatima.id,
-      packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionTime: "10:00",
-      sessionType: BookingSessionType.NEWBORN,
       departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
@@ -721,10 +686,8 @@ async function main() {
       jobNumber: "PH-2026-00001",
       jobId: job1.id,
       customerId: customerFatima.id,
-      packageId: pkgStandard.id,
       sessionDate: new Date("2026-05-10T10:00:00Z"),
       sessionTime: "10:00",
-      sessionType: BookingSessionType.NEWBORN,
       departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
@@ -737,7 +700,7 @@ async function main() {
   await syncSeededBookingPackage({
     bookingId: booking1.id,
     packageId: pkgStandard.id,
-    sessionType: BookingSessionType.NEWBORN,
+    sessionTypeCode: "NB_NEWBORN",
   });
 
   // Invoice 1 linked directly to Booking 1 before completion
@@ -807,10 +770,8 @@ async function main() {
       jobNumber: "PH-2026-00002",
       jobId: job2.id,
       customerId: customerAhmed.id,
-      packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionTime: "14:00",
-      sessionType: BookingSessionType.KIDS,
       departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       assignedPhotographerId: null,
@@ -825,10 +786,8 @@ async function main() {
       jobNumber: "PH-2026-00002",
       jobId: job2.id,
       customerId: customerAhmed.id,
-      packageId: pkgBasic.id,
       sessionDate: new Date("2026-05-20T14:00:00Z"),
       sessionTime: "14:00",
-      sessionType: BookingSessionType.KIDS,
       departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       notes: "Waiting for deposit confirmation",
@@ -837,7 +796,7 @@ async function main() {
   await syncSeededBookingPackage({
     bookingId: booking2.id,
     packageId: pkgBasic.id,
-    sessionType: BookingSessionType.KIDS,
+    sessionTypeCode: "KD_REGULAR",
   });
 
   // Booking 3: Completed session for Maryam (paid in full, editing)
@@ -848,10 +807,8 @@ async function main() {
       jobNumber: "PH-2026-00003",
       jobId: job3.id,
       customerId: customerMaryam.id,
-      packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionTime: "11:00",
-      sessionType: BookingSessionType.FAMILY,
       departmentId: kidsDepartment.id,
       status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,
@@ -867,10 +824,8 @@ async function main() {
       jobNumber: "PH-2026-00003",
       jobId: job3.id,
       customerId: customerMaryam.id,
-      packageId: pkgPremium.id,
       sessionDate: new Date("2026-04-15T11:00:00Z"),
       sessionTime: "11:00",
-      sessionType: BookingSessionType.FAMILY,
       departmentId: kidsDepartment.id,
       status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,
@@ -882,7 +837,7 @@ async function main() {
   await syncSeededBookingPackage({
     bookingId: booking3.id,
     packageId: pkgPremium.id,
-    sessionType: BookingSessionType.FAMILY,
+    sessionTypeCode: "KD_FAMILY",
   });
 
   // Order 3 linked to Booking 3
@@ -894,10 +849,6 @@ async function main() {
       jobNumber: job3.jobNumber,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
-      originalPackageId: pkgPremium.id,
-      finalPackageId: pkgPremium.id,
-      originalPackagePriceSnapshot: 400,
-      finalPackagePriceSnapshot: 400,
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
       selectionStatus: OrderSelectionStatus.COMPLETED,
@@ -910,10 +861,6 @@ async function main() {
       jobNumber: job3.jobNumber,
       bookingId: booking3.id,
       customerId: customerMaryam.id,
-      originalPackageId: pkgPremium.id,
-      finalPackageId: pkgPremium.id,
-      originalPackagePriceSnapshot: 400,
-      finalPackagePriceSnapshot: 400,
       selectedPhotoCount: 65,
       status: OrderStatus.EDITING,
       selectionStatus: OrderSelectionStatus.COMPLETED,
@@ -923,7 +870,7 @@ async function main() {
   await syncSeededOrderPackage({
     orderId: order3.id,
     packageId: pkgPremium.id,
-    sessionType: BookingSessionType.FAMILY,
+    sessionTypeCode: "KD_FAMILY",
     originalPackagePriceSnapshot: 400,
     finalPackagePriceSnapshot: 400,
     selectedPhotoCount: 65,

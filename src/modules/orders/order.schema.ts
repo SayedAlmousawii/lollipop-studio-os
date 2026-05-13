@@ -43,7 +43,7 @@ export const orderAddOnSchema = z.object({
 });
 
 export const updateOrderSchema = z.object({
-  finalPackageId: z.string().min(1, "Package is required"),
+  packageId: z.string().min(1, "Package is required"),
   selectedPhotos: z.coerce
     .number()
     .int("Selected photos must be a whole number")
@@ -67,7 +67,7 @@ export const updateOrderWorkflowSchema = z.object({
 );
 
 export const updateOrderSelectionWorkflowSchema = z.object({
-  finalPackageId: z.string().min(1, "Package is required"),
+  packageId: z.string().min(1, "Package is required"),
   extraPhotos: z.coerce
     .number()
     .int("Extra photos must be a whole number")

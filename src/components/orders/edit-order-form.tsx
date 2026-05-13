@@ -127,15 +127,15 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
       <Section title="Package Adjustment">
         <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
           <div className="space-y-2">
-            <Label htmlFor="finalPackageId">Package</Label>
+            <Label htmlFor="packageId">Package</Label>
             <Select
-              name="finalPackageId"
+              name="packageId"
               value={selectedPackageId}
               onValueChange={setSelectedPackageId}
               disabled={isDelivered || packageOptions.length === 0}
               required
             >
-              <SelectTrigger id="finalPackageId" aria-invalid={state.errors?.finalPackageId?.length ? true : undefined}>
+              <SelectTrigger id="packageId" aria-invalid={state.errors?.packageId?.length ? true : undefined}>
                 <SelectValue placeholder="Select a package..." />
               </SelectTrigger>
               <SelectContent>
@@ -146,7 +146,7 @@ export function EditOrderForm({ order, packages }: EditOrderFormProps) {
                 ))}
               </SelectContent>
             </Select>
-            <FieldError messages={state.errors?.finalPackageId} />
+            <FieldError messages={state.errors?.packageId} />
           </div>
 
           <div className="rounded-md border border-border bg-surface-soft p-4">

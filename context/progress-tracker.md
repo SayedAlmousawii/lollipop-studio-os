@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 70d singular field retirement is complete: Booking and Order now rely on package-line join tables only, the legacy booking session enum and singular package/order columns are removed from Prisma, the old extra-photo product/helper path is retired, and the cleanup migration deletes `addon-extra-photo`.
 - Feature 70c follow-up fixes are complete: multi-package POS/order displays now use real package-line counts and aggregate package totals, package-line photo forms reject blank numeric fields, invoice sync preserves previous extra-photo totals, and package-item upgrade add-ons are scoped to a specific `OrderPackage`.
 - Feature 70c order multi-package flow is complete: check-in now creates `OrderPackage` rows from booking package lines, POS package/extras edits operate per line, Final Invoice totals and snapshot lines aggregate across order package lines using session-type digital/print extra-photo pricing, and order detail surfaces package-line breakdowns with aggregate totals.
 - Feature 70b booking multi-package flow is complete: booking create/edit now writes `BookingPackage` rows, keeps legacy singular booking fields stamped from the first line, uses aggregate package duration for calendar rendering and booking detail, and records deposit invoices from an editable `>= 20 KD` payment-time amount.
@@ -34,15 +35,14 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Remaining open auth gap (deferred): `ActorContext.actorUserId` is still optional on audit-critical service signatures (Gap #8 in auth-review.md).
 
 ## Key State
+- Multi-package is now the only package model: `BookingPackage` and `OrderPackage` are the source of truth; the former singular booking/order package fields and `BookingSessionType` enum are gone.
 - Package item upgrade add-ons now carry `OrderAddOn.orderPackageId`; this disambiguates identical package templates used on multiple order package lines.
-- Order writes now treat `OrderPackage` rows as the package source of truth while dual-writing legacy singular order package fields from the first package line until the 70d cleanup.
 - Extra selected photos are now stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, and emitted as per-line/per-media Final Invoice lines.
-- Booking writes now treat package lines as the scheduling source of truth while dual-writing `Booking.packageId` and `Booking.sessionType` from the first selected line until the 70d cleanup.
 - Deposit invoice totals are no longer hardcoded to exactly 20 KD at recording time; the dialog defaults to 20.000 KD, validates a 20.000 KD minimum, and stores the entered amount immutably on the locked Deposit Invoice.
 - Bookings and orders now have additive package-line relations: seed and migration create one line per existing singular package, with line-level `sessionTypeId` mapped from the legacy booking session enum.
 - Extra-photo pricing is now data-backed by `SessionTypeExtraPhotoPricing`: each session type has independent `DIGITAL` and `PRINT` unit prices seeded as placeholders until owner confirmation before Spec 70 wiring.
 - Packages are now classified through `Package.packageFamilyId`; department and session type are derived live through `PackageFamily -> SessionType -> StudioDepartment`, and package duration is stored per package for downstream booking-duration work.
-- Package taxonomy foundation is live: `SessionType` is now a catalog model under `StudioDepartment`, while `Booking.sessionType` still uses the renamed legacy `BookingSessionType` enum until the Spec 70 booking/package-line migration.
+- Package taxonomy foundation is live: `SessionType` is the catalog model under `StudioDepartment`, and package-line rows now carry session-type ownership.
 - Booking creation accepts customer phone instead of customer id; existing customer names are display-only during booking creation and are not overwritten from the new booking form.
 - Development workflow reset must delete `FinancialCase` rows before `Booking` rows because booking-linked financial cases are now part of the booking lifecycle and use a restrictive foreign key.
 - Development-only booking shortcuts must keep using the real booking service and existing active references; the `/bookings/new` quick action creates a normal `PENDING` booking with preset session data, then redirects to `/bookings` instead of bypassing booking validation or workflow rules.
@@ -62,13 +62,14 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Job/BK reference generation self-heals if `identifier_sequences` falls behind existing canonical `Job.jobNumber` or `Booking.publicId` rows.
 - Invoice payments are append-only; financial order edits recalculate totals without overwriting payment records.
 - Locked invoices remain content-immutable, but unpaid locked invoices can accept append-only payments and refresh payment-derived paid/remaining/status fields.
-- Legacy `calculateExtraPhotoCharge` still exists for pre-70d cleanup, but new Final Invoice and POS package-line paths use session-type extra-photo pricing instead of the `addon-extra-photo` product.
+- Final Invoice and POS package-line paths use session-type extra-photo pricing; the legacy `addon-extra-photo` product path is retired.
 - `Order.addOns` JSON is deprecated; `OrderAddOn` rows with snapshot fields are the active source of truth.
 - Editing start requires: selection complete + editor assigned + full invoice balance settled; assignment stays allowed while any outstanding balance is surfaced in-tab with an upgrade-payment modal.
 - Order completion requires: pickup recorded + production status READY_FOR_PICKUP or COMPLETED + settled payment or explicit admin override reason.
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 70d: Singular field retirement — removed legacy Booking/Order package columns, dropped `BookingSessionType`, retired `calculateExtraPhotoCharge`, deleted the `addon-extra-photo` product in migration, and converted remaining readers to package-line data.
 - Feature 70c follow-up: fixed package-line count/total display edge cases, blank numeric coercion, previous extra-photo invoice deltas, original package baseline preservation, fallback order package session typing, and line-scoped package item upgrade add-ons.
 - Feature 70c: Order multi-package flow — check-in creates order package lines from booking packages, POS supports independent per-line package upgrades plus digital/print extra-photo counts, Final Invoice line building emits package/base/bundle/upgrade/extra-photo rows per line, and order detail aggregates line totals/deliverables.
 - Feature 70b: Booking multi-package flow — add/edit booking forms now manage ordered package lines with quantities, booking services replace line rows and dual-write legacy fields, booking detail/calendar read aggregate duration, and deposit recording accepts an editable amount of at least 20 KD.

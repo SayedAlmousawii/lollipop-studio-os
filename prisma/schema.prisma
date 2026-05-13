@@ -23,14 +23,6 @@ enum CustomerStatus {
   INACTIVE
 }
 
-enum BookingSessionType {
-  NEWBORN
-  KIDS
-  FAMILY
-  MATERNITY
-  OTHER
-}
-
 enum BookingStatus {
   PENDING
   CONFIRMED
@@ -275,9 +267,6 @@ model Package {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bookings        Booking[]        @relation("BookingPackage")
-  originalOrders  Order[]          @relation("OriginalPackage")
-  finalOrders     Order[]          @relation("FinalPackage")
   items           PackageItem[]
   packageFamily   PackageFamily    @relation(fields: [packageFamilyId], references: [id])
   bookingPackages BookingPackage[]
@@ -422,10 +411,8 @@ model Booking {
   jobNumber              String?            @unique
   jobId                  String?            @unique
   customerId             String
-  packageId              String?
   sessionDate            DateTime
   sessionTime            String
-  sessionType            BookingSessionType
   departmentId           String
   status                 BookingStatus      @default(PENDING)
   assignedPhotographerId String?
@@ -435,7 +422,6 @@ model Booking {
 
   job                  Job?             @relation(fields: [jobId], references: [id])
   customer             Customer         @relation(fields: [customerId], references: [id])
-  package              Package?         @relation("BookingPackage", fields: [packageId], references: [id])
   department           StudioDepartment @relation(fields: [departmentId], references: [id])
   assignedPhotographer User?            @relation("AssignedPhotographer", fields: [assignedPhotographerId], references: [id])
   order                Order?
@@ -471,10 +457,6 @@ model Order {
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
   customerId                   String
-  originalPackageId            String?
-  finalPackageId               String?
-  originalPackagePriceSnapshot Decimal?             @db.Decimal(10, 3)
-  finalPackagePriceSnapshot    Decimal?             @db.Decimal(10, 3)
   selectedPhotoCount           Int?
   addOns                       Json                 @default("[]")
   status                       OrderStatus          @default(ACTIVE)
@@ -499,8 +481,6 @@ model Order {
   deliveryCompletedByUser User?           @relation("DeliveryCompletedBy", fields: [deliveryCompletedById], references: [id])
   editingJob              EditingJob?
   productionJob           ProductionJob?
-  originalPackage         Package?        @relation("OriginalPackage", fields: [originalPackageId], references: [id])
-  finalPackage            Package?        @relation("FinalPackage", fields: [finalPackageId], references: [id])
   invoices                Invoice[]
   activities              OrderActivity[]
   orderAddOns             OrderAddOn[]

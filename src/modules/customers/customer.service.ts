@@ -165,9 +165,15 @@ export async function getCustomerById(
               id: true,
               jobNumber: true,
               sessionDate: true,
-              sessionType: true,
               status: true,
-              package: { select: { name: true } },
+              packages: {
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                select: {
+                  quantity: true,
+                  package: { select: { name: true } },
+                  sessionType: { select: { name: true } },
+                },
+              },
               department: { select: { name: true } },
             },
           },
@@ -180,8 +186,10 @@ export async function getCustomerById(
               status: true,
               createdAt: true,
               booking: { select: { sessionDate: true } },
-              finalPackage: { select: { name: true } },
-              originalPackage: { select: { name: true } },
+              packages: {
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                select: { package: { select: { name: true } } },
+              },
             },
           },
         },
@@ -195,16 +203,16 @@ export async function getCustomerById(
     id: booking.id,
     jobNumber: booking.jobNumber ?? "Pending",
     sessionDate: formatSessionDate(booking.sessionDate),
-    sessionType: formatEnum(booking.sessionType),
+    sessionType: booking.packages[0]?.sessionType.name ?? "—",
     department: booking.department.name,
-    packageName: booking.package?.name ?? "—",
+    packageName: formatPackageLineNames(booking.packages),
     status: mapBookingStatus(booking.status),
   }));
   const orders = row.orders.map((order) => ({
     id: order.id,
     jobNumber: order.jobNumber,
     bookingDate: formatSessionDate(order.booking.sessionDate),
-    packageName: order.finalPackage?.name ?? order.originalPackage?.name ?? "—",
+    packageName: formatPackageLineNames(order.packages),
     status: mapOrderStatus(order.status),
   }));
 
@@ -702,14 +710,6 @@ function parseDateOfBirth(value: string | undefined): Date | null {
   return new Date(`${value}T00:00:00.000Z`);
 }
 
-function formatEnum(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 function singleValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -818,6 +818,19 @@ function isRecordNotFound(error: unknown): boolean {
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2025"
   );
+}
+
+function formatPackageLineNames(
+  packages: Array<{ quantity?: number; package: { name: string } }>
+): string {
+  if (packages.length === 0) return "—";
+  return packages
+    .map((line) =>
+      line.quantity && line.quantity > 1
+        ? `${line.package.name} x${line.quantity}`
+        : line.package.name
+    )
+    .join(", ");
 }
 
 function isPhoneTarget(target: unknown): boolean {
