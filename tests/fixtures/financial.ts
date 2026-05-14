@@ -7,11 +7,14 @@ import {
   PaymentType,
   Prisma,
   PrismaClient,
+  ProductCategory,
+  OrderStatus,
 } from "@prisma/client";
 import {
   applyDepositToFinalIfPresent,
   createAdjustmentInvoice,
   recalculateInvoiceStatus,
+  syncOrderInvoiceForFinancialEdit,
 } from "../../src/modules/invoices/invoice.service";
 import { createPaymentWithAllocation } from "../../src/modules/payments/payment.service";
 
@@ -53,6 +56,23 @@ const ADJUSTED_FIXTURE_KEYS = {
   finalInvoicePublicId: "INV-FIN-75A-FINAL",
   finalInvoiceNumber: "INV-FIN-75A-0002",
   adjustmentNotes: "Feature 75a fixture adjustment",
+} as const;
+
+const AUTO_ADJUSTED_FIXTURE_KEYS = {
+  departmentCode: "FIN_FIXTURE_DEPT_75B",
+  customerPhone: "+96550007510",
+  jobNumber: "JOB-FIN-75B-AUTO-ADJ",
+  bookingPublicId: "BK-FIN-75B-AUTO-ADJ",
+  invoicePublicId: "INV-FIN-75B-DEP",
+  invoiceNumber: "DEP-FIN-75B-0001",
+  finalInvoicePublicId: "INV-FIN-75B-FINAL",
+  finalInvoiceNumber: "INV-FIN-75B-0002",
+  adjustmentNotes: "Feature 75b auto adjustment",
+  sessionTypeCode: "FIN_FIXTURE_SESSION_75B",
+  packageFamilyCode: "FIN_FIXTURE_FAMILY_75B",
+  packageId: "pkg-fin-75b-base",
+  orderPublicId: "ORD-FIN-75B-AUTO-ADJ",
+  addOnProductId: "prod-fin-75b-addon",
 } as const;
 
 type FixtureKeys = {
@@ -390,7 +410,267 @@ export async function makeAdjustedBookingFixture(
   };
 }
 
+export async function makeAutoAdjustedBookingFixture(
+  prisma: PrismaClient
+): Promise<AdjustedBookingFixtureResult> {
+  const base = await makeCashDepositBookingFixture(
+    prisma,
+    AUTO_ADJUSTED_FIXTURE_KEYS
+  );
+
+  const sessionType = await prisma.sessionType.upsert({
+    where: { code: AUTO_ADJUSTED_FIXTURE_KEYS.sessionTypeCode },
+    update: {
+      name: "Financial Fixture Session",
+      departmentId: base.departmentId,
+      isActive: true,
+    },
+    create: {
+      code: AUTO_ADJUSTED_FIXTURE_KEYS.sessionTypeCode,
+      name: "Financial Fixture Session",
+      departmentId: base.departmentId,
+      isActive: true,
+    },
+  });
+  const packageFamily = await prisma.packageFamily.upsert({
+    where: { code: AUTO_ADJUSTED_FIXTURE_KEYS.packageFamilyCode },
+    update: {
+      name: "Financial Fixture Family",
+      sessionTypeId: sessionType.id,
+      isActive: true,
+    },
+    create: {
+      code: AUTO_ADJUSTED_FIXTURE_KEYS.packageFamilyCode,
+      name: "Financial Fixture Family",
+      sessionTypeId: sessionType.id,
+      isActive: true,
+    },
+  });
+  const packageRow = await prisma.package.upsert({
+    where: { id: AUTO_ADJUSTED_FIXTURE_KEYS.packageId },
+    update: {
+      name: "Fixture Base Package",
+      price: new Prisma.Decimal(100),
+      photoCount: 10,
+      packageFamilyId: packageFamily.id,
+      isActive: true,
+    },
+    create: {
+      id: AUTO_ADJUSTED_FIXTURE_KEYS.packageId,
+      name: "Fixture Base Package",
+      price: new Prisma.Decimal(100),
+      photoCount: 10,
+      durationMinutes: 60,
+      packageFamilyId: packageFamily.id,
+      isActive: true,
+    },
+  });
+  const order = await prisma.order.upsert({
+    where: { bookingId: base.bookingId },
+    update: {
+      publicId: AUTO_ADJUSTED_FIXTURE_KEYS.orderPublicId,
+      jobNumber: AUTO_ADJUSTED_FIXTURE_KEYS.jobNumber,
+      jobId: base.jobId,
+      customerId: base.customerId,
+      status: OrderStatus.ACTIVE,
+    },
+    create: {
+      publicId: AUTO_ADJUSTED_FIXTURE_KEYS.orderPublicId,
+      jobNumber: AUTO_ADJUSTED_FIXTURE_KEYS.jobNumber,
+      jobId: base.jobId,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      status: OrderStatus.ACTIVE,
+    },
+  });
+  const orderPackage = await prisma.orderPackage.upsert({
+    where: { id: "opkg-fin-75b-base" },
+    update: {
+      orderId: order.id,
+      packageId: packageRow.id,
+      sessionTypeId: sessionType.id,
+      originalPackagePriceSnapshot: packageRow.price,
+      finalPackagePriceSnapshot: packageRow.price,
+    },
+    create: {
+      id: "opkg-fin-75b-base",
+      orderId: order.id,
+      packageId: packageRow.id,
+      sessionTypeId: sessionType.id,
+      originalPackagePriceSnapshot: packageRow.price,
+      finalPackagePriceSnapshot: packageRow.price,
+      selectedPhotoCount: packageRow.photoCount,
+    },
+  });
+
+  const finalInvoice = await prisma.invoice.upsert({
+    where: { publicId: AUTO_ADJUSTED_FIXTURE_KEYS.finalInvoicePublicId },
+    update: {
+      financialCaseId: base.financialCaseId,
+      invoiceType: InvoiceType.FINAL,
+      jobId: base.jobId,
+      jobNumber: AUTO_ADJUSTED_FIXTURE_KEYS.jobNumber,
+      orderId: order.id,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      totalAmount: new Prisma.Decimal(100),
+      paidAmount: new Prisma.Decimal(80),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+    },
+    create: {
+      publicId: AUTO_ADJUSTED_FIXTURE_KEYS.finalInvoicePublicId,
+      financialCaseId: base.financialCaseId,
+      invoiceType: InvoiceType.FINAL,
+      jobId: base.jobId,
+      jobNumber: AUTO_ADJUSTED_FIXTURE_KEYS.jobNumber,
+      orderId: order.id,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      invoiceNumber: AUTO_ADJUSTED_FIXTURE_KEYS.finalInvoiceNumber,
+      totalAmount: new Prisma.Decimal(100),
+      paidAmount: new Prisma.Decimal(80),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      issuedAt: new Date("2026-05-14T10:00:00.000Z"),
+      closedAt: new Date("2026-05-14T10:15:00.000Z"),
+    },
+  });
+  await prisma.invoiceLineItem.upsert({
+    where: {
+      invoiceId_sortOrder: {
+        invoiceId: finalInvoice.id,
+        sortOrder: 0,
+      },
+    },
+    update: {
+      lineType: InvoiceLineType.PACKAGE_BASE,
+      description: packageRow.name,
+      quantity: 1,
+      unitPrice: packageRow.price,
+      lineTotal: packageRow.price,
+    },
+    create: {
+      invoiceId: finalInvoice.id,
+      lineType: InvoiceLineType.PACKAGE_BASE,
+      description: packageRow.name,
+      quantity: 1,
+      unitPrice: packageRow.price,
+      lineTotal: packageRow.price,
+      sortOrder: 0,
+    },
+  });
+
+  await applyDepositToFinalIfPresent(base.financialCaseId, finalInvoice.id, prisma);
+  const existingFinalPayment = await prisma.payment.findFirst({
+    where: {
+      invoiceId: finalInvoice.id,
+      financialCaseId: base.financialCaseId,
+      paymentType: PaymentType.FINAL,
+    },
+    include: { allocations: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const finalPayment = existingFinalPayment
+    ? existingFinalPayment
+    : await createPaymentWithAllocation(
+        {
+          invoiceId: finalInvoice.id,
+          financialCaseId: base.financialCaseId,
+          amount: new Prisma.Decimal(80),
+          method: PaymentMethod.CASH,
+          paymentType: PaymentType.FINAL,
+          paidAt: new Date("2026-05-14T10:10:00.000Z"),
+        },
+        prisma
+      );
+  if (existingFinalPayment && existingFinalPayment.allocations.length === 0) {
+    await prisma.paymentAllocation.create({
+      data: {
+        paymentId: existingFinalPayment.id,
+        invoiceId: finalInvoice.id,
+        amount: existingFinalPayment.amount,
+      },
+    });
+  }
+
+  await recalculateInvoiceStatus(finalInvoice.id, prisma);
+  await prisma.invoice.update({
+    where: { id: finalInvoice.id },
+    data: { status: InvoiceStatus.CLOSED, isLocked: true },
+  });
+
+  const existingAdjustment = await prisma.invoice.findFirst({
+    where: {
+      invoiceType: InvoiceType.ADJUSTMENT,
+      parentInvoiceId: finalInvoice.id,
+      notes: { startsWith: "Auto-ADJUSTMENT from order edit" },
+    },
+    select: { id: true },
+  });
+  if (existingAdjustment) {
+    return {
+      ...base,
+      finalInvoiceId: finalInvoice.id,
+      finalPaymentId: finalPayment.id,
+      adjustmentInvoiceId: existingAdjustment.id,
+    };
+  }
+
+  const addOnProduct = await prisma.product.upsert({
+    where: { id: AUTO_ADJUSTED_FIXTURE_KEYS.addOnProductId },
+    update: {
+      name: "Fixture add-on after final lock",
+      category: ProductCategory.OTHER,
+      canonicalPrice: new Prisma.Decimal(15),
+      isActive: true,
+      isAddOn: true,
+    },
+    create: {
+      id: AUTO_ADJUSTED_FIXTURE_KEYS.addOnProductId,
+      name: "Fixture add-on after final lock",
+      category: ProductCategory.OTHER,
+      canonicalPrice: new Prisma.Decimal(15),
+      isActive: true,
+      isAddOn: true,
+    },
+  });
+  await prisma.orderAddOn.create({
+    data: {
+      orderId: order.id,
+      orderPackageId: orderPackage.id,
+      productId: addOnProduct.id,
+      nameSnapshot: addOnProduct.name,
+      priceSnapshot: addOnProduct.canonicalPrice,
+      quantity: 1,
+    },
+  });
+  await syncOrderInvoiceForFinancialEdit(prisma, {
+    orderId: order.id,
+    previousAddOns: [],
+  });
+
+  const adjustmentInvoice = await prisma.invoice.findFirstOrThrow({
+    where: {
+      invoiceType: InvoiceType.ADJUSTMENT,
+      parentInvoiceId: finalInvoice.id,
+      notes: { startsWith: "Auto-ADJUSTMENT from order edit" },
+    },
+    select: { id: true },
+  });
+
+  return {
+    ...base,
+    finalInvoiceId: finalInvoice.id,
+    finalPaymentId: finalPayment.id,
+    adjustmentInvoiceId: adjustmentInvoice.id,
+  };
+}
+
 export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void> {
   await makeCashDepositBookingFixture(prisma);
   await makeAdjustedBookingFixture(prisma);
+  await makeAutoAdjustedBookingFixture(prisma);
 }

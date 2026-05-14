@@ -8,6 +8,9 @@ patterns=(
   "prisma.invoice.create"
   "prisma.invoice.createMany"
   "invoiceType: InvoiceType.ADJUSTMENT"
+  # Additive vs reductive locked-invoice edit classification must stay centralized
+  # in src/modules/financial/edit-classifier.ts. Shell matching is intentionally
+  # conservative because the business rule is semantic rather than one token.
   # 77a appends gift card creation patterns here.
 )
 

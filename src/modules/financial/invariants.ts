@@ -411,3 +411,59 @@ registerInvariant({
     }));
   },
 });
+
+registerInvariant({
+  name: "no-adjustment-without-classifier-source",
+  scope: "global",
+  run: async ({ tx }) => {
+    const autoAdjustments = await tx.invoice.findMany({
+      where: {
+        invoiceType: InvoiceType.ADJUSTMENT,
+        notes: { startsWith: "Auto-ADJUSTMENT from order edit" },
+      },
+      select: {
+        id: true,
+        orderId: true,
+        invoiceNumber: true,
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const invoice of autoAdjustments) {
+      if (!invoice.orderId) {
+        violations.push({
+          invariant: "no-adjustment-without-classifier-source",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: "auto adjustment has an order activity classifier source",
+          actual: "no orderId",
+        });
+        continue;
+      }
+
+      const sourceActivity = await tx.orderActivity.findFirst({
+        where: {
+          orderId: invoice.orderId,
+          title: "Auto-adjustment issued",
+          metadata: {
+            path: ["adjustmentInvoiceId"],
+            equals: invoice.id,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (!sourceActivity) {
+        violations.push({
+          invariant: "no-adjustment-without-classifier-source",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: "classifier activity log referencing this ADJUSTMENT",
+          actual: `no activity source for ${invoice.invoiceNumber}`,
+        });
+      }
+    }
+
+    return violations;
+  },
+});

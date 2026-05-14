@@ -966,9 +966,6 @@ export async function updateOrderPackage(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
-        if (order.invoices[0]?.isLocked) {
-          throw new Error("Invoice is locked. Use the adjustment flow before changing package composition.");
-        }
         if (!selectedPackage || !selectedPackage.isActive) {
           throw new Error("Selected package is not available");
         }
@@ -1111,9 +1108,6 @@ export async function upgradeOrderPackageItem(
         if (!order) throw new Error("Order not found");
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
-        }
-        if (order.invoices[0]?.isLocked) {
-          throw new Error("Invoice is locked. Use the adjustment flow before changing package composition.");
         }
 
         const orderPackage = order.packages[0] ?? null;
@@ -1305,9 +1299,6 @@ export async function addOrderProductAddOn(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
-        if (order.invoices[0]?.isLocked) {
-          throw new Error("Invoice is locked. Use the adjustment flow before changing add-ons.");
-        }
         if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
           throw new Error("Selected add-on product is not available");
         }
@@ -1422,9 +1413,6 @@ export async function removeOrderAddOn(
         if (!order) throw new Error("Order not found");
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
-        }
-        if (order.invoices[0]?.isLocked) {
-          throw new Error("Invoice is locked. Use the adjustment flow before changing add-ons.");
         }
 
         const previousAddOns = mapStructuredAddOns(
@@ -1556,9 +1544,6 @@ export async function updateOrderSelectedPhotoCount(
         if (!order) throw new Error("Order not found");
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
-        }
-        if (order.invoices[0]?.isLocked) {
-          throw new Error("Invoice is locked. Use the adjustment flow before changing selected photos.");
         }
 
         const orderPackage = order.packages[0] ?? null;

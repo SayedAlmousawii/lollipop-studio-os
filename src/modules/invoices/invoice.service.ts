@@ -11,10 +11,18 @@ import {
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { dualRead } from "@/modules/financial/dual-read";
+import {
+  BlockedEditError,
+  classifyEditDelta,
+  ReductionRequiresCreditNoteError,
+} from "@/modules/financial/edit-classifier";
+import { FINANCIAL_REARCH_PHASE_2_AUTO_ADJUSTMENT } from "@/modules/financial/feature-flags";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
+import { computeOrderEditDelta } from "@/modules/orders/order.delta";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
 import { computeEffectivePaidFromAllocations } from "./invoice.calculation";
@@ -286,8 +294,117 @@ export async function syncOrderInvoiceForFinancialEdit(
   const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
   const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
   const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
+  const packageAdjustmentBaseline = order.packages.reduce(
+    (sum, line) =>
+      sum.plus(line.originalPackagePriceSnapshot ?? line.package.price),
+    new Prisma.Decimal(0)
+  );
+  const packageAdjustmentAmount = packagePrice.minus(packageAdjustmentBaseline);
+  const addOnAdjustmentAmount = nextSelectionAddOnTotal.minus(previousSelectionAddOnTotal);
+  const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
+
   if (existingInvoice?.isLocked) {
-    throw new Error("Locked invoices cannot be recalculated from order edits");
+    return dualRead({
+      phase: "phase-2-classifier",
+      path: "invoice.syncOrderInvoiceForFinancialEdit",
+      entityId: order.id,
+      flagKey: FINANCIAL_REARCH_PHASE_2_AUTO_ADJUSTMENT,
+      authoritative: "old",
+      oldFn: async () => {
+        throw new Error("Locked invoices cannot be recalculated from order edits");
+      },
+      newFn: async () => {
+        const delta = await computeOrderEditDelta(order.id, client);
+        const result = classifyEditDelta(delta);
+
+        if (result.blocked.length > 0) {
+          throw new BlockedEditError(result.blocked);
+        }
+
+        if (result.creditNoteRequired.length > 0) {
+          await recordOrderActivity(client, {
+            orderId: order.id,
+            userId: null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Edit blocked — requires credit note",
+            description:
+              "Edit blocked — requires credit note (Phase 3 not yet available).",
+            metadata: {
+              creditNoteRequired: result.creditNoteRequired.map((requirement) => ({
+                reason: requirement.reason,
+                amount: requirement.amount.toFixed(3),
+                lineName: requirement.lineSnapshot.name,
+              })),
+            },
+          });
+          throw new ReductionRequiresCreditNoteError(result.creditNoteRequired);
+        }
+
+        if (result.netZero && result.adjustmentLines.length === 0) {
+          await recordOrderActivity(client, {
+            orderId: order.id,
+            userId: null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Upgrade swapped (equal price)",
+            description: "Upgrade swapped (equal price).",
+            metadata: {
+              swaps: delta.swaps.map((swap) => ({
+                removedName: swap.removedLineSnapshot.name,
+                addedName: swap.addedLineSnapshot.name,
+                amount: swap.addedPriceSnapshot.toFixed(3),
+              })),
+            },
+          });
+
+          return buildOrderInvoiceSyncSummary({
+            invoice: existingInvoice,
+            packageAdjustmentAmount,
+            addOnAdjustmentAmount,
+            totalAdjustmentAmount: new Prisma.Decimal(0),
+            packageAdjustmentBaseline,
+            createdInvoice: false,
+          });
+        }
+
+        if (result.adjustmentLines.length > 0) {
+          const adjustmentInvoice = await createAdjustmentInvoice(
+            {
+              parentFinalInvoiceId: existingInvoice.id,
+              lines: result.adjustmentLines,
+              notes: `Auto-ADJUSTMENT from order edit on ${new Date().toISOString()}`,
+            },
+            client
+          );
+          await recordOrderActivity(client, {
+            orderId: order.id,
+            userId: null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Auto-adjustment issued",
+            description: `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)}.`,
+            metadata: {
+              parentInvoiceId: existingInvoice.id,
+              adjustmentInvoiceId: adjustmentInvoice.id,
+              adjustmentInvoiceNumber: adjustmentInvoice.invoiceNumber,
+              totalAmount: adjustmentInvoice.totalAmount.toFixed(3),
+              lines: result.adjustmentLines.map((line) => ({
+                description: line.description,
+                quantity: line.quantity,
+                unitPrice: line.unitPrice.toFixed(3),
+              })),
+            },
+          });
+        }
+
+        return buildOrderInvoiceSyncSummary({
+          invoice: existingInvoice,
+          packageAdjustmentAmount,
+          addOnAdjustmentAmount,
+          totalAdjustmentAmount,
+          packageAdjustmentBaseline,
+          createdInvoice: false,
+        });
+      },
+    });
   }
   if (existingInvoice && existingInvoice._count.lineItems > 0) {
     if (order.status === OrderStatus.DELIVERED) {
@@ -297,15 +414,6 @@ export async function syncOrderInvoiceForFinancialEdit(
       where: { invoiceId: existingInvoice.id },
     });
   }
-
-  const packageAdjustmentBaseline = order.packages.reduce(
-    (sum, line) =>
-      sum.plus(line.originalPackagePriceSnapshot ?? line.package.price),
-    new Prisma.Decimal(0)
-  );
-  const packageAdjustmentAmount = packagePrice.minus(packageAdjustmentBaseline);
-  const addOnAdjustmentAmount = nextSelectionAddOnTotal.minus(previousSelectionAddOnTotal);
-  const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
 
   const invoice = existingInvoice
     ? await updateUnlockedInvoiceTotal(client, existingInvoice.id, targetTotalAmount)
@@ -334,18 +442,50 @@ export async function syncOrderInvoiceForFinancialEdit(
   });
   if (!recalculated) throw new Error("Invoice not found after recalculation");
 
-  return {
-    invoiceId: recalculated.id,
-    invoiceNumber: recalculated.invoiceNumber,
-    totalAmount: formatMoney(recalculated.totalAmount),
-    paidAmount: formatMoney(recalculated.paidAmount),
-    remainingAmount: formatMoney(recalculated.remainingAmount),
-    status: mapInvoiceStatus(recalculated.status),
+  return buildOrderInvoiceSyncSummary({
+    invoice: recalculated,
     packageAdjustmentAmount,
     addOnAdjustmentAmount,
     totalAdjustmentAmount,
     packageAdjustmentBaseline,
     createdInvoice: !existingInvoice,
+  });
+}
+
+function buildOrderInvoiceSyncSummary({
+  invoice,
+  packageAdjustmentAmount,
+  addOnAdjustmentAmount,
+  totalAdjustmentAmount,
+  packageAdjustmentBaseline,
+  createdInvoice,
+}: {
+  invoice: {
+    id: string;
+    invoiceNumber: string;
+    totalAmount: Prisma.Decimal;
+    paidAmount: Prisma.Decimal;
+    remainingAmount: Prisma.Decimal;
+    status: InvoiceStatus;
+  };
+  packageAdjustmentAmount: Prisma.Decimal;
+  addOnAdjustmentAmount: Prisma.Decimal;
+  totalAdjustmentAmount: Prisma.Decimal;
+  packageAdjustmentBaseline: Prisma.Decimal;
+  createdInvoice: boolean;
+}): OrderInvoiceSyncSummary {
+  return {
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    totalAmount: formatMoney(invoice.totalAmount),
+    paidAmount: formatMoney(invoice.paidAmount),
+    remainingAmount: formatMoney(invoice.remainingAmount),
+    status: mapInvoiceStatus(invoice.status),
+    packageAdjustmentAmount,
+    addOnAdjustmentAmount,
+    totalAdjustmentAmount,
+    packageAdjustmentBaseline,
+    createdInvoice,
   };
 }
 

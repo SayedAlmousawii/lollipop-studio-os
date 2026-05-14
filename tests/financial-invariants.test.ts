@@ -15,6 +15,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
         { InvoiceStatus, InvoiceType, Prisma },
         { db },
         {
+          makeAutoAdjustedBookingFixture,
           makeAdjustedBookingFixture,
           makeCashDepositBookingFixture,
           seedAllSharedFixtures,
@@ -54,6 +55,17 @@ test("financial invariants all pass against seeded fixtures", async () => {
         assert.equal(adjustmentInvoice.financialCaseId, adjustedFixture.financialCaseId);
         assert.equal(adjustmentInvoice.invoiceNumber.startsWith("ADJ-"), true);
         assert.equal(adjustmentInvoice.lineItems.length, 1);
+
+        const autoAdjustedFixture = await makeAutoAdjustedBookingFixture(db);
+        const autoAdjustmentInvoice = await db.invoice.findUniqueOrThrow({
+          where: { id: autoAdjustedFixture.adjustmentInvoiceId },
+          include: { lineItems: true },
+        });
+        assert.equal(autoAdjustmentInvoice.invoiceType, InvoiceType.ADJUSTMENT);
+        assert.equal(autoAdjustmentInvoice.parentInvoiceId, autoAdjustedFixture.finalInvoiceId);
+        assert.equal(autoAdjustmentInvoice.invoiceNumber.startsWith("ADJ-"), true);
+        assert.equal(autoAdjustmentInvoice.lineItems.length, 1);
+        assert.equal(autoAdjustmentInvoice.lineItems[0]?.lineTotal.toFixed(3), "15.000");
 
         const fixture = await makeCashDepositBookingFixture(db);
         const finalInvoice = await db.invoice.create({
@@ -104,7 +116,12 @@ test("financial invariants all pass against seeded fixtures", async () => {
         assert.equal(recalculatedInvoice.paidAmount.toFixed(3), "0.000");
         assert.equal(recalculatedInvoice.remainingAmount.toFixed(3), "80.000");
         assert.equal(recalculatedInvoice.status, InvoiceStatus.PARTIAL);
-        assert.deepEqual(warnMessages, []);
+        assert.deepEqual(
+          warnMessages.filter(
+            (message) => !message.includes('"phase":"phase-2-classifier"')
+          ),
+          []
+        );
 
         const violations = await runAllInvariants(db);
         assert.deepEqual(violations, []);
