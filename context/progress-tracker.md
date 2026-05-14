@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 71 70e closure cleanup is complete: retired single-package order edit/selection write service exports and schemas are deleted, order detail Selection is line-aware and read-only, and POS workspace no longer exposes top-level first-line package shortcuts.
 - Backend invariant schema isolation hotfix is complete: the harness now sets both Prisma schema and Postgres search_path URL parameters, verifies `current_schema()` before fixtures run, and PrismaPg clients now receive the schema option from `DATABASE_URL`.
 - Feature 70e.5e duplicate booking package protection is complete: `BookingPackage` now enforces one row per `(bookingId, packageId)`, with migration cleanup that collapses existing duplicate quantities before adding the unique index.
 - Feature 70e.5d scoped add-on delete behavior is complete: add-ons tied to an `OrderPackage` cascade when that package line is deleted, while unscoped order add-ons remain attached to the order.
@@ -86,6 +87,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 71: 70e closure cleanup — removed retired `updateOrder`, `updateOrderSelectionWorkflow`, `getEditableOrderById`, and associated write schemas/types; converted Selection tab data to per-package read-only lines with POS navigation; removed top-level POS first-line package fields while keeping package-line display and validation green.
 - Feature 70e.5d: Scoped add-on delete behavior — changed `OrderAddOn.orderPackageId` to cascade with deleted package lines and added backend invariant coverage that scoped add-ons are removed while unscoped add-ons remain.
 - Feature 70e.5c: Package session-type override policy — documented the existing cross-session package-change block as intentional, because changing a line's session type changes extra-photo pricing and invoice consequences and needs a future audited manager workflow.
 - Feature 70e.5b: Calendar session-type display cleanup — replaced display-name allowlist bucketing with stable session-type and department code mapping, and added invariant coverage for new department-scoped session type codes.

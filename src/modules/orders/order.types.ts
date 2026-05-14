@@ -104,11 +104,7 @@ export interface OrderPackageLineDisplay {
 export interface OrderSelectionWorkflow {
   orderId: string;
   orderStatus: OrderStatusLabel;
-  packageId: string;
-  originalPackageName: string;
-  finalPackageName: string;
-  packageItems: PackageItemDisplay[];
-  bundleAdjustment: string;
+  packageLines: OrderPackageLineDisplay[];
   selectedPhotos: number;
   includedPhotoCount: number;
   extraPhotoCount: number;
@@ -117,18 +113,10 @@ export interface OrderSelectionWorkflow {
   selectionStatus: string;
   completedAt: string | null;
   manualAddOnTotal: string;
-  extraPhotoUnitPriceAmount: number;
-  extraPhotoUnitPrice: string;
   extraPhotoCharge: string;
   selectionAddOnTotal: string;
-  packageUpgradeDifference: string;
   nextRecommendedFinancialAction: string;
-  keepCurrentPackageLabel: string;
-  upgradePackageLabel: string;
-  recommendedPackage: OrderSelectionPackageOption | null;
   invoiceLocked: boolean;
-  packageOptions: OrderSelectionPackageOption[];
-  addOnOptions: OrderAddOnProductOption[];
 }
 
 export interface OrderEditingWorkflow {
@@ -230,13 +218,6 @@ export interface OrderEditorOption {
   name: string;
 }
 
-export interface OrderSelectionPackageOption extends OrderEditPackage {
-  upgradeDifference: number;
-  upgradeDifferenceLabel: string;
-  isCurrent: boolean;
-  isRecommended: boolean;
-}
-
 export interface OrderWorkflowStep {
   label: string;
   status: string;
@@ -264,22 +245,6 @@ export interface OrderAddOnDisplay {
   lineTotal: string;
 }
 
-export interface OrderAddOnProductOption {
-  id: string;
-  name: string;
-  category: string;
-  price: number;
-  priceLabel: string;
-}
-
-export interface OrderEditPackage {
-  id: string;
-  name: string;
-  price: number;
-  priceLabel: string;
-  photoCount: number;
-}
-
 export interface PackageItemDisplay {
   id: string;
   productId: string;
@@ -288,31 +253,6 @@ export interface PackageItemDisplay {
   quantity: number;
   unitPrice: string;
   lineTotal: string;
-}
-
-export interface EditableOrder {
-  id: string;
-  customerPhone: string;
-  bookingDate: string;
-  originalPackagePriceSnapshot: number | null;
-  originalPackage: OrderEditPackage | null;
-  finalPackage: OrderEditPackage | null;
-  selectedPhotos: number;
-  addOns: OrderAddOn[];
-  orderStatus: OrderStatusLabel;
-  notes: string;
-  invoiceSummary: EditableOrderInvoiceSummary | null;
-}
-
-export interface EditableOrderInvoiceSummary {
-  id: string;
-  invoiceNumber: string;
-  totalAmount: number;
-  paidAmount: number;
-  remainingAmount: number;
-  status: InvoiceStatusLabel;
-  isLocked: boolean;
-  packageAdjustmentBaseline: number;
 }
 
 export interface OrderPaymentStage {
@@ -362,11 +302,8 @@ export interface POSWorkspace {
   sessionDate: string;
   customerName: string;
   customerPhone: string;
-  originalPackage: POSPackage | null;
-  currentPackage: POSPackage | null;
   packageLines: POSPackageLine[];
   packageItems: POSPackageItem[];
-  bundleAdjustment: number;
   rawDeliverableTotal: number;
   includedPhotoCount: number;
   selectedPhotoCount: number;
@@ -374,7 +311,6 @@ export interface POSWorkspace {
   extraPhotoTotal: number;
   addOns: POSAddOn[];
   addOnTotal: number;
-  packageOptions: POSPackageOption[];
   productOptions: POSProductOption[];
   addOnCatalog: POSAddOnCatalogItem[];
   invoice: POSInvoiceSummary | null;
