@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 73 financial rearchitecture phase 0 schema groundwork is complete: `Invoice.financialCaseId`, `Invoice.invoiceType`, and `Payment.financialCaseId` are now required at the Prisma/data layer, `Payment.direction` defaults to `IN`, `InvoiceType.SALE` is available for later phases, and the migration backfills orphan financial links without touching `order_add_ons`.
 - Feature 72 POS selected photo flow simplification is complete: each POS package line now edits only selected photo count directly, derives extra-photo quantity from package overage, autosaves Digital/Print/Split allocation changes without an Update button, and the service rejects persisted extra allocations that do not match the derived count.
 - Feature 71 70e closure cleanup is complete: retired single-package order edit/selection write service exports and schemas are deleted, order detail Selection is line-aware and read-only, and POS workspace no longer exposes top-level first-line package shortcuts.
 - Backend invariant schema isolation hotfix is complete: the harness now sets both Prisma schema and Postgres search_path URL parameters, verifies `current_schema()` before fixtures run, and PrismaPg clients now receive the schema option from `DATABASE_URL`.
@@ -88,6 +89,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 73: Financial rearchitecture phase 0 schema groundwork — enforced non-null `Invoice.financialCaseId`, `Invoice.invoiceType`, and `Payment.financialCaseId`, added `Payment.direction` plus `InvoiceType.SALE`, backfilled orphan financial links in one migration, left `order_add_ons` untouched for Spec 73c, and aligned seed/scripts with the tightened schema.
 - Feature 71: 70e closure cleanup — removed retired `updateOrder`, `updateOrderSelectionWorkflow`, `getEditableOrderById`, and associated write schemas/types; converted Selection tab data to per-package read-only lines with POS navigation; removed top-level POS first-line package fields while keeping package-line display and validation green.
 - Feature 70e.5d: Scoped add-on delete behavior — changed `OrderAddOn.orderPackageId` to cascade with deleted package lines and added backend invariant coverage that scoped add-ons are removed while unscoped add-ons remain.
 - Feature 70e.5c: Package session-type override policy — documented the existing cross-session package-change block as intentional, because changing a line's session type changes extra-photo pricing and invoice consequences and needs a future audited manager workflow.
@@ -201,6 +203,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: Booking deposit recording via invoice + payment in one transaction.
 
 ## Open Follow-Ups
+- Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm the schema tightening remains behavior-neutral in real flows.
 - Manually review the POS Selected Photos card in-app, including autosave on blur, Digital/Print/Split switching, and a legacy mixed split line whose stored allocation already matches the derived extra count.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.
 - Write and implement `55f-fix` to add a targeted editing-queue performance fix, starting with pagination because the current query has no limit.

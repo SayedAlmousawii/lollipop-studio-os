@@ -6,7 +6,6 @@ async function main() {
   const invoices = await db.invoice.findMany({
     where: {
       invoiceType: InvoiceType.FINAL,
-      financialCaseId: { not: null },
     },
     select: {
       id: true,
