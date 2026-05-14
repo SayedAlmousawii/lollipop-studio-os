@@ -287,7 +287,7 @@ function POSPhotoLineForm({
                   min={line.includedPhotoCount}
                   step={1}
                   value={draft.selectedPhotoCount}
-                  disabled={locked}
+                  disabled={locked || pending}
                   onChange={(event) => {
                     setDraft((current) =>
                       syncDraftForSelectedPhotoChange(
@@ -339,7 +339,7 @@ function POSPhotoLineForm({
                       <input
                         checked={checked}
                         className="sr-only"
-                        disabled={locked}
+                        disabled={locked || pending}
                         name={`billingMode-${line.id}`}
                         type="radio"
                         value={option.value}
@@ -384,7 +384,7 @@ function POSPhotoLineForm({
                           max={preview.extraCount}
                           step={1}
                           value={draft.splitDigitalCount}
-                          disabled={locked}
+                          disabled={locked || pending}
                           onChange={(event) => {
                             setDraft((current) =>
                               applySplitAllocationChange(
@@ -423,7 +423,7 @@ function POSPhotoLineForm({
                           max={preview.extraCount}
                           step={1}
                           value={draft.splitPrintCount}
-                          disabled={locked}
+                          disabled={locked || pending}
                           onChange={(event) => {
                             setDraft((current) =>
                               applySplitAllocationChange(
