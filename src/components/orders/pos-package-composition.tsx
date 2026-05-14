@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CreditNoteApprovalFields } from "@/components/orders/credit-note-approval-fields";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -71,7 +72,7 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
         {locked ? (
           <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-            Invoice is locked. Package and item changes require the future adjustment flow.
+            Invoice is locked. Additions issue adjustments; reductions require manager confirmation for a credit note.
           </div>
         ) : null}
 
@@ -90,7 +91,6 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
                 <PackageUpgradeDialog
                   orderId={workspace.orderId}
                   line={line}
-                  locked={locked}
                 />
               </div>
 
@@ -102,7 +102,6 @@ export function POSPackageComposition({ workspace }: POSPackageCompositionProps)
                     orderId={workspace.orderId}
                     orderPackageId={line.id}
                     productOptions={workspace.productOptions}
-                    locked={locked}
                   />
                 ))}
                 {line.packageItems.length === 0 ? (
@@ -144,7 +143,7 @@ export function POSPhotoCountCard({ workspace }: POSPackageCompositionProps) {
         {locked ? (
           <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-            Invoice is locked. Selected-photo changes require the future adjustment flow.
+            Invoice is locked. Added extras issue adjustments; reductions require manager confirmation for a credit note.
           </div>
         ) : null}
         <div className="space-y-4">
@@ -153,7 +152,6 @@ export function POSPhotoCountCard({ workspace }: POSPackageCompositionProps) {
               key={`${line.id}:${line.selectedPhotoCount}:${line.extraDigitalCount}:${line.extraPrintCount}`}
               orderId={workspace.orderId}
               line={line}
-              locked={locked}
             />
           ))}
         </div>
@@ -165,11 +163,9 @@ export function POSPhotoCountCard({ workspace }: POSPackageCompositionProps) {
 function POSPhotoLineForm({
   orderId,
   line,
-  locked,
 }: {
   orderId: string;
   line: POSPackageLine;
-  locked: boolean;
 }) {
   const [state, formAction, pending] = useActionState<POSCompositionActionState, FormData>(
     updateOrderSelectedPhotoCountAction.bind(null, orderId),
@@ -189,8 +185,6 @@ function POSPhotoLineForm({
   });
   const preview = getPhotoLinePreview(draft, line);
   function commitDraft(nextDraft: PhotoLineDraft) {
-    if (locked) return;
-
     const resolved = resolvePhotoPayload(nextDraft, line.includedPhotoCount);
     if (resolved.errors) {
       setClientErrors(resolved.errors);
@@ -287,7 +281,7 @@ function POSPhotoLineForm({
                   min={line.includedPhotoCount}
                   step={1}
                   value={draft.selectedPhotoCount}
-                  disabled={locked || pending}
+                  disabled={pending}
                   onChange={(event) => {
                     setDraft((current) =>
                       syncDraftForSelectedPhotoChange(
@@ -334,12 +328,12 @@ function POSPhotoLineForm({
                         checked
                           ? "border-accent bg-accent/10 text-text-primary"
                           : "border-border bg-background text-text-secondary"
-                      } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
+                      }`}
                     >
                       <input
                         checked={checked}
                         className="sr-only"
-                        disabled={locked || pending}
+                        disabled={pending}
                         name={`billingMode-${line.id}`}
                         type="radio"
                         value={option.value}
@@ -384,7 +378,7 @@ function POSPhotoLineForm({
                           max={preview.extraCount}
                           step={1}
                           value={draft.splitDigitalCount}
-                          disabled={locked || pending}
+                          disabled={pending}
                           onChange={(event) => {
                             setDraft((current) =>
                               applySplitAllocationChange(
@@ -423,7 +417,7 @@ function POSPhotoLineForm({
                           max={preview.extraCount}
                           step={1}
                           value={draft.splitPrintCount}
-                          disabled={locked || pending}
+                          disabled={pending}
                           onChange={(event) => {
                             setDraft((current) =>
                               applySplitAllocationChange(
@@ -479,6 +473,7 @@ function POSPhotoLineForm({
         </div>
       </div>
       <GlobalError messages={state.errors?._global} />
+      <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
     </form>
   );
 }
@@ -761,11 +756,9 @@ function PhotoLineSaveStatus({ pending }: { pending: boolean }) {
 function PackageUpgradeDialog({
   orderId,
   line,
-  locked,
 }: {
   orderId: string;
   line: POSPackageLine;
-  locked: boolean;
 }) {
   const [selectedPackageId, setSelectedPackageId] = useState(
     line.currentPackage.id ?? line.packageOptions[0]?.id ?? ""
@@ -779,7 +772,7 @@ function PackageUpgradeDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" disabled={locked || line.packageOptions.length === 0}>
+        <Button variant="outline" disabled={line.packageOptions.length === 0}>
           <ArrowRightLeft className="h-4 w-4" />
           Upgrade Package
         </Button>
@@ -812,8 +805,9 @@ function PackageUpgradeDialog({
             <FieldError messages={state.errors?.packageId} />
           </div>
           <GlobalError messages={state.errors?._global} />
+          <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
           <DialogFooter>
-            <SubmitButton label="Update Package" disabled={locked || !selectedPackageId} />
+            <SubmitButton label="Update Package" disabled={!selectedPackageId} />
           </DialogFooter>
         </form>
       </DialogContent>
@@ -826,13 +820,11 @@ function DeliverableCard({
   orderId,
   orderPackageId,
   productOptions,
-  locked,
 }: {
   item: POSPackageItem;
   orderId: string;
   orderPackageId: string;
   productOptions: POSProductOption[];
-  locked: boolean;
 }) {
   const replacementOptions = useMemo(
     () =>
@@ -861,7 +853,6 @@ function DeliverableCard({
         orderPackageId={orderPackageId}
         item={item}
         options={replacementOptions}
-        locked={locked}
       />
     </div>
   );
@@ -872,20 +863,18 @@ function ItemUpgradeDialog({
   orderPackageId,
   item,
   options,
-  locked,
 }: {
   orderId: string;
   orderPackageId: string;
   item: POSPackageItem;
   options: POSProductOption[];
-  locked: boolean;
 }) {
   const [selectedProductId, setSelectedProductId] = useState(options[0]?.id ?? "");
   const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
     upgradeOrderPackageItemAction.bind(null, orderId),
     {}
   );
-  const disabled = locked || options.length === 0;
+  const disabled = options.length === 0;
 
   return (
     <Dialog>
@@ -929,6 +918,7 @@ function ItemUpgradeDialog({
             <FieldError messages={state.errors?.newProductId} />
           </div>
           <GlobalError messages={state.errors?._global} />
+          <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
           <DialogFooter>
             <SubmitButton label="Apply Upgrade" disabled={disabled || !selectedProductId} />
           </DialogFooter>

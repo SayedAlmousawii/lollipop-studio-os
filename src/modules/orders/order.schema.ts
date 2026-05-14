@@ -7,6 +7,11 @@ import {
   ORDER_SELECTION_STATUS_VALUES,
 } from "./order.constants";
 
+const reductionApprovalFields = {
+  managerApprovedReductionByUserId: z.string().trim().min(1).optional(),
+  managerApprovedReason: z.string().trim().min(1, "Reduction reason is required").max(500).optional(),
+};
+
 function requiredIntegerInput({
   requiredMessage,
   integerMessage,
@@ -53,12 +58,14 @@ export const updateOrderWorkflowSchema = z.object({
 export const updateOrderPackageSchema = z.object({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   packageId: z.string().trim().min(1, "Package is required"),
+  ...reductionApprovalFields,
 });
 
 export const upgradeOrderPackageItemSchema = z.object({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   packageItemId: z.string().trim().min(1, "Package item is required"),
   newProductId: z.string().trim().min(1, "Replacement product is required"),
+  ...reductionApprovalFields,
 });
 
 export const addOrderProductAddOnSchema = z.object({
@@ -67,6 +74,7 @@ export const addOrderProductAddOnSchema = z.object({
 
 export const removeOrderAddOnSchema = z.object({
   addOnId: z.string().trim().min(1, "Add-on is required"),
+  ...reductionApprovalFields,
 });
 
 export const updateOrderSelectedPhotoCountSchema = z.object({
@@ -86,6 +94,7 @@ export const updateOrderSelectedPhotoCountSchema = z.object({
     integerMessage: "Print extras must be a whole number",
     minMessage: "Print extras cannot be negative",
   }),
+  ...reductionApprovalFields,
 });
 
 export const updateOrderEditingWorkflowSchema = z.object({

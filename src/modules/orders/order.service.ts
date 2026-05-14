@@ -1075,6 +1075,9 @@ export async function updateOrderPackage(
           previousAddOns,
           previousSelectedPhotoCount: null,
           previousIncludedPhotoCount,
+          managerApprovedReductionByUserId:
+            data.managerApprovedReductionByUserId,
+          managerApprovedReason: data.managerApprovedReason,
         });
 
         await syncUpgradeCommissionForOrder(tx, {
@@ -1251,6 +1254,9 @@ export async function upgradeOrderPackageItem(
           previousAddOns,
           previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: currentPackage.photoCount,
+          managerApprovedReductionByUserId:
+            data.managerApprovedReductionByUserId,
+          managerApprovedReason: data.managerApprovedReason,
         });
 
         await recordOrderActivity(tx, {
@@ -1512,6 +1518,9 @@ export async function removeOrderAddOn(
           previousAddOns,
           previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: null,
+          managerApprovedReductionByUserId:
+            data.managerApprovedReductionByUserId,
+          managerApprovedReason: data.managerApprovedReason,
         });
 
         await recordOrderActivity(tx, {
@@ -1652,6 +1661,9 @@ export async function updateOrderSelectedPhotoCount(
           previousSelectedPhotoCount: null,
           previousIncludedPhotoCount: currentPackage.photoCount,
           previousExtraPhotoCharge,
+          managerApprovedReductionByUserId:
+            data.managerApprovedReductionByUserId,
+          managerApprovedReason: data.managerApprovedReason,
         });
 
         if (

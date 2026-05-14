@@ -50,6 +50,16 @@ export class ReductionRequiresCreditNoteError extends Error {
   }
 }
 
+export class PendingCreditNoteApprovalError extends Error {
+  constructor(
+    public readonly reductions: CreditNoteRequirement[],
+    public readonly adjustmentLines: AdjustmentLineInput[]
+  ) {
+    super("Manager confirmation is required before issuing a credit note.");
+    this.name = "PendingCreditNoteApprovalError";
+  }
+}
+
 export function classifyEditDelta(delta: EditDelta): ClassifierResult {
   const adjustmentLines: AdjustmentLineInput[] = [];
   const creditNoteRequired: CreditNoteRequirement[] = [];

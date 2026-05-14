@@ -19,6 +19,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
           makeAdjustedBookingFixture,
           makeCashDepositBookingFixture,
           makeCreditNotedBookingFixture,
+          makeMixedEditBookingFixture,
           makeRefundedBookingFixture,
           seedAllSharedFixtures,
         },
@@ -264,6 +265,54 @@ test("financial invariants all pass against seeded fixtures", async () => {
               db
             ),
           /Credit note amount cannot exceed remaining credit capacity/
+        );
+
+        const mixedEditFixture = await makeMixedEditBookingFixture(db);
+        const [mixedAdjustment, mixedCreditNote] = await Promise.all([
+          db.invoice.findUniqueOrThrow({
+            where: { id: mixedEditFixture.adjustmentInvoiceId },
+            include: { paymentAllocations: true },
+          }),
+          db.invoice.findUniqueOrThrow({
+            where: { id: mixedEditFixture.creditNoteInvoiceId },
+            include: { documentApplicationsAsSource: true },
+          }),
+        ]);
+        assert.equal(mixedAdjustment.invoiceType, InvoiceType.ADJUSTMENT);
+        assert.equal(mixedAdjustment.parentInvoiceId, mixedEditFixture.finalInvoiceId);
+        assert.equal(mixedAdjustment.totalAmount.toFixed(3), "15.000");
+        assert.equal(mixedAdjustment.paymentAllocations.length, 0);
+        assert.equal(mixedCreditNote.invoiceType, InvoiceType.CREDIT_NOTE);
+        assert.equal(mixedCreditNote.parentInvoiceId, mixedEditFixture.finalInvoiceId);
+        assert.equal(mixedCreditNote.totalAmount.toFixed(3), "10.000");
+        assert.equal(mixedCreditNote.documentApplicationsAsSource.length, 1);
+        assert.equal(
+          mixedCreditNote.documentApplicationsAsSource[0]?.targetInvoiceId,
+          mixedEditFixture.finalInvoiceId
+        );
+        const mixedActivities = await db.orderActivity.findMany({
+          where: {
+            orderId: mixedAdjustment.orderId ?? "",
+            OR: [
+              { title: "Auto-adjustment issued" },
+              { title: "Classifier reduction credit note issued" },
+            ],
+          },
+          select: { title: true, description: true },
+        });
+        assert.ok(
+          mixedActivities.some(
+            (activity) =>
+              activity.title === "Auto-adjustment issued" &&
+              activity.description?.includes(mixedCreditNote.invoiceNumber)
+          )
+        );
+        assert.ok(
+          mixedActivities.some(
+            (activity) =>
+              activity.title === "Classifier reduction credit note issued" &&
+              activity.description?.includes(mixedAdjustment.invoiceNumber)
+          )
         );
 
         const fixture = await makeCashDepositBookingFixture(db);

@@ -739,3 +739,62 @@ registerInvariant({
       }));
   },
 });
+
+registerInvariant({
+  name: "classifier-reductions-have-matching-credit-note",
+  scope: "global",
+  run: async ({ tx }) => {
+    const classifierCreditNotes = await tx.invoice.findMany({
+      where: {
+        invoiceType: InvoiceType.CREDIT_NOTE,
+        notes: { startsWith: "Auto-CREDIT_NOTE from order edit" },
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        orderId: true,
+        parentInvoiceId: true,
+        documentApplicationsAsSource: {
+          select: { targetInvoiceId: true },
+        },
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const invoice of classifierCreditNotes) {
+      const hasFinalApplication = invoice.documentApplicationsAsSource.some(
+        (application) => application.targetInvoiceId === invoice.parentInvoiceId
+      );
+      const sourceActivity = invoice.orderId
+        ? await tx.orderActivity.findFirst({
+            where: {
+              orderId: invoice.orderId,
+              title: "Classifier reduction credit note issued",
+              metadata: {
+                path: ["creditNoteInvoiceId"],
+                equals: invoice.id,
+              },
+            },
+            select: { id: true },
+          })
+        : null;
+
+      if (hasFinalApplication && sourceActivity) {
+        continue;
+      }
+
+      violations.push({
+        invariant: "classifier-reductions-have-matching-credit-note",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected:
+          "classifier CREDIT_NOTE has DocumentApplication to FINAL and source activity",
+        actual: `application=${hasFinalApplication}, activity=${Boolean(
+          sourceActivity
+        )}, invoice=${invoice.invoiceNumber}`,
+      });
+    }
+
+    return violations;
+  },
+});

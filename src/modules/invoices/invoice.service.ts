@@ -16,7 +16,7 @@ import { dualRead, LockedInvoiceEditError } from "@/modules/financial/dual-read"
 import {
   BlockedEditError,
   classifyEditDelta,
-  ReductionRequiresCreditNoteError,
+  PendingCreditNoteApprovalError,
 } from "@/modules/financial/edit-classifier";
 import { FINANCIAL_REARCH_PHASE_2_AUTO_ADJUSTMENT } from "@/modules/financial/feature-flags";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
@@ -53,6 +53,8 @@ export interface OrderInvoiceSyncInput {
   previousSelectedPhotoCount?: number | null;
   previousIncludedPhotoCount?: number | null;
   previousExtraPhotoCharge?: Prisma.Decimal;
+  managerApprovedReductionByUserId?: string;
+  managerApprovedReason?: string;
 }
 
 export interface OrderInvoiceSyncSummary {
@@ -326,25 +328,6 @@ export async function syncOrderInvoiceForFinancialEdit(
           throw new BlockedEditError(result.blocked);
         }
 
-        if (result.creditNoteRequired.length > 0) {
-          await recordOrderActivity(client, {
-            orderId: order.id,
-            userId: null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: "Edit blocked — requires credit note",
-            description:
-              "Edit blocked — requires credit note (Phase 3 not yet available).",
-            metadata: {
-              creditNoteRequired: result.creditNoteRequired.map((requirement) => ({
-                reason: requirement.reason,
-                amount: requirement.amount.toFixed(3),
-                lineName: requirement.lineSnapshot.name,
-              })),
-            },
-          });
-          throw new ReductionRequiresCreditNoteError(result.creditNoteRequired);
-        }
-
         if (result.netZero && result.adjustmentLines.length === 0) {
           await recordOrderActivity(client, {
             orderId: order.id,
@@ -371,25 +354,87 @@ export async function syncOrderInvoiceForFinancialEdit(
           });
         }
 
+        let creditNoteInvoice: Invoice | null = null;
+        let adjustmentInvoice: Invoice | null = null;
+        if (result.creditNoteRequired.length > 0) {
+          if (!input.managerApprovedReductionByUserId) {
+            throw new PendingCreditNoteApprovalError(
+              result.creditNoteRequired,
+              result.adjustmentLines
+            );
+          }
+
+          const creditReason =
+            input.managerApprovedReason?.trim() || "Reduction from order edit";
+          creditNoteInvoice = await createCreditNote(
+            {
+              targetFinalInvoiceId: existingInvoice.id,
+              lines: result.creditNoteRequired.map((requirement) => ({
+                description: `Reduction: ${requirement.lineSnapshot.name}`,
+                quantity: 1,
+                unitPrice: requirement.amount,
+              })),
+              reason: creditReason,
+              notes: `Auto-CREDIT_NOTE from order edit on ${new Date().toISOString()}`,
+              createdByUserId: input.managerApprovedReductionByUserId,
+            },
+            client
+          );
+        }
+
         if (result.adjustmentLines.length > 0) {
-          const adjustmentInvoice = await createAdjustmentInvoice(
+          adjustmentInvoice = await createAdjustmentInvoice(
             {
               parentFinalInvoiceId: existingInvoice.id,
               lines: result.adjustmentLines,
               notes: `Auto-ADJUSTMENT from order edit on ${new Date().toISOString()}`,
+              createdByUserId: input.managerApprovedReductionByUserId,
             },
             client
           );
+        }
+
+        if (creditNoteInvoice) {
           await recordOrderActivity(client, {
             orderId: order.id,
-            userId: null,
+            userId: input.managerApprovedReductionByUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Classifier reduction credit note issued",
+            description: adjustmentInvoice
+              ? `Credit note issued: ${creditNoteInvoice.invoiceNumber} for ${formatMoney(creditNoteInvoice.totalAmount)} (paired with ${adjustmentInvoice.invoiceNumber}).`
+              : `Credit note issued: ${creditNoteInvoice.invoiceNumber} for ${formatMoney(creditNoteInvoice.totalAmount)}.`,
+            metadata: {
+              parentInvoiceId: existingInvoice.id,
+              creditNoteInvoiceId: creditNoteInvoice.id,
+              creditNoteInvoiceNumber: creditNoteInvoice.invoiceNumber,
+              pairedAdjustmentInvoiceId: adjustmentInvoice?.id ?? null,
+              pairedAdjustmentInvoiceNumber: adjustmentInvoice?.invoiceNumber ?? null,
+              totalAmount: creditNoteInvoice.totalAmount.toFixed(3),
+              pairedWithAdjustment: Boolean(adjustmentInvoice),
+              reductions: result.creditNoteRequired.map((requirement) => ({
+                reason: requirement.reason,
+                amount: requirement.amount.toFixed(3),
+                lineName: requirement.lineSnapshot.name,
+              })),
+            },
+          });
+        }
+
+        if (adjustmentInvoice) {
+          await recordOrderActivity(client, {
+            orderId: order.id,
+            userId: input.managerApprovedReductionByUserId ?? null,
             type: OrderActivityType.INVOICE_ADJUSTED,
             title: "Auto-adjustment issued",
-            description: `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)}.`,
+            description: creditNoteInvoice
+              ? `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)} (paired with ${creditNoteInvoice.invoiceNumber}).`
+              : `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)}.`,
             metadata: {
               parentInvoiceId: existingInvoice.id,
               adjustmentInvoiceId: adjustmentInvoice.id,
               adjustmentInvoiceNumber: adjustmentInvoice.invoiceNumber,
+              pairedCreditNoteInvoiceId: creditNoteInvoice?.id ?? null,
+              pairedCreditNoteInvoiceNumber: creditNoteInvoice?.invoiceNumber ?? null,
               totalAmount: adjustmentInvoice.totalAmount.toFixed(3),
               lines: result.adjustmentLines.map((line) => ({
                 description: line.description,

@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CreditNoteApprovalFields } from "@/components/orders/credit-note-approval-fields";
 import {
   Dialog,
   DialogContent,
@@ -80,7 +81,6 @@ export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
                 label={action.label}
                 category={action.category}
                 options={workspace.productOptions}
-                locked={locked}
               />
             ))}
           </div>
@@ -106,7 +106,6 @@ export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
                   addOn={workspace.addOns.find((current) => current.productId === item.id)}
                   added={addedProductIds.has(item.id)}
                   count={addOnCountsByProductId.get(item.id) ?? 0}
-                  locked={locked}
                 />
               ))}
             </div>
@@ -119,7 +118,6 @@ export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
           <CurrentAddOns
             orderId={workspace.orderId}
             addOns={workspace.addOns}
-            locked={locked}
           />
         </CardContent>
       </Card>
@@ -132,13 +130,11 @@ function QuickAddDialog({
   label,
   category,
   options,
-  locked,
 }: {
   orderId: string;
   label: string;
   category: string;
   options: POSProductOption[];
-  locked: boolean;
 }) {
   const categoryOptions = useMemo(
     () => options.filter((option) => option.category === category),
@@ -149,7 +145,7 @@ function QuickAddDialog({
     addOrderProductAddOnAction.bind(null, orderId),
     {}
   );
-  const disabled = locked || categoryOptions.length === 0;
+  const disabled = categoryOptions.length === 0;
 
   return (
     <Dialog>
@@ -200,14 +196,12 @@ function CatalogCard({
   addOn,
   added,
   count,
-  locked,
 }: {
   orderId: string;
   item: POSAddOnCatalogItem;
   addOn?: POSAddOn;
   added: boolean;
   count: number;
-  locked: boolean;
 }) {
   const [addState, addAction] = useActionState<POSCompositionActionState, FormData>(
     addOrderProductAddOnAction.bind(null, orderId),
@@ -235,13 +229,14 @@ function CatalogCard({
       <div className="mt-4 space-y-2">
         <form action={addAction} className="space-y-2">
           <input type="hidden" name="productId" value={item.id} />
-          <SubmitButton label={added ? "Add Another" : "Add"} disabled={locked} />
+          <SubmitButton label={added ? "Add Another" : "Add"} />
           <GlobalError messages={addState.errors?._global} />
         </form>
         {added && addOn ? (
         <form action={removeAction} className="space-y-2">
           <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
-          <SubmitButton label="Remove One" disabled={locked} variant="ghost" icon="trash" />
+          <SubmitButton label="Remove One" variant="ghost" icon="trash" />
+          <CreditNoteApprovalFields approval={removeState.pendingCreditNoteApproval} />
           <GlobalError messages={removeState.errors?._global} />
         </form>
         ) : null}
@@ -253,11 +248,9 @@ function CatalogCard({
 function CurrentAddOns({
   orderId,
   addOns,
-  locked,
 }: {
   orderId: string;
   addOns: POSAddOn[];
-  locked: boolean;
 }) {
   return (
     <div className="space-y-3 border-t border-border pt-4">
@@ -269,7 +262,6 @@ function CurrentAddOns({
               key={addOn.id}
               orderId={orderId}
               addOn={addOn}
-              locked={locked}
             />
           ))}
         </div>
@@ -285,11 +277,9 @@ function CurrentAddOns({
 function CurrentAddOnRow({
   orderId,
   addOn,
-  locked,
 }: {
   orderId: string;
   addOn: POSAddOn;
-  locked: boolean;
 }) {
   const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
     removeOrderAddOnAction.bind(null, orderId),
@@ -304,9 +294,10 @@ function CurrentAddOnRow({
       </div>
       <div className="flex items-center gap-2">
         <span className="font-medium tabular-nums text-text-primary">{addOn.priceLabel}</span>
-        <form action={formAction}>
+        <form action={formAction} className="space-y-2">
           <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
-          <SubmitIconButton disabled={locked} />
+          <SubmitIconButton />
+          <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
         </form>
       </div>
     </div>
@@ -319,7 +310,7 @@ function LockedNotice({ locked }: { locked: boolean }) {
   return (
     <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
       <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-      Invoice is locked. Add-on changes require the future adjustment flow.
+      Invoice is locked. Additions issue adjustments; removals require manager confirmation for a credit note.
     </div>
   );
 }
