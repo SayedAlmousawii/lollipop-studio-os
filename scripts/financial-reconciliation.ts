@@ -4,6 +4,15 @@ import process from "node:process";
 import { db } from "@/lib/db";
 import { runAllInvariants } from "@/modules/financial/invariants";
 
+const SLACK_WEBHOOK_ATTEMPTS = 3;
+const SLACK_WEBHOOK_TIMEOUT_MS = 10_000;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 async function postToSlackIfConfigured(message: string): Promise<void> {
   const webhook = process.env.FINANCIAL_RECON_SLACK_WEBHOOK;
   if (!webhook) {
@@ -11,19 +20,45 @@ async function postToSlackIfConfigured(message: string): Promise<void> {
   }
 
   const channel = process.env.FINANCIAL_RECON_SLACK_CHANNEL;
-  const response = await fetch(webhook, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      text: message,
-      ...(channel ? { channel } : {}),
-    }),
-  });
+  for (let attempt = 1; attempt <= SLACK_WEBHOOK_ATTEMPTS; attempt++) {
+    try {
+      const response = await fetch(webhook, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          text: message,
+          ...(channel ? { channel } : {}),
+        }),
+        signal: AbortSignal.timeout(SLACK_WEBHOOK_TIMEOUT_MS),
+      });
 
-  if (!response.ok) {
-    throw new Error(`Slack webhook failed with status ${response.status}`);
+      if (response.ok) {
+        return;
+      }
+
+      const body = await response.text();
+      const retryable = response.status >= 500 && response.status < 600;
+      console.error(
+        `Slack webhook failed: status=${response.status} attempt=${attempt}/${SLACK_WEBHOOK_ATTEMPTS} body=${body}`
+      );
+
+      if (!retryable || attempt === SLACK_WEBHOOK_ATTEMPTS) {
+        return;
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(
+        `Slack webhook failed: status=network-error attempt=${attempt}/${SLACK_WEBHOOK_ATTEMPTS} error=${detail}`
+      );
+
+      if (attempt === SLACK_WEBHOOK_ATTEMPTS) {
+        return;
+      }
+    }
+
+    await wait(100 * 2 ** (attempt - 1));
   }
 }
 
@@ -35,7 +70,8 @@ async function main() {
       const message = `Financial invariant violations detected (${violations.length})`;
       await postToSlackIfConfigured(message);
       console.error("Financial invariant violations:", violations);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     console.log("Financial invariants: OK");

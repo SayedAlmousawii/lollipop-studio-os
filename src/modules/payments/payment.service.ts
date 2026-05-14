@@ -4,7 +4,7 @@ import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
-import type { Money, PaymentDirection } from "@/modules/financial/types";
+import type { FinancialPaymentDirection, Money } from "@/modules/financial/types";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recalculateInvoiceStatus } from "@/modules/invoices/invoice.service";
@@ -23,7 +23,7 @@ export type CreatePaymentInput = {
   amount: Money;
   method: PaymentMethod;
   paymentType: PaymentType;
-  direction?: PaymentDirection;
+  direction?: FinancialPaymentDirection;
   paidAt?: Date;
   reference?: string;
   notes?: string;
@@ -139,15 +139,34 @@ export async function recordPaymentWithClient(
 ): Promise<{ id: string }> {
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
-    include: { payments: { select: { amount: true } } },
+    include: {
+      payments: { select: { amount: true } },
+      paymentAllocations: { select: { amount: true } },
+      documentApplicationsAsTarget: { select: { amountApplied: true } },
+    },
   });
   if (!invoice) throw new Error("Invoice not found");
 
-  const paidAmount = invoice.payments.reduce(
+  const directPaidAmount = invoice.payments.reduce(
     (sum, payment) => sum.plus(payment.amount),
     new Prisma.Decimal(0)
   );
-  const remainingAmount = Prisma.Decimal.max(invoice.totalAmount.minus(paidAmount), 0);
+  const allocatedPaymentAmount = invoice.paymentAllocations.reduce(
+    (sum, allocation) => sum.plus(allocation.amount),
+    new Prisma.Decimal(0)
+  );
+  const appliedDocumentAmount = invoice.documentApplicationsAsTarget.reduce(
+    (sum, application) => sum.plus(application.amountApplied),
+    new Prisma.Decimal(0)
+  );
+  const totalAppliedAndPaid = (invoice.paymentAllocations.length > 0
+    ? allocatedPaymentAmount
+    : directPaidAmount
+  ).plus(appliedDocumentAmount);
+  const remainingAmount = Prisma.Decimal.max(
+    invoice.totalAmount.minus(totalAppliedAndPaid),
+    0
+  );
   const paymentAmount = new Prisma.Decimal(data.amount);
   if (remainingAmount.lessThanOrEqualTo(0)) {
     throw new Error("No outstanding balance remains on this invoice");

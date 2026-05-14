@@ -192,6 +192,11 @@ export async function createInvoiceForOrderWithClient(
   }
 
   await applyDepositToFinalIfPresent(financialCaseId, invoice.id, client);
+  await recalculateInvoiceStatus(invoice.id, client);
+  invoice = await client.invoice.findUniqueOrThrow({
+    where: { id: invoice.id },
+    select: { id: true, status: true },
+  });
 
   await recordOrderActivity(client, {
     orderId: order.id,
@@ -824,6 +829,19 @@ export async function applyDepositToFinalIfPresent(
   });
 
   if (!depositInvoice || depositInvoice.paidAmount.lessThanOrEqualTo(0)) {
+    return;
+  }
+
+  const existingApplication = await client.documentApplication.findUnique({
+    where: {
+      sourceInvoiceId_targetInvoiceId: {
+        sourceInvoiceId: depositInvoice.id,
+        targetInvoiceId: finalInvoiceId,
+      },
+    },
+    select: { id: true },
+  });
+  if (existingApplication) {
     return;
   }
 

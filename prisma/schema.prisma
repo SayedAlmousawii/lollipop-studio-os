@@ -762,6 +762,7 @@ model PaymentAllocation {
   payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   invoice Invoice @relation(fields: [invoiceId], references: [id])
 
+  @@unique([paymentId])
   @@index([paymentId])
   @@index([invoiceId])
   @@map("payment_allocations")

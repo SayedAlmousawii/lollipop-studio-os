@@ -9,7 +9,6 @@ export type FinancialInvoiceType =
   | "CREDIT_NOTE"
   | "SALE";
 export type FinancialPaymentDirection = "IN" | "OUT";
-export type PaymentDirection = FinancialPaymentDirection;
 
 type FinancialInvoiceBase = {
   financialCaseId: string;
@@ -21,32 +20,32 @@ type FinancialInvoiceBase = {
 
 export type DepositInvoiceShape = FinancialInvoiceBase & {
   invoiceType: "DEPOSIT";
-  bookingId: string;
-  orderId?: null;
-  parentInvoiceId?: null;
+  bookingId?: string | null;
+  orderId?: never;
+  parentInvoiceId?: never;
 };
 
 export type FinalInvoiceShape = FinancialInvoiceBase & {
   invoiceType: "FINAL";
-  bookingId: string;
-  orderId: string;
-  parentInvoiceId?: null;
+  bookingId?: string | null;
+  orderId?: string | null;
+  parentInvoiceId?: never;
 };
 
 export type AdjustmentInvoiceShape = FinancialInvoiceBase & {
   invoiceType: "ADJUSTMENT";
-  orderId: string;
-  parentInvoiceId: string;
+  orderId?: string | null;
+  parentInvoiceId?: string | null;
 };
 
 export type RefundInvoiceShape = FinancialInvoiceBase & {
   invoiceType: "REFUND";
-  parentInvoiceId: string;
+  parentInvoiceId?: string | null;
 };
 
 export type CreditNoteInvoiceShape = FinancialInvoiceBase & {
   invoiceType: "CREDIT_NOTE";
-  parentInvoiceId: string;
+  parentInvoiceId?: string | null;
 };
 
 export type SaleInvoiceShape = FinancialInvoiceBase & {

@@ -412,10 +412,12 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const extraPhotoTotalDecimal = new Prisma.Decimal(
     packageLines.reduce((sum, line) => sum + line.extraPhotoTotal, 0)
   );
-  const addOns = mapPOSAddOns(order.orderAddOns);
-  const addOnTotal = sumOrderAddOnRowsDecimal(
-    combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+  const combinedAddOnRows = combineFinancialAddOnRows(
+    order.orderAddOns,
+    order.packageItemUpgrades
   );
+  const addOns = mapPOSAddOns(combinedAddOnRows);
+  const addOnTotal = sumOrderAddOnRowsDecimal(combinedAddOnRows);
   const packageBaseTotal = new Prisma.Decimal(
     packageLines.reduce((sum, line) => sum + line.currentPackage.price, 0)
   );
@@ -3208,6 +3210,7 @@ function combineFinancialAddOnRows(
     quantity: number;
   }>,
   packageItemUpgrades: Array<{
+    id?: string;
     nameSnapshot: string;
     priceSnapshot: Prisma.Decimal;
     quantity: number;
@@ -3216,6 +3219,7 @@ function combineFinancialAddOnRows(
   return [
     ...addOns,
     ...packageItemUpgrades.map((upgrade) => ({
+      ...(upgrade.id ? { id: upgrade.id } : {}),
       productId: null,
       nameSnapshot: upgrade.nameSnapshot,
       priceSnapshot: upgrade.priceSnapshot,
@@ -3324,7 +3328,7 @@ function mapPOSPackageItems(
 
 function mapPOSAddOns(
   rows: Array<{
-    id: string;
+    id?: string;
     productId: string | null;
     nameSnapshot: string;
     priceSnapshot: Prisma.Decimal;
@@ -3333,10 +3337,11 @@ function mapPOSAddOns(
 ): POSAddOn[] {
   return rows.flatMap((row) => {
     const entries: POSAddOn[] = [];
+    const rowId = row.id ?? row.nameSnapshot;
     for (let index = 0; index < row.quantity; index++) {
       entries.push({
-        id: row.quantity === 1 ? row.id : `${row.id}-${index + 1}`,
-        addOnRowId: row.id,
+        id: row.quantity === 1 ? rowId : `${rowId}-${index + 1}`,
+        addOnRowId: rowId,
         productId: row.productId,
         name: row.nameSnapshot,
         price: row.priceSnapshot.toNumber(),

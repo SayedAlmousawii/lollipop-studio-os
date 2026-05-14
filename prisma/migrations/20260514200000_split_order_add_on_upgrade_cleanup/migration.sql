@@ -5,11 +5,22 @@ BEGIN;
 DO $$
 DECLARE
   preflight_count INTEGER;
+  orphaned_upgrade_count INTEGER;
   postflight_count INTEGER;
 BEGIN
   SELECT COUNT(*) INTO preflight_count
   FROM "order_add_ons"
-  WHERE "packageItemId" IS NOT NULL;
+  WHERE "packageItemId" IS NOT NULL
+    AND "orderPackageId" IS NOT NULL;
+
+  SELECT COUNT(*) INTO orphaned_upgrade_count
+  FROM "order_add_ons"
+  WHERE "packageItemId" IS NOT NULL
+    AND "orderPackageId" IS NULL;
+
+  IF orphaned_upgrade_count <> 0 THEN
+    RAISE EXCEPTION 'Cannot backfill order_add_ons packageItemId rows; found % rows with packageItemId set and NULL orderPackageId', orphaned_upgrade_count;
+  END IF;
 
   INSERT INTO "order_package_item_upgrades" (
     "id",
@@ -40,7 +51,8 @@ BEGIN
   ON CONFLICT ("orderId", "orderPackageId", "packageItemId") DO NOTHING;
 
   DELETE FROM "order_add_ons"
-  WHERE "packageItemId" IS NOT NULL;
+  WHERE "packageItemId" IS NOT NULL
+    AND "orderPackageId" IS NOT NULL;
 
   SELECT COUNT(*) INTO postflight_count
   FROM "order_add_ons"

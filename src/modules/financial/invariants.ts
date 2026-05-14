@@ -105,29 +105,25 @@ registerInvariant({
       },
     });
 
-    return payments
-      .filter((payment) => {
-        const allocationTotal = payment.allocations.reduce(
-          (sum, allocation) => sum.plus(allocation.amount),
-          new Prisma.Decimal(0)
-        );
+    const violations: InvariantViolation[] = [];
+    for (const payment of payments) {
+      const allocationTotal = payment.allocations.reduce(
+        (sum, allocation) => sum.plus(allocation.amount),
+        new Prisma.Decimal(0)
+      );
 
-        return !allocationTotal.equals(payment.amount);
-      })
-      .map((payment) => {
-        const allocationTotal = payment.allocations.reduce(
-          (sum, allocation) => sum.plus(allocation.amount),
-          new Prisma.Decimal(0)
-        );
-
-        return {
+      if (!allocationTotal.equals(payment.amount)) {
+        violations.push({
           invariant: "allocation-sum-equals-payment-amount",
           entityType: "Payment",
           entityId: payment.id,
           expected: payment.amount.toFixed(3),
           actual: allocationTotal.toFixed(3),
-        };
-      });
+        });
+      }
+    }
+
+    return violations;
   },
 });
 
