@@ -9,14 +9,17 @@ import {
   PrismaClient,
   ProductCategory,
   OrderStatus,
+  UserRole,
 } from "@prisma/client";
 import {
   applyDepositToFinalIfPresent,
   createAdjustmentInvoice,
+  createCreditNote,
   recalculateInvoiceStatus,
   syncOrderInvoiceForFinancialEdit,
 } from "../../src/modules/invoices/invoice.service";
 import { createPaymentWithAllocation } from "../../src/modules/payments/payment.service";
+import { issueRefundWithPayment } from "../../src/modules/refunds/refund.service";
 
 export type BookingFixtureResult = {
   customerId: string;
@@ -32,6 +35,19 @@ export type AdjustedBookingFixtureResult = BookingFixtureResult & {
   finalInvoiceId: string;
   finalPaymentId: string;
   adjustmentInvoiceId: string;
+};
+
+export type RefundedBookingFixtureResult = AdjustedBookingFixtureResult & {
+  refundInvoiceId: string;
+  refundPaymentId: string;
+};
+
+export type CreditNotedBookingFixtureResult = AdjustedBookingFixtureResult & {
+  creditNoteInvoiceId: string;
+};
+
+export type MixedEditBookingFixtureResult = AdjustedBookingFixtureResult & {
+  creditNoteInvoiceId: string;
 };
 
 const FIXTURE_KEYS = {
@@ -73,6 +89,35 @@ const AUTO_ADJUSTED_FIXTURE_KEYS = {
   packageId: "pkg-fin-75b-base",
   orderPublicId: "ORD-FIN-75B-AUTO-ADJ",
   addOnProductId: "prod-fin-75b-addon",
+} as const;
+
+const REFUNDED_FIXTURE_KEYS = {
+  refundReason: "Feature 76a partial refund",
+  managerEmail: "financial-refund-manager@example.com",
+} as const;
+
+const CREDIT_NOTED_FIXTURE_KEYS = {
+  creditReason: "Feature 76b partial credit note",
+  managerEmail: "financial-credit-note-manager@example.com",
+} as const;
+
+const MIXED_EDIT_FIXTURE_KEYS = {
+  departmentCode: "FIN_FIXTURE_DEPT_76C",
+  customerPhone: "+96550007630",
+  jobNumber: "JOB-FIN-76C-MIXED",
+  bookingPublicId: "BK-FIN-76C-MIXED",
+  invoicePublicId: "INV-FIN-76C-DEP",
+  invoiceNumber: "DEP-FIN-76C-0001",
+  finalInvoicePublicId: "INV-FIN-76C-FINAL",
+  finalInvoiceNumber: "INV-FIN-76C-0002",
+  adjustmentNotes: "Feature 76c mixed edit",
+  sessionTypeCode: "FIN_FIXTURE_SESSION_76C",
+  packageFamilyCode: "FIN_FIXTURE_FAMILY_76C",
+  packageId: "pkg-fin-76c-base",
+  orderPublicId: "ORD-FIN-76C-MIXED",
+  oldAddOnProductId: "prod-fin-76c-old-addon",
+  newAddOnProductId: "prod-fin-76c-new-addon",
+  managerEmail: "financial-mixed-edit-manager@example.com",
 } as const;
 
 type FixtureKeys = {
@@ -669,8 +714,487 @@ export async function makeAutoAdjustedBookingFixture(
   };
 }
 
+export async function makeRefundedBookingFixture(
+  prisma: PrismaClient
+): Promise<RefundedBookingFixtureResult> {
+  const adjusted = await makeAdjustedBookingFixture(prisma);
+  const manager = await prisma.user.upsert({
+    where: { email: REFUNDED_FIXTURE_KEYS.managerEmail },
+    update: {
+      name: "Financial Refund Manager",
+      role: UserRole.MANAGER,
+      active: true,
+    },
+    create: {
+      name: "Financial Refund Manager",
+      email: REFUNDED_FIXTURE_KEYS.managerEmail,
+      role: UserRole.MANAGER,
+      active: true,
+    },
+  });
+
+  const existingRefund = await prisma.invoice.findFirst({
+    where: {
+      invoiceType: InvoiceType.REFUND,
+      parentInvoiceId: adjusted.finalInvoiceId,
+      notes: REFUNDED_FIXTURE_KEYS.refundReason,
+    },
+    select: {
+      id: true,
+      payments: {
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+      },
+    },
+  });
+  if (existingRefund?.payments[0]) {
+    return {
+      ...adjusted,
+      refundInvoiceId: existingRefund.id,
+      refundPaymentId: existingRefund.payments[0].id,
+    };
+  }
+
+  const refund = await issueRefundWithPayment(
+    {
+      sourceInvoiceId: adjusted.finalInvoiceId,
+      amount: new Prisma.Decimal(10),
+      reason: REFUNDED_FIXTURE_KEYS.refundReason,
+      notes: REFUNDED_FIXTURE_KEYS.refundReason,
+      createdByUserId: manager.id,
+      method: PaymentMethod.CASH,
+      refundOfPaymentId: adjusted.finalPaymentId,
+      paidAt: new Date("2026-05-14T11:00:00.000Z"),
+    },
+    prisma
+  );
+
+  return {
+    ...adjusted,
+    refundInvoiceId: refund.refundInvoiceId,
+    refundPaymentId: refund.refundPaymentId,
+  };
+}
+
+export async function makeCreditNotedBookingFixture(
+  prisma: PrismaClient
+): Promise<CreditNotedBookingFixtureResult> {
+  const adjusted = await makeAdjustedBookingFixture(prisma);
+  const manager = await prisma.user.upsert({
+    where: { email: CREDIT_NOTED_FIXTURE_KEYS.managerEmail },
+    update: {
+      name: "Financial Credit Note Manager",
+      role: UserRole.MANAGER,
+      active: true,
+    },
+    create: {
+      name: "Financial Credit Note Manager",
+      email: CREDIT_NOTED_FIXTURE_KEYS.managerEmail,
+      role: UserRole.MANAGER,
+      active: true,
+    },
+  });
+
+  const existingCreditNote = await prisma.invoice.findFirst({
+    where: {
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      parentInvoiceId: adjusted.finalInvoiceId,
+      notes: CREDIT_NOTED_FIXTURE_KEYS.creditReason,
+    },
+    select: { id: true },
+  });
+  if (existingCreditNote) {
+    return {
+      ...adjusted,
+      creditNoteInvoiceId: existingCreditNote.id,
+    };
+  }
+
+  const creditNote = await createCreditNote(
+    {
+      targetFinalInvoiceId: adjusted.finalInvoiceId,
+      reason: CREDIT_NOTED_FIXTURE_KEYS.creditReason,
+      notes: CREDIT_NOTED_FIXTURE_KEYS.creditReason,
+      createdByUserId: manager.id,
+      lines: [
+        {
+          description: "Fixture reduction after final lock",
+          quantity: 1,
+          unitPrice: new Prisma.Decimal(20),
+        },
+      ],
+    },
+    prisma
+  );
+
+  return {
+    ...adjusted,
+    creditNoteInvoiceId: creditNote.id,
+  };
+}
+
+export async function makeMixedEditBookingFixture(
+  prisma: PrismaClient
+): Promise<MixedEditBookingFixtureResult> {
+  const base = await makeCashDepositBookingFixture(
+    prisma,
+    MIXED_EDIT_FIXTURE_KEYS
+  );
+  const manager = await prisma.user.upsert({
+    where: { email: MIXED_EDIT_FIXTURE_KEYS.managerEmail },
+    update: {
+      name: "Financial Mixed Edit Manager",
+      role: UserRole.MANAGER,
+      active: true,
+    },
+    create: {
+      name: "Financial Mixed Edit Manager",
+      email: MIXED_EDIT_FIXTURE_KEYS.managerEmail,
+      role: UserRole.MANAGER,
+      active: true,
+    },
+  });
+  const sessionType = await prisma.sessionType.upsert({
+    where: { code: MIXED_EDIT_FIXTURE_KEYS.sessionTypeCode },
+    update: {
+      name: "Financial Mixed Edit Session",
+      departmentId: base.departmentId,
+      isActive: true,
+    },
+    create: {
+      code: MIXED_EDIT_FIXTURE_KEYS.sessionTypeCode,
+      name: "Financial Mixed Edit Session",
+      departmentId: base.departmentId,
+      isActive: true,
+    },
+  });
+  const packageFamily = await prisma.packageFamily.upsert({
+    where: { code: MIXED_EDIT_FIXTURE_KEYS.packageFamilyCode },
+    update: {
+      name: "Financial Mixed Edit Family",
+      sessionTypeId: sessionType.id,
+      isActive: true,
+    },
+    create: {
+      code: MIXED_EDIT_FIXTURE_KEYS.packageFamilyCode,
+      name: "Financial Mixed Edit Family",
+      sessionTypeId: sessionType.id,
+      isActive: true,
+    },
+  });
+  const packageRow = await prisma.package.upsert({
+    where: { id: MIXED_EDIT_FIXTURE_KEYS.packageId },
+    update: {
+      name: "Mixed Edit Base Package",
+      price: new Prisma.Decimal(100),
+      photoCount: 10,
+      packageFamilyId: packageFamily.id,
+      isActive: true,
+    },
+    create: {
+      id: MIXED_EDIT_FIXTURE_KEYS.packageId,
+      name: "Mixed Edit Base Package",
+      price: new Prisma.Decimal(100),
+      photoCount: 10,
+      durationMinutes: 60,
+      packageFamilyId: packageFamily.id,
+      isActive: true,
+    },
+  });
+  const [oldAddOnProduct, newAddOnProduct] = await Promise.all([
+    prisma.product.upsert({
+      where: { id: MIXED_EDIT_FIXTURE_KEYS.oldAddOnProductId },
+      update: {
+        name: "Mixed edit removed add-on",
+        category: ProductCategory.OTHER,
+        canonicalPrice: new Prisma.Decimal(10),
+        isActive: true,
+        isAddOn: true,
+      },
+      create: {
+        id: MIXED_EDIT_FIXTURE_KEYS.oldAddOnProductId,
+        name: "Mixed edit removed add-on",
+        category: ProductCategory.OTHER,
+        canonicalPrice: new Prisma.Decimal(10),
+        isActive: true,
+        isAddOn: true,
+      },
+    }),
+    prisma.product.upsert({
+      where: { id: MIXED_EDIT_FIXTURE_KEYS.newAddOnProductId },
+      update: {
+        name: "Mixed edit added add-on",
+        category: ProductCategory.OTHER,
+        canonicalPrice: new Prisma.Decimal(15),
+        isActive: true,
+        isAddOn: true,
+      },
+      create: {
+        id: MIXED_EDIT_FIXTURE_KEYS.newAddOnProductId,
+        name: "Mixed edit added add-on",
+        category: ProductCategory.OTHER,
+        canonicalPrice: new Prisma.Decimal(15),
+        isActive: true,
+        isAddOn: true,
+      },
+    }),
+  ]);
+  const order = await prisma.order.upsert({
+    where: { bookingId: base.bookingId },
+    update: {
+      publicId: MIXED_EDIT_FIXTURE_KEYS.orderPublicId,
+      jobNumber: MIXED_EDIT_FIXTURE_KEYS.jobNumber,
+      jobId: base.jobId,
+      customerId: base.customerId,
+      status: OrderStatus.ACTIVE,
+    },
+    create: {
+      publicId: MIXED_EDIT_FIXTURE_KEYS.orderPublicId,
+      jobNumber: MIXED_EDIT_FIXTURE_KEYS.jobNumber,
+      jobId: base.jobId,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      status: OrderStatus.ACTIVE,
+    },
+  });
+  const orderPackage = await prisma.orderPackage.upsert({
+    where: { id: "opkg-fin-76c-base" },
+    update: {
+      orderId: order.id,
+      packageId: packageRow.id,
+      sessionTypeId: sessionType.id,
+      originalPackagePriceSnapshot: packageRow.price,
+      finalPackagePriceSnapshot: packageRow.price,
+      selectedPhotoCount: packageRow.photoCount,
+    },
+    create: {
+      id: "opkg-fin-76c-base",
+      orderId: order.id,
+      packageId: packageRow.id,
+      sessionTypeId: sessionType.id,
+      originalPackagePriceSnapshot: packageRow.price,
+      finalPackagePriceSnapshot: packageRow.price,
+      selectedPhotoCount: packageRow.photoCount,
+    },
+  });
+
+  const finalInvoice = await prisma.invoice.upsert({
+    where: { publicId: MIXED_EDIT_FIXTURE_KEYS.finalInvoicePublicId },
+    update: {
+      financialCaseId: base.financialCaseId,
+      invoiceType: InvoiceType.FINAL,
+      jobId: base.jobId,
+      jobNumber: MIXED_EDIT_FIXTURE_KEYS.jobNumber,
+      orderId: order.id,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      totalAmount: new Prisma.Decimal(110),
+      paidAmount: new Prisma.Decimal(90),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+    },
+    create: {
+      publicId: MIXED_EDIT_FIXTURE_KEYS.finalInvoicePublicId,
+      financialCaseId: base.financialCaseId,
+      invoiceType: InvoiceType.FINAL,
+      jobId: base.jobId,
+      jobNumber: MIXED_EDIT_FIXTURE_KEYS.jobNumber,
+      orderId: order.id,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      invoiceNumber: MIXED_EDIT_FIXTURE_KEYS.finalInvoiceNumber,
+      totalAmount: new Prisma.Decimal(110),
+      paidAmount: new Prisma.Decimal(90),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      issuedAt: new Date("2026-05-14T12:00:00.000Z"),
+      closedAt: new Date("2026-05-14T12:15:00.000Z"),
+    },
+  });
+  await prisma.invoiceLineItem.upsert({
+    where: {
+      invoiceId_sortOrder: {
+        invoiceId: finalInvoice.id,
+        sortOrder: 0,
+      },
+    },
+    update: {
+      lineType: InvoiceLineType.PACKAGE_BASE,
+      description: packageRow.name,
+      quantity: 1,
+      unitPrice: packageRow.price,
+      lineTotal: packageRow.price,
+    },
+    create: {
+      invoiceId: finalInvoice.id,
+      lineType: InvoiceLineType.PACKAGE_BASE,
+      description: packageRow.name,
+      quantity: 1,
+      unitPrice: packageRow.price,
+      lineTotal: packageRow.price,
+      sortOrder: 0,
+    },
+  });
+  await prisma.invoiceLineItem.upsert({
+    where: {
+      invoiceId_sortOrder: {
+        invoiceId: finalInvoice.id,
+        sortOrder: 1,
+      },
+    },
+    update: {
+      lineType: InvoiceLineType.ADD_ON,
+      description: oldAddOnProduct.name,
+      quantity: 1,
+      unitPrice: oldAddOnProduct.canonicalPrice,
+      lineTotal: oldAddOnProduct.canonicalPrice,
+    },
+    create: {
+      invoiceId: finalInvoice.id,
+      lineType: InvoiceLineType.ADD_ON,
+      description: oldAddOnProduct.name,
+      quantity: 1,
+      unitPrice: oldAddOnProduct.canonicalPrice,
+      lineTotal: oldAddOnProduct.canonicalPrice,
+      sortOrder: 1,
+    },
+  });
+
+  await applyDepositToFinalIfPresent(base.financialCaseId, finalInvoice.id, prisma);
+  const existingFinalPayment = await prisma.payment.findFirst({
+    where: {
+      invoiceId: finalInvoice.id,
+      financialCaseId: base.financialCaseId,
+      paymentType: PaymentType.FINAL,
+    },
+    include: { allocations: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const finalPayment = existingFinalPayment
+    ? existingFinalPayment
+    : await createPaymentWithAllocation(
+        {
+          invoiceId: finalInvoice.id,
+          financialCaseId: base.financialCaseId,
+          amount: new Prisma.Decimal(90),
+          method: PaymentMethod.CASH,
+          paymentType: PaymentType.FINAL,
+          paidAt: new Date("2026-05-14T12:10:00.000Z"),
+        },
+        prisma
+      );
+  if (existingFinalPayment && existingFinalPayment.allocations.length === 0) {
+    await prisma.paymentAllocation.create({
+      data: {
+        paymentId: existingFinalPayment.id,
+        invoiceId: finalInvoice.id,
+        amount: existingFinalPayment.amount,
+      },
+    });
+  }
+
+  await recalculateInvoiceStatus(finalInvoice.id, prisma);
+  await prisma.invoice.update({
+    where: { id: finalInvoice.id },
+    data: { status: InvoiceStatus.CLOSED, isLocked: true },
+  });
+
+  const [existingAdjustment, existingCreditNote] = await Promise.all([
+    prisma.invoice.findFirst({
+      where: {
+        invoiceType: InvoiceType.ADJUSTMENT,
+        parentInvoiceId: finalInvoice.id,
+        notes: { startsWith: "Auto-ADJUSTMENT from order edit" },
+      },
+      select: { id: true },
+    }),
+    prisma.invoice.findFirst({
+      where: {
+        invoiceType: InvoiceType.CREDIT_NOTE,
+        parentInvoiceId: finalInvoice.id,
+        notes: { startsWith: "Auto-CREDIT_NOTE from order edit" },
+      },
+      select: { id: true },
+    }),
+  ]);
+  if (existingAdjustment && existingCreditNote) {
+    return {
+      ...base,
+      finalInvoiceId: finalInvoice.id,
+      finalPaymentId: finalPayment.id,
+      adjustmentInvoiceId: existingAdjustment.id,
+      creditNoteInvoiceId: existingCreditNote.id,
+    };
+  }
+
+  await prisma.orderAddOn.deleteMany({
+    where: {
+      orderId: order.id,
+      productId: {
+        in: [oldAddOnProduct.id, newAddOnProduct.id],
+      },
+    },
+  });
+  await prisma.orderAddOn.create({
+    data: {
+      orderId: order.id,
+      orderPackageId: orderPackage.id,
+      productId: newAddOnProduct.id,
+      nameSnapshot: newAddOnProduct.name,
+      priceSnapshot: newAddOnProduct.canonicalPrice,
+      quantity: 1,
+    },
+  });
+
+  await syncOrderInvoiceForFinancialEdit(prisma, {
+    orderId: order.id,
+    previousAddOns: [
+      {
+        productId: oldAddOnProduct.id,
+        name: oldAddOnProduct.name,
+        price: oldAddOnProduct.canonicalPrice.toNumber(),
+      },
+    ],
+    managerApprovedReductionByUserId: manager.id,
+    managerApprovedReason: "Feature 76c mixed edit approval",
+  });
+
+  const [adjustmentInvoice, creditNoteInvoice] = await Promise.all([
+    prisma.invoice.findFirstOrThrow({
+      where: {
+        invoiceType: InvoiceType.ADJUSTMENT,
+        parentInvoiceId: finalInvoice.id,
+        notes: { startsWith: "Auto-ADJUSTMENT from order edit" },
+      },
+      select: { id: true },
+    }),
+    prisma.invoice.findFirstOrThrow({
+      where: {
+        invoiceType: InvoiceType.CREDIT_NOTE,
+        parentInvoiceId: finalInvoice.id,
+        notes: { startsWith: "Auto-CREDIT_NOTE from order edit" },
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  return {
+    ...base,
+    finalInvoiceId: finalInvoice.id,
+    finalPaymentId: finalPayment.id,
+    adjustmentInvoiceId: adjustmentInvoice.id,
+    creditNoteInvoiceId: creditNoteInvoice.id,
+  };
+}
+
 export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void> {
   await makeCashDepositBookingFixture(prisma);
   await makeAdjustedBookingFixture(prisma);
   await makeAutoAdjustedBookingFixture(prisma);
+  await makeRefundedBookingFixture(prisma);
+  await makeCreditNotedBookingFixture(prisma);
+  await makeMixedEditBookingFixture(prisma);
 }

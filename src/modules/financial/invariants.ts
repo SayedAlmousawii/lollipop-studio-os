@@ -193,19 +193,28 @@ registerInvariant({
       select: {
         id: true,
         amountApplied: true,
-        sourceInvoice: { select: { paidAmount: true } },
+        sourceInvoice: { select: { invoiceType: true, paidAmount: true, totalAmount: true } },
       },
     });
 
     return applications
-      .filter((application) =>
-        application.amountApplied.greaterThan(application.sourceInvoice.paidAmount)
-      )
+      .filter((application) => {
+        const sourceCap =
+          application.sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE
+            ? application.sourceInvoice.totalAmount
+            : application.sourceInvoice.paidAmount;
+
+        return application.amountApplied.greaterThan(sourceCap);
+      })
       .map((application) => ({
         invariant: "document-application-not-over-source",
         entityType: "DocumentApplication",
         entityId: application.id,
-        expected: `<= ${application.sourceInvoice.paidAmount.toFixed(3)}`,
+        expected: `<= ${
+          application.sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE
+            ? application.sourceInvoice.totalAmount.toFixed(3)
+            : application.sourceInvoice.paidAmount.toFixed(3)
+        }`,
         actual: application.amountApplied.toFixed(3),
       }));
   },
@@ -462,6 +471,328 @@ registerInvariant({
           actual: `no activity source for ${invoice.invoiceNumber}`,
         });
       }
+    }
+
+    return violations;
+  },
+});
+
+registerInvariant({
+  name: "out-payment-targets-refund-invoice",
+  scope: "global",
+  run: async ({ tx }) => {
+    const payments = await tx.payment.findMany({
+      where: { direction: PaymentDirection.OUT },
+      select: {
+        id: true,
+        invoice: { select: { id: true, invoiceType: true } },
+      },
+    });
+
+    return payments
+      .filter((payment) => payment.invoice.invoiceType !== InvoiceType.REFUND)
+      .map((payment) => ({
+        invariant: "out-payment-targets-refund-invoice",
+        entityType: "Payment",
+        entityId: payment.id,
+        expected: "target invoice type REFUND",
+        actual: `target invoice ${payment.invoice.id} is ${payment.invoice.invoiceType}`,
+      }));
+  },
+});
+
+registerInvariant({
+  name: "refund-amount-not-over-source",
+  scope: "global",
+  run: async ({ tx }) => {
+    const sourceInvoices = await tx.invoice.findMany({
+      where: { adjustments: { some: { invoiceType: InvoiceType.REFUND } } },
+      select: {
+        id: true,
+        paymentAllocations: {
+          where: { payment: { direction: PaymentDirection.IN } },
+          select: { amount: true },
+        },
+        adjustments: {
+          where: { invoiceType: InvoiceType.REFUND },
+          select: { id: true, totalAmount: true },
+        },
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const sourceInvoice of sourceInvoices) {
+      const inboundTotal = sourceInvoice.paymentAllocations.reduce(
+        (sum, allocation) => sum.plus(allocation.amount),
+        new Prisma.Decimal(0)
+      );
+      const refundTotal = sourceInvoice.adjustments.reduce(
+        (sum, refundInvoice) => sum.plus(refundInvoice.totalAmount),
+        new Prisma.Decimal(0)
+      );
+
+      if (refundTotal.lessThanOrEqualTo(inboundTotal)) {
+        continue;
+      }
+
+      for (const refundInvoice of sourceInvoice.adjustments) {
+        violations.push({
+          invariant: "refund-amount-not-over-source",
+          entityType: "Invoice",
+          entityId: refundInvoice.id,
+          expected: `source refund total <= ${inboundTotal.toFixed(3)}`,
+          actual: refundTotal.toFixed(3),
+        });
+      }
+    }
+
+    return violations;
+  },
+});
+
+registerInvariant({
+  name: "refund-trace-points-to-inbound-payment",
+  scope: "global",
+  run: async ({ tx }) => {
+    const payments = await tx.payment.findMany({
+      where: { refundOfPaymentId: { not: null } },
+      select: {
+        id: true,
+        refundOfPayment: { select: { id: true, direction: true } },
+      },
+    });
+
+    return payments
+      .filter(
+        (payment) =>
+          payment.refundOfPayment?.direction !== PaymentDirection.IN
+      )
+      .map((payment) => ({
+        invariant: "refund-trace-points-to-inbound-payment",
+        entityType: "Payment",
+        entityId: payment.id,
+        expected: "refundOfPaymentId references an IN payment",
+        actual: payment.refundOfPayment
+          ? `references ${payment.refundOfPayment.direction} payment ${payment.refundOfPayment.id}`
+          : "no referenced payment",
+      }));
+  },
+});
+
+registerInvariant({
+  name: "refund-source-is-final-or-adjustment",
+  scope: "global",
+  run: async ({ tx }) => {
+    const refundInvoices = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.REFUND },
+      select: {
+        id: true,
+        parentInvoice: { select: { id: true, invoiceType: true } },
+      },
+    });
+
+    return refundInvoices
+      .filter(
+        (invoice) =>
+          invoice.parentInvoice?.invoiceType !== InvoiceType.FINAL &&
+          invoice.parentInvoice?.invoiceType !== InvoiceType.ADJUSTMENT
+      )
+      .map((invoice) => ({
+        invariant: "refund-source-is-final-or-adjustment",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "parentInvoiceId set to FINAL or ADJUSTMENT invoice",
+        actual: invoice.parentInvoice
+          ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
+          : "no parent invoice",
+      }));
+  },
+});
+
+registerInvariant({
+  name: "credit-note-targets-final",
+  scope: "global",
+  run: async ({ tx }) => {
+    const creditNotes = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.CREDIT_NOTE },
+      select: {
+        id: true,
+        parentInvoice: { select: { id: true, invoiceType: true } },
+      },
+    });
+
+    return creditNotes
+      .filter((invoice) => invoice.parentInvoice?.invoiceType !== InvoiceType.FINAL)
+      .map((invoice) => ({
+        invariant: "credit-note-targets-final",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "parentInvoiceId set to FINAL invoice",
+        actual: invoice.parentInvoice
+          ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
+          : "no parent invoice",
+      }));
+  },
+});
+
+registerInvariant({
+  name: "credit-note-has-document-application",
+  scope: "global",
+  run: async ({ tx }) => {
+    const creditNotes = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.CREDIT_NOTE },
+      select: {
+        id: true,
+        parentInvoiceId: true,
+        documentApplicationsAsSource: {
+          select: { id: true, targetInvoiceId: true },
+        },
+      },
+    });
+
+    return creditNotes.flatMap((invoice) => {
+      const matchingApplications = invoice.documentApplicationsAsSource.filter(
+        (application) => application.targetInvoiceId === invoice.parentInvoiceId
+      );
+      if (
+        invoice.documentApplicationsAsSource.length === 1 &&
+        matchingApplications.length === 1
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          invariant: "credit-note-has-document-application",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: "exactly 1 DocumentApplication to parent FINAL",
+          actual: `${invoice.documentApplicationsAsSource.length} source applications, ${matchingApplications.length} to parent`,
+        },
+      ];
+    });
+  },
+});
+
+registerInvariant({
+  name: "credit-note-amount-not-over-final",
+  scope: "global",
+  run: async ({ tx }) => {
+    const finalInvoices = await tx.invoice.findMany({
+      where: {
+        documentApplicationsAsTarget: {
+          some: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
+        },
+      },
+      select: {
+        id: true,
+        totalAmount: true,
+        documentApplicationsAsTarget: {
+          where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
+          select: { amountApplied: true },
+        },
+      },
+    });
+
+    return finalInvoices.flatMap((invoice) => {
+      const creditTotal = invoice.documentApplicationsAsTarget.reduce(
+        (sum, application) => sum.plus(application.amountApplied),
+        new Prisma.Decimal(0)
+      );
+      if (creditTotal.lessThanOrEqualTo(invoice.totalAmount)) {
+        return [];
+      }
+
+      return [
+        {
+          invariant: "credit-note-amount-not-over-final",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: `credit total <= ${invoice.totalAmount.toFixed(3)}`,
+          actual: creditTotal.toFixed(3),
+        },
+      ];
+    });
+  },
+});
+
+registerInvariant({
+  name: "credit-note-is-locked-on-issuance",
+  scope: "global",
+  run: async ({ tx }) => {
+    const creditNotes = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.CREDIT_NOTE },
+      select: { id: true, isLocked: true, status: true },
+    });
+
+    return creditNotes
+      .filter(
+        (invoice) =>
+          !invoice.isLocked || invoice.status !== InvoiceStatus.CLOSED
+      )
+      .map((invoice) => ({
+        invariant: "credit-note-is-locked-on-issuance",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "isLocked=true and status=CLOSED",
+        actual: `isLocked=${invoice.isLocked}, status=${invoice.status}`,
+      }));
+  },
+});
+
+registerInvariant({
+  name: "classifier-reductions-have-matching-credit-note",
+  scope: "global",
+  run: async ({ tx }) => {
+    const classifierCreditNotes = await tx.invoice.findMany({
+      where: {
+        invoiceType: InvoiceType.CREDIT_NOTE,
+        notes: { startsWith: "Auto-CREDIT_NOTE from order edit" },
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        orderId: true,
+        parentInvoiceId: true,
+        documentApplicationsAsSource: {
+          select: { targetInvoiceId: true },
+        },
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const invoice of classifierCreditNotes) {
+      const hasFinalApplication = invoice.documentApplicationsAsSource.some(
+        (application) => application.targetInvoiceId === invoice.parentInvoiceId
+      );
+      const sourceActivity = invoice.orderId
+        ? await tx.orderActivity.findFirst({
+            where: {
+              orderId: invoice.orderId,
+              title: "Classifier reduction credit note issued",
+              metadata: {
+                path: ["creditNoteInvoiceId"],
+                equals: invoice.id,
+              },
+            },
+            select: { id: true },
+          })
+        : null;
+
+      if (hasFinalApplication && sourceActivity) {
+        continue;
+      }
+
+      violations.push({
+        invariant: "classifier-reductions-have-matching-credit-note",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected:
+          "classifier CREDIT_NOTE has DocumentApplication to FINAL and source activity",
+        actual: `application=${hasFinalApplication}, activity=${Boolean(
+          sourceActivity
+        )}, invoice=${invoice.invoiceNumber}`,
+      });
     }
 
     return violations;

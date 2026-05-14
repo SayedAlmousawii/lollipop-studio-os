@@ -10,10 +10,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { PaymentHistoryTable } from "@/components/invoices/payment-history-table";
 import { RecordPaymentForm } from "@/components/invoices/record-payment-form";
+import { getCurrentAppUser } from "@/lib/auth";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
 import {
   closeInvoiceAction,
   createAdjustmentInvoiceAction,
+  issueCreditNoteAction,
+  issueRefundAction,
   issueInvoiceAction,
 } from "../actions";
 
@@ -23,12 +27,36 @@ type InvoiceDetailPageProps = {
 
 export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
   const { id } = await props.params;
-  const invoice = await getInvoiceById(id);
+  const [invoice, appUser] = await Promise.all([
+    getInvoiceById(id),
+    getCurrentAppUser(),
+  ]);
   if (!invoice) notFound();
 
   const createAdjustment = createAdjustmentInvoiceAction.bind(null, invoice.id);
+  const issueCreditNote = issueCreditNoteAction.bind(null, invoice.id);
+  const issueRefund = issueRefundAction.bind(null, invoice.id);
   const issue = issueInvoiceAction.bind(null, invoice.id);
   const close = closeInvoiceAction.bind(null, invoice.id);
+  const canIssueCreditNote =
+    appUser !== null && hasPermission(appUser, PERMISSIONS.CREDIT_NOTE_ISSUE);
+  const canCreditNoteInvoice =
+    canIssueCreditNote &&
+    invoice.isLocked &&
+    invoice.invoiceType === "FINAL" &&
+    invoice.creditNoteCapacity !== null &&
+    moneyInputValue(invoice.creditNoteCapacity) !== "0.000";
+  const canIssueRefund =
+    appUser !== null && hasPermission(appUser, PERMISSIONS.REFUND_ISSUE);
+  const canRefundInvoice =
+    canIssueRefund &&
+    invoice.isLocked &&
+    (invoice.invoiceType === "FINAL" || invoice.invoiceType === "ADJUSTMENT") &&
+    invoice.refundableAmount !== null &&
+    moneyInputValue(invoice.refundableAmount) !== "0.000";
+  const sourcePayments = invoice.payments.filter(
+    (payment) => payment.direction === "IN"
+  );
 
   return (
     <PageContainer>
@@ -56,8 +84,26 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
           <Metric label="Total" value={invoice.totalAmount} />
           <Metric label="Paid" value={invoice.paidAmount} />
           <Metric label="Remaining" value={invoice.remainingAmount} />
-          <Metric label="Locked" value={invoice.isLocked ? "Yes" : "No"} />
+          <Metric
+            label={invoice.isOverpaid ? "Overpaid" : "Locked"}
+            value={
+              invoice.isOverpaid
+                ? invoice.overpaidAmount ?? "0.000 KD"
+                : invoice.isLocked
+                  ? "Yes"
+                  : "No"
+            }
+          />
         </div>
+
+        {invoice.isOverpaid && invoice.overpaidAmount ? (
+          <Card>
+            <CardContent className="pt-6 text-sm text-text-secondary">
+              Credit available: {invoice.overpaidAmount}. Issue a refund when the
+              outbound money movement is ready to record.
+            </CardContent>
+          </Card>
+        ) : null}
 
         {invoice.parentInvoiceId && invoice.parentInvoiceNumber ? (
           <Card>
@@ -119,6 +165,99 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
                       value={item.lineTotal}
                     />
                   ))}
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {canRefundInvoice ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Refund This Invoice</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form action={issueRefund} className="space-y-4">
+                    <Field
+                      label="Refund Amount"
+                      name="amount"
+                      type="number"
+                      step="0.001"
+                      min="0.001"
+                      max={moneyInputValue(invoice.refundableAmount ?? "0.000 KD")}
+                      defaultValue={moneyInputValue(invoice.refundableAmount ?? "0.000 KD")}
+                    />
+                    <div className="space-y-2">
+                      <Label htmlFor="refund-reason">Reason</Label>
+                      <Textarea id="refund-reason" name="reason" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="refund-of-payment">Original Payment</Label>
+                      <select
+                        id="refund-of-payment"
+                        name="refundOfPaymentId"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        defaultValue={sourcePayments[0]?.id ?? ""}
+                      >
+                        <option value="">Unattributed</option>
+                        {sourcePayments.map((payment) => (
+                          <option key={payment.id} value={payment.id}>
+                            {payment.publicId} · {payment.amount} · {payment.method}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="refund-method">Payment Method</Label>
+                      <select
+                        id="refund-method"
+                        name="method"
+                        required
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        defaultValue="CASH"
+                      >
+                        <option value="CASH">CASH</option>
+                        <option value="KNET">KNET</option>
+                        <option value="LINK">LINK</option>
+                      </select>
+                    </div>
+                    <Field label="Reference" name="reference" required={false} />
+                    <Button type="submit" className="w-full">
+                      Issue Refund
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {canCreditNoteInvoice ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Issue Credit Note</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form action={issueCreditNote} className="space-y-4">
+                    <CreditNoteLineFields
+                      index={0}
+                      required
+                      max={moneyInputValue(invoice.creditNoteCapacity ?? "0.000 KD")}
+                    />
+                    <CreditNoteLineFields index={1} />
+                    <CreditNoteLineFields index={2} />
+                    <div className="space-y-2">
+                      <Label htmlFor="credit-note-reason">Reason</Label>
+                      <Textarea id="credit-note-reason" name="reason" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="credit-note-notes">Notes</Label>
+                      <Textarea id="credit-note-notes" name="notes" />
+                    </div>
+                    <div className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
+                      Credit capacity: {invoice.creditNoteCapacity}. The final
+                      invoice receivable updates after issuance.
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Issue Credit Note
+                    </Button>
+                  </form>
                 </CardContent>
               </Card>
             ) : null}
@@ -206,6 +345,47 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
   );
 }
 
+function CreditNoteLineFields({
+  index,
+  required = false,
+  max,
+}: {
+  index: number;
+  required?: boolean;
+  max?: string;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-surface-soft p-3 sm:grid-cols-[minmax(0,1fr)_80px_120px]">
+      <Field
+        id={`creditLineDescription-${index}`}
+        label={index === 0 ? "Description" : `Description ${index + 1}`}
+        name="creditLineDescription"
+        required={required}
+      />
+      <Field
+        id={`creditLineQuantity-${index}`}
+        label="Qty"
+        name="creditLineQuantity"
+        type="number"
+        min="1"
+        step="1"
+        defaultValue={required ? "1" : undefined}
+        required={required}
+      />
+      <Field
+        id={`creditLineUnitPrice-${index}`}
+        label="Unit Price"
+        name="creditLineUnitPrice"
+        type="number"
+        min="0.001"
+        max={max}
+        step="0.001"
+        required={required}
+      />
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <Card>
@@ -261,24 +441,45 @@ function InvoiceLineRow({
 }
 
 function Field({
+  id,
   label,
   name,
   type = "text",
   required = true,
   step,
   min,
+  max,
+  defaultValue,
 }: {
+  id?: string;
   label: string;
   name: string;
   type?: string;
   required?: boolean;
   step?: string;
   min?: string;
+  max?: string;
+  defaultValue?: string;
 }) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} type={type} required={required} step={step} min={min} />
+      <Label htmlFor={id ?? name}>{label}</Label>
+      <Input
+        id={id ?? name}
+        name={name}
+        type={type}
+        required={required}
+        step={step}
+        min={min}
+        max={max}
+        defaultValue={defaultValue}
+      />
     </div>
   );
+}
+
+function moneyInputValue(value: string): string {
+  const match = value.match(/-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/);
+  const parsedValue = Number(match?.[0].replace(/,/g, "") ?? 0);
+  return Number.isFinite(parsedValue) ? parsedValue.toFixed(3) : "0.000";
 }

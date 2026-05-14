@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
+import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import {
   addOrderProductAddOnSchema,
   removeOrderAddOnSchema,
@@ -29,6 +30,14 @@ import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 
 export type POSCompositionActionState = {
   errors?: Partial<Record<string, string[]>>;
+  pendingCreditNoteApproval?: {
+    reductions: Array<{ lineName: string; amount: string; reason: string }>;
+    adjustmentLines: Array<{
+      description: string;
+      quantity: number;
+      unitPrice: string;
+    }>;
+  };
 };
 
 export type POSRecordPaymentActionState = {
@@ -64,11 +73,15 @@ export async function updateOrderPackageAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    await updateOrderPackage(orderId, parsed.data, {
+    const approval = await parseReductionApproval(formData);
+    await updateOrderPackage(orderId, { ...parsed.data, ...approval }, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
+    if (error instanceof PendingCreditNoteApprovalError) {
+      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+    }
     return { errors: { _global: [safePOSActionMessage(error, "Unable to update package")] } };
   }
 
@@ -95,11 +108,15 @@ export async function upgradeOrderPackageItemAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    await upgradeOrderPackageItem(orderId, parsed.data, {
+    const approval = await parseReductionApproval(formData);
+    await upgradeOrderPackageItem(orderId, { ...parsed.data, ...approval }, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
+    if (error instanceof PendingCreditNoteApprovalError) {
+      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+    }
     return {
       errors: {
         _global: [safePOSActionMessage(error, "Unable to upgrade package item")],
@@ -157,11 +174,15 @@ export async function removeOrderAddOnAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    await removeOrderAddOn(orderId, parsed.data, {
+    const approval = await parseReductionApproval(formData);
+    await removeOrderAddOn(orderId, { ...parsed.data, ...approval }, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
+    if (error instanceof PendingCreditNoteApprovalError) {
+      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+    }
     return {
       errors: {
         _global: [safePOSActionMessage(error, "Unable to remove order add-on")],
@@ -193,11 +214,15 @@ export async function updateOrderSelectedPhotoCountAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    await updateOrderSelectedPhotoCount(orderId, parsed.data, {
+    const approval = await parseReductionApproval(formData);
+    await updateOrderSelectedPhotoCount(orderId, { ...parsed.data, ...approval }, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
+    if (error instanceof PendingCreditNoteApprovalError) {
+      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+    }
     return {
       errors: {
         _global: [safePOSActionMessage(error, "Unable to update selected photos")],
@@ -309,6 +334,40 @@ function revalidatePOSPaths(orderId: string): void {
   revalidatePath(`/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}/sales`);
   revalidatePath("/invoices");
+}
+
+async function parseReductionApproval(formData: FormData): Promise<{
+  managerApprovedReductionByUserId?: string;
+  managerApprovedReason?: string;
+}> {
+  const reasonValue = formData.get("managerApprovedReason");
+  if (typeof reasonValue !== "string" || !reasonValue.trim()) {
+    return {};
+  }
+
+  const manager = await requireCurrentAppUserPermission(
+    PERMISSIONS.CREDIT_NOTE_ISSUE
+  );
+
+  return {
+    managerApprovedReductionByUserId: manager.id,
+    managerApprovedReason: reasonValue.trim(),
+  };
+}
+
+function serializePendingCreditNote(error: PendingCreditNoteApprovalError) {
+  return {
+    reductions: error.reductions.map((reduction) => ({
+      lineName: reduction.lineSnapshot.name,
+      amount: reduction.amount.toFixed(3),
+      reason: reduction.reason,
+    })),
+    adjustmentLines: error.adjustmentLines.map((line) => ({
+      description: line.description,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice.toFixed(3),
+    })),
+  };
 }
 
 function revalidatePOSPaymentPaths(orderId: string, invoiceId: string): void {

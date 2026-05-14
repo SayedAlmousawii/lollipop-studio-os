@@ -42,6 +42,10 @@ export interface InvoiceListItem {
 export interface InvoiceDetail extends InvoiceListItem {
   depositInvoiceNumber: string | null;
   depositPaidAmount: string | null;
+  refundableAmount: string | null;
+  creditNoteCapacity: string | null;
+  isOverpaid: boolean;
+  overpaidAmount: string | null;
   lineItemsAreComputed: boolean;
   notes: string;
   parentInvoiceId: string | null;
@@ -56,6 +60,8 @@ export interface InvoiceDetail extends InvoiceListItem {
     paidAt: string;
     reference: string;
     notes: string;
+    direction: "IN" | "OUT";
+    refundOfPaymentId: string | null;
   }>;
   adjustments: Array<{
     id: string;

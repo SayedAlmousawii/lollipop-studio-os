@@ -7,6 +7,35 @@ import {
   ORDER_SELECTION_STATUS_VALUES,
 } from "./order.constants";
 
+const reductionApprovalFields = {
+  managerApprovedReductionByUserId: z.string().trim().min(1).optional(),
+  managerApprovedReason: z.string().trim().min(1, "Reduction reason is required").max(500).optional(),
+};
+
+type ReductionApprovalInput = {
+  managerApprovedReductionByUserId?: string;
+  managerApprovedReason?: string;
+};
+
+function withReductionApprovalFields<T extends z.ZodRawShape>(shape: T) {
+  return z.object({
+    ...shape,
+    ...reductionApprovalFields,
+  }).refine(
+    (value) => {
+      const approval = value as ReductionApprovalInput;
+      return (
+        Boolean(approval.managerApprovedReductionByUserId) ===
+        Boolean(approval.managerApprovedReason)
+      );
+    },
+    {
+      message: "Manager approval requires both manager and reason",
+      path: ["managerApprovedReason"],
+    }
+  );
+}
+
 function requiredIntegerInput({
   requiredMessage,
   integerMessage,
@@ -50,12 +79,12 @@ export const updateOrderWorkflowSchema = z.object({
   "At least one workflow status is required"
 );
 
-export const updateOrderPackageSchema = z.object({
+export const updateOrderPackageSchema = withReductionApprovalFields({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   packageId: z.string().trim().min(1, "Package is required"),
 });
 
-export const upgradeOrderPackageItemSchema = z.object({
+export const upgradeOrderPackageItemSchema = withReductionApprovalFields({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   packageItemId: z.string().trim().min(1, "Package item is required"),
   newProductId: z.string().trim().min(1, "Replacement product is required"),
@@ -65,11 +94,11 @@ export const addOrderProductAddOnSchema = z.object({
   productId: z.string().trim().min(1, "Product is required"),
 });
 
-export const removeOrderAddOnSchema = z.object({
+export const removeOrderAddOnSchema = withReductionApprovalFields({
   addOnId: z.string().trim().min(1, "Add-on is required"),
 });
 
-export const updateOrderSelectedPhotoCountSchema = z.object({
+export const updateOrderSelectedPhotoCountSchema = withReductionApprovalFields({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   selectedPhotoCount: requiredIntegerInput({
     requiredMessage: "Selected photos are required",

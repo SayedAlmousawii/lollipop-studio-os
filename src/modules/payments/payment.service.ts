@@ -1,5 +1,12 @@
-import { InvoiceStatus, InvoiceType, OrderActivityType, Prisma } from "@prisma/client";
-import type { Payment, PaymentMethod, PaymentType } from "@prisma/client";
+import {
+  InvoiceStatus,
+  InvoiceType,
+  OrderActivityType,
+  PaymentDirection,
+  PaymentType,
+  Prisma,
+} from "@prisma/client";
+import type { Payment, PaymentMethod } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -27,6 +34,7 @@ export type CreatePaymentInput = {
   method: PaymentMethod;
   paymentType: PaymentType;
   direction?: FinancialPaymentDirection;
+  refundOfPaymentId?: string;
   paidAt?: Date;
   reference?: string;
   notes?: string;
@@ -83,11 +91,54 @@ async function createPaymentWithAllocationWithClient(
       financialCaseId: true,
       jobId: true,
       jobNumber: true,
+      invoiceType: true,
+      parentInvoiceId: true,
     },
   });
 
   if (!invoice) {
     throw new Error("Invoice not found for financial case");
+  }
+
+  const direction = input.direction ?? PaymentDirection.IN;
+  if (direction === PaymentDirection.OUT) {
+    if (invoice.invoiceType !== InvoiceType.REFUND) {
+      throw new Error("Outbound payments must target a refund invoice");
+    }
+    if (input.paymentType !== PaymentType.REFUND) {
+      throw new Error("Outbound payments must use refund payment type");
+    }
+    if (input.refundOfPaymentId) {
+      if (!invoice.parentInvoiceId) {
+        throw new Error("Refund invoice source is required for payment traceability");
+      }
+      const sourcePayment = await client.payment.findFirst({
+        where: {
+          id: input.refundOfPaymentId,
+          financialCaseId: input.financialCaseId,
+        },
+        select: {
+          id: true,
+          direction: true,
+          allocations: {
+            where: { invoiceId: invoice.parentInvoiceId },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      });
+
+      if (!sourcePayment || sourcePayment.direction !== PaymentDirection.IN) {
+        throw new Error("Refund trace must point to an inbound payment");
+      }
+      if (sourcePayment.allocations.length === 0) {
+        throw new Error(
+          "Refund trace payment must be allocated to the source invoice"
+        );
+      }
+    }
+  } else if (input.refundOfPaymentId) {
+    throw new Error("Only outbound refund payments can reference a source payment");
   }
 
   const payment = await client.payment.create({
@@ -98,9 +149,10 @@ async function createPaymentWithAllocationWithClient(
       jobNumber: invoice.jobNumber,
       invoiceId: input.invoiceId,
       amount: input.amount,
-      direction: input.direction ?? "IN",
+      direction,
       method: input.method,
       paymentType: input.paymentType,
+      refundOfPaymentId: input.refundOfPaymentId ?? null,
       paidAt: input.paidAt ?? new Date(),
       reference: input.reference ?? null,
       notes: input.notes ?? null,
