@@ -350,8 +350,9 @@ Project pattern (per `feature-specs/`) is to split work across letter-suffixed s
 Final spec list:
 
 ```
-73    Phase 0  Schema groundwork                                  (bundled — single migration)
+73    Phase 0  Schema groundwork                                  (bundled — invoice/payment NOT NULLs, PaymentDirection, InvoiceType.SALE)
 73b   Phase 0  Financial discipline infrastructure                (framework: invariant registry, fixtures module, choke-point checker, dual-read helper, reconciliation harness, ADR dirs, type aliases)
+73c   Phase 0  OrderAddOn split                                   (3 steps: add table → migrate service code → backfill + drop column; depends on 73, must land before 75a)
 
 74a   Phase 1  DocumentApplication + PaymentAllocation tables (schema only)
 74b   Phase 1  Backfill DocApplication + PaymentAllocation rows
