@@ -9,6 +9,7 @@ export type FinancialInvoiceType =
   | "CREDIT_NOTE"
   | "SALE";
 export type FinancialPaymentDirection = "IN" | "OUT";
+export type PaymentDirection = FinancialPaymentDirection;
 
 type FinancialInvoiceBase = {
   financialCaseId: string;

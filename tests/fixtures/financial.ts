@@ -7,6 +7,7 @@ import {
   Prisma,
   PrismaClient,
 } from "@prisma/client";
+import { createPaymentWithAllocation } from "../../src/modules/payments/payment.service";
 
 export type BookingFixtureResult = {
   customerId: string;
@@ -25,7 +26,6 @@ const FIXTURE_KEYS = {
   bookingPublicId: "BK-FIN-73B-BASE",
   invoicePublicId: "INV-FIN-73B-DEP",
   invoiceNumber: "INV-FIN-73B-0001",
-  paymentPublicId: "PAY-FIN-73B-DEP",
 } as const;
 
 export async function makeCashDepositBookingFixture(
@@ -36,7 +36,10 @@ export async function makeCashDepositBookingFixture(
     include: {
       booking: { select: { id: true, customerId: true, departmentId: true, jobId: true } },
       financialCase: { select: { id: true } },
-      payments: { select: { id: true }, orderBy: { createdAt: "asc" } },
+      payments: {
+        select: { id: true, allocations: { select: { id: true } } },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 
@@ -44,7 +47,8 @@ export async function makeCashDepositBookingFixture(
     existingInvoice &&
     existingInvoice.booking &&
     existingInvoice.booking.jobId &&
-    existingInvoice.payments[0]
+    existingInvoice.payments[0] &&
+    existingInvoice.payments[0].allocations.length === 1
   ) {
     return {
       customerId: existingInvoice.booking.customerId,
@@ -166,30 +170,43 @@ export async function makeCashDepositBookingFixture(
     },
   });
 
-  const payment = await prisma.payment.upsert({
-    where: { publicId: FIXTURE_KEYS.paymentPublicId },
-    update: {
-      financialCaseId: financialCase.id,
-      jobId: job.id,
-      jobNumber: job.jobNumber,
+  const existingPayment = await prisma.payment.findFirst({
+    where: {
       invoiceId: invoice.id,
-      amount: new Prisma.Decimal(20),
-      method: PaymentMethod.CASH,
-      paymentType: PaymentType.DEPOSIT,
-      paidAt: new Date("2026-05-14T08:09:00.000Z"),
-    },
-    create: {
-      publicId: FIXTURE_KEYS.paymentPublicId,
       financialCaseId: financialCase.id,
-      jobId: job.id,
-      jobNumber: job.jobNumber,
-      invoiceId: invoice.id,
-      amount: new Prisma.Decimal(20),
-      method: PaymentMethod.CASH,
       paymentType: PaymentType.DEPOSIT,
-      paidAt: new Date("2026-05-14T08:09:00.000Z"),
     },
+    include: { allocations: true },
+    orderBy: { createdAt: "asc" },
   });
+
+  const payment = existingPayment
+    ? existingPayment
+    : await createPaymentWithAllocation(
+        {
+          invoiceId: invoice.id,
+          financialCaseId: financialCase.id,
+          amount: new Prisma.Decimal(20),
+          method: PaymentMethod.CASH,
+          paymentType: PaymentType.DEPOSIT,
+          paidAt: new Date("2026-05-14T08:09:00.000Z"),
+        },
+        prisma
+      );
+
+  if (existingPayment && existingPayment.allocations.length === 0) {
+    await prisma.paymentAllocation.create({
+      data: {
+        paymentId: existingPayment.id,
+        invoiceId: invoice.id,
+        amount: existingPayment.amount,
+      },
+    });
+  }
+
+  if (existingPayment && existingPayment.allocations.length > 1) {
+    throw new Error("Fixture payment has more than one allocation");
+  }
 
   return {
     customerId: customer.id,

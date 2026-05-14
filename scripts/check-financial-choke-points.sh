@@ -3,13 +3,14 @@
 set -euo pipefail
 
 patterns=(
-  # 74c appends raw payment creation patterns here.
+  "prisma.payment.create"
+  "prisma.payment.createMany"
   # 75a appends adjustment invoice creation patterns here.
   # 77a appends gift card creation patterns here.
 )
 
 allowlist=(
-  # Future sanctioned helper paths can be excluded here.
+  "src/modules/payments/payment.service.ts"
 )
 
 if [ "${#patterns[@]}" -eq 0 ]; then

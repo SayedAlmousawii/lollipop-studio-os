@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 74c financial rearchitecture payment creation choke point is complete: `createPaymentWithAllocation` is now the sanctioned Payment creation path, creates one paired `PaymentAllocation` atomically, and runtime/choke-point invariants enforce the single-allocation contract.
 - Feature 74b financial rearchitecture application/allocation backfill is complete: existing payments now have one `PaymentAllocation`, paid Deposit-to-Final pairs now have one `DocumentApplication`, and the data migration enforces pre/post assertions transactionally.
 - Feature 74a financial rearchitecture document/application allocation tables is complete: `DocumentApplication` and `PaymentAllocation` are schema-ready with DB-level positive amount checks, document source/target uniqueness, allocation indexes, and no unique constraint on `payment_id`.
 - Feature 73c order add-on split is complete: package-item upgrades now live in `OrderPackageItemUpgrade`, true add-ons remain in `OrderAddOn` with required `productId`, order/POS/invoice read paths merge both financial line sources, and migration backfill/drop cleanup has been applied locally.
@@ -93,6 +94,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 74c: Financial rearchitecture payment creation via allocation helper — added `createPaymentWithAllocation`, migrated payment recording and shared financial fixtures through it, registered payment allocation invariants, and enabled raw payment creation choke-point patterns.
 - Feature 74b: Financial rearchitecture application/allocation backfill — added a transactional data migration that asserts invoice shape, backfills Deposit-to-Final `DocumentApplication` rows, backfills one full-amount `PaymentAllocation` per existing payment, and verifies the resulting invariants.
 - Feature 74a: Financial rearchitecture document/application allocation tables — added empty `document_applications` and `payment_allocations` tables, Prisma relations, positive amount CHECK constraints, document source/target uniqueness, and intentionally left `payment_id` non-unique for Phase 5.
 - Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, merged both tables for financial display and invoice generation, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, and enforced required true add-on product references.
