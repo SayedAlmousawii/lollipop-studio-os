@@ -10,6 +10,8 @@ export async function resetWorkflowTestData(): Promise<void> {
   await withRetry(
     () =>
       db.$transaction(async (tx) => {
+        await tx.documentApplication.deleteMany({});
+        await tx.paymentAllocation.deleteMany({});
         await tx.payment.deleteMany({});
         await tx.invoice.deleteMany({});
         await tx.order.deleteMany({});
