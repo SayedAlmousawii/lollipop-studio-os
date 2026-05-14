@@ -6,10 +6,12 @@ import { redirect } from "next/navigation";
 import {
   closeInvoice,
   createAdjustmentInvoice,
+  createCreditNote,
   issueInvoice,
 } from "@/modules/invoices/invoice.service";
 import {
   createAdjustmentInvoiceSchema,
+  createCreditNoteSchema,
   createRefundInvoiceSchema,
 } from "@/modules/invoices/invoice.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
@@ -102,6 +104,36 @@ export async function createAdjustmentInvoiceAction(
   redirect(`/invoices/${invoice.id}`);
 }
 
+export async function issueCreditNoteAction(
+  targetFinalInvoiceId: string,
+  formData: FormData
+): Promise<void> {
+  const parsed = createCreditNoteSchema.safeParse({
+    reason: formData.get("reason"),
+    notes: formData.get("notes") || undefined,
+  });
+
+  if (!parsed.success) {
+    throw new Error("Invalid credit note details");
+  }
+
+  const lines = parseCreditNoteLines(formData);
+  const appUser = await requireCurrentAppUserPermission(
+    PERMISSIONS.CREDIT_NOTE_ISSUE
+  );
+  const invoice = await createCreditNote({
+    targetFinalInvoiceId,
+    lines,
+    reason: parsed.data.reason,
+    notes: parsed.data.notes,
+    createdByUserId: appUser.id,
+  });
+
+  revalidatePath("/invoices");
+  revalidatePath(`/invoices/${targetFinalInvoiceId}`);
+  redirect(`/invoices/${invoice.id}`);
+}
+
 export async function issueRefundAction(
   sourceInvoiceId: string,
   formData: FormData
@@ -134,4 +166,27 @@ export async function issueRefundAction(
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${sourceInvoiceId}`);
   redirect(`/invoices/${result.refundInvoiceId}`);
+}
+
+function parseCreditNoteLines(formData: FormData) {
+  const descriptions = formData.getAll("creditLineDescription");
+  const quantities = formData.getAll("creditLineQuantity");
+  const unitPrices = formData.getAll("creditLineUnitPrice");
+
+  const lines = descriptions.flatMap((descriptionEntry, index) => {
+    const description = String(descriptionEntry ?? "").trim();
+    const quantity = Number(quantities[index] ?? 0);
+    const unitPrice = Number(unitPrices[index] ?? 0);
+    if (!description && quantity === 0 && unitPrice === 0) {
+      return [];
+    }
+
+    return [{ description, quantity, unitPrice }];
+  });
+
+  if (lines.length === 0) {
+    throw new Error("Credit note requires at least one line");
+  }
+
+  return lines;
 }

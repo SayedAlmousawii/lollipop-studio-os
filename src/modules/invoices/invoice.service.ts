@@ -29,6 +29,7 @@ import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.serv
 import { computeEffectivePaidFromAllocations } from "./invoice.calculation";
 import type {
   CreateAdjustmentInvoiceInput,
+  CreateCreditNoteInput,
   CreateRefundInvoiceInput,
 } from "./invoice.schema";
 import type {
@@ -590,6 +591,15 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
       row.invoiceType === InvoiceType.ADJUSTMENT)
       ? await computeRefundableAmountForInvoice(row.id, db)
       : null;
+  const creditNoteCapacity =
+    row.isLocked && row.invoiceType === InvoiceType.FINAL
+      ? await computeCreditNoteCapacityForFinal(row.id, db)
+      : null;
+  const effectivePaidAmount = await computeEffectivePaidFromAllocations(row.id, db);
+  const overpaidAmount = Prisma.Decimal.max(
+    effectivePaidAmount.minus(row.totalAmount),
+    0
+  );
 
   return {
     id: row.id,
@@ -606,6 +616,9 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
     depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
     refundableAmount: refundableAmount ? formatMoney(refundableAmount) : null,
+    creditNoteCapacity: creditNoteCapacity ? formatMoney(creditNoteCapacity) : null,
+    isOverpaid: overpaidAmount.greaterThan(0),
+    overpaidAmount: overpaidAmount.greaterThan(0) ? formatMoney(overpaidAmount) : null,
     lineItemsAreComputed,
     status: mapInvoiceStatus(row.status),
     isLocked: row.isLocked,
@@ -1418,6 +1431,233 @@ export async function computeRefundableAmountForInvoice(
   const refundedTotal = priorRefunds._sum.totalAmount ?? new Prisma.Decimal(0);
 
   return Prisma.Decimal.max(inboundTotal.minus(refundedTotal), 0);
+}
+
+export async function computeCreditNoteCapacityForFinal(
+  targetFinalInvoiceId: string,
+  client: DbClient = db
+): Promise<Prisma.Decimal> {
+  const target = await client.invoice.findUnique({
+    where: { id: targetFinalInvoiceId },
+    select: { id: true, totalAmount: true, invoiceType: true },
+  });
+  if (!target) throw new Error("Target final invoice not found");
+  if (target.invoiceType !== InvoiceType.FINAL) {
+    throw new Error("Credit notes can only target final invoices");
+  }
+
+  const priorCredits = await client.documentApplication.aggregate({
+    _sum: { amountApplied: true },
+    where: {
+      targetInvoiceId: targetFinalInvoiceId,
+      sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
+    },
+  });
+  const creditedTotal = priorCredits._sum.amountApplied ?? new Prisma.Decimal(0);
+
+  return Prisma.Decimal.max(target.totalAmount.minus(creditedTotal), 0);
+}
+
+export async function createCreditNote(
+  input: CreateCreditNoteInput,
+  tx?: DbClient
+): Promise<Invoice> {
+  if (tx) {
+    return createCreditNoteWithClient(input, tx);
+  }
+
+  return withRetry(
+    () =>
+      db.$transaction(
+        (transaction) => createCreditNoteWithClient(input, transaction),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      ),
+    "Failed to create credit note"
+  );
+}
+
+async function createCreditNoteWithClient(
+  input: CreateCreditNoteInput,
+  client: DbClient
+): Promise<Invoice> {
+  if (input.lines.length === 0) {
+    throw new Error("Credit note requires at least one line");
+  }
+
+  const reason = input.reason.trim();
+  if (!reason) {
+    throw new Error("Credit note reason is required");
+  }
+
+  const lineItems = input.lines.map((line, index) => {
+    if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
+      throw new Error("Credit note line quantity must be a positive whole number");
+    }
+
+    const unitPrice = new Prisma.Decimal(line.unitPrice);
+    const lineTotal = unitPrice.mul(line.quantity);
+    if (lineTotal.lessThanOrEqualTo(0)) {
+      throw new Error("Credit note line total must be greater than 0");
+    }
+
+    const description = line.description.trim();
+    if (!description) {
+      throw new Error("Credit note line description is required");
+    }
+
+    return createLineItem({
+      lineType: InvoiceLineType.MANUAL_DISCOUNT,
+      description,
+      quantity: line.quantity,
+      unitPrice,
+      sortOrder: index,
+    });
+  });
+
+  const totalAmount = lineItems.reduce(
+    (sum, line) => sum.plus(new Prisma.Decimal(String(line.lineTotal))),
+    new Prisma.Decimal(0)
+  );
+  if (totalAmount.lessThanOrEqualTo(0)) {
+    throw new Error("Credit note total must be greater than 0");
+  }
+
+  const actor = await client.user.findUnique({
+    where: { id: input.createdByUserId },
+    select: { id: true, role: true },
+  });
+  if (
+    !actor ||
+    (actor.role !== UserRole.ADMIN && actor.role !== UserRole.MANAGER)
+  ) {
+    throw new Error("Manager permission is required to issue a credit note");
+  }
+
+  const target = await client.invoice.findUnique({
+    where: { id: input.targetFinalInvoiceId },
+    select: {
+      id: true,
+      financialCaseId: true,
+      invoiceType: true,
+      invoiceNumber: true,
+      orderId: true,
+      bookingId: true,
+      customerId: true,
+      jobId: true,
+      jobNumber: true,
+      totalAmount: true,
+      isLocked: true,
+    },
+  });
+  if (!target) throw new Error("Target final invoice not found");
+  if (target.invoiceType !== InvoiceType.FINAL) {
+    throw new Error("Credit notes can only target final invoices");
+  }
+  if (!target.isLocked) {
+    throw new Error("Credit notes can only target locked final invoices");
+  }
+
+  const creditCapacity = await computeCreditNoteCapacityForFinal(target.id, client);
+  if (totalAmount.greaterThan(creditCapacity)) {
+    throw new Error(
+      `Credit note amount cannot exceed remaining credit capacity (${creditCapacity.toFixed(3)} KD)`
+    );
+  }
+
+  const now = new Date();
+  const invoiceNumberData = await generateInvoiceNumber(
+    client,
+    InvoiceType.CREDIT_NOTE
+  );
+  const creditNote = await client.invoice.create({
+    data: {
+      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      financialCaseId: target.financialCaseId,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      jobId: target.jobId,
+      jobNumber: target.jobNumber,
+      orderId: target.orderId,
+      bookingId: target.bookingId,
+      customerId: target.customerId,
+      parentInvoiceId: target.id,
+      ...invoiceNumberData,
+      totalAmount,
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      notes: input.notes?.trim() || reason,
+      issuedAt: now,
+      closedAt: now,
+      lineItems: { create: lineItems },
+    },
+  });
+
+  await client.documentApplication.create({
+    data: {
+      sourceInvoiceId: creditNote.id,
+      targetInvoiceId: target.id,
+      amountApplied: totalAmount,
+      appliedAt: now,
+      appliedByUserId: input.createdByUserId,
+      notes: `Credit note for reason: ${reason}`,
+    },
+  });
+
+  await recalculateInvoiceStatus(target.id, client);
+  const effectivePaidAmount = await computeEffectivePaidFromAllocations(
+    target.id,
+    client
+  );
+  const refreshedTarget = await client.invoice.findUnique({
+    where: { id: target.id },
+    select: { totalAmount: true },
+  });
+  if (!refreshedTarget) {
+    throw new Error("Target final invoice not found after credit note issuance");
+  }
+  const overpaidAmount = Prisma.Decimal.max(
+    effectivePaidAmount.minus(refreshedTarget.totalAmount),
+    0
+  );
+
+  if (target.orderId) {
+    await recordOrderActivity(client, {
+      orderId: target.orderId,
+      userId: input.createdByUserId,
+      type: OrderActivityType.INVOICE_ADJUSTED,
+      title: "Credit note issued",
+      description: `Credit note ${creditNote.invoiceNumber} issued against ${target.invoiceNumber}: ${totalAmount.toFixed(3)} KD for reason '${reason}'.`,
+      metadata: {
+        targetInvoiceId: target.id,
+        targetInvoiceNumber: target.invoiceNumber,
+        creditNoteId: creditNote.id,
+        creditNoteNumber: creditNote.invoiceNumber,
+        amount: totalAmount.toFixed(3),
+        reason,
+      },
+    });
+
+    if (overpaidAmount.greaterThan(0)) {
+      await recordOrderActivity(client, {
+        orderId: target.orderId,
+        userId: input.createdByUserId,
+        type: OrderActivityType.INVOICE_ADJUSTED,
+        title: "Refund available",
+        description: `FINAL ${target.invoiceNumber} is now overpaid by ${overpaidAmount.toFixed(3)} KD — refund available.`,
+        metadata: {
+          targetInvoiceId: target.id,
+          targetInvoiceNumber: target.invoiceNumber,
+          creditNoteId: creditNote.id,
+          overpaidAmount: overpaidAmount.toFixed(3),
+        },
+      });
+    }
+  }
+
+  await assertFinancialCaseInvariants(target.financialCaseId, client);
+
+  return creditNote;
 }
 
 export async function createRefundInvoice(

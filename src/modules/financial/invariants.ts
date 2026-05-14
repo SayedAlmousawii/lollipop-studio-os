@@ -193,19 +193,28 @@ registerInvariant({
       select: {
         id: true,
         amountApplied: true,
-        sourceInvoice: { select: { paidAmount: true } },
+        sourceInvoice: { select: { invoiceType: true, paidAmount: true, totalAmount: true } },
       },
     });
 
     return applications
-      .filter((application) =>
-        application.amountApplied.greaterThan(application.sourceInvoice.paidAmount)
-      )
+      .filter((application) => {
+        const sourceCap =
+          application.sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE
+            ? application.sourceInvoice.totalAmount
+            : application.sourceInvoice.paidAmount;
+
+        return application.amountApplied.greaterThan(sourceCap);
+      })
       .map((application) => ({
         invariant: "document-application-not-over-source",
         entityType: "DocumentApplication",
         entityId: application.id,
-        expected: `<= ${application.sourceInvoice.paidAmount.toFixed(3)}`,
+        expected: `<= ${
+          application.sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE
+            ? application.sourceInvoice.totalAmount.toFixed(3)
+            : application.sourceInvoice.paidAmount.toFixed(3)
+        }`,
         actual: application.amountApplied.toFixed(3),
       }));
   },
@@ -596,6 +605,137 @@ registerInvariant({
         actual: invoice.parentInvoice
           ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
           : "no parent invoice",
+      }));
+  },
+});
+
+registerInvariant({
+  name: "credit-note-targets-final",
+  scope: "global",
+  run: async ({ tx }) => {
+    const creditNotes = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.CREDIT_NOTE },
+      select: {
+        id: true,
+        parentInvoice: { select: { id: true, invoiceType: true } },
+      },
+    });
+
+    return creditNotes
+      .filter((invoice) => invoice.parentInvoice?.invoiceType !== InvoiceType.FINAL)
+      .map((invoice) => ({
+        invariant: "credit-note-targets-final",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "parentInvoiceId set to FINAL invoice",
+        actual: invoice.parentInvoice
+          ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
+          : "no parent invoice",
+      }));
+  },
+});
+
+registerInvariant({
+  name: "credit-note-has-document-application",
+  scope: "global",
+  run: async ({ tx }) => {
+    const creditNotes = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.CREDIT_NOTE },
+      select: {
+        id: true,
+        parentInvoiceId: true,
+        documentApplicationsAsSource: {
+          select: { id: true, targetInvoiceId: true },
+        },
+      },
+    });
+
+    return creditNotes.flatMap((invoice) => {
+      const matchingApplications = invoice.documentApplicationsAsSource.filter(
+        (application) => application.targetInvoiceId === invoice.parentInvoiceId
+      );
+      if (
+        invoice.documentApplicationsAsSource.length === 1 &&
+        matchingApplications.length === 1
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          invariant: "credit-note-has-document-application",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: "exactly 1 DocumentApplication to parent FINAL",
+          actual: `${invoice.documentApplicationsAsSource.length} source applications, ${matchingApplications.length} to parent`,
+        },
+      ];
+    });
+  },
+});
+
+registerInvariant({
+  name: "credit-note-amount-not-over-final",
+  scope: "global",
+  run: async ({ tx }) => {
+    const finalInvoices = await tx.invoice.findMany({
+      where: {
+        documentApplicationsAsTarget: {
+          some: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
+        },
+      },
+      select: {
+        id: true,
+        totalAmount: true,
+        documentApplicationsAsTarget: {
+          where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
+          select: { amountApplied: true },
+        },
+      },
+    });
+
+    return finalInvoices.flatMap((invoice) => {
+      const creditTotal = invoice.documentApplicationsAsTarget.reduce(
+        (sum, application) => sum.plus(application.amountApplied),
+        new Prisma.Decimal(0)
+      );
+      if (creditTotal.lessThanOrEqualTo(invoice.totalAmount)) {
+        return [];
+      }
+
+      return [
+        {
+          invariant: "credit-note-amount-not-over-final",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: `credit total <= ${invoice.totalAmount.toFixed(3)}`,
+          actual: creditTotal.toFixed(3),
+        },
+      ];
+    });
+  },
+});
+
+registerInvariant({
+  name: "credit-note-is-locked-on-issuance",
+  scope: "global",
+  run: async ({ tx }) => {
+    const creditNotes = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.CREDIT_NOTE },
+      select: { id: true, isLocked: true, status: true },
+    });
+
+    return creditNotes
+      .filter(
+        (invoice) =>
+          !invoice.isLocked || invoice.status !== InvoiceStatus.CLOSED
+      )
+      .map((invoice) => ({
+        invariant: "credit-note-is-locked-on-issuance",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "isLocked=true and status=CLOSED",
+        actual: `isLocked=${invoice.isLocked}, status=${invoice.status}`,
       }));
   },
 });

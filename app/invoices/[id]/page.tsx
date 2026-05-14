@@ -16,6 +16,7 @@ import { getInvoiceById } from "@/modules/invoices/invoice.service";
 import {
   closeInvoiceAction,
   createAdjustmentInvoiceAction,
+  issueCreditNoteAction,
   issueRefundAction,
   issueInvoiceAction,
 } from "../actions";
@@ -33,9 +34,18 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
   if (!invoice) notFound();
 
   const createAdjustment = createAdjustmentInvoiceAction.bind(null, invoice.id);
+  const issueCreditNote = issueCreditNoteAction.bind(null, invoice.id);
   const issueRefund = issueRefundAction.bind(null, invoice.id);
   const issue = issueInvoiceAction.bind(null, invoice.id);
   const close = closeInvoiceAction.bind(null, invoice.id);
+  const canIssueCreditNote =
+    appUser !== null && hasPermission(appUser, PERMISSIONS.CREDIT_NOTE_ISSUE);
+  const canCreditNoteInvoice =
+    canIssueCreditNote &&
+    invoice.isLocked &&
+    invoice.invoiceType === "FINAL" &&
+    invoice.creditNoteCapacity !== null &&
+    moneyInputValue(invoice.creditNoteCapacity) !== "0.000";
   const canIssueRefund =
     appUser !== null && hasPermission(appUser, PERMISSIONS.REFUND_ISSUE);
   const canRefundInvoice =
@@ -74,8 +84,26 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
           <Metric label="Total" value={invoice.totalAmount} />
           <Metric label="Paid" value={invoice.paidAmount} />
           <Metric label="Remaining" value={invoice.remainingAmount} />
-          <Metric label="Locked" value={invoice.isLocked ? "Yes" : "No"} />
+          <Metric
+            label={invoice.isOverpaid ? "Overpaid" : "Locked"}
+            value={
+              invoice.isOverpaid
+                ? invoice.overpaidAmount ?? "0.000 KD"
+                : invoice.isLocked
+                  ? "Yes"
+                  : "No"
+            }
+          />
         </div>
+
+        {invoice.isOverpaid && invoice.overpaidAmount ? (
+          <Card>
+            <CardContent className="pt-6 text-sm text-text-secondary">
+              Credit available: {invoice.overpaidAmount}. Issue a refund when the
+              outbound money movement is ready to record.
+            </CardContent>
+          </Card>
+        ) : null}
 
         {invoice.parentInvoiceId && invoice.parentInvoiceNumber ? (
           <Card>
@@ -200,6 +228,40 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
               </Card>
             ) : null}
 
+            {canCreditNoteInvoice ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Issue Credit Note</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <form action={issueCreditNote} className="space-y-4">
+                    <CreditNoteLineFields
+                      index={0}
+                      required
+                      max={moneyInputValue(invoice.creditNoteCapacity ?? "0.000 KD")}
+                    />
+                    <CreditNoteLineFields index={1} />
+                    <CreditNoteLineFields index={2} />
+                    <div className="space-y-2">
+                      <Label htmlFor="credit-note-reason">Reason</Label>
+                      <Textarea id="credit-note-reason" name="reason" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="credit-note-notes">Notes</Label>
+                      <Textarea id="credit-note-notes" name="notes" />
+                    </div>
+                    <div className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
+                      Credit capacity: {invoice.creditNoteCapacity}. The final
+                      invoice receivable updates after issuance.
+                    </div>
+                    <Button type="submit" className="w-full">
+                      Issue Credit Note
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            ) : null}
+
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Payment History</CardTitle>
@@ -280,6 +342,44 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
         </div>
       </div>
     </PageContainer>
+  );
+}
+
+function CreditNoteLineFields({
+  index,
+  required = false,
+  max,
+}: {
+  index: number;
+  required?: boolean;
+  max?: string;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-surface-soft p-3 sm:grid-cols-[minmax(0,1fr)_80px_120px]">
+      <Field
+        label={index === 0 ? "Description" : `Description ${index + 1}`}
+        name="creditLineDescription"
+        required={required}
+      />
+      <Field
+        label="Qty"
+        name="creditLineQuantity"
+        type="number"
+        min="1"
+        step="1"
+        defaultValue={required ? "1" : undefined}
+        required={required}
+      />
+      <Field
+        label="Unit Price"
+        name="creditLineUnitPrice"
+        type="number"
+        min="0.001"
+        max={max}
+        step="0.001"
+        required={required}
+      />
+    </div>
   );
 }
 

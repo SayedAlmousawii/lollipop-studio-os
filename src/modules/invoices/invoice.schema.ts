@@ -48,6 +48,25 @@ export type CreateRefundWithPaymentInput = CreateRefundInvoiceInput & {
   paidAt?: Date;
 };
 
+export const createCreditNoteSchema = z.object({
+  reason: z.string().trim().min(1, "Credit note reason is required").max(500),
+  notes: z.string().trim().max(500).optional(),
+});
+
+export type CreditNoteLineInput = {
+  description: string;
+  quantity: number;
+  unitPrice: Prisma.Decimal | number | string;
+};
+
+export type CreateCreditNoteInput = {
+  targetFinalInvoiceId: string;
+  lines: CreditNoteLineInput[];
+  reason: string;
+  createdByUserId: string;
+  notes?: string;
+};
+
 export const createAdjustmentInvoiceLineSchema = z.object({
   lineType: z.nativeEnum(InvoiceLineType),
   description: z.string().trim().min(1),

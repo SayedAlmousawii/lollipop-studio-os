@@ -18,12 +18,14 @@ test("financial invariants all pass against seeded fixtures", async () => {
           makeAutoAdjustedBookingFixture,
           makeAdjustedBookingFixture,
           makeCashDepositBookingFixture,
+          makeCreditNotedBookingFixture,
           makeRefundedBookingFixture,
           seedAllSharedFixtures,
         },
         { runAllInvariants },
         {
           applyDepositToFinalIfPresent,
+          createCreditNote,
           recalculateInvoiceStatus,
         },
         { computeEffectivePaidFromAllocations },
@@ -183,6 +185,85 @@ test("financial invariants all pass against seeded fixtures", async () => {
               db
             ),
           /Outbound payments must target a refund invoice/
+        );
+
+        const creditNotedFixture = await makeCreditNotedBookingFixture(db);
+        const creditNoteInvoice = await db.invoice.findUniqueOrThrow({
+          where: { id: creditNotedFixture.creditNoteInvoiceId },
+          include: {
+            lineItems: true,
+            documentApplicationsAsSource: true,
+          },
+        });
+        assert.equal(creditNoteInvoice.invoiceType, InvoiceType.CREDIT_NOTE);
+        assert.equal(
+          creditNoteInvoice.parentInvoiceId,
+          creditNotedFixture.finalInvoiceId
+        );
+        assert.equal(creditNoteInvoice.totalAmount.toFixed(3), "20.000");
+        assert.equal(creditNoteInvoice.remainingAmount.toFixed(3), "0.000");
+        assert.equal(creditNoteInvoice.status, InvoiceStatus.CLOSED);
+        assert.equal(creditNoteInvoice.isLocked, true);
+        assert.equal(creditNoteInvoice.invoiceNumber.startsWith("CN-"), true);
+        assert.equal(creditNoteInvoice.lineItems.length, 1);
+        assert.equal(creditNoteInvoice.documentApplicationsAsSource.length, 1);
+        assert.equal(
+          creditNoteInvoice.documentApplicationsAsSource[0]?.targetInvoiceId,
+          creditNotedFixture.finalInvoiceId
+        );
+        assert.equal(
+          creditNoteInvoice.documentApplicationsAsSource[0]?.amountApplied.toFixed(3),
+          "20.000"
+        );
+
+        const creditedFinalEffectivePaid =
+          await computeEffectivePaidFromAllocations(
+            creditNotedFixture.finalInvoiceId,
+            db
+          );
+        assert.equal(creditedFinalEffectivePaid.toFixed(3), "120.000");
+
+        const creditNoteManager = await db.user.findUniqueOrThrow({
+          where: { email: "financial-credit-note-manager@example.com" },
+          select: { id: true },
+        });
+        await assert.rejects(
+          () =>
+            createCreditNote(
+              {
+                targetFinalInvoiceId: creditNotedFixture.adjustmentInvoiceId,
+                reason: "Invalid adjustment target",
+                createdByUserId: creditNoteManager.id,
+                lines: [
+                  {
+                    description: "Invalid credit target",
+                    quantity: 1,
+                    unitPrice: new Prisma.Decimal(1),
+                  },
+                ],
+              },
+              db
+            ),
+          /Credit notes can only target final invoices/
+        );
+        await assert.rejects(
+          () =>
+            createCreditNote(
+              {
+                targetFinalInvoiceId: creditNotedFixture.finalInvoiceId,
+                reason: "Too much credit",
+                createdByUserId: creditNoteManager.id,
+                lines: [
+                  {
+                    description: "Excess credit",
+                    quantity: 1,
+                    unitPrice: new Prisma.Decimal(500),
+                  },
+                ],
+              },
+              db
+            ),
+          /Credit note amount cannot exceed remaining credit capacity/
         );
 
         const fixture = await makeCashDepositBookingFixture(db);

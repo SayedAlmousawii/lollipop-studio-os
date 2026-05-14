@@ -14,6 +14,7 @@ import {
 import {
   applyDepositToFinalIfPresent,
   createAdjustmentInvoice,
+  createCreditNote,
   recalculateInvoiceStatus,
   syncOrderInvoiceForFinancialEdit,
 } from "../../src/modules/invoices/invoice.service";
@@ -39,6 +40,10 @@ export type AdjustedBookingFixtureResult = BookingFixtureResult & {
 export type RefundedBookingFixtureResult = AdjustedBookingFixtureResult & {
   refundInvoiceId: string;
   refundPaymentId: string;
+};
+
+export type CreditNotedBookingFixtureResult = AdjustedBookingFixtureResult & {
+  creditNoteInvoiceId: string;
 };
 
 const FIXTURE_KEYS = {
@@ -85,6 +90,11 @@ const AUTO_ADJUSTED_FIXTURE_KEYS = {
 const REFUNDED_FIXTURE_KEYS = {
   refundReason: "Feature 76a partial refund",
   managerEmail: "financial-refund-manager@example.com",
+} as const;
+
+const CREDIT_NOTED_FIXTURE_KEYS = {
+  creditReason: "Feature 76b partial credit note",
+  managerEmail: "financial-credit-note-manager@example.com",
 } as const;
 
 type FixtureKeys = {
@@ -744,9 +754,67 @@ export async function makeRefundedBookingFixture(
   };
 }
 
+export async function makeCreditNotedBookingFixture(
+  prisma: PrismaClient
+): Promise<CreditNotedBookingFixtureResult> {
+  const adjusted = await makeAdjustedBookingFixture(prisma);
+  const manager = await prisma.user.upsert({
+    where: { email: CREDIT_NOTED_FIXTURE_KEYS.managerEmail },
+    update: {
+      name: "Financial Credit Note Manager",
+      role: UserRole.MANAGER,
+      active: true,
+    },
+    create: {
+      name: "Financial Credit Note Manager",
+      email: CREDIT_NOTED_FIXTURE_KEYS.managerEmail,
+      role: UserRole.MANAGER,
+      active: true,
+    },
+  });
+
+  const existingCreditNote = await prisma.invoice.findFirst({
+    where: {
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      parentInvoiceId: adjusted.finalInvoiceId,
+      notes: CREDIT_NOTED_FIXTURE_KEYS.creditReason,
+    },
+    select: { id: true },
+  });
+  if (existingCreditNote) {
+    return {
+      ...adjusted,
+      creditNoteInvoiceId: existingCreditNote.id,
+    };
+  }
+
+  const creditNote = await createCreditNote(
+    {
+      targetFinalInvoiceId: adjusted.finalInvoiceId,
+      reason: CREDIT_NOTED_FIXTURE_KEYS.creditReason,
+      notes: CREDIT_NOTED_FIXTURE_KEYS.creditReason,
+      createdByUserId: manager.id,
+      lines: [
+        {
+          description: "Fixture reduction after final lock",
+          quantity: 1,
+          unitPrice: new Prisma.Decimal(20),
+        },
+      ],
+    },
+    prisma
+  );
+
+  return {
+    ...adjusted,
+    creditNoteInvoiceId: creditNote.id,
+  };
+}
+
 export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void> {
   await makeCashDepositBookingFixture(prisma);
   await makeAdjustedBookingFixture(prisma);
   await makeAutoAdjustedBookingFixture(prisma);
   await makeRefundedBookingFixture(prisma);
+  await makeCreditNotedBookingFixture(prisma);
 }

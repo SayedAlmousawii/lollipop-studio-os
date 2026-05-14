@@ -7,8 +7,10 @@ patterns=(
   "prisma.payment.createMany"
   "prisma.invoice.create"
   "prisma.invoice.createMany"
+  "documentApplication.create"
   "invoiceType: InvoiceType.ADJUSTMENT"
   "invoiceType: InvoiceType.REFUND"
+  "invoiceType: InvoiceType.CREDIT_NOTE"
   "direction: PaymentDirection.OUT"
   # Additive vs reductive locked-invoice edit classification must stay centralized
   # in src/modules/financial/edit-classifier.ts. Shell matching is intentionally
