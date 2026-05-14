@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 72 POS selected photo flow simplification is complete: each POS package line now edits only selected photo count directly, derives extra-photo quantity from package overage, autosaves Digital/Print/Split allocation changes without an Update button, and the service rejects persisted extra allocations that do not match the derived count.
 - Feature 71 70e closure cleanup is complete: retired single-package order edit/selection write service exports and schemas are deleted, order detail Selection is line-aware and read-only, and POS workspace no longer exposes top-level first-line package shortcuts.
 - Backend invariant schema isolation hotfix is complete: the harness now sets both Prisma schema and Postgres search_path URL parameters, verifies `current_schema()` before fixtures run, and PrismaPg clients now receive the schema option from `DATABASE_URL`.
 - Feature 70e.5e duplicate booking package protection is complete: `BookingPackage` now enforces one row per `(bookingId, packageId)`, with migration cleanup that collapses existing duplicate quantities before adding the unique index.
@@ -200,6 +201,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: Booking deposit recording via invoice + payment in one transaction.
 
 ## Open Follow-Ups
+- Manually review the POS Selected Photos card in-app, including autosave on blur, Digital/Print/Split switching, and a legacy mixed split line whose stored allocation already matches the derived extra count.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.
 - Write and implement `55f-fix` to add a targeted editing-queue performance fix, starting with pagination because the current query has no limit.
 - Consider adding explicit job categorization (`SESSION`, `VOUCHER`, `RETAIL`, `OTHER`) before future voucher or standalone sales invoice flows.
