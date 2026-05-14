@@ -144,6 +144,13 @@ function assertFinancialActorContext(actorContext: ActorContext): void {
 type OrderRow = Awaited<ReturnType<typeof fetchOrders>>[number];
 type OrderDetailRow = NonNullable<Awaited<ReturnType<typeof fetchOrderById>>>;
 type OrderWriteClient = Prisma.TransactionClient;
+type FinancialAddOnRow = {
+  id?: string;
+  productId: string | null;
+  nameSnapshot: string;
+  priceSnapshot: Prisma.Decimal;
+  quantity: number;
+};
 
 const packageItemDisplaySelect = {
   id: true,
@@ -157,6 +164,16 @@ const packageItemDisplaySelect = {
     },
   },
 } satisfies Prisma.PackageItemSelect;
+
+const packageItemUpgradeSelect = {
+  id: true,
+  packageItemId: true,
+  orderPackageId: true,
+  nameSnapshot: true,
+  priceSnapshot: true,
+  quantity: true,
+  notes: true,
+} satisfies Prisma.OrderPackageItemUpgradeSelect;
 
 export function parseOrderFilters(filters: {
   search?: string | string[];
@@ -337,11 +354,14 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                 select: {
                   id: true,
                   productId: true,
-                  packageItemId: true,
                   nameSnapshot: true,
                   priceSnapshot: true,
                   quantity: true,
                 },
+                orderBy: { createdAt: "asc" },
+              },
+              packageItemUpgrades: {
+                select: packageItemUpgradeSelect,
                 orderBy: { createdAt: "asc" },
               },
             },
@@ -392,8 +412,12 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   const extraPhotoTotalDecimal = new Prisma.Decimal(
     packageLines.reduce((sum, line) => sum + line.extraPhotoTotal, 0)
   );
-  const addOns = mapPOSAddOns(order.orderAddOns);
-  const addOnTotal = sumOrderAddOnRowsDecimal(order.orderAddOns);
+  const combinedAddOnRows = combineFinancialAddOnRows(
+    order.orderAddOns,
+    order.packageItemUpgrades
+  );
+  const addOns = mapPOSAddOns(combinedAddOnRows);
+  const addOnTotal = sumOrderAddOnRowsDecimal(combinedAddOnRows);
   const packageBaseTotal = new Prisma.Decimal(
     packageLines.reduce((sum, line) => sum + line.currentPackage.price, 0)
   );
@@ -588,7 +612,11 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
       selectedPhotoCount !== null && includedPhotoCount !== null
         ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
         : "—",
-    addonsSummary: formatAddOnsSummary(mapStructuredAddOns(row.orderAddOns)),
+    addonsSummary: formatAddOnsSummary(
+      mapStructuredAddOns(
+        combineFinancialAddOnRows(row.orderAddOns, row.packageItemUpgrades)
+      )
+    ),
     packageItems:
       packageLines.flatMap((line) => line.packageItems),
     packageLines,
@@ -598,7 +626,9 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
         zeroMoney()
       )
     ),
-    paidAddOns: mapOrderAddOnDisplays(row.orderAddOns),
+    paidAddOns: mapOrderAddOnDisplays(
+      combineFinancialAddOnRows(row.orderAddOns, row.packageItemUpgrades)
+    ),
     ...workflowStatus,
     nextAction: resolveNextOrderAction({
       invoiceStatus: summary.invoiceStatus,
@@ -679,6 +709,10 @@ export async function getOrderSelectionWorkflowById(
               },
               orderBy: { createdAt: "asc" },
             },
+            packageItemUpgrades: {
+              select: packageItemUpgradeSelect,
+              orderBy: { createdAt: "asc" },
+            },
           },
         }),
         db.orderActivity.findFirst({
@@ -695,7 +729,9 @@ export async function getOrderSelectionWorkflowById(
 
   if (!order) return null;
 
-  const addOns = mapStructuredAddOns(order.orderAddOns);
+  const addOns = mapStructuredAddOns(
+    combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+  );
   if (order.packages.length === 0) {
     throw new Error("Order has no package available for selection workflow");
   }
@@ -907,6 +943,10 @@ export async function updateOrderPackage(
                 select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
                 orderBy: { createdAt: "asc" },
               },
+              packageItemUpgrades: {
+                select: packageItemUpgradeSelect,
+                orderBy: { createdAt: "asc" },
+              },
             },
           }),
           tx.package.findUnique({
@@ -940,7 +980,9 @@ export async function updateOrderPackage(
         if (selectedPackage.packageFamily.sessionTypeId !== orderPackage.sessionTypeId) {
           throw new Error("Selected package does not belong to this line's session type");
         }
-        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const previousAddOns = mapStructuredAddOns(
+          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+        );
         const previousIncludedPhotoCount = previousPackage.photoCount;
         const nextSelectedPhotoCount =
           orderPackage.selectedPhotoCount === null ||
@@ -951,11 +993,10 @@ export async function updateOrderPackage(
               ? Math.max(orderPackage.selectedPhotoCount, selectedPackage.photoCount)
               : undefined;
 
-        await tx.orderAddOn.deleteMany({
+        await tx.orderPackageItemUpgrade.deleteMany({
           where: {
             orderId,
             orderPackageId: orderPackage.id,
-            packageItemId: { not: null },
           },
         });
 
@@ -1061,6 +1102,10 @@ export async function upgradeOrderPackageItem(
               select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
               orderBy: { createdAt: "asc" },
             },
+            packageItemUpgrades: {
+              select: packageItemUpgradeSelect,
+              orderBy: { createdAt: "asc" },
+            },
           },
         });
         if (!order) throw new Error("Order not found");
@@ -1106,10 +1151,12 @@ export async function upgradeOrderPackageItem(
           throw new Error("Replacement product is already included");
         }
 
-        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const previousAddOns = mapStructuredAddOns(
+          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+        );
         const unitDelta = newProduct.canonicalPrice.minus(currentItem.priceSnapshot);
         const adjustmentTotal = unitDelta.mul(currentItem.quantity);
-        const existingAddOn = await tx.orderAddOn.findFirst({
+        const existingAddOn = await tx.orderPackageItemUpgrade.findFirst({
           where: {
             orderId,
             orderPackageId: orderPackage.id,
@@ -1118,10 +1165,9 @@ export async function upgradeOrderPackageItem(
           select: { id: true },
         });
         const addOn = existingAddOn
-          ? await tx.orderAddOn.update({
+          ? await tx.orderPackageItemUpgrade.update({
               where: { id: existingAddOn.id },
               data: {
-                productId: newProduct.id,
                 orderPackageId: orderPackage.id,
                 nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
                 priceSnapshot: unitDelta,
@@ -1130,11 +1176,10 @@ export async function upgradeOrderPackageItem(
               },
               select: { id: true },
             })
-          : await tx.orderAddOn.create({
+          : await tx.orderPackageItemUpgrade.create({
               data: {
                 orderId,
                 orderPackageId: orderPackage.id,
-                productId: newProduct.id,
                 packageItemId: currentItem.id,
                 nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
                 priceSnapshot: unitDelta,
@@ -1158,7 +1203,7 @@ export async function upgradeOrderPackageItem(
           title: "Package item upgraded",
           description: `${currentItem.product.name} changed to ${newProduct.name} for ${formatSignedMoney(adjustmentTotal)}.`,
           metadata: {
-            orderAddOnId: addOn.id,
+            orderPackageItemUpgradeId: addOn.id,
             orderPackageId: orderPackage.id,
             packageItemId: currentItem.id,
             previousProductId: currentItem.productId,
@@ -1231,6 +1276,10 @@ export async function addOrderProductAddOn(
                 },
                 orderBy: { createdAt: "asc" },
               },
+              packageItemUpgrades: {
+                select: packageItemUpgradeSelect,
+                orderBy: { createdAt: "asc" },
+              },
               packages: {
                 select: {
                   selectedPhotoCount: true,
@@ -1262,7 +1311,9 @@ export async function addOrderProductAddOn(
         if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
           throw new Error("Selected add-on product is not available");
         }
-        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const previousAddOns = mapStructuredAddOns(
+          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+        );
         const addOn = await tx.orderAddOn.create({
           data: {
             orderId,
@@ -1355,6 +1406,10 @@ export async function removeOrderAddOn(
               },
               orderBy: { createdAt: "asc" },
             },
+            packageItemUpgrades: {
+              select: packageItemUpgradeSelect,
+              orderBy: { createdAt: "asc" },
+            },
             packages: {
               select: {
                 selectedPhotoCount: true,
@@ -1372,12 +1427,13 @@ export async function removeOrderAddOn(
           throw new Error("Invoice is locked. Use the adjustment flow before changing add-ons.");
         }
 
-        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const previousAddOns = mapStructuredAddOns(
+          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+        );
         const addOn = await tx.orderAddOn.findFirst({
           where: {
             id: data.addOnId,
             orderId,
-            packageItemId: null,
           },
           select: {
             id: true,
@@ -1490,6 +1546,10 @@ export async function updateOrderSelectedPhotoCount(
               },
               orderBy: { createdAt: "asc" },
             },
+            packageItemUpgrades: {
+              select: packageItemUpgradeSelect,
+              orderBy: { createdAt: "asc" },
+            },
           },
         });
 
@@ -1517,7 +1577,9 @@ export async function updateOrderSelectedPhotoCount(
           );
         }
 
-        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
+        const previousAddOns = mapStructuredAddOns(
+          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+        );
         const previousExtraPhotoCharge = await calculateOrderPackageLineExtraPhotoTotal(
           tx,
           {
@@ -2632,6 +2694,10 @@ function fetchOrderByIdWithClient(
         },
         orderBy: { createdAt: "asc" },
       },
+      packageItemUpgrades: {
+        select: packageItemUpgradeSelect,
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
 }
@@ -3136,6 +3202,32 @@ function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
   );
 }
 
+function combineFinancialAddOnRows(
+  addOns: Array<{
+    productId: string | null;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>,
+  packageItemUpgrades: Array<{
+    id?: string;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+): FinancialAddOnRow[] {
+  return [
+    ...addOns,
+    ...packageItemUpgrades.map((upgrade) => ({
+      ...(upgrade.id ? { id: upgrade.id } : {}),
+      productId: null,
+      nameSnapshot: upgrade.nameSnapshot,
+      priceSnapshot: upgrade.priceSnapshot,
+      quantity: upgrade.quantity,
+    })),
+  ];
+}
+
 function sumOrderAddOnRowsDecimal(
   rows: Array<{
     priceSnapshot: Prisma.Decimal;
@@ -3236,20 +3328,20 @@ function mapPOSPackageItems(
 
 function mapPOSAddOns(
   rows: Array<{
-    id: string;
+    id?: string;
     productId: string | null;
-    packageItemId: string | null;
     nameSnapshot: string;
     priceSnapshot: Prisma.Decimal;
     quantity: number;
   }>
 ): POSAddOn[] {
-  return rows.filter((row) => !row.packageItemId).flatMap((row) => {
+  return rows.flatMap((row) => {
     const entries: POSAddOn[] = [];
+    const rowId = row.id ?? row.nameSnapshot;
     for (let index = 0; index < row.quantity; index++) {
       entries.push({
-        id: row.quantity === 1 ? row.id : `${row.id}-${index + 1}`,
-        addOnRowId: row.id,
+        id: row.quantity === 1 ? rowId : `${rowId}-${index + 1}`,
+        addOnRowId: rowId,
         productId: row.productId,
         name: row.nameSnapshot,
         price: row.priceSnapshot.toNumber(),
@@ -4722,6 +4814,10 @@ export async function getOrderFinancialSummary(
             },
             orderBy: { createdAt: "asc" },
           },
+          packageItemUpgrades: {
+            select: packageItemUpgradeSelect,
+            orderBy: { createdAt: "asc" },
+          },
         },
       }),
     "Failed to fetch order financial summary"
@@ -4732,7 +4828,9 @@ export async function getOrderFinancialSummary(
   const invoice = order.invoices[0] ?? null;
   const firstLine = order.packages[0] ?? null;
   const packageName = formatOrderPackageNames(order.packages);
-  const addOns = mapStructuredAddOns(order.orderAddOns);
+  const addOns = mapStructuredAddOns(
+    combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+  );
   const addOnTotal = sumAddOnsDecimal(addOns);
 
   const originalPrice = order.packages.reduce(

@@ -231,10 +231,24 @@ export interface OrderActivityPreviewItem {
   createdAt: string;
 }
 
+// True add-ons only. Package-item upgrade rows live in OrderPackageItemUpgrade.
 export interface OrderAddOn {
   productId?: string;
   name: string;
   price: number;
+}
+
+export interface OrderPackageItemUpgrade {
+  id: string;
+  orderId: string;
+  orderPackageId: string;
+  packageItemId: string;
+  nameSnapshot: string;
+  priceSnapshot: number;
+  quantity: number;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface OrderAddOnDisplay {

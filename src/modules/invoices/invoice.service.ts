@@ -15,6 +15,7 @@ import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
+import { computeEffectivePaidFromAllocations } from "./invoice.calculation";
 import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
 import type {
   InvoiceDetail,
@@ -126,6 +127,10 @@ export async function createInvoiceForOrderWithClient(
         select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
+      packageItemUpgrades: {
+        select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!order) throw new Error("Order not found");
@@ -146,7 +151,13 @@ export async function createInvoiceForOrderWithClient(
   );
   const extraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
   const totalAmount = packageAmount
-    .plus(sumAddOns(mapOrderAddOnRows(order.orderAddOns)))
+    .plus(
+      sumAddOns(
+        mapOrderAddOnRows(
+          combineOrderAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+        )
+      )
+    )
     .plus(extraPhotoCharge);
 
   const invoiceNumberData = await generateInvoiceNumber(client);
@@ -180,6 +191,13 @@ export async function createInvoiceForOrderWithClient(
     return racedInvoice;
   }
 
+  await applyDepositToFinalIfPresent(financialCaseId, invoice.id, client);
+  await recalculateInvoiceStatus(invoice.id, client);
+  invoice = await client.invoice.findUniqueOrThrow({
+    where: { id: invoice.id },
+    select: { id: true, status: true },
+  });
+
   await recordOrderActivity(client, {
     orderId: order.id,
     userId: actorContext.actorUserId ?? null,
@@ -211,6 +229,10 @@ export async function syncOrderInvoiceForFinancialEdit(
       },
       orderAddOns: {
         select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
+      packageItemUpgrades: {
+        select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -250,7 +272,9 @@ export async function syncOrderInvoiceForFinancialEdit(
     throw new Error("Invoice not found after ownership normalization");
   }
 
-  const nextAddOns = mapOrderAddOnRows(order.orderAddOns);
+  const nextAddOns = mapOrderAddOnRows(
+    combineOrderAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+  );
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
   const nextExtraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
@@ -627,11 +651,10 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
     (sum, payment) => sum.plus(payment.amount),
     new Prisma.Decimal(0)
   );
-  const depositCreditAmount =
-    invoice.invoiceType === InvoiceType.FINAL && invoice.financialCaseId
-      ? await getDepositCreditAmountForFinancialCase(client, invoice.financialCaseId)
-      : new Prisma.Decimal(0);
-  const effectivePaidAmount = directPaidAmount.plus(depositCreditAmount);
+  const effectivePaidAmount = await computeEffectivePaidFromAllocations(
+    invoice.id,
+    client
+  );
   const remainingAmount = Prisma.Decimal.max(
     invoice.totalAmount.minus(effectivePaidAmount),
     0
@@ -707,7 +730,7 @@ async function createSyncedOrderInvoice(
 
   const invoiceNumberData = await generateInvoiceNumber(client);
   try {
-    return await client.invoice.create({
+    const createdInvoice = await client.invoice.create({
       data: {
         publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
         financialCaseId: data.financialCaseId,
@@ -731,6 +754,14 @@ async function createSyncedOrderInvoice(
         status: true,
       },
     });
+
+    await applyDepositToFinalIfPresent(
+      data.financialCaseId,
+      createdInvoice.id,
+      client
+    );
+
+    return createdInvoice;
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
 
@@ -782,6 +813,54 @@ async function findPrimaryWorkflowInvoiceForOrder(
   return invoices[0];
 }
 
+export async function applyDepositToFinalIfPresent(
+  financialCaseId: string,
+  finalInvoiceId: string,
+  client: DbClient
+): Promise<void> {
+  const depositInvoice = await client.invoice.findFirst({
+    where: {
+      financialCaseId,
+      invoiceType: InvoiceType.DEPOSIT,
+      parentInvoiceId: null,
+    },
+    select: { id: true, paidAmount: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (!depositInvoice || depositInvoice.paidAmount.lessThanOrEqualTo(0)) {
+    return;
+  }
+
+  const existingApplication = await client.documentApplication.findUnique({
+    where: {
+      sourceInvoiceId_targetInvoiceId: {
+        sourceInvoiceId: depositInvoice.id,
+        targetInvoiceId: finalInvoiceId,
+      },
+    },
+    select: { id: true },
+  });
+  if (existingApplication) {
+    return;
+  }
+
+  try {
+    await client.documentApplication.create({
+      data: {
+        sourceInvoiceId: depositInvoice.id,
+        targetInvoiceId: finalInvoiceId,
+        amountApplied: depositInvoice.paidAmount,
+        notes: "Phase 1: deposit auto-application",
+      },
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+  }
+}
+
 function mapOrderAddOnRows(
   rows: Array<{
     productId: string | null;
@@ -798,6 +877,35 @@ function mapOrderAddOnRows(
     };
     return Array.from({ length: row.quantity }, () => line);
   });
+}
+
+function combineOrderAddOnRows(
+  addOns: Array<{
+    productId?: string | null;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>,
+  packageItemUpgrades: Array<{
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+) {
+  return [
+    ...addOns.map((addOn) => ({
+      productId: addOn.productId ?? null,
+      nameSnapshot: addOn.nameSnapshot,
+      priceSnapshot: addOn.priceSnapshot,
+      quantity: addOn.quantity,
+    })),
+    ...packageItemUpgrades.map((upgrade) => ({
+      productId: null,
+      nameSnapshot: upgrade.nameSnapshot,
+      priceSnapshot: upgrade.priceSnapshot,
+      quantity: upgrade.quantity,
+    })),
+  ];
 }
 
 function sumAddOns(addOns: OrderAddOnLine[]): Prisma.Decimal {
@@ -827,6 +935,10 @@ async function buildInvoiceLineItems(
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       orderAddOns: {
+        select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
+      packageItemUpgrades: {
         select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
@@ -874,7 +986,10 @@ async function buildInvoiceLineItems(
     }
   }
 
-  for (const addOn of order.orderAddOns) {
+  for (const addOn of combineOrderAddOnRows(
+    order.orderAddOns,
+    order.packageItemUpgrades
+  )) {
     lines.push(
       createLineItem({
         lineType: InvoiceLineType.ADD_ON,
@@ -1174,25 +1289,6 @@ function resolveInvoiceDisplayJobNumber(invoice: {
   booking: { jobNumber: string | null } | null;
 }): string | null {
   return invoice.jobNumber ?? invoice.order?.jobNumber ?? invoice.booking?.jobNumber ?? null;
-}
-
-async function getDepositCreditAmountForFinancialCase(
-  client: DbClient,
-  financialCaseId: string
-): Promise<Prisma.Decimal> {
-  const invoice = await client.invoice.findFirst({
-    where: {
-      financialCaseId,
-      invoiceType: InvoiceType.DEPOSIT,
-      parentInvoiceId: null,
-    },
-    select: {
-      paidAmount: true,
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return invoice?.paidAmount ?? new Prisma.Decimal(0);
 }
 
 async function findDepositInvoiceForFinancialCase(

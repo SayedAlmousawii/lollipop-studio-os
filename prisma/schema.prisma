@@ -174,11 +174,12 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedBookings    Booking[]       @relation("AssignedPhotographer")
-  assignedJobs        Job[]           @relation("JobAssignedPhotographer")
-  assignedEditingJobs EditingJob[]    @relation("AssignedEditor")
-  orderActivities     OrderActivity[]
-  deliveryCompletions Order[]         @relation("DeliveryCompletedBy")
+  assignedBookings     Booking[]             @relation("AssignedPhotographer")
+  assignedJobs         Job[]                 @relation("JobAssignedPhotographer")
+  assignedEditingJobs  EditingJob[]          @relation("AssignedEditor")
+  orderActivities      OrderActivity[]
+  deliveryCompletions  Order[]               @relation("DeliveryCompletedBy")
+  documentApplications DocumentApplication[]
 
   @@map("users")
 }
@@ -316,7 +317,7 @@ model PackageItem {
   package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
 
-  upgradeAddOns OrderAddOn[]
+  orderUpgrades OrderPackageItemUpgrade[]
 
   @@unique([packageId, productId])
   @@index([packageId])
@@ -413,19 +414,19 @@ model BookingPackage {
 }
 
 model Booking {
-  id                     String             @id @default(cuid())
-  publicId               String?            @unique
-  jobNumber              String?            @unique
-  jobId                  String?            @unique
+  id                     String        @id @default(cuid())
+  publicId               String?       @unique
+  jobNumber              String?       @unique
+  jobId                  String?       @unique
   customerId             String
   sessionDate            DateTime
   sessionTime            String
   departmentId           String
-  status                 BookingStatus      @default(PENDING)
+  status                 BookingStatus @default(PENDING)
   assignedPhotographerId String?
   notes                  String?
-  createdAt              DateTime           @default(now())
-  updatedAt              DateTime           @updatedAt
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   job                  Job?             @relation(fields: [jobId], references: [id])
   customer             Customer         @relation(fields: [customerId], references: [id])
@@ -456,41 +457,42 @@ model BookingTheme {
 }
 
 model Order {
-  id                           String               @id @default(cuid())
-  publicId                     String               @unique
-  jobNumber                    String
-  jobId                        String               @unique
-  bookingId                    String               @unique
+  id                     String               @id @default(cuid())
+  publicId               String               @unique
+  jobNumber              String
+  jobId                  String               @unique
+  bookingId              String               @unique
   // Intentional denormalization: duplicates Booking.customerId to allow direct
   // customer-scoped queries on orders without joining through bookings.
-  customerId                   String
-  selectedPhotoCount           Int?
-  addOns                       Json                 @default("[]")
-  status                       OrderStatus          @default(ACTIVE)
-  selectionStatus              OrderSelectionStatus @default(PENDING)
-  deliveryStatus               OrderDeliveryStatus  @default(NOT_READY)
-  deliveryPreparedAt           DateTime?
-  customerNotifiedAt           DateTime?
-  pickedUpAt                   DateTime?
-  deliveryCompletedAt          DateTime?
-  deliveryCompletedById        String?
-  deliveryCompletedBy          String?
-  deliveryPickupNotes          String?
-  deliveryOverrideReason       String?
-  nasFolderPath                String?
-  notes                        String?
-  createdAt                    DateTime             @default(now())
-  updatedAt                    DateTime             @updatedAt
+  customerId             String
+  selectedPhotoCount     Int?
+  addOns                 Json                 @default("[]")
+  status                 OrderStatus          @default(ACTIVE)
+  selectionStatus        OrderSelectionStatus @default(PENDING)
+  deliveryStatus         OrderDeliveryStatus  @default(NOT_READY)
+  deliveryPreparedAt     DateTime?
+  customerNotifiedAt     DateTime?
+  pickedUpAt             DateTime?
+  deliveryCompletedAt    DateTime?
+  deliveryCompletedById  String?
+  deliveryCompletedBy    String?
+  deliveryPickupNotes    String?
+  deliveryOverrideReason String?
+  nasFolderPath          String?
+  notes                  String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
 
-  job                     Job             @relation(fields: [jobId], references: [id])
-  booking                 Booking         @relation(fields: [bookingId], references: [id])
-  customer                Customer        @relation(fields: [customerId], references: [id])
-  deliveryCompletedByUser User?           @relation("DeliveryCompletedBy", fields: [deliveryCompletedById], references: [id])
+  job                     Job                       @relation(fields: [jobId], references: [id])
+  booking                 Booking                   @relation(fields: [bookingId], references: [id])
+  customer                Customer                  @relation(fields: [customerId], references: [id])
+  deliveryCompletedByUser User?                     @relation("DeliveryCompletedBy", fields: [deliveryCompletedById], references: [id])
   editingJob              EditingJob?
   productionJob           ProductionJob?
   invoices                Invoice[]
   activities              OrderActivity[]
   orderAddOns             OrderAddOn[]
+  packageItemUpgrades     OrderPackageItemUpgrade[]
   packages                OrderPackage[]
 
   @@index([jobNumber])
@@ -511,10 +513,11 @@ model OrderPackage {
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 
-  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  package     Package     @relation(fields: [packageId], references: [id])
-  sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
-  orderAddOns OrderAddOn[]
+  order               Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  package             Package                   @relation(fields: [packageId], references: [id])
+  sessionType         SessionType               @relation(fields: [sessionTypeId], references: [id])
+  orderAddOns         OrderAddOn[]
+  packageItemUpgrades OrderPackageItemUpgrade[]
 
   @@index([orderId, sortOrder])
   @@index([packageId])
@@ -594,29 +597,49 @@ model OrderActivity {
 }
 
 model OrderAddOn {
-  id            String   @id @default(cuid())
-  orderId       String
+  id             String   @id @default(cuid())
+  orderId        String
   orderPackageId String?
-  productId     String?
-  packageItemId String?
-  nameSnapshot  String
-  priceSnapshot Decimal  @db.Decimal(10, 3)
-  quantity      Int      @default(1)
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  productId      String
+  nameSnapshot   String
+  priceSnapshot  Decimal  @db.Decimal(10, 3)
+  quantity       Int      @default(1)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderPackage OrderPackage? @relation(fields: [orderPackageId], references: [id], onDelete: Cascade)
-  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
-  packageItem PackageItem? @relation(fields: [packageItemId], references: [id], onDelete: SetNull)
+  product      Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, orderPackageId, productId])
+  @@index([orderId])
+  @@index([orderPackageId])
+  @@index([productId])
+  @@map("order_add_ons")
+}
+
+model OrderPackageItemUpgrade {
+  id             String   @id @default(cuid())
+  orderId        String
+  orderPackageId String
+  packageItemId  String
+  nameSnapshot   String
+  priceSnapshot  Decimal  @db.Decimal(10, 3)
+  quantity       Int      @default(1)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  order        Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderPackage OrderPackage @relation(fields: [orderPackageId], references: [id], onDelete: Cascade)
+  packageItem  PackageItem  @relation(fields: [packageItemId], references: [id], onDelete: Restrict)
 
   @@unique([orderId, orderPackageId, packageItemId])
   @@index([orderId])
   @@index([orderPackageId])
-  @@index([productId])
   @@index([packageItemId])
-  @@map("order_add_ons")
+  @@map("order_package_item_upgrades")
 }
 
 model Invoice {
@@ -643,15 +666,18 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  financialCase FinancialCase     @relation(fields: [financialCaseId], references: [id])
-  job           Job?              @relation(fields: [jobId], references: [id])
-  order         Order?            @relation(fields: [orderId], references: [id])
-  booking       Booking?          @relation(fields: [bookingId], references: [id])
-  customer      Customer          @relation(fields: [customerId], references: [id])
-  parentInvoice Invoice?          @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
-  adjustments   Invoice[]         @relation("InvoiceAdjustments")
-  payments      Payment[]
-  lineItems     InvoiceLineItem[]
+  financialCase                FinancialCase         @relation(fields: [financialCaseId], references: [id])
+  job                          Job?                  @relation(fields: [jobId], references: [id])
+  order                        Order?                @relation(fields: [orderId], references: [id])
+  booking                      Booking?              @relation(fields: [bookingId], references: [id])
+  customer                     Customer              @relation(fields: [customerId], references: [id])
+  parentInvoice                Invoice?              @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
+  adjustments                  Invoice[]             @relation("InvoiceAdjustments")
+  payments                     Payment[]
+  lineItems                    InvoiceLineItem[]
+  documentApplicationsAsSource DocumentApplication[] @relation("DocumentApplicationSource")
+  documentApplicationsAsTarget DocumentApplication[] @relation("DocumentApplicationTarget")
+  paymentAllocations           PaymentAllocation[]
 
   @@unique([id, financialCaseId])
   @@index([financialCaseId])
@@ -679,30 +705,67 @@ model InvoiceLineItem {
 }
 
 model Payment {
-  id              String        @id @default(cuid())
-  publicId        String        @unique
+  id              String           @id @default(cuid())
+  publicId        String           @unique
   financialCaseId String
   jobNumber       String?
   jobId           String?
   invoiceId       String
-  amount          Decimal       @db.Decimal(10, 3)
+  amount          Decimal          @db.Decimal(10, 3)
   direction       PaymentDirection @default(IN)
   method          PaymentMethod
   paymentType     PaymentType
-  paidAt          DateTime      @default(now())
+  paidAt          DateTime         @default(now())
   reference       String?
   notes           String?
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime         @default(now())
 
-  financialCase FinancialCase @relation(fields: [financialCaseId], references: [id])
-  job           Job?           @relation(fields: [jobId], references: [id])
-  invoice       Invoice        @relation(fields: [invoiceId, financialCaseId], references: [id, financialCaseId])
+  financialCase FinancialCase       @relation(fields: [financialCaseId], references: [id])
+  job           Job?                @relation(fields: [jobId], references: [id])
+  invoice       Invoice             @relation(fields: [invoiceId, financialCaseId], references: [id, financialCaseId])
+  allocations   PaymentAllocation[]
 
   @@index([invoiceId, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])
   @@map("payments")
+}
+
+model DocumentApplication {
+  id              String   @id @default(cuid())
+  sourceInvoiceId String   @map("source_invoice_id")
+  targetInvoiceId String   @map("target_invoice_id")
+  amountApplied   Decimal  @map("amount_applied") @db.Decimal(10, 3)
+  appliedAt       DateTime @default(now()) @map("applied_at")
+  appliedByUserId String?  @map("applied_by_user_id")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  sourceInvoice Invoice @relation("DocumentApplicationSource", fields: [sourceInvoiceId], references: [id])
+  targetInvoice Invoice @relation("DocumentApplicationTarget", fields: [targetInvoiceId], references: [id])
+  appliedBy     User?   @relation(fields: [appliedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([sourceInvoiceId, targetInvoiceId])
+  @@index([sourceInvoiceId])
+  @@index([targetInvoiceId])
+  @@map("document_applications")
+}
+
+model PaymentAllocation {
+  id        String   @id @default(cuid())
+  paymentId String   @map("payment_id")
+  invoiceId String   @map("invoice_id")
+  amount    Decimal  @db.Decimal(10, 3)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@unique([paymentId])
+  @@index([paymentId])
+  @@index([invoiceId])
+  @@map("payment_allocations")
 }
 
 model IdentifierSequence {
