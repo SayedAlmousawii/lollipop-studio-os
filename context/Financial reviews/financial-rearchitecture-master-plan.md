@@ -387,29 +387,21 @@ Each later phase has a small number of sub-decisions that were intentionally lef
 
 A future session writing a Phase N spec **must** close that phase's queued decisions with the user before producing the spec. The recommended default is captured for each so the session can ask "confirm or override?" rather than re-discovering the question.
 
-### Phase 2 — start-gate decisions
+### Phase 2 — start-gate decisions ✓ RESOLVED (2026-05-14)
 
-1. **ADJUSTMENT invoice settlement mechanism.**
-   Does `ADJUSTMENT` use `DocumentApplication` (binding adjustment → final) or is it a pure sibling settled by `PaymentAllocation`?
-   - **Recommended default:** Pure sibling settled by PaymentAllocation. Reserve `DocumentApplication` for *credit transfers between invoices* (DEPOSIT → FINAL, CREDIT_NOTE → FINAL). ADJUSTMENT is a *new receivable*, not a credit movement — so it doesn't belong in DocumentApplication.
-   - **Why open:** Some accounting systems do bind adjustment → original for traceability. Decide based on whether the user wants the binding visible at the data layer or only via `parentInvoiceId`.
+1. **ADJUSTMENT settlement mechanism (Fork S):** Pure sibling settled by PaymentAllocation. `DocumentApplication` is reserved for credit transfers only.
+2. **Edit classifier + 12 edge cases (Fork T, E1–E12):** Resolved. See `project_financial_review_2026_05.md` (memory) for the full classifier rules. Highlights:
+   - Manual surcharges and manual discounts both require explicit manager action; only *order-edit-triggered* additions auto-spawn ADJUSTMENT.
+   - Net-zero upgrade swaps produce no financial records (activity log only).
+   - Non-equal upgrade swaps produce two records (ADJUSTMENT + CREDIT_NOTE), never net-delta.
+   - All ADJUSTMENTs are siblings of FINAL; never chain ADJUSTMENT → ADJUSTMENT.
+   - All CREDIT_NOTEs target FINAL, even when reducing what was added by an ADJUSTMENT.
+   - `priceSnapshot` on a locked-invoice line cannot be edited directly — staff must delete + re-add or issue CREDIT_NOTE.
 
-2. **"Additive edit" vs "reduction" classifier.**
-   Which concrete order-edit operations auto-spawn an ADJUSTMENT invoice (Phase 2) vs route to an explicit CREDIT_NOTE flow (Phase 3)?
-   - **Recommended default:** Auto-ADJUSTMENT for: new `OrderAddOn`, new `OrderPackageItemUpgrade`, package upgrade to higher-tier, new extra-photo line. Explicit CREDIT_NOTE for: deletion of any `OrderAddOn`/`OrderPackageItemUpgrade`, package downgrade, manual price reduction, removal of extra-photo line.
-   - **Why open:** Edge cases — what about *replacing* an upgrade with a different upgrade of equal price (net-zero), or partial-quantity reductions on a multi-quantity add-on? The classifier table needs to enumerate these.
+### Phase 3 — start-gate decisions ✓ RESOLVED (2026-05-14)
 
-### Phase 3 — start-gate decisions
-
-3. **Refund traceability field.**
-   Add a nullable `Payment.refundOfPaymentId` FK pointing to the originating inbound Payment?
-   - **Recommended default:** Yes. Refunds need to be reconcilable to their source payment for ops and reporting. The field is nullable because not every outbound Payment refunds a specific inbound one (e.g., goodwill refunds).
-   - **Why open:** Alternative is to derive the link via `REFUND invoice → DocumentApplication → original FINAL → payments`. Cheaper schema, more expensive query. Decide based on reporting needs.
-
-4. **Voucher-backed booking forfeit mechanism (v1).**
-   When a voucher-backed booking is cancelled (or no-shows), the 20 KD on the deposit invoice forfeits. How is that represented?
-   - **Recommended default:** Deposit invoice transitions to a NO_SHOW-equivalent locked state (no CREDIT_NOTE issued). The `GiftCardRedemption` with `redemptionKind = NO_SHOW_FORFEIT` / `CANCEL_FORFEIT` records the permanent deduction on the voucher. The deposit invoice's `paidAmount` stays at 20 KD; the booking just doesn't progress to FINAL.
-   - **Why open:** Alternative is to issue a CREDIT_NOTE that nets the deposit invoice to zero and a corresponding GiftCardRedemption that nets the voucher. More accounting-correct ("the deposit was *cancelled*, not consumed") but heavier.
+3. **Refund traceability field (Fork U):** Yes — nullable `Payment.refundOfPaymentId` FK.
+4. **Voucher-backed booking forfeit mechanism v1 (Fork V):** Lock deposit (NO_SHOW-equivalent state) + record `GiftCardRedemption` with kind=NO_SHOW_FORFEIT/CANCEL_FORFEIT. No CREDIT_NOTE. Phase 4 mechanics; Phase 3 does NOT need to model this.
 
 ### Phase 4 — start-gate decisions
 

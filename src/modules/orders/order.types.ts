@@ -1,4 +1,4 @@
-import type { OrderSelectionStatus, OrderStatus } from "@prisma/client";
+import type { InvoiceType, OrderSelectionStatus, OrderStatus } from "@prisma/client";
 
 export type OrderStatusLabel =
   | "Active"
@@ -328,6 +328,9 @@ export interface POSWorkspace {
   productOptions: POSProductOption[];
   addOnCatalog: POSAddOnCatalogItem[];
   invoice: POSInvoiceSummary | null;
+  adjustmentInvoices: POSInvoiceSummary[];
+  paidAdjustmentInvoices: POSInvoiceSummary[];
+  aggregateOutstanding: number;
 }
 
 export interface POSPackageLine {
@@ -408,7 +411,9 @@ export interface POSAddOnCatalogItem {
 
 export interface POSInvoiceSummary {
   invoiceId: string;
+  financialCaseId: string;
   invoiceNumber: string;
+  invoiceType: Extract<InvoiceType, "FINAL" | "ADJUSTMENT">;
   invoiceStatus: InvoiceStatusLabel;
   isLocked: boolean;
   renderMode: "SNAPSHOT" | "COMPUTED";

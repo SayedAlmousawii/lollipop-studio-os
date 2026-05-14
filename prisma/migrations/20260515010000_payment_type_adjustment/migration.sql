@@ -1,0 +1,1 @@
+ALTER TYPE "PaymentType" ADD VALUE 'ADJUSTMENT';

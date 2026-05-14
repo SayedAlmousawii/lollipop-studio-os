@@ -117,6 +117,7 @@ enum PaymentMethod {
 enum PaymentType {
   DEPOSIT
   FINAL
+  ADJUSTMENT
   UPGRADE
   ADDON
   OTHER

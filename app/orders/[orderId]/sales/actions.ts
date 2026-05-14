@@ -1,7 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { OrderSelectionStatus, OrderStatus, PaymentType } from "@prisma/client";
+import {
+  InvoiceType,
+  OrderSelectionStatus,
+  OrderStatus,
+  PaymentType,
+} from "@prisma/client";
 import { z } from "zod";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import {
@@ -227,10 +232,19 @@ export async function recordPOSPaymentAction(
     return { errors: { paidAt: ["Payment date and time are invalid"] } };
   }
 
+  const workspace = await getPOSWorkspace(orderId);
+  const invoice = findPOSPayableInvoice(workspace, invoiceId);
+  if (!workspace || !invoice) {
+    return { errors: { _global: ["No invoice exists for this order."] } };
+  }
+
   const parsed = recordPaymentSchema.safeParse({
     amount: formData.get("amount"),
     method: formData.get("method"),
-    paymentType: PaymentType.FINAL,
+    paymentType:
+      invoice.invoiceType === InvoiceType.ADJUSTMENT
+        ? PaymentType.ADJUSTMENT
+        : PaymentType.FINAL,
     paidAt,
     reference: formData.get("reference") || undefined,
     notes: formData.get("notes") || undefined,
@@ -242,14 +256,6 @@ export async function recordPOSPaymentAction(
 
   try {
     const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
-    const workspace = await getPOSWorkspace(orderId);
-    const invoice = workspace?.invoice;
-    if (!workspace || !invoice) {
-      return { errors: { _global: ["No invoice exists for this order."] } };
-    }
-    if (invoice.invoiceId !== invoiceId) {
-      return { errors: { _global: ["Invoice does not belong to this order."] } };
-    }
     if (invoice.remainingAmount <= 0) {
       return { errors: { _global: ["No outstanding balance remains on this invoice."] } };
     }
@@ -262,6 +268,7 @@ export async function recordPOSPaymentAction(
     }
 
     const selectionStatus =
+      invoice.invoiceType === InvoiceType.FINAL &&
       workspace.orderStatusRaw === OrderStatus.WAITING_SELECTION
         ? parseRequiredSelectionStatus(formData)
         : undefined;
@@ -282,6 +289,19 @@ export async function recordPOSPaymentAction(
 
   revalidatePOSPaymentPaths(orderId, invoiceId);
   return { success: "Payment recorded." };
+}
+
+function findPOSPayableInvoice(
+  workspace: Awaited<ReturnType<typeof getPOSWorkspace>>,
+  invoiceId: string
+) {
+  if (!workspace) return null;
+  const invoices = [
+    ...(workspace.invoice ? [workspace.invoice] : []),
+    ...workspace.adjustmentInvoices,
+  ];
+
+  return invoices.find((invoice) => invoice.invoiceId === invoiceId) ?? null;
 }
 
 function revalidatePOSPaths(orderId: string): void {

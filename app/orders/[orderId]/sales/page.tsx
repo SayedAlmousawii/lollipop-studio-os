@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { AlertCircle, Lock, ReceiptText } from "lucide-react";
+import { AlertCircle, ChevronDown, Lock, ReceiptText } from "lucide-react";
 import { createOrderInvoiceAction } from "@/app/orders/[orderId]/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -150,6 +150,48 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
             </div>
           ) : null}
 
+          {workspace.adjustmentInvoices.length > 0 ? (
+            <div className="space-y-3 border-t border-border pt-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
+                Open adjustments
+              </p>
+              {workspace.adjustmentInvoices.map((adjustment) => (
+                <AdjustmentInvoiceBlock
+                  key={adjustment.invoiceId}
+                  invoice={adjustment}
+                  workspace={workspace}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {workspace.paidAdjustmentInvoices.length > 0 ? (
+            <details className="group border-t border-border pt-4">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium text-text-primary">
+                <span>Paid adjustments ({workspace.paidAdjustmentInvoices.length})</span>
+                <ChevronDown className="h-4 w-4 text-text-muted transition group-open:rotate-180" />
+              </summary>
+              <div className="mt-3 space-y-2">
+                {workspace.paidAdjustmentInvoices.map((adjustment) => (
+                  <AdjustmentInvoiceSummary
+                    key={adjustment.invoiceId}
+                    invoice={adjustment}
+                  />
+                ))}
+              </div>
+            </details>
+          ) : null}
+
+          {invoice || workspace.adjustmentInvoices.length > 0 ? (
+            <div className="border-t border-border pt-4">
+              <MoneyRow
+                label="Outstanding total"
+                value={formatKD(workspace.aggregateOutstanding)}
+                strong
+              />
+            </div>
+          ) : null}
+
           <div className="border-t border-border pt-4">
             {invoice ? (
               invoice.remainingAmount <= 0 ? (
@@ -187,6 +229,69 @@ function FinancialSidebar({ workspace }: { workspace: POSWorkspace }) {
         </CardContent>
       </Card>
     </aside>
+  );
+}
+
+function AdjustmentInvoiceBlock({
+  invoice,
+  workspace,
+}: {
+  invoice: POSWorkspace["adjustmentInvoices"][number];
+  workspace: POSWorkspace;
+}) {
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-surface-soft p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-text-primary">
+            Adjustment #{invoice.invoiceNumber}
+          </p>
+          <Badge variant="secondary" className="mt-1 w-fit rounded-md">
+            {invoice.invoiceStatus}
+          </Badge>
+        </div>
+        <POSRecordPaymentDialog
+          orderId={workspace.orderId}
+          invoice={invoice}
+          orderStatus={workspace.orderStatusRaw}
+          customerName={workspace.customerName}
+          jobNumber={workspace.jobNumber}
+          trigger={<Button size="sm">Record Payment</Button>}
+        />
+      </div>
+      <div className="space-y-2">
+        {invoice.lineItems.map((item) => (
+          <InvoiceLineRow
+            key={item.id}
+            label={item.description}
+            meta={`${item.quantity} × ${item.unitPriceLabel}`}
+            value={item.lineTotalLabel}
+          />
+        ))}
+      </div>
+      <div className="space-y-1 border-t border-border pt-3">
+        <MoneyRow label="Total" value={formatKD(invoice.invoiceTotal)} />
+        <MoneyRow label="Paid" value={formatKD(invoice.paidAmount)} />
+        <MoneyRow label="Remaining" value={formatKD(invoice.remainingAmount)} strong />
+      </div>
+    </div>
+  );
+}
+
+function AdjustmentInvoiceSummary({
+  invoice,
+}: {
+  invoice: POSWorkspace["paidAdjustmentInvoices"][number];
+}) {
+  return (
+    <div className="rounded-md border border-border bg-surface-soft px-3 py-2">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="font-medium text-text-primary">{invoice.invoiceNumber}</span>
+        <span className="tabular-nums text-text-secondary">
+          {formatKD(invoice.invoiceTotal)}
+        </span>
+      </div>
+    </div>
   );
 }
 

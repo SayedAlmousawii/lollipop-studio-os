@@ -1,3 +1,4 @@
+import { InvoiceLineType } from "@prisma/client";
 import { z } from "zod";
 
 export const createAdjustmentInvoiceSchema = z.object({
@@ -7,6 +8,23 @@ export const createAdjustmentInvoiceSchema = z.object({
   notes: z.string().trim().max(500).optional(),
 });
 
-export type CreateAdjustmentInvoiceInput = z.infer<
-  typeof createAdjustmentInvoiceSchema
->;
+export type AdjustmentLineInput = {
+  lineType: InvoiceLineType;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+};
+
+export type CreateAdjustmentInvoiceInput = {
+  parentFinalInvoiceId: string;
+  lines: AdjustmentLineInput[];
+  notes?: string;
+  createdByUserId?: string;
+};
+
+export const createAdjustmentInvoiceLineSchema = z.object({
+  lineType: z.nativeEnum(InvoiceLineType),
+  description: z.string().trim().min(1),
+  quantity: z.coerce.number().int().positive(),
+  unitPrice: z.coerce.number().positive(),
+});

@@ -1,4 +1,4 @@
-import { OrderActivityType, Prisma } from "@prisma/client";
+import { InvoiceStatus, InvoiceType, OrderActivityType, Prisma } from "@prisma/client";
 import type { Payment, PaymentMethod, PaymentType } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -7,7 +7,10 @@ import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import type { FinancialPaymentDirection, Money } from "@/modules/financial/types";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
-import { recalculateInvoiceStatus } from "@/modules/invoices/invoice.service";
+import {
+  recalculateInvoiceStatus,
+  snapshotInvoiceLineItemsWithClient,
+} from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import type { RecordPaymentInput } from "./payment.schema";
 
@@ -190,13 +193,20 @@ export async function recordPaymentWithClient(
   );
 
   await recalculateInvoiceStatus(invoiceId, client);
+  const recalculatedInvoice = await closeInvoiceIfSettled(
+    client,
+    invoiceId
+  );
   if (invoice.orderId) {
+    const isAdjustmentPayment = data.paymentType === "ADJUSTMENT";
     await recordOrderActivity(client, {
       orderId: invoice.orderId,
       userId: actorContext.actorUserId ?? null,
       type: OrderActivityType.PAYMENT_RECEIVED,
       title: "Payment received",
-      description: `${paymentAmount.toFixed(3)} KD payment recorded.`,
+      description: isAdjustmentPayment
+        ? `Payment recorded against ${invoice.invoiceNumber}: ${paymentAmount.toFixed(3)} KD via ${data.method}.`
+        : `${paymentAmount.toFixed(3)} KD payment recorded.`,
       metadata: {
         invoiceId,
         invoiceNumber: invoice.invoiceNumber,
@@ -208,8 +218,95 @@ export async function recordPaymentWithClient(
         reference: data.reference ?? null,
       },
     });
+
+    if (recalculatedInvoice?.justClosed) {
+      await recordOrderActivity(client, {
+        orderId: invoice.orderId,
+        userId: actorContext.actorUserId ?? null,
+        type: OrderActivityType.INVOICE_ADJUSTED,
+        title:
+          recalculatedInvoice.invoiceType === InvoiceType.ADJUSTMENT
+            ? "Adjustment settled"
+            : "Invoice settled",
+        description:
+          recalculatedInvoice.invoiceType === InvoiceType.ADJUSTMENT
+            ? `Adjustment ${invoice.invoiceNumber} settled and closed.`
+            : `Invoice ${invoice.invoiceNumber} settled and closed.`,
+        metadata: {
+          invoiceId,
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceType: recalculatedInvoice.invoiceType,
+          status: InvoiceStatus.CLOSED,
+          locked: true,
+        },
+      });
+    }
+  }
+
+  if (data.paymentType === "ADJUSTMENT") {
+    recordPaymentCounter("pos.adjustment.payment.recorded", {
+      method: data.method,
+      invoiceId,
+      paymentId: payment.id,
+    });
   }
   return payment;
+}
+
+async function closeInvoiceIfSettled(
+  client: DbClient,
+  invoiceId: string
+): Promise<{
+  invoiceType: InvoiceType;
+  justClosed: boolean;
+} | null> {
+  const invoice = await client.invoice.findUnique({
+    where: { id: invoiceId },
+    select: {
+      id: true,
+      invoiceType: true,
+      orderId: true,
+      isLocked: true,
+      status: true,
+      remainingAmount: true,
+    },
+  });
+  if (!invoice) return null;
+  if (
+    invoice.isLocked ||
+    invoice.status === InvoiceStatus.CLOSED ||
+    invoice.status === InvoiceStatus.DRAFT ||
+    invoice.remainingAmount.greaterThan(0)
+  ) {
+    return { invoiceType: invoice.invoiceType, justClosed: false };
+  }
+
+  if (invoice.orderId) {
+    await snapshotInvoiceLineItemsWithClient(client, invoice.id, invoice.orderId);
+  }
+
+  const updateResult = await client.invoice.updateMany({
+    where: {
+      id: invoice.id,
+      isLocked: false,
+      status: { notIn: [InvoiceStatus.CLOSED, InvoiceStatus.DRAFT] },
+      remainingAmount: new Prisma.Decimal(0),
+    },
+    data: {
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      closedAt: new Date(),
+    },
+  });
+
+  return { invoiceType: invoice.invoiceType, justClosed: updateResult.count > 0 };
+}
+
+function recordPaymentCounter(
+  metric: string,
+  fields: Record<string, string>
+): void {
+  console.info(JSON.stringify({ metric, ...fields }));
 }
 
 export async function getPaymentsByInvoice(invoiceId: string) {
