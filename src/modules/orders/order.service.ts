@@ -1507,6 +1507,15 @@ export async function updateOrderSelectedPhotoCount(
         if (data.selectedPhotoCount < currentPackage.photoCount) {
           throw new Error("Selected photos cannot be below included package photos");
         }
+        const derivedExtraCount = Math.max(
+          data.selectedPhotoCount - currentPackage.photoCount,
+          0
+        );
+        if (data.extraDigitalCount + data.extraPrintCount !== derivedExtraCount) {
+          throw new Error(
+            "Digital and print extra allocations must equal the derived extra-photo count."
+          );
+        }
 
         const previousAddOns = mapStructuredAddOns(order.orderAddOns);
         const previousExtraPhotoCharge = await calculateOrderPackageLineExtraPhotoTotal(
