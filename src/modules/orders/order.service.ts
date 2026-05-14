@@ -290,17 +290,37 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                   sessionDate: true,
                   financialCase: {
                     select: {
+                      id: true,
                       invoices: {
                         where: {
-                          parentInvoiceId: null,
-                          invoiceType: InvoiceType.DEPOSIT,
+                          invoiceType: {
+                            in: [InvoiceType.DEPOSIT, InvoiceType.ADJUSTMENT],
+                          },
                         },
                         select: {
+                          id: true,
+                          financialCaseId: true,
                           invoiceNumber: true,
+                          invoiceType: true,
+                          status: true,
+                          isLocked: true,
+                          totalAmount: true,
                           paidAmount: true,
+                          remainingAmount: true,
+                          createdAt: true,
+                          lineItems: {
+                            select: {
+                              id: true,
+                              lineType: true,
+                              description: true,
+                              quantity: true,
+                              unitPrice: true,
+                              lineTotal: true,
+                            },
+                            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                          },
                         },
-                        orderBy: { createdAt: "desc" },
-                        take: 1,
+                        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                       },
                     },
                   },
@@ -329,7 +349,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                 where: FINAL_PARENT_INVOICE_WHERE,
                 select: {
                   id: true,
+                  financialCaseId: true,
                   invoiceNumber: true,
+                  invoiceType: true,
                   status: true,
                   isLocked: true,
                   totalAmount: true,
@@ -397,7 +419,29 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
 
   if (!order) return null;
 
-  const depositInvoice = order.booking.financialCase?.invoices[0] ?? null;
+  const financialCaseInvoices = order.booking.financialCase?.invoices ?? [];
+  const depositInvoice =
+    financialCaseInvoices.filter((invoice) => invoice.invoiceType === InvoiceType.DEPOSIT).at(-1) ??
+    null;
+  const adjustmentInvoices = financialCaseInvoices
+    .filter((invoice) => invoice.invoiceType === InvoiceType.ADJUSTMENT)
+    .map((invoice) =>
+      mapPOSInvoiceSummary({
+        invoice,
+        packageBaseTotal: zeroMoney(),
+        bundleAdjustment: zeroMoney(),
+        addOnTotal: zeroMoney(),
+        extraPhotoTotal: zeroMoney(),
+        paidAmount: invoice.paidAmount,
+        depositInvoice: null,
+      })
+    );
+  const openAdjustmentInvoices = adjustmentInvoices.filter(
+    (invoice) => invoice.invoiceStatus !== "Draft" && invoice.remainingAmount > 0
+  );
+  const paidAdjustmentInvoices = adjustmentInvoices.filter(
+    (invoice) => invoice.invoiceStatus !== "Draft" && invoice.remainingAmount <= 0
+  );
   const packageLines = mapPOSPackageLines({
     lines: order.packages,
     packageOptions: packageRows,
@@ -429,6 +473,32 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     )
   );
 
+  const finalInvoice = order.invoices[0]
+    ? mapPOSInvoiceSummary({
+        invoice: order.invoices[0],
+        packageBaseTotal,
+        bundleAdjustment: bundleAdjustmentTotal,
+        addOnTotal,
+        extraPhotoTotal: extraPhotoTotalDecimal,
+        paidAmount,
+        depositInvoice,
+      })
+    : null;
+  const aggregateOutstanding =
+    (finalInvoice?.remainingAmount ?? 0) +
+    openAdjustmentInvoices.reduce(
+      (sum, invoice) => sum + invoice.remainingAmount,
+      0
+    );
+
+  if (openAdjustmentInvoices.length > 0) {
+    recordPOSCounter("pos.adjustment.viewed", {
+      orderId: order.id,
+      financialCaseId: order.booking.financialCase?.id ?? null,
+      count: openAdjustmentInvoices.length,
+    });
+  }
+
   return {
     orderId: order.id,
     jobNumber: order.jobNumber,
@@ -449,17 +519,10 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     addOnTotal: addOnTotal.toNumber(),
     productOptions: productRows.map(mapPOSProductOption),
     addOnCatalog: addOnCatalogRows.map(mapPOSAddOnCatalogItem),
-    invoice: order.invoices[0]
-      ? mapPOSInvoiceSummary({
-          invoice: order.invoices[0],
-          packageBaseTotal,
-          bundleAdjustment: bundleAdjustmentTotal,
-          addOnTotal,
-          extraPhotoTotal: extraPhotoTotalDecimal,
-          paidAmount,
-          depositInvoice,
-        })
-      : null,
+    invoice: finalInvoice,
+    adjustmentInvoices: openAdjustmentInvoices,
+    paidAdjustmentInvoices,
+    aggregateOutstanding,
   };
 });
 
@@ -3485,7 +3548,9 @@ function mapPOSAddOnCatalogItem(option: {
 function mapPOSInvoiceSummary(input: {
   invoice: {
     id: string;
+    financialCaseId: string;
     invoiceNumber: string;
+    invoiceType: InvoiceType;
     status: InvoiceStatus;
     isLocked: boolean;
     totalAmount: Prisma.Decimal;
@@ -3518,7 +3583,12 @@ function mapPOSInvoiceSummary(input: {
 
   return {
     invoiceId: input.invoice.id,
+    financialCaseId: input.invoice.financialCaseId,
     invoiceNumber: input.invoice.invoiceNumber,
+    invoiceType: input.invoice.invoiceType as Extract<
+      InvoiceType,
+      "FINAL" | "ADJUSTMENT"
+    >,
     invoiceStatus: mapInvoiceStatus(input.invoice.status),
     isLocked: input.invoice.isLocked,
     renderMode: hasSnapshotLineItems ? "SNAPSHOT" : "COMPUTED",
@@ -3533,6 +3603,13 @@ function mapPOSInvoiceSummary(input: {
     remainingAmount: displayRemainingAmount.toNumber(),
     lineItems: input.invoice.lineItems.map(mapPOSInvoiceLineItem),
   };
+}
+
+function recordPOSCounter(
+  metric: string,
+  fields: Record<string, string | number | null>
+): void {
+  console.info(JSON.stringify({ metric, ...fields }));
 }
 
 function mapPOSInvoiceLineItem(row: {

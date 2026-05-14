@@ -144,7 +144,8 @@ function PaymentForm({
   const notesErrorId = "pos-payment-notes-error";
   const selectionErrorId = "pos-payment-selection-status-error";
   const selectionLabelId = "pos-payment-selection-status-label";
-  const shouldCollectSelectionStatus = orderStatus === OrderStatus.WAITING_SELECTION;
+  const shouldCollectSelectionStatus =
+    invoice.invoiceType === "FINAL" && orderStatus === OrderStatus.WAITING_SELECTION;
   const selectionStatusError =
     state.errors?.selectionStatus ?? (showSelectionError ? ["Selection status is required"] : undefined);
 
