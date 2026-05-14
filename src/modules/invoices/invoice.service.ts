@@ -11,10 +11,12 @@ import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
+import { dualRead } from "@/modules/financial/dual-read";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
+import { computeEffectivePaidFromAllocations } from "./invoice.calculation";
 import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
 import type {
   InvoiceDetail,
@@ -30,6 +32,8 @@ type SnapshotInvoiceLineItem = Omit<
   Prisma.InvoiceLineItemCreateManyInput,
   "invoiceId"
 >;
+const FINANCIAL_REARCH_PHASE_1_DUAL_READ =
+  "FINANCIAL_REARCH_PHASE_1_DUAL_READ";
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
@@ -189,6 +193,8 @@ export async function createInvoiceForOrderWithClient(
 
     return racedInvoice;
   }
+
+  await applyDepositToFinalIfPresent(financialCaseId, invoice.id, client);
 
   await recordOrderActivity(client, {
     orderId: order.id,
@@ -647,7 +653,18 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
     invoice.invoiceType === InvoiceType.FINAL && invoice.financialCaseId
       ? await getDepositCreditAmountForFinancialCase(client, invoice.financialCaseId)
       : new Prisma.Decimal(0);
-  const effectivePaidAmount = directPaidAmount.plus(depositCreditAmount);
+  const oldEffectivePaidAmount = directPaidAmount.plus(depositCreditAmount);
+  const effectivePaidAmount = await dualRead({
+    phase: "phase-1-recalculate",
+    path: "invoice.recalculateStatus",
+    entityId: invoice.id,
+    flagKey: FINANCIAL_REARCH_PHASE_1_DUAL_READ,
+    oldFn: async () => oldEffectivePaidAmount,
+    newFn: () => computeEffectivePaidFromAllocations(invoice.id, client),
+    authoritative: "old",
+    compare: (oldValue, newValue) =>
+      oldValue.minus(newValue).abs().lte(new Prisma.Decimal("0.001")),
+  });
   const remainingAmount = Prisma.Decimal.max(
     invoice.totalAmount.minus(effectivePaidAmount),
     0
@@ -723,7 +740,7 @@ async function createSyncedOrderInvoice(
 
   const invoiceNumberData = await generateInvoiceNumber(client);
   try {
-    return await client.invoice.create({
+    const createdInvoice = await client.invoice.create({
       data: {
         publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
         financialCaseId: data.financialCaseId,
@@ -747,6 +764,14 @@ async function createSyncedOrderInvoice(
         status: true,
       },
     });
+
+    await applyDepositToFinalIfPresent(
+      data.financialCaseId,
+      createdInvoice.id,
+      client
+    );
+
+    return createdInvoice;
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
 
@@ -796,6 +821,41 @@ async function findPrimaryWorkflowInvoiceForOrder(
   }
 
   return invoices[0];
+}
+
+export async function applyDepositToFinalIfPresent(
+  financialCaseId: string,
+  finalInvoiceId: string,
+  client: DbClient
+): Promise<void> {
+  const depositInvoice = await client.invoice.findFirst({
+    where: {
+      financialCaseId,
+      invoiceType: InvoiceType.DEPOSIT,
+      parentInvoiceId: null,
+    },
+    select: { id: true, paidAmount: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (!depositInvoice || depositInvoice.paidAmount.lessThanOrEqualTo(0)) {
+    return;
+  }
+
+  try {
+    await client.documentApplication.create({
+      data: {
+        sourceInvoiceId: depositInvoice.id,
+        targetInvoiceId: finalInvoiceId,
+        amountApplied: depositInvoice.paidAmount,
+        notes: "Phase 1: deposit auto-application",
+      },
+    });
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+  }
 }
 
 function mapOrderAddOnRows(

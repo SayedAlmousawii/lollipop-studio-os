@@ -7,6 +7,7 @@ export type DualReadResult<T> = {
 };
 
 const discrepancyMetricCounts = new Map<string, number>();
+const DEFAULT_ENABLED_FLAGS = new Set(["FINANCIAL_REARCH_PHASE_1_DUAL_READ"]);
 
 type DualReadOptions<T> = {
   phase: string;
@@ -22,7 +23,7 @@ type DualReadOptions<T> = {
 function isFlagEnabled(flagKey: string): boolean {
   const rawValue = process.env[flagKey];
   if (!rawValue) {
-    return false;
+    return DEFAULT_ENABLED_FLAGS.has(flagKey);
   }
 
   return ["1", "true", "yes", "on"].includes(rawValue.toLowerCase());

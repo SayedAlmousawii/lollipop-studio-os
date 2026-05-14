@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { PaymentDirection, Prisma, type PrismaClient } from "@prisma/client";
 
 export type InvariantContext = {
   tx: PrismaClient | Prisma.TransactionClient;
@@ -122,5 +122,89 @@ registerInvariant({
           actual: allocationTotal.toFixed(3),
         };
       });
+  },
+});
+
+registerInvariant({
+  name: "financial-case-net-balance-non-negative",
+  scope: "financial-case",
+  run: async ({ tx }, { financialCaseId } = {}) => {
+    const financialCases = await tx.financialCase.findMany({
+      where: financialCaseId ? { id: financialCaseId } : undefined,
+      select: {
+        id: true,
+        invoices: {
+          select: {
+            paymentAllocations: {
+              select: {
+                amount: true,
+                payment: { select: { direction: true } },
+              },
+            },
+            documentApplicationsAsTarget: {
+              select: { amountApplied: true },
+            },
+          },
+        },
+      },
+    });
+
+    return financialCases.flatMap((financialCase) => {
+      const netBalance = financialCase.invoices.reduce((caseSum, invoice) => {
+        const paymentTotal = invoice.paymentAllocations.reduce(
+          (invoiceSum, allocation) =>
+            allocation.payment.direction === PaymentDirection.OUT
+              ? invoiceSum.minus(allocation.amount)
+              : invoiceSum.plus(allocation.amount),
+          new Prisma.Decimal(0)
+        );
+        const documentTotal = invoice.documentApplicationsAsTarget.reduce(
+          (invoiceSum, application) => invoiceSum.plus(application.amountApplied),
+          new Prisma.Decimal(0)
+        );
+
+        return caseSum.plus(paymentTotal).plus(documentTotal);
+      }, new Prisma.Decimal(0));
+
+      if (netBalance.greaterThanOrEqualTo(0)) {
+        return [];
+      }
+
+      return [
+        {
+          invariant: "financial-case-net-balance-non-negative",
+          entityType: "FinancialCase",
+          entityId: financialCase.id,
+          expected: ">= 0.000",
+          actual: netBalance.toFixed(3),
+        },
+      ];
+    });
+  },
+});
+
+registerInvariant({
+  name: "document-application-not-over-source",
+  scope: "global",
+  run: async ({ tx }) => {
+    const applications = await tx.documentApplication.findMany({
+      select: {
+        id: true,
+        amountApplied: true,
+        sourceInvoice: { select: { paidAmount: true } },
+      },
+    });
+
+    return applications
+      .filter((application) =>
+        application.amountApplied.greaterThan(application.sourceInvoice.paidAmount)
+      )
+      .map((application) => ({
+        invariant: "document-application-not-over-source",
+        entityType: "DocumentApplication",
+        entityId: application.id,
+        expected: `<= ${application.sourceInvoice.paidAmount.toFixed(3)}`,
+        actual: application.amountApplied.toFixed(3),
+      }));
   },
 });
