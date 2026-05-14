@@ -1,5 +1,6 @@
 "use server";
 
+import { InvoiceLineType, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -82,8 +83,16 @@ export async function createAdjustmentInvoiceAction(
   const appUser = await requireCurrentAppUserPermission(
     PERMISSIONS.INVOICE_ADJUSTMENT_CREATE
   );
-  const invoice = await createAdjustmentInvoice(parentInvoiceId, parsed.data, {
-    actorUserId: appUser.id, actorRole: appUser.role,
+  const invoice = await createAdjustmentInvoice({
+    parentFinalInvoiceId: parentInvoiceId,
+    notes: parsed.data.notes,
+    createdByUserId: appUser.id,
+    lines: [{
+      lineType: InvoiceLineType.MANUAL_SURCHARGE,
+      description: parsed.data.notes?.trim() || "Manual adjustment",
+      quantity: 1,
+      unitPrice: new Prisma.Decimal(parsed.data.totalAmount),
+    }],
   });
   revalidatePath("/invoices");
   redirect(`/invoices/${invoice.id}`);

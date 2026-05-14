@@ -1,5 +1,6 @@
 import {
   BookingStatus,
+  InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
   PaymentMethod,
@@ -7,6 +8,11 @@ import {
   Prisma,
   PrismaClient,
 } from "@prisma/client";
+import {
+  applyDepositToFinalIfPresent,
+  createAdjustmentInvoice,
+  recalculateInvoiceStatus,
+} from "../../src/modules/invoices/invoice.service";
 import { createPaymentWithAllocation } from "../../src/modules/payments/payment.service";
 
 export type BookingFixtureResult = {
@@ -19,6 +25,12 @@ export type BookingFixtureResult = {
   paymentId: string;
 };
 
+export type AdjustedBookingFixtureResult = BookingFixtureResult & {
+  finalInvoiceId: string;
+  finalPaymentId: string;
+  adjustmentInvoiceId: string;
+};
+
 const FIXTURE_KEYS = {
   departmentCode: "FIN_FIXTURE_DEPT_73B",
   customerPhone: "+96550007300",
@@ -26,13 +38,41 @@ const FIXTURE_KEYS = {
   bookingPublicId: "BK-FIN-73B-BASE",
   invoicePublicId: "INV-FIN-73B-DEP",
   invoiceNumber: "INV-FIN-73B-0001",
+  finalInvoicePublicId: "INV-FIN-75A-FINAL",
+  finalInvoiceNumber: "INV-FIN-75A-0002",
+  adjustmentNotes: "Feature 75a fixture adjustment",
 } as const;
 
+const ADJUSTED_FIXTURE_KEYS = {
+  departmentCode: "FIN_FIXTURE_DEPT_75A",
+  customerPhone: "+96550007500",
+  jobNumber: "JOB-FIN-75A-ADJ",
+  bookingPublicId: "BK-FIN-75A-ADJ",
+  invoicePublicId: "INV-FIN-75A-DEP",
+  invoiceNumber: "INV-FIN-75A-0001",
+  finalInvoicePublicId: "INV-FIN-75A-FINAL",
+  finalInvoiceNumber: "INV-FIN-75A-0002",
+  adjustmentNotes: "Feature 75a fixture adjustment",
+} as const;
+
+type FixtureKeys = {
+  departmentCode: string;
+  customerPhone: string;
+  jobNumber: string;
+  bookingPublicId: string;
+  invoicePublicId: string;
+  invoiceNumber: string;
+  finalInvoicePublicId: string;
+  finalInvoiceNumber: string;
+  adjustmentNotes: string;
+};
+
 export async function makeCashDepositBookingFixture(
-  prisma: PrismaClient
+  prisma: PrismaClient,
+  fixtureKeys: FixtureKeys = FIXTURE_KEYS
 ): Promise<BookingFixtureResult> {
   const existingInvoice = await prisma.invoice.findUnique({
-    where: { publicId: FIXTURE_KEYS.invoicePublicId },
+    where: { publicId: fixtureKeys.invoicePublicId },
     include: {
       booking: { select: { id: true, customerId: true, departmentId: true, jobId: true } },
       financialCase: { select: { id: true } },
@@ -62,14 +102,14 @@ export async function makeCashDepositBookingFixture(
   }
 
   const department = await prisma.studioDepartment.upsert({
-    where: { code: FIXTURE_KEYS.departmentCode },
+    where: { code: fixtureKeys.departmentCode },
     update: {
       name: "Financial Fixture Department",
       isActive: true,
       sortOrder: 73,
     },
     create: {
-      code: FIXTURE_KEYS.departmentCode,
+      code: fixtureKeys.departmentCode,
       name: "Financial Fixture Department",
       isActive: true,
       sortOrder: 73,
@@ -77,29 +117,29 @@ export async function makeCashDepositBookingFixture(
   });
 
   const customer = await prisma.customer.upsert({
-    where: { phone: FIXTURE_KEYS.customerPhone },
+    where: { phone: fixtureKeys.customerPhone },
     update: {
       name: "Financial Fixture Customer",
     },
     create: {
       name: "Financial Fixture Customer",
-      phone: FIXTURE_KEYS.customerPhone,
+      phone: fixtureKeys.customerPhone,
     },
   });
 
   const job = await prisma.job.upsert({
-    where: { jobNumber: FIXTURE_KEYS.jobNumber },
+    where: { jobNumber: fixtureKeys.jobNumber },
     update: {
       customerId: customer.id,
     },
     create: {
-      jobNumber: FIXTURE_KEYS.jobNumber,
+      jobNumber: fixtureKeys.jobNumber,
       customerId: customer.id,
     },
   });
 
   const booking = await prisma.booking.upsert({
-    where: { publicId: FIXTURE_KEYS.bookingPublicId },
+    where: { publicId: fixtureKeys.bookingPublicId },
     update: {
       jobId: job.id,
       jobNumber: job.jobNumber,
@@ -110,7 +150,7 @@ export async function makeCashDepositBookingFixture(
       sessionTime: "11:00",
     },
     create: {
-      publicId: FIXTURE_KEYS.bookingPublicId,
+      publicId: fixtureKeys.bookingPublicId,
       jobId: job.id,
       jobNumber: job.jobNumber,
       customerId: customer.id,
@@ -135,7 +175,7 @@ export async function makeCashDepositBookingFixture(
   });
 
   const invoice = await prisma.invoice.upsert({
-    where: { publicId: FIXTURE_KEYS.invoicePublicId },
+    where: { publicId: fixtureKeys.invoicePublicId },
     update: {
       financialCaseId: financialCase.id,
       invoiceType: InvoiceType.DEPOSIT,
@@ -152,14 +192,14 @@ export async function makeCashDepositBookingFixture(
       closedAt: new Date("2026-05-14T08:10:00.000Z"),
     },
     create: {
-      publicId: FIXTURE_KEYS.invoicePublicId,
+      publicId: fixtureKeys.invoicePublicId,
       financialCaseId: financialCase.id,
       invoiceType: InvoiceType.DEPOSIT,
       jobId: job.id,
       jobNumber: job.jobNumber,
       bookingId: booking.id,
       customerId: customer.id,
-      invoiceNumber: FIXTURE_KEYS.invoiceNumber,
+      invoiceNumber: fixtureKeys.invoiceNumber,
       totalAmount: new Prisma.Decimal(20),
       paidAmount: new Prisma.Decimal(20),
       remainingAmount: new Prisma.Decimal(0),
@@ -219,6 +259,138 @@ export async function makeCashDepositBookingFixture(
   };
 }
 
+export async function makeAdjustedBookingFixture(
+  prisma: PrismaClient
+): Promise<AdjustedBookingFixtureResult> {
+  const base = await makeCashDepositBookingFixture(
+    prisma,
+    ADJUSTED_FIXTURE_KEYS
+  );
+
+  const finalInvoice = await prisma.invoice.upsert({
+    where: { publicId: ADJUSTED_FIXTURE_KEYS.finalInvoicePublicId },
+    update: {
+      financialCaseId: base.financialCaseId,
+      invoiceType: InvoiceType.FINAL,
+      jobId: base.jobId,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      totalAmount: new Prisma.Decimal(100),
+      paidAmount: new Prisma.Decimal(80),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      issuedAt: new Date("2026-05-14T09:00:00.000Z"),
+      closedAt: new Date("2026-05-14T09:15:00.000Z"),
+    },
+    create: {
+      publicId: ADJUSTED_FIXTURE_KEYS.finalInvoicePublicId,
+      financialCaseId: base.financialCaseId,
+      invoiceType: InvoiceType.FINAL,
+      jobId: base.jobId,
+      bookingId: base.bookingId,
+      customerId: base.customerId,
+      invoiceNumber: ADJUSTED_FIXTURE_KEYS.finalInvoiceNumber,
+      totalAmount: new Prisma.Decimal(100),
+      paidAmount: new Prisma.Decimal(80),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      issuedAt: new Date("2026-05-14T09:00:00.000Z"),
+      closedAt: new Date("2026-05-14T09:15:00.000Z"),
+    },
+  });
+
+  await applyDepositToFinalIfPresent(
+    base.financialCaseId,
+    finalInvoice.id,
+    prisma
+  );
+
+  const existingFinalPayment = await prisma.payment.findFirst({
+    where: {
+      invoiceId: finalInvoice.id,
+      financialCaseId: base.financialCaseId,
+      paymentType: PaymentType.FINAL,
+    },
+    include: { allocations: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const finalPayment = existingFinalPayment
+    ? existingFinalPayment
+    : await createPaymentWithAllocation(
+        {
+          invoiceId: finalInvoice.id,
+          financialCaseId: base.financialCaseId,
+          amount: new Prisma.Decimal(80),
+          method: PaymentMethod.CASH,
+          paymentType: PaymentType.FINAL,
+          paidAt: new Date("2026-05-14T09:10:00.000Z"),
+        },
+        prisma
+      );
+
+  if (existingFinalPayment && existingFinalPayment.allocations.length === 0) {
+    await prisma.paymentAllocation.create({
+      data: {
+        paymentId: existingFinalPayment.id,
+        invoiceId: finalInvoice.id,
+        amount: existingFinalPayment.amount,
+      },
+    });
+  }
+
+  if (existingFinalPayment && existingFinalPayment.allocations.length > 1) {
+    throw new Error("Fixture final payment has more than one allocation");
+  }
+
+  await recalculateInvoiceStatus(finalInvoice.id, prisma);
+  await prisma.invoice.update({
+    where: { id: finalInvoice.id },
+    data: {
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      closedAt: new Date("2026-05-14T09:15:00.000Z"),
+    },
+  });
+
+  const existingAdjustment = await prisma.invoice.findFirst({
+    where: {
+      invoiceType: InvoiceType.ADJUSTMENT,
+      parentInvoiceId: finalInvoice.id,
+      notes: ADJUSTED_FIXTURE_KEYS.adjustmentNotes,
+    },
+    select: { id: true },
+  });
+
+  const adjustmentInvoice = existingAdjustment
+    ? existingAdjustment
+    : await createAdjustmentInvoice(
+        {
+          parentFinalInvoiceId: finalInvoice.id,
+          notes: ADJUSTED_FIXTURE_KEYS.adjustmentNotes,
+          lines: [
+            {
+              lineType: InvoiceLineType.ADD_ON,
+              description: "Fixture add-on after final lock",
+              quantity: 1,
+              unitPrice: new Prisma.Decimal(15),
+            },
+          ],
+        },
+        prisma
+      );
+
+  return {
+    ...base,
+    finalInvoiceId: finalInvoice.id,
+    finalPaymentId: finalPayment.id,
+    adjustmentInvoiceId: adjustmentInvoice.id,
+  };
+}
+
 export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void> {
   await makeCashDepositBookingFixture(prisma);
+  await makeAdjustedBookingFixture(prisma);
 }

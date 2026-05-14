@@ -659,7 +659,10 @@ export async function recordBookingDeposit(
           select: { id: true },
         });
 
-        const invoiceNumberData = await generateInvoiceNumber(tx);
+        const invoiceNumberData = await generateInvoiceNumber(
+          tx,
+          InvoiceType.DEPOSIT
+        );
         const invoice = await tx.invoice.create({
           data: {
             publicId: await generatePublicId(tx, PUBLIC_ID_KIND.INVOICE),

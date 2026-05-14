@@ -304,3 +304,110 @@ registerInvariant({
     }));
   },
 });
+
+registerInvariant({
+  name: "adjustment-parent-is-final",
+  scope: "global",
+  run: async ({ tx }) => {
+    const adjustmentInvoices = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.ADJUSTMENT },
+      select: {
+        id: true,
+        parentInvoice: { select: { id: true, invoiceType: true } },
+      },
+    });
+
+    return adjustmentInvoices
+      .filter(
+        (invoice) => invoice.parentInvoice?.invoiceType !== InvoiceType.FINAL
+      )
+      .map((invoice) => ({
+        invariant: "adjustment-parent-is-final",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "parentInvoiceId set to a FINAL invoice",
+        actual: invoice.parentInvoice
+          ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
+          : "no parent invoice",
+      }));
+  },
+});
+
+registerInvariant({
+  name: "adjustment-same-financial-case-as-parent",
+  scope: "global",
+  run: async ({ tx }) => {
+    const adjustmentInvoices = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.ADJUSTMENT },
+      select: {
+        id: true,
+        financialCaseId: true,
+        parentInvoice: { select: { id: true, financialCaseId: true } },
+      },
+    });
+
+    return adjustmentInvoices
+      .filter(
+        (invoice) =>
+          invoice.parentInvoice !== null &&
+          invoice.financialCaseId !== invoice.parentInvoice.financialCaseId
+      )
+      .map((invoice) => ({
+        invariant: "adjustment-same-financial-case-as-parent",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: invoice.parentInvoice?.financialCaseId ?? "parent financial case",
+        actual: invoice.financialCaseId,
+      }));
+  },
+});
+
+registerInvariant({
+  name: "adjustment-never-chains",
+  scope: "global",
+  run: async ({ tx }) => {
+    const chainedAdjustments = await tx.invoice.findMany({
+      where: {
+        invoiceType: InvoiceType.ADJUSTMENT,
+        parentInvoice: { invoiceType: InvoiceType.ADJUSTMENT },
+      },
+      select: { id: true, parentInvoiceId: true },
+    });
+
+    return chainedAdjustments.map((invoice) => ({
+      invariant: "adjustment-never-chains",
+      entityType: "Invoice",
+      entityId: invoice.id,
+      expected: "parent is FINAL, never ADJUSTMENT",
+      actual: `parent ${invoice.parentInvoiceId ?? "unknown"} is ADJUSTMENT`,
+    }));
+  },
+});
+
+registerInvariant({
+  name: "adjustment-has-no-document-application",
+  scope: "global",
+  run: async ({ tx }) => {
+    const applications = await tx.documentApplication.findMany({
+      where: {
+        OR: [
+          { sourceInvoice: { invoiceType: InvoiceType.ADJUSTMENT } },
+          { targetInvoice: { invoiceType: InvoiceType.ADJUSTMENT } },
+        ],
+      },
+      select: {
+        id: true,
+        sourceInvoice: { select: { invoiceType: true } },
+        targetInvoice: { select: { invoiceType: true } },
+      },
+    });
+
+    return applications.map((application) => ({
+      invariant: "adjustment-has-no-document-application",
+      entityType: "DocumentApplication",
+      entityId: application.id,
+      expected: "neither source nor target invoice is ADJUSTMENT",
+      actual: `source ${application.sourceInvoice.invoiceType}, target ${application.targetInvoice.invoiceType}`,
+    }));
+  },
+});

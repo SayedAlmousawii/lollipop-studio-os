@@ -14,7 +14,11 @@ test("financial invariants all pass against seeded fixtures", async () => {
       const [
         { InvoiceStatus, InvoiceType, Prisma },
         { db },
-        { makeCashDepositBookingFixture, seedAllSharedFixtures },
+        {
+          makeAdjustedBookingFixture,
+          makeCashDepositBookingFixture,
+          seedAllSharedFixtures,
+        },
         { runAllInvariants },
         {
           applyDepositToFinalIfPresent,
@@ -40,6 +44,17 @@ test("financial invariants all pass against seeded fixtures", async () => {
 
       try {
         await seedAllSharedFixtures(db);
+        const adjustedFixture = await makeAdjustedBookingFixture(db);
+        const adjustmentInvoice = await db.invoice.findUniqueOrThrow({
+          where: { id: adjustedFixture.adjustmentInvoiceId },
+          include: { lineItems: true },
+        });
+        assert.equal(adjustmentInvoice.invoiceType, InvoiceType.ADJUSTMENT);
+        assert.equal(adjustmentInvoice.parentInvoiceId, adjustedFixture.finalInvoiceId);
+        assert.equal(adjustmentInvoice.financialCaseId, adjustedFixture.financialCaseId);
+        assert.equal(adjustmentInvoice.invoiceNumber.startsWith("ADJ-"), true);
+        assert.equal(adjustmentInvoice.lineItems.length, 1);
+
         const fixture = await makeCashDepositBookingFixture(db);
         const finalInvoice = await db.invoice.create({
           data: {

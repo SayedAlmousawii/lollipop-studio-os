@@ -5,11 +5,15 @@ set -euo pipefail
 patterns=(
   "prisma.payment.create"
   "prisma.payment.createMany"
-  # 75a appends adjustment invoice creation patterns here.
+  "prisma.invoice.create"
+  "prisma.invoice.createMany"
+  "invoiceType: InvoiceType.ADJUSTMENT"
   # 77a appends gift card creation patterns here.
 )
 
 allowlist=(
+  "src/modules/financial/invariants.ts"
+  "src/modules/invoices/invoice.service.ts"
   "src/modules/payments/payment.service.ts"
 )
 
