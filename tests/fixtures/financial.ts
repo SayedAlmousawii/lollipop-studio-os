@@ -9,6 +9,7 @@ import {
   PrismaClient,
   ProductCategory,
   OrderStatus,
+  UserRole,
 } from "@prisma/client";
 import {
   applyDepositToFinalIfPresent,
@@ -17,6 +18,7 @@ import {
   syncOrderInvoiceForFinancialEdit,
 } from "../../src/modules/invoices/invoice.service";
 import { createPaymentWithAllocation } from "../../src/modules/payments/payment.service";
+import { issueRefundWithPayment } from "../../src/modules/refunds/refund.service";
 
 export type BookingFixtureResult = {
   customerId: string;
@@ -32,6 +34,11 @@ export type AdjustedBookingFixtureResult = BookingFixtureResult & {
   finalInvoiceId: string;
   finalPaymentId: string;
   adjustmentInvoiceId: string;
+};
+
+export type RefundedBookingFixtureResult = AdjustedBookingFixtureResult & {
+  refundInvoiceId: string;
+  refundPaymentId: string;
 };
 
 const FIXTURE_KEYS = {
@@ -73,6 +80,11 @@ const AUTO_ADJUSTED_FIXTURE_KEYS = {
   packageId: "pkg-fin-75b-base",
   orderPublicId: "ORD-FIN-75B-AUTO-ADJ",
   addOnProductId: "prod-fin-75b-addon",
+} as const;
+
+const REFUNDED_FIXTURE_KEYS = {
+  refundReason: "Feature 76a partial refund",
+  managerEmail: "financial-refund-manager@example.com",
 } as const;
 
 type FixtureKeys = {
@@ -669,8 +681,72 @@ export async function makeAutoAdjustedBookingFixture(
   };
 }
 
+export async function makeRefundedBookingFixture(
+  prisma: PrismaClient
+): Promise<RefundedBookingFixtureResult> {
+  const adjusted = await makeAdjustedBookingFixture(prisma);
+  const manager = await prisma.user.upsert({
+    where: { email: REFUNDED_FIXTURE_KEYS.managerEmail },
+    update: {
+      name: "Financial Refund Manager",
+      role: UserRole.MANAGER,
+      active: true,
+    },
+    create: {
+      name: "Financial Refund Manager",
+      email: REFUNDED_FIXTURE_KEYS.managerEmail,
+      role: UserRole.MANAGER,
+      active: true,
+    },
+  });
+
+  const existingRefund = await prisma.invoice.findFirst({
+    where: {
+      invoiceType: InvoiceType.REFUND,
+      parentInvoiceId: adjusted.finalInvoiceId,
+      notes: REFUNDED_FIXTURE_KEYS.refundReason,
+    },
+    select: {
+      id: true,
+      payments: {
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+      },
+    },
+  });
+  if (existingRefund?.payments[0]) {
+    return {
+      ...adjusted,
+      refundInvoiceId: existingRefund.id,
+      refundPaymentId: existingRefund.payments[0].id,
+    };
+  }
+
+  const refund = await issueRefundWithPayment(
+    {
+      sourceInvoiceId: adjusted.finalInvoiceId,
+      amount: new Prisma.Decimal(10),
+      reason: REFUNDED_FIXTURE_KEYS.refundReason,
+      notes: REFUNDED_FIXTURE_KEYS.refundReason,
+      createdByUserId: manager.id,
+      method: PaymentMethod.CASH,
+      refundOfPaymentId: adjusted.finalPaymentId,
+      paidAt: new Date("2026-05-14T11:00:00.000Z"),
+    },
+    prisma
+  );
+
+  return {
+    ...adjusted,
+    refundInvoiceId: refund.refundInvoiceId,
+    refundPaymentId: refund.refundPaymentId,
+  };
+}
+
 export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void> {
   await makeCashDepositBookingFixture(prisma);
   await makeAdjustedBookingFixture(prisma);
   await makeAutoAdjustedBookingFixture(prisma);
+  await makeRefundedBookingFixture(prisma);
 }

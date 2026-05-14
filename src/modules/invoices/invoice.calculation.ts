@@ -1,4 +1,9 @@
-import { PaymentDirection, Prisma, type PrismaClient } from "@prisma/client";
+import {
+  InvoiceType,
+  PaymentDirection,
+  Prisma,
+  type PrismaClient,
+} from "@prisma/client";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -8,7 +13,7 @@ export async function computeEffectivePaidFromAllocations(
 ): Promise<Prisma.Decimal> {
   const invoice = await tx.invoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true },
+    select: { id: true, invoiceType: true },
   });
   if (!invoice) {
     throw new Error(`Invoice ${invoiceId} not found`);
@@ -36,7 +41,16 @@ export async function computeEffectivePaidFromAllocations(
       }),
     ]);
 
-  return (incomingPaymentAllocations._sum.amount ?? new Prisma.Decimal(0))
-    .minus(outgoingPaymentAllocations._sum.amount ?? new Prisma.Decimal(0))
-    .plus(documentApplications._sum.amountApplied ?? new Prisma.Decimal(0));
+  const incomingTotal =
+    incomingPaymentAllocations._sum.amount ?? new Prisma.Decimal(0);
+  const outgoingTotal =
+    outgoingPaymentAllocations._sum.amount ?? new Prisma.Decimal(0);
+  const documentTotal =
+    documentApplications._sum.amountApplied ?? new Prisma.Decimal(0);
+
+  if (invoice.invoiceType === InvoiceType.REFUND) {
+    return outgoingTotal.minus(incomingTotal).plus(documentTotal);
+  }
+
+  return incomingTotal.minus(outgoingTotal).plus(documentTotal);
 }

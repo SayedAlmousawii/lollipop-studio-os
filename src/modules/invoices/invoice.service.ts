@@ -6,6 +6,7 @@ import {
   OrderActivityType,
   OrderStatus,
   Prisma,
+  UserRole,
   type Invoice,
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
@@ -26,7 +27,10 @@ import { computeOrderEditDelta } from "@/modules/orders/order.delta";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
 import { computeEffectivePaidFromAllocations } from "./invoice.calculation";
-import type { CreateAdjustmentInvoiceInput } from "./invoice.schema";
+import type {
+  CreateAdjustmentInvoiceInput,
+  CreateRefundInvoiceInput,
+} from "./invoice.schema";
 import type {
   InvoiceDetail,
   InvoiceLineItem,
@@ -555,6 +559,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
           payments: { orderBy: { paidAt: "desc" } },
           lineItems: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
           adjustments: {
+            where: { invoiceType: InvoiceType.ADJUSTMENT },
             select: { id: true, invoiceNumber: true, totalAmount: true, status: true },
             orderBy: { createdAt: "desc" },
           },
@@ -579,6 +584,12 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     row.invoiceType === InvoiceType.FINAL && row.financialCaseId
       ? await findDepositInvoiceForFinancialCase(row.financialCaseId)
       : null;
+  const refundableAmount =
+    row.isLocked &&
+    (row.invoiceType === InvoiceType.FINAL ||
+      row.invoiceType === InvoiceType.ADJUSTMENT)
+      ? await computeRefundableAmountForInvoice(row.id, db)
+      : null;
 
   return {
     id: row.id,
@@ -594,6 +605,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     remainingAmount: formatMoney(row.remainingAmount),
     depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
     depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
+    refundableAmount: refundableAmount ? formatMoney(refundableAmount) : null,
     lineItemsAreComputed,
     status: mapInvoiceStatus(row.status),
     isLocked: row.isLocked,
@@ -611,6 +623,8 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
       paidAt: formatDate(payment.paidAt),
       reference: payment.reference ?? "—",
       notes: payment.notes ?? "—",
+      direction: payment.direction,
+      refundOfPaymentId: payment.refundOfPaymentId,
     })),
     adjustments: row.adjustments.map((invoice) => ({
       id: invoice.id,
@@ -1374,6 +1388,165 @@ async function createAdjustmentInvoiceWithClient(
   }
 
   await assertFinancialCaseInvariants(parent.financialCaseId, client);
+
+  return invoice;
+}
+
+export async function computeRefundableAmountForInvoice(
+  sourceInvoiceId: string,
+  client: DbClient = db
+): Promise<Prisma.Decimal> {
+  const [inboundAllocations, priorRefunds] = await Promise.all([
+    client.paymentAllocation.aggregate({
+      _sum: { amount: true },
+      where: {
+        invoiceId: sourceInvoiceId,
+        payment: { direction: "IN" },
+      },
+    }),
+    client.invoice.aggregate({
+      _sum: { totalAmount: true },
+      where: {
+        parentInvoiceId: sourceInvoiceId,
+        invoiceType: InvoiceType.REFUND,
+      },
+    }),
+  ]);
+
+  const inboundTotal =
+    inboundAllocations._sum.amount ?? new Prisma.Decimal(0);
+  const refundedTotal = priorRefunds._sum.totalAmount ?? new Prisma.Decimal(0);
+
+  return Prisma.Decimal.max(inboundTotal.minus(refundedTotal), 0);
+}
+
+export async function createRefundInvoice(
+  input: CreateRefundInvoiceInput,
+  tx?: DbClient
+): Promise<Invoice> {
+  if (tx) {
+    return createRefundInvoiceWithClient(input, tx);
+  }
+
+  return withRetry(
+    () =>
+      db.$transaction(
+        (transaction) => createRefundInvoiceWithClient(input, transaction),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      ),
+    "Failed to create refund invoice"
+  );
+}
+
+async function createRefundInvoiceWithClient(
+  input: CreateRefundInvoiceInput,
+  client: DbClient
+): Promise<Invoice> {
+  const amount = new Prisma.Decimal(input.amount);
+  if (amount.lessThanOrEqualTo(0)) {
+    throw new Error("Refund amount must be greater than 0");
+  }
+
+  const reason = input.reason.trim();
+  if (!reason) {
+    throw new Error("Refund reason is required");
+  }
+
+  const actor = await client.user.findUnique({
+    where: { id: input.createdByUserId },
+    select: { id: true, role: true },
+  });
+  if (
+    !actor ||
+    (actor.role !== UserRole.ADMIN && actor.role !== UserRole.MANAGER)
+  ) {
+    throw new Error("Manager permission is required to issue a refund");
+  }
+
+  const source = await client.invoice.findUnique({
+    where: { id: input.sourceInvoiceId },
+    select: {
+      id: true,
+      financialCaseId: true,
+      invoiceType: true,
+      invoiceNumber: true,
+      orderId: true,
+      bookingId: true,
+      customerId: true,
+      jobId: true,
+      jobNumber: true,
+      isLocked: true,
+    },
+  });
+  if (!source) throw new Error("Source invoice not found");
+  if (
+    source.invoiceType !== InvoiceType.FINAL &&
+    source.invoiceType !== InvoiceType.ADJUSTMENT
+  ) {
+    throw new Error("Refunds can only be issued for final or adjustment invoices");
+  }
+  if (!source.isLocked) {
+    throw new Error("Refunds can only be issued for locked invoices");
+  }
+
+  const refundableAmount = await computeRefundableAmountForInvoice(source.id, client);
+  if (amount.greaterThan(refundableAmount)) {
+    throw new Error(
+      `Refund amount cannot exceed refundable balance (${refundableAmount.toFixed(3)} KD)`
+    );
+  }
+
+  const invoiceNumberData = await generateInvoiceNumber(client, InvoiceType.REFUND);
+  const invoice = await client.invoice.create({
+    data: {
+      publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+      financialCaseId: source.financialCaseId,
+      invoiceType: InvoiceType.REFUND,
+      jobId: source.jobId,
+      jobNumber: source.jobNumber,
+      orderId: source.orderId,
+      bookingId: source.bookingId,
+      customerId: source.customerId,
+      parentInvoiceId: source.id,
+      ...invoiceNumberData,
+      totalAmount: amount,
+      remainingAmount: amount,
+      status: InvoiceStatus.ISSUED,
+      notes: input.notes?.trim() || reason,
+      issuedAt: new Date(),
+      lineItems: {
+        create: [
+          createLineItem({
+            lineType: InvoiceLineType.MANUAL_DISCOUNT,
+            description: reason,
+            quantity: 1,
+            unitPrice: amount,
+            sortOrder: 0,
+          }),
+        ],
+      },
+    },
+  });
+
+  if (source.orderId) {
+    await recordOrderActivity(client, {
+      orderId: source.orderId,
+      userId: input.createdByUserId,
+      type: OrderActivityType.INVOICE_ADJUSTED,
+      title: "Refund invoice issued",
+      description: `Refund invoice ${invoice.invoiceNumber} issued: ${amount.toFixed(3)} KD for reason '${reason}'.`,
+      metadata: {
+        sourceInvoiceId: source.id,
+        sourceInvoiceNumber: source.invoiceNumber,
+        refundInvoiceId: invoice.id,
+        refundInvoiceNumber: invoice.invoiceNumber,
+        amount: amount.toFixed(3),
+        reason,
+      },
+    });
+  }
+
+  await assertFinancialCaseInvariants(source.financialCaseId, client);
 
   return invoice;
 }

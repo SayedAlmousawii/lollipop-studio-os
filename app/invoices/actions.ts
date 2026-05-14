@@ -8,9 +8,13 @@ import {
   createAdjustmentInvoice,
   issueInvoice,
 } from "@/modules/invoices/invoice.service";
-import { createAdjustmentInvoiceSchema } from "@/modules/invoices/invoice.schema";
+import {
+  createAdjustmentInvoiceSchema,
+  createRefundInvoiceSchema,
+} from "@/modules/invoices/invoice.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import { recordPayment } from "@/modules/payments/payment.service";
+import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -96,4 +100,38 @@ export async function createAdjustmentInvoiceAction(
   });
   revalidatePath("/invoices");
   redirect(`/invoices/${invoice.id}`);
+}
+
+export async function issueRefundAction(
+  sourceInvoiceId: string,
+  formData: FormData
+): Promise<void> {
+  const parsed = createRefundInvoiceSchema.safeParse({
+    amount: formData.get("amount"),
+    reason: formData.get("reason"),
+    refundOfPaymentId: formData.get("refundOfPaymentId") || undefined,
+    method: formData.get("method"),
+    reference: formData.get("reference") || undefined,
+    paidAt: formData.get("paidAt") || undefined,
+  });
+
+  if (!parsed.success) {
+    throw new Error("Invalid refund details");
+  }
+
+  const appUser = await requireCurrentAppUserPermission(PERMISSIONS.REFUND_ISSUE);
+  const result = await issueRefundWithPayment({
+    sourceInvoiceId,
+    amount: parsed.data.amount,
+    reason: parsed.data.reason,
+    createdByUserId: appUser.id,
+    method: parsed.data.method,
+    refundOfPaymentId: parsed.data.refundOfPaymentId,
+    reference: parsed.data.reference,
+    paidAt: parsed.data.paidAt,
+  });
+
+  revalidatePath("/invoices");
+  revalidatePath(`/invoices/${sourceInvoiceId}`);
+  redirect(`/invoices/${result.refundInvoiceId}`);
 }

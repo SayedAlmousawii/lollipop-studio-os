@@ -118,6 +118,7 @@ enum PaymentType {
   DEPOSIT
   FINAL
   ADJUSTMENT
+  REFUND
   UPGRADE
   ADDON
   OTHER
@@ -706,30 +707,34 @@ model InvoiceLineItem {
 }
 
 model Payment {
-  id              String           @id @default(cuid())
-  publicId        String           @unique
-  financialCaseId String
-  jobNumber       String?
-  jobId           String?
-  invoiceId       String
-  amount          Decimal          @db.Decimal(10, 3)
-  direction       PaymentDirection @default(IN)
-  method          PaymentMethod
-  paymentType     PaymentType
-  paidAt          DateTime         @default(now())
-  reference       String?
-  notes           String?
-  createdAt       DateTime         @default(now())
+  id                String           @id @default(cuid())
+  publicId          String           @unique
+  financialCaseId   String
+  jobNumber         String?
+  jobId             String?
+  invoiceId         String
+  amount            Decimal          @db.Decimal(10, 3)
+  direction         PaymentDirection @default(IN)
+  method            PaymentMethod
+  paymentType       PaymentType
+  refundOfPaymentId String?
+  paidAt            DateTime         @default(now())
+  reference         String?
+  notes             String?
+  createdAt         DateTime         @default(now())
 
-  financialCase FinancialCase       @relation(fields: [financialCaseId], references: [id])
-  job           Job?                @relation(fields: [jobId], references: [id])
-  invoice       Invoice             @relation(fields: [invoiceId, financialCaseId], references: [id, financialCaseId])
-  allocations   PaymentAllocation[]
+  financialCase   FinancialCase       @relation(fields: [financialCaseId], references: [id])
+  job             Job?                @relation(fields: [jobId], references: [id])
+  invoice         Invoice             @relation(fields: [invoiceId, financialCaseId], references: [id, financialCaseId])
+  allocations     PaymentAllocation[]
+  refundOfPayment Payment?            @relation("RefundsOfPayment", fields: [refundOfPaymentId], references: [id], onDelete: SetNull)
+  refunds         Payment[]           @relation("RefundsOfPayment")
 
   @@index([invoiceId, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])
+  @@index([refundOfPaymentId])
   @@map("payments")
 }
 

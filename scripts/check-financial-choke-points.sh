@@ -8,6 +8,8 @@ patterns=(
   "prisma.invoice.create"
   "prisma.invoice.createMany"
   "invoiceType: InvoiceType.ADJUSTMENT"
+  "invoiceType: InvoiceType.REFUND"
+  "direction: PaymentDirection.OUT"
   # Additive vs reductive locked-invoice edit classification must stay centralized
   # in src/modules/financial/edit-classifier.ts. Shell matching is intentionally
   # conservative because the business rule is semantic rather than one token.
@@ -16,6 +18,7 @@ patterns=(
 
 allowlist=(
   "src/modules/financial/invariants.ts"
+  "src/modules/invoices/invoice.calculation.ts"
   "src/modules/invoices/invoice.service.ts"
   "src/modules/payments/payment.service.ts"
 )

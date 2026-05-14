@@ -18,6 +18,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
           makeAutoAdjustedBookingFixture,
           makeAdjustedBookingFixture,
           makeCashDepositBookingFixture,
+          makeRefundedBookingFixture,
           seedAllSharedFixtures,
         },
         { runAllInvariants },
@@ -26,7 +27,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
           recalculateInvoiceStatus,
         },
         { computeEffectivePaidFromAllocations },
-        { recordPayment },
+        { createPaymentWithAllocation, recordPayment },
       ] = await Promise.all([
         import("@prisma/client"),
         import("../src/lib/db"),
@@ -130,6 +131,58 @@ test("financial invariants all pass against seeded fixtures", async () => {
           adjustmentPaymentActivities.some((activity) =>
             activity.description?.includes("settled and closed")
           )
+        );
+
+        const refundedFixture = await makeRefundedBookingFixture(db);
+        const refundInvoice = await db.invoice.findUniqueOrThrow({
+          where: { id: refundedFixture.refundInvoiceId },
+          include: {
+            lineItems: true,
+            payments: {
+              select: {
+                direction: true,
+                paymentType: true,
+                amount: true,
+                refundOfPaymentId: true,
+                allocations: { select: { invoiceId: true, amount: true } },
+              },
+            },
+          },
+        });
+        assert.equal(refundInvoice.invoiceType, InvoiceType.REFUND);
+        assert.equal(refundInvoice.parentInvoiceId, refundedFixture.finalInvoiceId);
+        assert.equal(refundInvoice.totalAmount.toFixed(3), "10.000");
+        assert.equal(refundInvoice.invoiceNumber.startsWith("REF-"), true);
+        assert.equal(refundInvoice.lineItems.length, 1);
+        assert.equal(refundInvoice.payments[0]?.direction, "OUT");
+        assert.equal(refundInvoice.payments[0]?.paymentType, PaymentType.REFUND);
+        assert.equal(
+          refundInvoice.payments[0]?.refundOfPaymentId,
+          refundedFixture.finalPaymentId
+        );
+        assert.equal(
+          refundInvoice.payments[0]?.allocations[0]?.invoiceId,
+          refundInvoice.id
+        );
+        assert.equal(
+          refundInvoice.payments[0]?.allocations[0]?.amount.toFixed(3),
+          "10.000"
+        );
+
+        await assert.rejects(
+          () =>
+            createPaymentWithAllocation(
+              {
+                invoiceId: refundedFixture.finalInvoiceId,
+                financialCaseId: refundedFixture.financialCaseId,
+                amount: new Prisma.Decimal(1),
+                method: PaymentMethod.CASH,
+                paymentType: PaymentType.REFUND,
+                direction: "OUT",
+              },
+              db
+            ),
+          /Outbound payments must target a refund invoice/
         );
 
         const fixture = await makeCashDepositBookingFixture(db);

@@ -1,4 +1,4 @@
-import { InvoiceLineType } from "@prisma/client";
+import { InvoiceLineType, PaymentMethod, Prisma } from "@prisma/client";
 import { z } from "zod";
 
 export const createAdjustmentInvoiceSchema = z.object({
@@ -20,6 +20,32 @@ export type CreateAdjustmentInvoiceInput = {
   lines: AdjustmentLineInput[];
   notes?: string;
   createdByUserId?: string;
+};
+
+export const createRefundInvoiceSchema = z.object({
+  amount: z.coerce.number().positive("Refund amount must be greater than 0"),
+  reason: z.string().trim().min(1, "Refund reason is required").max(500),
+  refundOfPaymentId: z.string().trim().optional(),
+  method: z.nativeEnum(PaymentMethod, {
+    error: "Refund method is required",
+  }),
+  reference: z.string().trim().max(120).optional(),
+  paidAt: z.coerce.date().optional(),
+});
+
+export type CreateRefundInvoiceInput = {
+  sourceInvoiceId: string;
+  amount: Prisma.Decimal | number | string;
+  reason: string;
+  createdByUserId: string;
+  notes?: string;
+};
+
+export type CreateRefundWithPaymentInput = CreateRefundInvoiceInput & {
+  method: PaymentMethod;
+  refundOfPaymentId?: string;
+  reference?: string;
+  paidAt?: Date;
 };
 
 export const createAdjustmentInvoiceLineSchema = z.object({

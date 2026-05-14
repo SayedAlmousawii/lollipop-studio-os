@@ -13,6 +13,7 @@ export const PERMISSIONS = {
   INVOICE_ISSUE: "invoice:issue",
   INVOICE_CLOSE: "invoice:close",
   INVOICE_ADJUSTMENT_CREATE: "invoice:adjustment-create",
+  REFUND_ISSUE: "refund:issue",
   ORDER_FINANCIAL_UPDATE: "order:financial-update",
   DELIVERY_UPDATE: "delivery:update",
   DELIVERY_COMPLETE: "delivery:complete",

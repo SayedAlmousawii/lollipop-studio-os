@@ -21,6 +21,7 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
             <TableHead>Payment ID</TableHead>
             <TableHead>Paid At</TableHead>
             <TableHead>Amount</TableHead>
+            <TableHead>Direction</TableHead>
             <TableHead>Method</TableHead>
             <TableHead>Type</TableHead>
             <TableHead>Reference</TableHead>
@@ -36,8 +37,15 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
               <TableCell className="text-sm text-text-secondary">
                 {payment.paidAt}
               </TableCell>
-              <TableCell className="text-sm font-medium text-success">
+              <TableCell
+                className={`text-sm font-medium ${
+                  payment.direction === "OUT" ? "text-danger" : "text-success"
+                }`}
+              >
                 {payment.amount}
+              </TableCell>
+              <TableCell className="text-sm text-text-secondary">
+                {payment.direction}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {payment.method}
@@ -55,7 +63,7 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
           ))}
           {payments.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="h-20 text-center text-sm text-text-secondary">
+              <TableCell colSpan={8} className="h-20 text-center text-sm text-text-secondary">
                 No payments recorded.
               </TableCell>
             </TableRow>

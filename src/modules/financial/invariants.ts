@@ -467,3 +467,135 @@ registerInvariant({
     return violations;
   },
 });
+
+registerInvariant({
+  name: "out-payment-targets-refund-invoice",
+  scope: "global",
+  run: async ({ tx }) => {
+    const payments = await tx.payment.findMany({
+      where: { direction: PaymentDirection.OUT },
+      select: {
+        id: true,
+        invoice: { select: { id: true, invoiceType: true } },
+      },
+    });
+
+    return payments
+      .filter((payment) => payment.invoice.invoiceType !== InvoiceType.REFUND)
+      .map((payment) => ({
+        invariant: "out-payment-targets-refund-invoice",
+        entityType: "Payment",
+        entityId: payment.id,
+        expected: "target invoice type REFUND",
+        actual: `target invoice ${payment.invoice.id} is ${payment.invoice.invoiceType}`,
+      }));
+  },
+});
+
+registerInvariant({
+  name: "refund-amount-not-over-source",
+  scope: "global",
+  run: async ({ tx }) => {
+    const sourceInvoices = await tx.invoice.findMany({
+      where: { adjustments: { some: { invoiceType: InvoiceType.REFUND } } },
+      select: {
+        id: true,
+        paymentAllocations: {
+          where: { payment: { direction: PaymentDirection.IN } },
+          select: { amount: true },
+        },
+        adjustments: {
+          where: { invoiceType: InvoiceType.REFUND },
+          select: { id: true, totalAmount: true },
+        },
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const sourceInvoice of sourceInvoices) {
+      const inboundTotal = sourceInvoice.paymentAllocations.reduce(
+        (sum, allocation) => sum.plus(allocation.amount),
+        new Prisma.Decimal(0)
+      );
+      const refundTotal = sourceInvoice.adjustments.reduce(
+        (sum, refundInvoice) => sum.plus(refundInvoice.totalAmount),
+        new Prisma.Decimal(0)
+      );
+
+      if (refundTotal.lessThanOrEqualTo(inboundTotal)) {
+        continue;
+      }
+
+      for (const refundInvoice of sourceInvoice.adjustments) {
+        violations.push({
+          invariant: "refund-amount-not-over-source",
+          entityType: "Invoice",
+          entityId: refundInvoice.id,
+          expected: `source refund total <= ${inboundTotal.toFixed(3)}`,
+          actual: refundTotal.toFixed(3),
+        });
+      }
+    }
+
+    return violations;
+  },
+});
+
+registerInvariant({
+  name: "refund-trace-points-to-inbound-payment",
+  scope: "global",
+  run: async ({ tx }) => {
+    const payments = await tx.payment.findMany({
+      where: { refundOfPaymentId: { not: null } },
+      select: {
+        id: true,
+        refundOfPayment: { select: { id: true, direction: true } },
+      },
+    });
+
+    return payments
+      .filter(
+        (payment) =>
+          payment.refundOfPayment?.direction !== PaymentDirection.IN
+      )
+      .map((payment) => ({
+        invariant: "refund-trace-points-to-inbound-payment",
+        entityType: "Payment",
+        entityId: payment.id,
+        expected: "refundOfPaymentId references an IN payment",
+        actual: payment.refundOfPayment
+          ? `references ${payment.refundOfPayment.direction} payment ${payment.refundOfPayment.id}`
+          : "no referenced payment",
+      }));
+  },
+});
+
+registerInvariant({
+  name: "refund-source-is-final-or-adjustment",
+  scope: "global",
+  run: async ({ tx }) => {
+    const refundInvoices = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.REFUND },
+      select: {
+        id: true,
+        parentInvoice: { select: { id: true, invoiceType: true } },
+      },
+    });
+
+    return refundInvoices
+      .filter(
+        (invoice) =>
+          invoice.parentInvoice?.invoiceType !== InvoiceType.FINAL &&
+          invoice.parentInvoice?.invoiceType !== InvoiceType.ADJUSTMENT
+      )
+      .map((invoice) => ({
+        invariant: "refund-source-is-final-or-adjustment",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "parentInvoiceId set to FINAL or ADJUSTMENT invoice",
+        actual: invoice.parentInvoice
+          ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
+          : "no parent invoice",
+      }));
+  },
+});
