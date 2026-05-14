@@ -126,6 +126,10 @@ export async function createInvoiceForOrderWithClient(
         select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
+      packageItemUpgrades: {
+        select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!order) throw new Error("Order not found");
@@ -146,7 +150,13 @@ export async function createInvoiceForOrderWithClient(
   );
   const extraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
   const totalAmount = packageAmount
-    .plus(sumAddOns(mapOrderAddOnRows(order.orderAddOns)))
+    .plus(
+      sumAddOns(
+        mapOrderAddOnRows(
+          combineOrderAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+        )
+      )
+    )
     .plus(extraPhotoCharge);
 
   const invoiceNumberData = await generateInvoiceNumber(client);
@@ -213,6 +223,10 @@ export async function syncOrderInvoiceForFinancialEdit(
         select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
+      packageItemUpgrades: {
+        select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
     },
   });
   if (!order) throw new Error("Order not found");
@@ -250,7 +264,9 @@ export async function syncOrderInvoiceForFinancialEdit(
     throw new Error("Invoice not found after ownership normalization");
   }
 
-  const nextAddOns = mapOrderAddOnRows(order.orderAddOns);
+  const nextAddOns = mapOrderAddOnRows(
+    combineOrderAddOnRows(order.orderAddOns, order.packageItemUpgrades)
+  );
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
   const nextExtraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
@@ -800,6 +816,35 @@ function mapOrderAddOnRows(
   });
 }
 
+function combineOrderAddOnRows(
+  addOns: Array<{
+    productId?: string | null;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>,
+  packageItemUpgrades: Array<{
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }>
+) {
+  return [
+    ...addOns.map((addOn) => ({
+      productId: addOn.productId ?? null,
+      nameSnapshot: addOn.nameSnapshot,
+      priceSnapshot: addOn.priceSnapshot,
+      quantity: addOn.quantity,
+    })),
+    ...packageItemUpgrades.map((upgrade) => ({
+      productId: null,
+      nameSnapshot: upgrade.nameSnapshot,
+      priceSnapshot: upgrade.priceSnapshot,
+      quantity: upgrade.quantity,
+    })),
+  ];
+}
+
 function sumAddOns(addOns: OrderAddOnLine[]): Prisma.Decimal {
   return addOns.reduce(
     (sum, addOn) => sum.plus(new Prisma.Decimal(addOn.price)),
@@ -827,6 +872,10 @@ async function buildInvoiceLineItems(
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       orderAddOns: {
+        select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
+        orderBy: { createdAt: "asc" },
+      },
+      packageItemUpgrades: {
         select: { nameSnapshot: true, priceSnapshot: true, quantity: true },
         orderBy: { createdAt: "asc" },
       },
@@ -874,7 +923,10 @@ async function buildInvoiceLineItems(
     }
   }
 
-  for (const addOn of order.orderAddOns) {
+  for (const addOn of combineOrderAddOnRows(
+    order.orderAddOns,
+    order.packageItemUpgrades
+  )) {
     lines.push(
       createLineItem({
         lineType: InvoiceLineType.ADD_ON,

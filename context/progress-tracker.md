@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 73c order add-on split is complete: package-item upgrades now live in `OrderPackageItemUpgrade`, true add-ons remain in `OrderAddOn` with required `productId`, order/POS/invoice read paths merge both financial line sources, and migration backfill/drop cleanup has been applied locally.
 - Feature 73b financial discipline infrastructure is complete: `Invoice`/`Payment` money columns now have DB CHECK constraints, the shared financial invariant/fixture/dual-read/reconciliation scaffolding and ADR directories are in place, and explicit pre-merge commands now exist for the choke-point checker and financial invariant suite.
 - Feature 73 financial rearchitecture phase 0 schema groundwork is complete: `Invoice.financialCaseId`, `Invoice.invoiceType`, and `Payment.financialCaseId` are now required at the Prisma/data layer, `Payment.direction` defaults to `IN`, `InvoiceType.SALE` is available for later phases, the Phase 0 migration DDL now runs transactionally, and payments are DB-constrained to the same financial case as their linked invoice without touching `order_add_ons`.
 - Feature 72 POS selected photo flow simplification is complete: each POS package line now edits only selected photo count directly, derives extra-photo quantity from package overage, autosaves Digital/Print/Split allocation changes without an Update button, and the service rejects persisted extra allocations that do not match the derived count.
@@ -53,7 +54,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ## Key State
 - Multi-package is now the only package model: `BookingPackage` and `OrderPackage` are the source of truth; the former singular booking/order package fields and `BookingSessionType` enum are gone.
-- Package item upgrade add-ons now carry `OrderAddOn.orderPackageId`; this disambiguates identical package templates used on multiple order package lines.
+- Package-item upgrades are no longer overloaded into `OrderAddOn`: true add-ons reference `Product`, while package-item upgrades reference `PackageItem` snapshots through `OrderPackageItemUpgrade`.
 - Extra selected photos are now stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, and emitted as per-line/per-media Final Invoice lines.
 - Deposit invoice totals are no longer hardcoded to exactly 20 KD at recording time; the dialog defaults to 20.000 KD, validates a 20.000 KD minimum, and stores the entered amount immutably on the locked Deposit Invoice.
 - Bookings and orders now have additive package-line relations: seed and migration create one line per existing singular package, with line-level `sessionTypeId` mapped from the legacy booking session enum.
@@ -90,6 +91,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, merged both tables for financial display and invoice generation, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, and enforced required true add-on product references.
 - Feature 73b: Financial discipline infrastructure — added invoice/payment CHECK constraints, empty shared financial scaffolding registries, ADR directories, fixture/test/script shells, and explicit pre-merge package commands for the new financial discipline checks.
 - Feature 73: Financial rearchitecture phase 0 schema groundwork — enforced non-null `Invoice.financialCaseId`, `Invoice.invoiceType`, and `Payment.financialCaseId`, added `Payment.direction` plus `InvoiceType.SALE`, wrapped the Phase 0 DDL transactionally, added a follow-up payment-to-invoice financial-case consistency constraint, left `order_add_ons` untouched for Spec 73c, and aligned seed/scripts with the tightened schema.
 - Feature 71: 70e closure cleanup — removed retired `updateOrder`, `updateOrderSelectionWorkflow`, `getEditableOrderById`, and associated write schemas/types; converted Selection tab data to per-package read-only lines with POS navigation; removed top-level POS first-line package fields while keeping package-line display and validation green.
