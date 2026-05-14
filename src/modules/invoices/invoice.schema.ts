@@ -1,5 +1,4 @@
 import { InvoiceLineType } from "@prisma/client";
-import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 export const createAdjustmentInvoiceSchema = z.object({
@@ -13,7 +12,7 @@ export type AdjustmentLineInput = {
   lineType: InvoiceLineType;
   description: string;
   quantity: number;
-  unitPrice: Prisma.Decimal;
+  unitPrice: number;
 };
 
 export type CreateAdjustmentInvoiceInput = {

@@ -285,8 +285,13 @@ async function closeInvoiceIfSettled(
     await snapshotInvoiceLineItemsWithClient(client, invoice.id, invoice.orderId);
   }
 
-  await client.invoice.update({
-    where: { id: invoice.id },
+  const updateResult = await client.invoice.updateMany({
+    where: {
+      id: invoice.id,
+      isLocked: false,
+      status: { notIn: [InvoiceStatus.CLOSED, InvoiceStatus.DRAFT] },
+      remainingAmount: new Prisma.Decimal(0),
+    },
     data: {
       status: InvoiceStatus.CLOSED,
       isLocked: true,
@@ -294,7 +299,7 @@ async function closeInvoiceIfSettled(
     },
   });
 
-  return { invoiceType: invoice.invoiceType, justClosed: true };
+  return { invoiceType: invoice.invoiceType, justClosed: updateResult.count > 0 };
 }
 
 function recordPaymentCounter(

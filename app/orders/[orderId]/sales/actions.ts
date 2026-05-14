@@ -1,7 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { OrderSelectionStatus, OrderStatus, PaymentType } from "@prisma/client";
+import {
+  InvoiceType,
+  OrderSelectionStatus,
+  OrderStatus,
+  PaymentType,
+} from "@prisma/client";
 import { z } from "zod";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import {
@@ -237,7 +242,7 @@ export async function recordPOSPaymentAction(
     amount: formData.get("amount"),
     method: formData.get("method"),
     paymentType:
-      invoice.invoiceType === "ADJUSTMENT"
+      invoice.invoiceType === InvoiceType.ADJUSTMENT
         ? PaymentType.ADJUSTMENT
         : PaymentType.FINAL,
     paidAt,
@@ -263,7 +268,7 @@ export async function recordPOSPaymentAction(
     }
 
     const selectionStatus =
-      invoice.invoiceType === "FINAL" &&
+      invoice.invoiceType === InvoiceType.FINAL &&
       workspace.orderStatusRaw === OrderStatus.WAITING_SELECTION
         ? parseRequiredSelectionStatus(formData)
         : undefined;

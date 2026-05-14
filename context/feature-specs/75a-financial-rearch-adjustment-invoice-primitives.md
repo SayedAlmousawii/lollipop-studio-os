@@ -50,7 +50,7 @@ type AdjustmentLineInput = {
   lineType: InvoiceLineType;        // matches existing enum
   description: string;
   quantity: number;
-  unitPrice: Money;
+  unitPrice: number;                // validated input; service converts to Prisma.Decimal for persistence
 };
 
 type CreateAdjustmentInvoiceInput = {
@@ -67,8 +67,8 @@ async function createAdjustmentInvoice(
 ```
 
 Behavior:
-1. Validate `lines` is non-empty and every `unitPrice * quantity` is `> 0` (CHECK constraints on Invoice still apply: `totalAmount > 0`)
-2. Load the parent FINAL invoice; assert `invoiceType = FINAL` and `isLocked = true` (ADJUSTMENT only exists for locked FINALs — if FINAL is still mutable, the edit should update FINAL directly, not spawn an ADJUSTMENT)
+1. Validate `lines` is non-empty and every `unitPrice * quantity` is `> 0`; this per-line rule is intentional and separate from the Invoice CHECK constraint that still requires aggregate `totalAmount > 0`
+2. Load the parent FINAL invoice; assert `invoiceType = FINAL` and `isLocked = true` (ADJUSTMENT only exists for locked FINALs — if FINAL is still mutable, the edit should update FINAL directly, not spawn an ADJUSTMENT). Avoid a check/create race by performing the parent check and ADJUSTMENT create in one transaction with an atomic parent-state guard, such as selecting the parent row `FOR UPDATE` before insertion or running the transaction at an isolation level that prevents concurrent unlocks. A DB-level defensive constraint/index should also prevent ADJUSTMENT creation for unlocked parents if a future path bypasses the service guard.
 3. Resolve the FinancialCase from the parent FINAL — ADJUSTMENT inherits the same `financialCaseId`, `customerId`, `orderId`, `bookingId`, `jobId`
 4. Compute `totalAmount = SUM(line.unitPrice * line.quantity)`
 5. Create the Invoice row with:

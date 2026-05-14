@@ -1,6 +1,6 @@
 "use server";
 
-import { InvoiceLineType, Prisma } from "@prisma/client";
+import { InvoiceLineType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -91,7 +91,7 @@ export async function createAdjustmentInvoiceAction(
       lineType: InvoiceLineType.MANUAL_SURCHARGE,
       description: parsed.data.notes?.trim() || "Manual adjustment",
       quantity: 1,
-      unitPrice: new Prisma.Decimal(parsed.data.totalAmount),
+      unitPrice: parsed.data.totalAmount,
     }],
   });
   revalidatePath("/invoices");

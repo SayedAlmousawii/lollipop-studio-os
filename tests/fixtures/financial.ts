@@ -395,7 +395,7 @@ export async function makeAdjustedBookingFixture(
               lineType: InvoiceLineType.ADD_ON,
               description: "Fixture add-on after final lock",
               quantity: 1,
-              unitPrice: new Prisma.Decimal(15),
+              unitPrice: 15,
             },
           ],
         },

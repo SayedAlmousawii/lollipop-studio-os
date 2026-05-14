@@ -109,7 +109,7 @@ export async function computeOrderEditDelta(
     },
   });
   if (!order) throw new Error("Order not found");
-  const financialCaseId = order.booking.financialCase?.id;
+  const financialCaseId = order.booking?.financialCase?.id;
   if (!financialCaseId) {
     throw new Error("Order financial case is required to compute edit delta");
   }

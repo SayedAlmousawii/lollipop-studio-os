@@ -82,7 +82,7 @@ export function classifyEditDelta(delta: EditDelta): ClassifierResult {
       lineType: InvoiceLineType.ADD_ON,
       description: swap.addedLineSnapshot.name,
       quantity: 1,
-      unitPrice: swap.addedPriceSnapshot,
+      unitPrice: swap.addedPriceSnapshot.toNumber(),
     });
     creditNoteRequired.push({
       reason: "UPGRADE_REPLACEMENT_REDUCTION_SIDE",
@@ -110,35 +110,35 @@ function toAdjustmentLine(addition: AdditionEvent): AdjustmentLineInput {
         lineType: InvoiceLineType.ADD_ON,
         description: addition.nameSnapshot,
         quantity: addition.quantity,
-        unitPrice: addition.priceSnapshot,
+        unitPrice: addition.priceSnapshot.toNumber(),
       };
     case "NEW_UPGRADE":
       return {
         lineType: InvoiceLineType.ADD_ON,
         description: addition.nameSnapshot,
         quantity: addition.quantity,
-        unitPrice: addition.priceSnapshot,
+        unitPrice: addition.priceSnapshot.toNumber(),
       };
     case "ADDON_QUANTITY_INCREASE":
       return {
         lineType: InvoiceLineType.ADD_ON,
         description: addition.lineSnapshot.name,
         quantity: addition.deltaQuantity,
-        unitPrice: addition.lineSnapshot.unitPrice,
+        unitPrice: addition.lineSnapshot.unitPrice.toNumber(),
       };
     case "NEW_EXTRA_PHOTO":
       return {
         lineType: InvoiceLineType.EXTRA_PHOTOS,
         description: addition.lineSnapshot.name,
         quantity: addition.quantity,
-        unitPrice: addition.priceSnapshot,
+        unitPrice: addition.priceSnapshot.toNumber(),
       };
     case "PACKAGE_TIER_UPGRADE":
       return {
         lineType: InvoiceLineType.PACKAGE_BASE,
         description: "Package tier upgrade",
         quantity: 1,
-        unitPrice: addition.newPriceSnapshot.minus(addition.oldPriceSnapshot),
+        unitPrice: addition.newPriceSnapshot.minus(addition.oldPriceSnapshot).toNumber(),
       };
   }
 }

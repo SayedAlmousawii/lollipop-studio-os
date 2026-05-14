@@ -11,7 +11,7 @@ import {
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
-import { dualRead } from "@/modules/financial/dual-read";
+import { dualRead, LockedInvoiceEditError } from "@/modules/financial/dual-read";
 import {
   BlockedEditError,
   classifyEditDelta,
@@ -311,7 +311,7 @@ export async function syncOrderInvoiceForFinancialEdit(
       flagKey: FINANCIAL_REARCH_PHASE_2_AUTO_ADJUSTMENT,
       authoritative: "old",
       oldFn: async () => {
-        throw new Error("Locked invoices cannot be recalculated from order edits");
+        throw new LockedInvoiceEditError();
       },
       newFn: async () => {
         const delta = await computeOrderEditDelta(order.id, client);

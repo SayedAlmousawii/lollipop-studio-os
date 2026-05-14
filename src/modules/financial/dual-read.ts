@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { isFinancialFeatureEnabled } from "./feature-flags";
 
 type DualReadAuthoritative = "old" | "new";
@@ -15,6 +16,15 @@ type DualReadInput<T> = {
 type Settled<T> =
   | { ok: true; value: T }
   | { ok: false; error: unknown };
+
+export class LockedInvoiceEditError extends Error {
+  readonly code = "LOCKED_INVOICE_EDIT_BLOCKED";
+
+  constructor() {
+    super("Locked invoices cannot be recalculated from order edits");
+    this.name = "LockedInvoiceEditError";
+  }
+}
 
 export async function dualRead<T>({
   phase,
@@ -70,6 +80,9 @@ function unwrap<T>(result: Settled<T>): T {
 
 function resultsDiffer<T>(left: Settled<T>, right: Settled<T>): boolean {
   if (left.ok !== right.ok) return true;
+  if (left.ok && right.ok) {
+    return !isDeepStrictEqual(left.value, right.value);
+  }
   if (!left.ok && !right.ok) {
     return getErrorMessage(left.error) !== getErrorMessage(right.error);
   }
@@ -87,5 +100,11 @@ function getErrorMessage(error: unknown): string {
 }
 
 function isLockedEditRecalculationError(error: unknown): boolean {
-  return getErrorMessage(error) === "Locked invoices cannot be recalculated from order edits";
+  return (
+    error instanceof LockedInvoiceEditError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "LOCKED_INVOICE_EDIT_BLOCKED")
+  );
 }
