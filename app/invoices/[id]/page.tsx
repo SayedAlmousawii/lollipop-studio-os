@@ -357,11 +357,13 @@ function CreditNoteLineFields({
   return (
     <div className="grid gap-3 rounded-md border border-border bg-surface-soft p-3 sm:grid-cols-[minmax(0,1fr)_80px_120px]">
       <Field
+        id={`creditLineDescription-${index}`}
         label={index === 0 ? "Description" : `Description ${index + 1}`}
         name="creditLineDescription"
         required={required}
       />
       <Field
+        id={`creditLineQuantity-${index}`}
         label="Qty"
         name="creditLineQuantity"
         type="number"
@@ -371,6 +373,7 @@ function CreditNoteLineFields({
         required={required}
       />
       <Field
+        id={`creditLineUnitPrice-${index}`}
         label="Unit Price"
         name="creditLineUnitPrice"
         type="number"
@@ -438,6 +441,7 @@ function InvoiceLineRow({
 }
 
 function Field({
+  id,
   label,
   name,
   type = "text",
@@ -447,6 +451,7 @@ function Field({
   max,
   defaultValue,
 }: {
+  id?: string;
   label: string;
   name: string;
   type?: string;
@@ -458,9 +463,9 @@ function Field({
 }) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={name}>{label}</Label>
+      <Label htmlFor={id ?? name}>{label}</Label>
       <Input
-        id={name}
+        id={id ?? name}
         name={name}
         type={type}
         required={required}
@@ -474,6 +479,7 @@ function Field({
 }
 
 function moneyInputValue(value: string): string {
-  const match = value.match(/\d+(?:\.\d+)?/);
-  return Number(match?.[0] ?? 0).toFixed(3);
+  const match = value.match(/-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/);
+  const parsedValue = Number(match?.[0].replace(/,/g, "") ?? 0);
+  return Number.isFinite(parsedValue) ? parsedValue.toFixed(3) : "0.000";
 }

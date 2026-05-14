@@ -45,9 +45,9 @@ export function CreditNoteApprovalFields({
       </div>
 
       <div className="space-y-1 text-xs">
-        {approval.reductions.map((reduction) => (
+        {approval.reductions.map((reduction, index) => (
           <div
-            key={`${reduction.lineName}:${reduction.reason}:${reduction.amount}`}
+            key={`${reduction.lineName}:${reduction.reason}:${reduction.amount}:${index}`}
             className="flex justify-between gap-3"
           >
             <span className="min-w-0 truncate">{reduction.lineName}</span>
@@ -66,7 +66,6 @@ export function CreditNoteApprovalFields({
         <Textarea
           id="managerApprovedReason"
           name="managerApprovedReason"
-          required
           maxLength={500}
           placeholder="Reason for issuing this credit note"
         />

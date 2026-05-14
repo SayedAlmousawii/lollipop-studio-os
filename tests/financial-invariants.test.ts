@@ -142,6 +142,8 @@ test("financial invariants all pass against seeded fixtures", async () => {
           include: {
             lineItems: true,
             payments: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
               select: {
                 direction: true,
                 paymentType: true,

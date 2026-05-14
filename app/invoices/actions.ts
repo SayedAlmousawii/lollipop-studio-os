@@ -175,10 +175,22 @@ function parseCreditNoteLines(formData: FormData) {
 
   const lines = descriptions.flatMap((descriptionEntry, index) => {
     const description = String(descriptionEntry ?? "").trim();
-    const quantity = Number(quantities[index] ?? 0);
-    const unitPrice = Number(unitPrices[index] ?? 0);
-    if (!description && quantity === 0 && unitPrice === 0) {
+    const rawQuantity = String(quantities[index] ?? "").trim();
+    const rawUnitPrice = String(unitPrices[index] ?? "").trim();
+    if (!description && !rawQuantity && !rawUnitPrice) {
       return [];
+    }
+
+    const quantity = Number(rawQuantity);
+    const unitPrice = Number(rawUnitPrice);
+    if (
+      !description ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      !Number.isFinite(unitPrice) ||
+      unitPrice < 0
+    ) {
+      throw new Error(`Invalid credit note line at index ${index}`);
     }
 
     return [{ description, quantity, unitPrice }];

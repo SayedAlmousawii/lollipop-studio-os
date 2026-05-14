@@ -5,6 +5,7 @@ import {
   MediaType,
   OrderActivityType,
   OrderStatus,
+  PaymentDirection,
   Prisma,
   UserRole,
   type Invoice,
@@ -1459,7 +1460,7 @@ export async function computeRefundableAmountForInvoice(
       _sum: { amount: true },
       where: {
         invoiceId: sourceInvoiceId,
-        payment: { direction: "IN" },
+        payment: { direction: PaymentDirection.IN },
       },
     }),
     client.invoice.aggregate({
