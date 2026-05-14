@@ -724,7 +724,7 @@ async function main() {
     update: {
       publicId: "INV-PUB-00001",
       financialCaseId: financialCase1.id,
-      invoiceType: InvoiceType.FINAL,
+      invoiceType: InvoiceType.DEPOSIT,
       jobId: job1.id,
       jobNumber: job1.jobNumber,
       bookingId: booking1.id,
@@ -741,7 +741,7 @@ async function main() {
       id: "inv-001",
       publicId: "INV-PUB-00001",
       financialCaseId: financialCase1.id,
-      invoiceType: InvoiceType.FINAL,
+      invoiceType: InvoiceType.DEPOSIT,
       jobId: job1.id,
       jobNumber: job1.jobNumber,
       bookingId: booking1.id,

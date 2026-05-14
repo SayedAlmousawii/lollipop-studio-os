@@ -653,6 +653,7 @@ model Invoice {
   payments      Payment[]
   lineItems     InvoiceLineItem[]
 
+  @@unique([id, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])
@@ -695,8 +696,9 @@ model Payment {
 
   financialCase FinancialCase @relation(fields: [financialCaseId], references: [id])
   job           Job?           @relation(fields: [jobId], references: [id])
-  invoice       Invoice        @relation(fields: [invoiceId], references: [id])
+  invoice       Invoice        @relation(fields: [invoiceId, financialCaseId], references: [id, financialCaseId])
 
+  @@index([invoiceId, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])

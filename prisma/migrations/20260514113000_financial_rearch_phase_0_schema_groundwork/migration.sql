@@ -1,11 +1,11 @@
+BEGIN;
+
 CREATE TYPE "PaymentDirection" AS ENUM ('IN', 'OUT');
 
 ALTER TABLE "payments"
 ADD COLUMN "direction" "PaymentDirection" NOT NULL DEFAULT 'IN';
 
 ALTER TYPE "InvoiceType" ADD VALUE IF NOT EXISTS 'SALE';
-
-BEGIN;
 
 LOCK TABLE "financial_cases", "invoices", "payments" IN SHARE ROW EXCLUSIVE MODE;
 
