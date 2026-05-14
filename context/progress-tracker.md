@@ -5,12 +5,13 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 74d financial rearchitecture recalculation dual-read is complete: invoice recalculation shadow-computes allocation/application effective paid behind `FINANCIAL_REARCH_PHASE_1_DUAL_READ`, FINAL invoice creation auto-applies paid deposits through `DocumentApplication`, and the additional Phase 1 invariants are registered.
+- Feature 74e financial rearchitecture Phase 1 cutover is complete in code: invoice recalculation now uses only explicit `PaymentAllocation` + `DocumentApplication` totals, the Phase 1 dual-read flag/helper and virtual deposit-credit function are removed, final Phase 1 invariants are registered, and nightly reconciliation is scheduled.
+- Feature 74d financial rearchitecture recalculation dual-read completed the Phase 1 verification window setup that 74e has now retired; FINAL invoice creation still auto-applies paid deposits through `DocumentApplication`.
 - Feature 74c financial rearchitecture payment creation choke point is complete: `createPaymentWithAllocation` is now the sanctioned Payment creation path, creates one paired `PaymentAllocation` atomically, and runtime/choke-point invariants enforce the single-allocation contract.
 - Feature 74b financial rearchitecture application/allocation backfill is complete: existing payments now have one `PaymentAllocation`, paid Deposit-to-Final pairs now have one `DocumentApplication`, and the data migration enforces pre/post assertions transactionally.
 - Feature 74a financial rearchitecture document/application allocation tables is complete: `DocumentApplication` and `PaymentAllocation` are schema-ready with DB-level positive amount checks, document source/target uniqueness, allocation indexes, and no unique constraint on `payment_id`.
 - Feature 73c order add-on split is complete: package-item upgrades now live in `OrderPackageItemUpgrade`, true add-ons remain in `OrderAddOn` with required `productId`, order/POS/invoice read paths merge both financial line sources, and migration backfill/drop cleanup has been applied locally.
-- Feature 73b financial discipline infrastructure is complete: `Invoice`/`Payment` money columns now have DB CHECK constraints, the shared financial invariant/fixture/dual-read/reconciliation scaffolding and ADR directories are in place, and explicit pre-merge commands now exist for the choke-point checker and financial invariant suite.
+- Feature 73b financial discipline infrastructure is complete: `Invoice`/`Payment` money columns now have DB CHECK constraints, the shared financial invariant/fixture/reconciliation scaffolding and ADR directories are in place, and explicit pre-merge commands now exist for the choke-point checker and financial invariant suite.
 - Feature 73 financial rearchitecture phase 0 schema groundwork is complete: `Invoice.financialCaseId`, `Invoice.invoiceType`, and `Payment.financialCaseId` are now required at the Prisma/data layer, `Payment.direction` defaults to `IN`, `InvoiceType.SALE` is available for later phases, the Phase 0 migration DDL now runs transactionally, and payments are DB-constrained to the same financial case as their linked invoice without touching `order_add_ons`.
 - Feature 72 POS selected photo flow simplification is complete: each POS package line now edits only selected photo count directly, derives extra-photo quantity from package overage, autosaves Digital/Print/Split allocation changes without an Update button, and the service rejects persisted extra allocations that do not match the derived count.
 - Feature 71 70e closure cleanup is complete: retired single-package order edit/selection write service exports and schemas are deleted, order detail Selection is line-aware and read-only, and POS workspace no longer exposes top-level first-line package shortcuts.
@@ -79,6 +80,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Auth centralised: server-side lookup in `src/lib/auth`; permission checks in `src/lib/permissions` backed by Prisma roles (not Clerk roles). Unlinked Clerk users redirect to `/unauthorized`. Dashboard/app routes gated by Next.js 16 `proxy.ts`.
 - High-risk server actions pass `actorUserId` into service-layer operations for order activity and delivery-completion attribution.
 - Session workflow: Deposit and Final invoices are separate FinancialCase-scoped records; the Final Invoice is the rolling order invoice, while the locked Deposit Invoice is read-only context for deduction display.
+- Phase 1 financial rearchitecture cutover is live in code: invoice effective-paid math comes only from explicit payment allocations and document applications; virtual deposit credit and the Phase 1 dual-read flag are retired.
 - `Order.deliveryCompletedById` (FK to `User`) is the active delivery actor reference; `deliveryCompletedBy` (free-text) is a non-authoritative legacy fallback only.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Job/BK reference generation self-heals if `identifier_sequences` falls behind existing canonical `Job.jobNumber` or `Booking.publicId` rows.
@@ -95,6 +97,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production READY_FOR_PICKUP requires: editing approved or completed.
 
 ## Feature History
+- Feature 74e: Financial rearchitecture Phase 1 cutover and reconciliation — removed the virtual deposit-credit recalculation path, deleted the Phase 1 dual-read flag/helper and discrepancy logger, registered the final Phase 1 allocation/application invariants, and added a nightly 02:00 studio-local reconciliation workflow.
 - Feature 74d: Financial rearchitecture recalculation dual-read — added allocation/application effective-paid calculation, wired `recalculateInvoiceStatus` through the dual-read helper with the old path authoritative, auto-created Deposit-to-Final `DocumentApplication` rows on FINAL invoice creation, and registered the net-balance/document-application invariants.
 - Feature 74c: Financial rearchitecture payment creation via allocation helper — added `createPaymentWithAllocation`, migrated payment recording and shared financial fixtures through it, registered payment allocation invariants, and enabled raw payment creation choke-point patterns.
 - Feature 74b: Financial rearchitecture application/allocation backfill — added a transactional data migration that asserts invoice shape, backfills Deposit-to-Final `DocumentApplication` rows, backfills one full-amount `PaymentAllocation` per existing payment, and verifies the resulting invariants.
@@ -215,6 +218,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 21: Booking deposit recording via invoice + payment in one transaction.
 
 ## Open Follow-Ups
+- Before merging Feature 74e, confirm the 74d verification window had zero `financial.rearch.dual_read.discrepancy` WARN logs and run the financial invariant suite against a prod-shaped staging dataset.
+- Configure and verify production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, and `FINANCIAL_RECON_SLACK_CHANNEL`.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm the schema tightening remains behavior-neutral in real flows.
 - Manually review the POS Selected Photos card in-app, including autosave on blur, Digital/Print/Split switching, and a legacy mixed split line whose stored allocation already matches the derived extra count.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.

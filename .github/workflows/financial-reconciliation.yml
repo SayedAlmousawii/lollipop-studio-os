@@ -1,0 +1,54 @@
+name: Financial Reconciliation
+
+on:
+  schedule:
+    # 02:00 studio-local time (Asia/Kuwait, UTC+3).
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: financial-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Run financial reconciliation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.FINANCIAL_RECON_DATABASE_URL }}
+      FINANCIAL_RECON_SLACK_WEBHOOK: ${{ secrets.FINANCIAL_RECON_SLACK_WEBHOOK }}
+      FINANCIAL_RECON_SLACK_CHANNEL: ${{ secrets.FINANCIAL_RECON_SLACK_CHANNEL }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Verify production reconciliation env
+        run: |
+          missing=0
+          for name in DATABASE_URL FINANCIAL_RECON_SLACK_WEBHOOK FINANCIAL_RECON_SLACK_CHANNEL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is required for nightly financial reconciliation"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Run reconciliation
+        run: npm run financial:reconcile

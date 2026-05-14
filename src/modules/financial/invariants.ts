@@ -1,4 +1,10 @@
-import { PaymentDirection, Prisma, type PrismaClient } from "@prisma/client";
+import {
+  InvoiceStatus,
+  InvoiceType,
+  PaymentDirection,
+  Prisma,
+  type PrismaClient,
+} from "@prisma/client";
 
 export type InvariantContext = {
   tx: PrismaClient | Prisma.TransactionClient;
@@ -206,5 +212,99 @@ registerInvariant({
         expected: `<= ${application.sourceInvoice.paidAmount.toFixed(3)}`,
         actual: application.amountApplied.toFixed(3),
       }));
+  },
+});
+
+registerInvariant({
+  name: "deposit-final-pair-has-document-application",
+  scope: "global",
+  run: async ({ tx }) => {
+    const financialCases = await tx.financialCase.findMany({
+      where: {
+        invoices: {
+          some: {
+            invoiceType: InvoiceType.DEPOSIT,
+            parentInvoiceId: null,
+            status: InvoiceStatus.CLOSED,
+            paidAmount: { gt: new Prisma.Decimal(0) },
+          },
+        },
+      },
+      select: {
+        id: true,
+        invoices: {
+          where: {
+            parentInvoiceId: null,
+            invoiceType: { in: [InvoiceType.DEPOSIT, InvoiceType.FINAL] },
+          },
+          select: {
+            id: true,
+            invoiceType: true,
+            status: true,
+            paidAmount: true,
+            documentApplicationsAsSource: {
+              select: {
+                id: true,
+                targetInvoiceId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return financialCases.flatMap((financialCase) => {
+      const closedPaidDeposits = financialCase.invoices.filter(
+        (invoice) =>
+          invoice.invoiceType === InvoiceType.DEPOSIT &&
+          invoice.status === InvoiceStatus.CLOSED &&
+          invoice.paidAmount.greaterThan(0)
+      );
+      const finalInvoices = financialCase.invoices.filter(
+        (invoice) => invoice.invoiceType === InvoiceType.FINAL
+      );
+
+      return closedPaidDeposits.flatMap((depositInvoice) =>
+        finalInvoices.flatMap((finalInvoice) => {
+          const applicationCount =
+            depositInvoice.documentApplicationsAsSource.filter(
+              (application) => application.targetInvoiceId === finalInvoice.id
+            ).length;
+
+          if (applicationCount === 1) {
+            return [];
+          }
+
+          return [
+            {
+              invariant: "deposit-final-pair-has-document-application",
+              entityType: "FinancialCase",
+              entityId: financialCase.id,
+              expected: `1 DocumentApplication from ${depositInvoice.id} to ${finalInvoice.id}`,
+              actual: `${applicationCount} DocumentApplications`,
+            },
+          ];
+        })
+      );
+    });
+  },
+});
+
+registerInvariant({
+  name: "no-payment-without-allocation",
+  scope: "global",
+  run: async ({ tx }) => {
+    const payments = await tx.payment.findMany({
+      where: { allocations: { none: {} } },
+      select: { id: true },
+    });
+
+    return payments.map((payment) => ({
+      invariant: "no-payment-without-allocation",
+      entityType: "Payment",
+      entityId: payment.id,
+      expected: "at least 1 allocation",
+      actual: "0 allocations",
+    }));
   },
 });

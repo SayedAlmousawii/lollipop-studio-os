@@ -91,6 +91,33 @@ test("financial invariants all pass against seeded fixtures", async () => {
 
       const violations = await runAllInvariants(db);
       assert.deepEqual(violations, []);
+
+      await db.documentApplication.deleteMany({
+        where: { targetInvoiceId: finalInvoice.id },
+      });
+      const missingApplicationViolations = await runAllInvariants(db);
+      assert.ok(
+        missingApplicationViolations.some(
+          (violation) =>
+            violation.invariant ===
+            "deposit-final-pair-has-document-application"
+        )
+      );
+
+      await applyDepositToFinalIfPresent(
+        fixture.financialCaseId,
+        finalInvoice.id,
+        db
+      );
+      await db.paymentAllocation.deleteMany({
+        where: { paymentId: fixture.paymentId },
+      });
+      const missingAllocationViolations = await runAllInvariants(db);
+      assert.ok(
+        missingAllocationViolations.some(
+          (violation) => violation.invariant === "no-payment-without-allocation"
+        )
+      );
     } finally {
       console.warn = originalWarn;
       console.error = originalError;

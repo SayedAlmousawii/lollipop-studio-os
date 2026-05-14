@@ -11,7 +11,6 @@ import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
-import { dualRead } from "@/modules/financial/dual-read";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
@@ -32,8 +31,6 @@ type SnapshotInvoiceLineItem = Omit<
   Prisma.InvoiceLineItemCreateManyInput,
   "invoiceId"
 >;
-const FINANCIAL_REARCH_PHASE_1_DUAL_READ =
-  "FINANCIAL_REARCH_PHASE_1_DUAL_READ";
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
@@ -649,22 +646,10 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
     (sum, payment) => sum.plus(payment.amount),
     new Prisma.Decimal(0)
   );
-  const depositCreditAmount =
-    invoice.invoiceType === InvoiceType.FINAL && invoice.financialCaseId
-      ? await getDepositCreditAmountForFinancialCase(client, invoice.financialCaseId)
-      : new Prisma.Decimal(0);
-  const oldEffectivePaidAmount = directPaidAmount.plus(depositCreditAmount);
-  const effectivePaidAmount = await dualRead({
-    phase: "phase-1-recalculate",
-    path: "invoice.recalculateStatus",
-    entityId: invoice.id,
-    flagKey: FINANCIAL_REARCH_PHASE_1_DUAL_READ,
-    oldFn: async () => oldEffectivePaidAmount,
-    newFn: () => computeEffectivePaidFromAllocations(invoice.id, client),
-    authoritative: "old",
-    compare: (oldValue, newValue) =>
-      oldValue.minus(newValue).abs().lte(new Prisma.Decimal("0.001")),
-  });
+  const effectivePaidAmount = await computeEffectivePaidFromAllocations(
+    invoice.id,
+    client
+  );
   const remainingAmount = Prisma.Decimal.max(
     invoice.totalAmount.minus(effectivePaidAmount),
     0
@@ -1286,25 +1271,6 @@ function resolveInvoiceDisplayJobNumber(invoice: {
   booking: { jobNumber: string | null } | null;
 }): string | null {
   return invoice.jobNumber ?? invoice.order?.jobNumber ?? invoice.booking?.jobNumber ?? null;
-}
-
-async function getDepositCreditAmountForFinancialCase(
-  client: DbClient,
-  financialCaseId: string
-): Promise<Prisma.Decimal> {
-  const invoice = await client.invoice.findFirst({
-    where: {
-      financialCaseId,
-      invoiceType: InvoiceType.DEPOSIT,
-      parentInvoiceId: null,
-    },
-    select: {
-      paidAmount: true,
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return invoice?.paidAmount ?? new Prisma.Decimal(0);
 }
 
 async function findDepositInvoiceForFinancialCase(
