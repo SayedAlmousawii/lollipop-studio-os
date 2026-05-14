@@ -13,7 +13,6 @@ import { withRetry } from "@/lib/retry";
 import {
   generateInvoiceNumber,
   issueInvoiceWithClient,
-  recalculateInvoiceStatus,
 } from "@/modules/invoices/invoice.service";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import {
@@ -690,23 +689,16 @@ export async function recordBookingDeposit(
           reference: data.reference,
         }, actorContext);
 
-        await recalculateInvoiceStatus(invoice.id, tx);
-        const paidInvoice = await tx.invoice.findUnique({
+        const settledInvoice = await tx.invoice.findUnique({
           where: { id: invoice.id },
-          select: { status: true },
+          select: { status: true, isLocked: true },
         });
-        if (paidInvoice?.status !== InvoiceStatus.PAID) {
-          throw new Error("Deposit invoice was not fully paid");
+        if (
+          settledInvoice?.status !== InvoiceStatus.CLOSED ||
+          !settledInvoice.isLocked
+        ) {
+          throw new Error("Deposit invoice was not fully settled");
         }
-
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: {
-            status: InvoiceStatus.CLOSED,
-            isLocked: true,
-            closedAt: new Date(),
-          },
-        });
 
         await tx.booking.update({
           where: { id: booking.id },
