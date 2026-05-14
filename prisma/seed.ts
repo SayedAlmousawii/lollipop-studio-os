@@ -1,6 +1,7 @@
 import {
   BookingStatus,
   CustomerStatus,
+  InvoiceType,
   InvoiceStatus,
   MediaType,
   OrderEditingStatus,
@@ -704,11 +705,26 @@ async function main() {
     sessionTypeCode: "NB_NEWBORN",
   });
 
+  const financialCase1 = await prisma.financialCase.upsert({
+    where: { bookingId: booking1.id },
+    update: {
+      customerId: customerFatima.id,
+      jobId: job1.id,
+    },
+    create: {
+      bookingId: booking1.id,
+      customerId: customerFatima.id,
+      jobId: job1.id,
+    },
+  });
+
   // Invoice 1 linked directly to Booking 1 before completion
   const invoice1 = await prisma.invoice.upsert({
     where: { id: "inv-001" },
     update: {
       publicId: "INV-PUB-00001",
+      financialCaseId: financialCase1.id,
+      invoiceType: InvoiceType.DEPOSIT,
       jobId: job1.id,
       jobNumber: job1.jobNumber,
       bookingId: booking1.id,
@@ -724,6 +740,8 @@ async function main() {
     create: {
       id: "inv-001",
       publicId: "INV-PUB-00001",
+      financialCaseId: financialCase1.id,
+      invoiceType: InvoiceType.DEPOSIT,
       jobId: job1.id,
       jobNumber: job1.jobNumber,
       bookingId: booking1.id,
@@ -742,6 +760,7 @@ async function main() {
     where: { id: "pay-001" },
     update: {
       publicId: "PAY-00001",
+      financialCaseId: financialCase1.id,
       jobId: job1.id,
       jobNumber: job1.jobNumber,
       invoiceId: invoice1.id,
@@ -753,6 +772,7 @@ async function main() {
     create: {
       id: "pay-001",
       publicId: "PAY-00001",
+      financialCaseId: financialCase1.id,
       jobId: job1.id,
       jobNumber: job1.jobNumber,
       invoiceId: invoice1.id,
@@ -841,6 +861,19 @@ async function main() {
     sessionTypeCode: "KD_FAMILY",
   });
 
+  const financialCase3 = await prisma.financialCase.upsert({
+    where: { bookingId: booking3.id },
+    update: {
+      customerId: customerMaryam.id,
+      jobId: job3.id,
+    },
+    create: {
+      bookingId: booking3.id,
+      customerId: customerMaryam.id,
+      jobId: job3.id,
+    },
+  });
+
   // Order 3 linked to Booking 3
   const order3 = await prisma.order.upsert({
     where: { id: "order-003" },
@@ -920,6 +953,8 @@ async function main() {
     where: { id: "inv-003" },
     update: {
       publicId: "INV-PUB-00002",
+      financialCaseId: financialCase3.id,
+      invoiceType: InvoiceType.FINAL,
       jobId: job3.id,
       jobNumber: job3.jobNumber,
       orderId: order3.id,
@@ -935,6 +970,8 @@ async function main() {
     create: {
       id: "inv-003",
       publicId: "INV-PUB-00002",
+      financialCaseId: financialCase3.id,
+      invoiceType: InvoiceType.FINAL,
       jobId: job3.id,
       jobNumber: job3.jobNumber,
       orderId: order3.id,
@@ -955,6 +992,7 @@ async function main() {
       where: { id: "pay-003a" },
       update: {
         publicId: "PAY-00002",
+        financialCaseId: financialCase3.id,
         jobId: job3.id,
         jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,
@@ -965,6 +1003,7 @@ async function main() {
       create: {
         id: "pay-003a",
         publicId: "PAY-00002",
+        financialCaseId: financialCase3.id,
         jobId: job3.id,
         jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,
@@ -977,6 +1016,7 @@ async function main() {
       where: { id: "pay-003b" },
       update: {
         publicId: "PAY-00003",
+        financialCaseId: financialCase3.id,
         jobId: job3.id,
         jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,
@@ -988,6 +1028,7 @@ async function main() {
       create: {
         id: "pay-003b",
         publicId: "PAY-00003",
+        financialCaseId: financialCase3.id,
         jobId: job3.id,
         jobNumber: job3.jobNumber,
         invoiceId: invoice3.id,

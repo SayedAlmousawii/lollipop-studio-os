@@ -95,6 +95,7 @@ enum InvoiceType {
   ADJUSTMENT
   REFUND
   CREDIT_NOTE
+  SALE
 }
 
 enum InvoiceLineType {
@@ -119,6 +120,11 @@ enum PaymentType {
   UPGRADE
   ADDON
   OTHER
+}
+
+enum PaymentDirection {
+  IN
+  OUT
 }
 
 enum ProductCategory {
@@ -616,8 +622,8 @@ model OrderAddOn {
 model Invoice {
   id              String        @id @default(cuid())
   publicId        String        @unique
-  financialCaseId String?
-  invoiceType     InvoiceType?
+  financialCaseId String
+  invoiceType     InvoiceType
   jobNumber       String?
   jobId           String?
   orderId         String?
@@ -637,7 +643,7 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  financialCase FinancialCase?    @relation(fields: [financialCaseId], references: [id])
+  financialCase FinancialCase     @relation(fields: [financialCaseId], references: [id])
   job           Job?              @relation(fields: [jobId], references: [id])
   order         Order?            @relation(fields: [orderId], references: [id])
   booking       Booking?          @relation(fields: [bookingId], references: [id])
@@ -647,6 +653,7 @@ model Invoice {
   payments      Payment[]
   lineItems     InvoiceLineItem[]
 
+  @@unique([id, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])
@@ -674,11 +681,12 @@ model InvoiceLineItem {
 model Payment {
   id              String        @id @default(cuid())
   publicId        String        @unique
-  financialCaseId String?
+  financialCaseId String
   jobNumber       String?
   jobId           String?
   invoiceId       String
   amount          Decimal       @db.Decimal(10, 3)
+  direction       PaymentDirection @default(IN)
   method          PaymentMethod
   paymentType     PaymentType
   paidAt          DateTime      @default(now())
@@ -686,10 +694,11 @@ model Payment {
   notes           String?
   createdAt       DateTime      @default(now())
 
-  financialCase FinancialCase? @relation(fields: [financialCaseId], references: [id])
+  financialCase FinancialCase @relation(fields: [financialCaseId], references: [id])
   job           Job?           @relation(fields: [jobId], references: [id])
-  invoice       Invoice        @relation(fields: [invoiceId], references: [id])
+  invoice       Invoice        @relation(fields: [invoiceId, financialCaseId], references: [id, financialCaseId])
 
+  @@index([invoiceId, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])

@@ -681,7 +681,6 @@ export async function recordBookingDeposit(
         await issueInvoiceWithClient(tx, invoice.id, actorContext);
 
         const payment = await recordPaymentWithClient(tx, invoice.id, {
-          financialCaseId: financialCase.id,
           amount: depositAmount.toNumber(),
           method: data.method,
           paymentType: PaymentType.DEPOSIT,

@@ -54,7 +54,7 @@ export async function recordPaymentWithClient(
   const payment = await client.payment.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.PAYMENT),
-      financialCaseId: data.financialCaseId ?? invoice.financialCaseId ?? null,
+      financialCaseId: invoice.financialCaseId,
       jobId: invoice.jobId,
       jobNumber: invoice.jobNumber,
       invoiceId,
