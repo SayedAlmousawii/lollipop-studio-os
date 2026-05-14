@@ -1,5 +1,6 @@
 import "dotenv/config";
 
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Client } from "pg";
@@ -18,6 +19,7 @@ function getBaseDatabaseUrl(): string {
 function buildSchemaDatabaseUrl(baseDatabaseUrl: string, schemaName: string): string {
   const url = new URL(baseDatabaseUrl);
   url.searchParams.set("schema", schemaName);
+  url.searchParams.set("options", `-c search_path=${schemaName}`);
   return url.toString();
 }
 
@@ -34,6 +36,18 @@ function runPrismaCommand(args: string[], databaseUrl: string) {
   });
 }
 
+async function assertDatabaseUrlUsesSchema(databaseUrl: string, schemaName: string): Promise<void> {
+  const client = new Client({ connectionString: databaseUrl });
+
+  try {
+    await client.connect();
+    const result = await client.query<{ current_schema: string }>("SELECT current_schema()");
+    assert.equal(result.rows[0]?.current_schema, schemaName);
+  } finally {
+    await client.end();
+  }
+}
+
 export async function withIsolatedBackendInvariantSchema<T>(
   run: (databaseUrl: string) => Promise<T>
 ): Promise<T> {
@@ -48,6 +62,7 @@ export async function withIsolatedBackendInvariantSchema<T>(
     await adminDb.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
 
     runPrismaCommand(["migrate", "deploy"], isolatedDatabaseUrl);
+    await assertDatabaseUrlUsesSchema(isolatedDatabaseUrl, schemaName);
 
     return await run(isolatedDatabaseUrl);
   } finally {
