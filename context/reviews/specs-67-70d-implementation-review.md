@@ -254,6 +254,8 @@ Per spec 67/68: "No admin CRUD UI." That's intentional, but there is also no rea
 
 ## Recommended Next Actions
 
+**Feature 71 closure update:** The remaining 70e closure findings around retired single-package order writes and first-line-only Selection/POS package shortcuts are fixed. `updateOrder`, `updateOrderSelectionWorkflow`, and `getEditableOrderById` are no longer callable service exports, the old write schemas/types are removed, the Selection tab uses per-package read-only summaries with POS navigation, and POS workspace no longer exposes top-level `originalPackage`, `currentPackage`, or `bundleAdjustment` shortcuts copied from the first package line.
+
 1. **Fix C2 (invoice math) before any further POS work.** Decide which line shape you want and add a test asserting line sum == totalAmount on every locked FINAL invoice. This is the most damaging bug and the cheapest to verify.
 2. **Fix C1 (selection workflow extras).** Either wire digital/print into the selection form or default the existing `extraPhotos` value to one media type at the service layer. Without this fix, current production-ish data is silently dropping revenue.
 3. **Decide on `Order.selectedPhotoCount` (C3).** I'd recommend a small follow-up retirement spec that drops it, with all reads going through a new `getOrderTotalSelectedPhotoCount` helper. Could be 70e.

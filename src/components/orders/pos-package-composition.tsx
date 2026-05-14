@@ -45,12 +45,10 @@ interface POSPackageCompositionProps {
 export function POSPackageComposition({ workspace }: POSPackageCompositionProps) {
   const locked = workspace.invoice?.isLocked ?? false;
   const packagePriceTotal =
-    workspace.packageLines.length > 0
-      ? workspace.packageLines.reduce(
-          (sum, line) => sum + line.currentPackage.price,
-          0
-        )
-      : workspace.currentPackage?.price ?? 0;
+    workspace.packageLines.reduce(
+      (sum, line) => sum + line.currentPackage.price,
+      0
+    );
 
   return (
     <Card id="package-composition">

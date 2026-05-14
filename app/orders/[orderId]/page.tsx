@@ -441,19 +441,14 @@ function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
         <CardContent className="space-y-5">
           <InfoGrid
             items={[
-              ["Package", selection.finalPackageName],
-              ["Package limit", String(selection.includedPhotoCount)],
-              ["Bundle adjustment", selection.bundleAdjustment],
+              ["Packages", String(selection.packageLines.length)],
+              ["Included photos", String(selection.includedPhotoCount)],
               ["Selected photos", String(selection.selectedPhotos)],
-              ["Extra selected", String(selection.extraPhotoCount)],
+              ["Extra photos", String(selection.extraPhotoCount)],
+              ["Selection status", selection.selectionStatus],
             ]}
           />
-          <DeliverableList
-            title="Package Includes"
-            items={selection.packageItems}
-            emptyLabel="No structured package items have been added yet."
-            photoCountLabel={`${selection.includedPhotoCount} Photos`}
-          />
+          <PackageLineList lines={selection.packageLines} />
         </CardContent>
       </Card>
       <Card>

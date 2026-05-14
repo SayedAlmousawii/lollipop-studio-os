@@ -31,3 +31,7 @@ Feature 70e.2 audit before retiring duplicate write surfaces.
 ## Decision
 
 POS covers the financial and selection write capabilities that remain relevant after the multi-package rollout. The legacy edit order page and writable selection workflow form are retired. Order detail keeps a read-only selection summary and routes package, photo, add-on, invoice, and payment work to POS.
+
+## Feature 71 Closure Status
+
+Fixed. The retired service-layer write/read entry points (`updateOrder`, `updateOrderSelectionWorkflow`, and `getEditableOrderById`) and their single-package write schemas/types have been removed. The remaining Selection tab is read-only and renders package-line summaries instead of first-line package data. POS remains the only writable workspace for package, selected-photo, extra-photo, add-on, invoice preview, and final-payment changes.

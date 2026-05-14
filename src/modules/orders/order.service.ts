@@ -45,11 +45,9 @@ import {
   recordOrderActivity,
 } from "./order-activity.service";
 import {
-  updateOrderSchema,
   updateOrderEditingWorkflowSchema,
   updateOrderDeliveryWorkflowSchema,
   updateOrderProductionWorkflowSchema,
-  updateOrderSelectionWorkflowSchema,
   updateOrderPackageSchema,
   upgradeOrderPackageItemSchema,
   addOrderProductAddOnSchema,
@@ -57,32 +55,27 @@ import {
   updateOrderSelectedPhotoCountSchema,
   updateOrderWorkflowSchema,
   type AddOrderProductAddOnInput,
-  type UpdateOrderInput,
   type UpdateOrderEditingWorkflowInput,
   type UpdateOrderDeliveryWorkflowInput,
   type UpdateOrderPackageInput,
   type UpdateOrderProductionWorkflowInput,
   type RemoveOrderAddOnInput,
   type UpdateOrderSelectedPhotoCountInput,
-  type UpdateOrderSelectionWorkflowInput,
   type UpgradeOrderPackageItemInput,
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
 import { getOrderTotalSelectedPhotoCount } from "./order.utils";
 import type {
-  EditableOrder,
   EditingQueueItem,
   InvoiceStatusFilter,
   InvoiceStatusLabel,
   Order,
   OrderAddOn,
   OrderAddOnDisplay,
-  OrderAddOnProductOption,
   OrderActivityPreviewItem,
   CustomerOrderHistoryItem,
   OrderDetail,
   OrderDeliveryWorkflow,
-  OrderEditPackage,
   OrderEditingWorkflow,
   OrderEditorOption,
   OrderFilters,
@@ -104,7 +97,6 @@ import type {
   OrderProductionSection,
   ProductionQueueItem,
   OrderProductionWorkflow,
-  OrderSelectionPackageOption,
   OrderSelectionWorkflow,
   OrderStatusFilter,
   OrderStatusLabel,
@@ -406,9 +398,12 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     packageLines.reduce((sum, line) => sum + line.currentPackage.price, 0)
   );
   const paidAmount = order.invoices[0]?.paidAmount ?? zeroMoney();
-  const currentPackage = packageLines[0]?.currentPackage ?? null;
-  const originalPackage = packageLines[0]?.originalPackage ?? null;
-  const currentPackageRow = order.packages[0]?.package ?? null;
+  const bundleAdjustmentTotal = new Prisma.Decimal(
+    packageLines.reduce(
+      (sum, line) => sum + line.currentPackage.bundleAdjustment,
+      0
+    )
+  );
 
   return {
     orderId: order.id,
@@ -419,11 +414,8 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     sessionDate: formatDateTime(order.booking.sessionDate),
     customerName: order.customer.name,
     customerPhone: formatCustomerPhone(order.customer.phone),
-    originalPackage,
-    currentPackage,
     packageLines,
     packageItems,
-    bundleAdjustment: currentPackage?.bundleAdjustment ?? 0,
     rawDeliverableTotal: sumPOSPackageItemsDecimal(packageItems).toNumber(),
     includedPhotoCount,
     selectedPhotoCount,
@@ -431,16 +423,13 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     extraPhotoTotal: extraPhotoTotalDecimal.toNumber(),
     addOns,
     addOnTotal: addOnTotal.toNumber(),
-    packageOptions: mapPOSPackageOptions(packageRows, currentPackageRow),
     productOptions: productRows.map(mapPOSProductOption),
     addOnCatalog: addOnCatalogRows.map(mapPOSAddOnCatalogItem),
     invoice: order.invoices[0]
       ? mapPOSInvoiceSummary({
           invoice: order.invoices[0],
           packageBaseTotal,
-          bundleAdjustment: currentPackage
-            ? new Prisma.Decimal(currentPackage.bundleAdjustment)
-            : zeroMoney(),
+          bundleAdjustment: bundleAdjustmentTotal,
           addOnTotal,
           extraPhotoTotal: extraPhotoTotalDecimal,
           paidAmount,
@@ -645,7 +634,7 @@ export async function getOrderHubById(
 export async function getOrderSelectionWorkflowById(
   orderId: string
 ): Promise<OrderSelectionWorkflow | null> {
-  const [order, packageRows, addOnProductRows, completedActivity] = await withRetry(
+  const [order, completedActivity] = await withRetry(
     () =>
       Promise.all([
         db.order.findUnique({
@@ -653,7 +642,7 @@ export async function getOrderSelectionWorkflowById(
           include: {
             packages: {
               include: {
-                sessionType: { select: { id: true } },
+                sessionType: { select: { id: true, name: true } },
                 package: {
                   select: {
                     id: true,
@@ -692,29 +681,6 @@ export async function getOrderSelectionWorkflowById(
             },
           },
         }),
-        db.package.findMany({
-          where: { isActive: true },
-          select: {
-            id: true,
-            name: true,
-            price: true,
-            photoCount: true,
-            bundleAdjustment: true,
-            items: {
-              select: packageItemDisplaySelect,
-              orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-            },
-          },
-          orderBy: { price: "asc" },
-        }),
-        db.product.findMany({
-          where: {
-            isActive: true,
-            isAddOn: true,
-          },
-          select: { id: true, name: true, category: true, canonicalPrice: true },
-          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-        }),
         db.orderActivity.findFirst({
           where: {
             orderId,
@@ -730,50 +696,53 @@ export async function getOrderSelectionWorkflowById(
   if (!order) return null;
 
   const addOns = mapStructuredAddOns(order.orderAddOns);
-  const firstLine = order.packages[0] ?? null;
-  const currentPackage = firstLine?.package ?? null;
-  if (!currentPackage) {
+  if (order.packages.length === 0) {
     throw new Error("Order has no package available for selection workflow");
   }
+  const packageLines = order.packages.map((line) => {
+    const selectedPhotoCount = line.selectedPhotoCount ?? line.package.photoCount;
+    const extraPhotoCount = line.extraDigitalCount + line.extraPrintCount;
+    const originalSnapshot = line.originalPackagePriceSnapshot;
+    const finalSnapshot = line.finalPackagePriceSnapshot;
+    const upgradeStatus =
+      originalSnapshot && finalSnapshot && !originalSnapshot.equals(finalSnapshot)
+        ? `Upgraded ${formatSignedMoney(finalSnapshot.minus(originalSnapshot))}`
+        : "No upgrade";
+
+    return {
+      id: line.id,
+      packageName: line.package.name,
+      sessionTypeName: line.sessionType.name,
+      includedPhotoCount: line.package.photoCount,
+      selectedPhotoCount,
+      extraDigitalCount: line.extraDigitalCount,
+      extraPrintCount: line.extraPrintCount,
+      extraPhotoCount,
+      upgradeStatus,
+      bundleAdjustment: formatSignedMoney(new Prisma.Decimal(line.package.bundleAdjustment)),
+      packageItems: mapPackageItemDisplays(line.package.items),
+    };
+  });
   const includedPhotoCount =
     order.packages.reduce(
       (sum, line) => sum + line.package.photoCount,
       0
-    ) || currentPackage.photoCount;
+    );
   const selectedPhotos = getOrderTotalSelectedPhotoCount(order.packages);
-  const extraPhotoCount = Math.max(selectedPhotos - includedPhotoCount, 0);
+  const extraPhotoCount =
+    packageLines.reduce((sum, line) => sum + line.extraPhotoCount, 0);
 
   const manualAddOnTotal = sumAddOnsDecimal(addOns);
   const invoice = order.invoices[0] ?? null;
-  const packageAdjustmentBaseline =
-    firstLine?.originalPackagePriceSnapshot ?? currentPackage.price;
-  const packageOptions = buildSelectionPackageOptions({
-    packages: packageRows,
-    currentPackage,
-    selectedPhotos,
-    packageAdjustmentBaseline,
-  });
-  const recommendedPackage =
-    packageOptions.find((option) => option.isRecommended) ?? null;
-  const originalPackagePrice =
-    firstLine?.originalPackagePriceSnapshot ?? currentPackage.price;
-  const packageUpgradeDifference = currentPackage.price.minus(originalPackagePrice);
-  const extraPhotoUnitPrice =
-    extraPhotoCount > 0
-      ? await getExtraPhotoUnitPriceForOrderLine(firstLine.sessionType.id)
-      : zeroMoney();
-  const extraPhotoCharge = extraPhotoUnitPrice.mul(extraPhotoCount);
+  const extraPhotoCharge = Prisma.Decimal.max(invoice?.totalAmount
+    .minus(sumOrderPackageFinalPriceDecimal(order.packages))
+    .minus(manualAddOnTotal) ?? zeroMoney(), 0);
   const selectionAddOnTotal = manualAddOnTotal.plus(extraPhotoCharge);
-  const packageItems = mapPackageItemDisplays(currentPackage.items);
 
   return {
     orderId: order.id,
     orderStatus: mapOrderStatus(order.status),
-    packageId: currentPackage.id,
-    originalPackageName: currentPackage.name,
-    finalPackageName: currentPackage.name,
-    packageItems,
-    bundleAdjustment: formatSignedMoney(new Prisma.Decimal(currentPackage.bundleAdjustment)),
+    packageLines,
     selectedPhotos,
     includedPhotoCount,
     extraPhotoCount,
@@ -782,25 +751,10 @@ export async function getOrderSelectionWorkflowById(
     selectionStatus: ORDER_SELECTION_STATUS_LABELS[order.selectionStatus],
     completedAt: completedActivity ? formatDateTime(completedActivity.createdAt) : null,
     manualAddOnTotal: formatMoney(manualAddOnTotal),
-    extraPhotoUnitPriceAmount: extraPhotoUnitPrice.toNumber(),
-    extraPhotoUnitPrice: formatMoney(extraPhotoUnitPrice),
     extraPhotoCharge: formatMoney(extraPhotoCharge),
     selectionAddOnTotal: formatMoney(selectionAddOnTotal),
-    packageUpgradeDifference: formatSignedMoney(packageUpgradeDifference),
-    nextRecommendedFinancialAction: resolveSelectionFinancialAction({
-      extraPhotoCount,
-      addOnTotal: selectionAddOnTotal,
-      remainingAmount: invoice?.remainingAmount ?? zeroMoney(),
-      recommendedPackage,
-    }),
-    keepCurrentPackageLabel: `Keep current package and review ${formatMoney(selectionAddOnTotal)} in add-ons or extra-photo charges.`,
-    upgradePackageLabel: recommendedPackage
-      ? `Upgrade to ${recommendedPackage.name} for ${recommendedPackage.upgradeDifferenceLabel}.`
-      : "No higher active package covers the current selected-photo count.",
-    recommendedPackage,
+    nextRecommendedFinancialAction: "Review package lines, extras, add-ons, invoice preview, and final payment in POS.",
     invoiceLocked: invoice?.isLocked ?? false,
-    packageOptions,
-    addOnOptions: addOnProductRows.map(mapOrderAddOnProductOption),
   };
 }
 
@@ -918,69 +872,6 @@ export async function getOrderDeliveryWorkflowById(
 
   if (!order) return null;
   return mapOrderDeliveryWorkflow(order);
-}
-
-export async function updateOrderSelectionWorkflow(
-  orderId: string,
-  input: UpdateOrderSelectionWorkflowInput,
-  actorContext: ActorContext = {}
-): Promise<OrderSelectionWorkflow> {
-  const orderForGuard = await db.order.findUnique({
-    where: { id: orderId },
-    select: { status: true },
-  });
-  if (!orderForGuard) throw new Error("Order not found");
-  assertSelectionWorkflowWritable(orderForGuard.status);
-
-  const data = updateOrderSelectionWorkflowSchema.parse(input);
-  const [pricedAddOns, selectedPackage] = await Promise.all([
-    priceSelectionAddOns(data.addOns),
-    db.package.findUnique({
-      where: { id: data.packageId },
-      select: { photoCount: true },
-    }),
-  ]);
-  if (!selectedPackage) {
-    throw new Error("Selected package does not exist");
-  }
-  const selectedPhotos = selectedPackage.photoCount + data.extraPhotos;
-
-  await updateOrder(orderId, {
-    packageId: data.packageId,
-    selectedPhotos,
-    addOns: pricedAddOns,
-    notes: data.notes,
-  }, actorContext);
-
-  if (data.completeSelection) {
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: { selectionStatus: true },
-    });
-    if (!order) throw new Error("Order not found");
-    if (order.selectionStatus === OrderSelectionStatus.PENDING) {
-      await updateOrderWorkflowStatus(orderId, {
-        selectionStatus: OrderSelectionStatus.IN_PROGRESS,
-      }, actorContext);
-    }
-    await updateOrderWorkflowStatus(orderId, {
-      selectionStatus: OrderSelectionStatus.COMPLETED,
-    }, actorContext);
-  } else {
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: { selectionStatus: true },
-    });
-    if (order?.selectionStatus === OrderSelectionStatus.PENDING) {
-      await updateOrderWorkflowStatus(orderId, {
-        selectionStatus: OrderSelectionStatus.IN_PROGRESS,
-      }, actorContext);
-    }
-  }
-
-  const workflow = await getOrderSelectionWorkflowById(orderId);
-  if (!workflow) throw new Error("Order not found after selection update");
-  return workflow;
 }
 
 export async function updateOrderPackage(
@@ -2294,199 +2185,6 @@ export async function updateOrderDeliveryWorkflow(
   return workflow;
 }
 
-export async function getEditableOrderById(
-  orderId: string
-): Promise<EditableOrder | null> {
-  const row = await withRetry(
-    () => fetchEditableOrderById(orderId),
-    "Failed to fetch editable order"
-  );
-
-  if (!row) return null;
-
-  return mapEditableOrderRow(row);
-}
-
-export async function updateOrder(
-  orderId: string,
-  input: UpdateOrderInput,
-  actorContext: ActorContext = {}
-): Promise<EditableOrder> {
-  const data = updateOrderSchema.parse(input);
-
-  const row = await withRetry(
-    () =>
-      db.$transaction(async (tx) => {
-        const [order, selectedPackage] = await Promise.all([
-          tx.order.findUnique({
-            where: { id: orderId },
-            include: {
-              packages: {
-                include: {
-                  sessionType: { select: { id: true } },
-                  package: { select: { id: true, name: true, price: true, photoCount: true } },
-                },
-                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-              },
-              orderAddOns: {
-                select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
-                orderBy: { createdAt: "asc" },
-              },
-            },
-          }),
-          tx.package.findUnique({
-            where: { id: data.packageId },
-            select: {
-              id: true,
-              name: true,
-              price: true,
-              photoCount: true,
-              packageFamily: { select: { sessionTypeId: true } },
-            },
-          }),
-        ]);
-
-        if (!order) {
-          throw new Error("Order not found");
-        }
-        if (order.status === OrderStatus.DELIVERED) {
-          throw new Error("Delivered orders cannot be edited");
-        }
-        if (!selectedPackage) {
-          throw new Error("Selected package does not exist");
-        }
-        const firstLine = order.packages[0] ?? null;
-        if (!firstLine) throw new Error("Order has no package line");
-        if (selectedPackage.packageFamily.sessionTypeId !== firstLine.sessionType.id) {
-          throw new Error(
-            "Selected package is not compatible with this package line's session"
-          );
-        }
-        const previousAddOns = mapStructuredAddOns(order.orderAddOns);
-        const previousNotes = order.notes?.trim() ?? "";
-        const previousIncludedPhotoCount = firstLine.package.photoCount;
-
-        await tx.orderPackage.update({
-          where: { id: firstLine.id },
-          data: {
-            package: { connect: { id: data.packageId } },
-            finalPackagePriceSnapshot: selectedPackage.price,
-            selectedPhotoCount: data.selectedPhotos,
-          },
-        });
-        await syncOrderSelectedPhotoCountFromPackageLines(tx, orderId);
-        await tx.order.update({
-          where: { id: orderId },
-          data: {
-            addOns: data.addOns,
-            notes: data.notes?.trim() ? data.notes.trim() : null,
-          },
-        });
-
-        await tx.orderAddOn.deleteMany({ where: { orderId } });
-        if (data.addOns.length > 0) {
-          await tx.orderAddOn.createMany({
-            data: data.addOns.map((addOn) => ({
-              orderId,
-              productId: addOn.productId ?? null,
-              nameSnapshot: addOn.name,
-              priceSnapshot: new Prisma.Decimal(addOn.price),
-              quantity: 1,
-            })),
-          });
-        }
-        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
-          orderId,
-          previousAddOns,
-          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
-          previousIncludedPhotoCount,
-        });
-
-        await syncUpgradeCommissionForOrder(tx, {
-          orderId,
-          upgradeAmount: invoiceSummary.packageAdjustmentAmount,
-        });
-
-        if (firstLine.packageId !== data.packageId) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.PACKAGE_CHANGED,
-            title: "Package changed",
-            description: `${firstLine.package.name} changed to ${selectedPackage.name}.`,
-            metadata: {
-              previousPackageId: firstLine.packageId,
-              previousPackageName: firstLine.package.name,
-              nextPackageId: selectedPackage.id,
-              nextPackageName: selectedPackage.name,
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              packageAdjustmentBaseline: invoiceSummary.packageAdjustmentBaseline.toFixed(3),
-            },
-          });
-        }
-
-        if (!areAddOnsEqual(previousAddOns, data.addOns)) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.ADD_ON_CHANGED,
-            title: "Add-ons changed",
-            description: "Order add-ons were updated.",
-            metadata: {
-              previousAddOns: serializeAddOnsForMetadata(previousAddOns),
-              nextAddOns: serializeAddOnsForMetadata(data.addOns),
-              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-            },
-          });
-        }
-
-        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
-            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
-            metadata: {
-              invoiceId: invoiceSummary.invoiceId,
-              invoiceNumber: invoiceSummary.invoiceNumber,
-              totalAmount: invoiceSummary.totalAmount,
-              paidAmount: invoiceSummary.paidAmount,
-              remainingAmount: invoiceSummary.remainingAmount,
-              status: invoiceSummary.status,
-              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-            },
-          });
-        }
-
-        const nextNotes = data.notes?.trim() ?? "";
-        if (previousNotes !== nextNotes && nextNotes) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.NOTE_ADDED,
-            title: "Note updated",
-            description: "Order notes were updated.",
-            metadata: {
-              previousNotePresent: previousNotes.length > 0,
-              nextNoteLength: nextNotes.length,
-            },
-          });
-        }
-
-        return tx.order.findUniqueOrThrow({
-          where: { id: orderId },
-          include: editableOrderInclude,
-        });
-      }),
-    "Failed to update order"
-  );
-
-  return mapEditableOrderRow(row);
-}
-
 export async function updateOrderWorkflowStatus(
   orderId: string,
   input: UpdateOrderWorkflowInput,
@@ -2929,54 +2627,6 @@ function fetchOrderByIdWithClient(
   });
 }
 
-const editableOrderInclude = {
-  customer: { select: { name: true, phone: true } },
-  booking: { select: { sessionDate: true } },
-  packages: {
-    include: {
-      package: {
-        select: {
-          id: true,
-          name: true,
-          price: true,
-          photoCount: true,
-        },
-      },
-    },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-  },
-  invoices: {
-    where: FINAL_PARENT_INVOICE_WHERE,
-    select: {
-      id: true,
-      invoiceNumber: true,
-      totalAmount: true,
-      paidAmount: true,
-      remainingAmount: true,
-      status: true,
-      isLocked: true,
-    },
-    orderBy: { createdAt: "asc" },
-    take: 1,
-  },
-  orderAddOns: {
-    select: {
-      productId: true,
-      nameSnapshot: true,
-      priceSnapshot: true,
-      quantity: true,
-    },
-    orderBy: { createdAt: "asc" },
-  },
-} satisfies Prisma.OrderInclude;
-
-async function fetchEditableOrderById(orderId: string) {
-  return db.order.findUnique({
-    where: { id: orderId },
-    include: editableOrderInclude,
-  });
-}
-
 function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
   const invoiceSummary = summarizeInvoices(row.invoices);
 
@@ -3415,24 +3065,6 @@ async function calculateOrderPackageLineExtraPhotoTotal(
     .plus(printUnitPrice.mul(input.extraPrintCount));
 }
 
-async function getExtraPhotoUnitPriceForOrderLine(
-  sessionTypeId: string
-): Promise<Prisma.Decimal> {
-  const row = await db.sessionTypeExtraPhotoPricing.findUnique({
-    where: {
-      sessionTypeId_mediaType: {
-        sessionTypeId,
-        mediaType: MediaType.DIGITAL,
-      },
-    },
-    select: { unitPrice: true },
-  });
-  if (!row) {
-    throw new Error("Extra-photo pricing is required for this package line");
-  }
-  return row.unitPrice;
-}
-
 async function syncOrderSelectedPhotoCountFromPackageLines(
   client: OrderWriteClient,
   orderId: string
@@ -3461,6 +3093,18 @@ function sumDepositInvoicePaidAmount(
   );
 }
 
+function sumOrderPackageFinalPriceDecimal(
+  lines: Array<{
+    finalPackagePriceSnapshot: Prisma.Decimal | null;
+    package: { price: Prisma.Decimal };
+  }>
+): Prisma.Decimal {
+  return lines.reduce(
+    (sum, line) => sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
+    zeroMoney()
+  );
+}
+
 function calculateFinalBalanceDue(
   invoices: Array<{
     totalAmount: Prisma.Decimal;
@@ -3474,175 +3118,6 @@ function calculateFinalBalanceDue(
     zeroMoney()
   );
   return Prisma.Decimal.max(rawRemainingAmount.minus(depositPaidAmount), 0);
-}
-
-type EditableOrderRow = NonNullable<Awaited<ReturnType<typeof fetchEditableOrderById>>>;
-
-function mapEditableOrderRow(order: EditableOrderRow): EditableOrder {
-  const addOns = mapStructuredAddOns(order.orderAddOns);
-  const invoice = order.invoices[0] ?? null;
-  const firstLine = order.packages[0] ?? null;
-  const originalPackagePriceSnapshot =
-    firstLine?.originalPackagePriceSnapshot?.toNumber() ??
-    firstLine?.package.price.toNumber() ??
-    null;
-  const currentPackage = firstLine?.package ?? null;
-
-  return {
-    id: order.id,
-    customerPhone: formatCustomerPhone(order.customer.phone),
-    bookingDate: formatDate(order.booking.sessionDate),
-    originalPackagePriceSnapshot,
-    originalPackage: currentPackage ? mapEditPackage(currentPackage) : null,
-    finalPackage: currentPackage ? mapEditPackage(currentPackage) : null,
-    selectedPhotos:
-      getOrderTotalSelectedPhotoCount(order.packages),
-    addOns,
-    orderStatus: mapOrderStatus(order.status),
-    notes: order.notes ?? "",
-    invoiceSummary: invoice
-      ? {
-          id: invoice.id,
-          invoiceNumber: invoice.invoiceNumber,
-          totalAmount: invoice.totalAmount.toNumber(),
-          paidAmount: invoice.paidAmount.toNumber(),
-          remainingAmount: invoice.remainingAmount.toNumber(),
-          status: mapInvoiceStatus(invoice.status),
-          isLocked: invoice.isLocked,
-          packageAdjustmentBaseline:
-            originalPackagePriceSnapshot ??
-            currentPackage?.price.toNumber() ??
-            0,
-        }
-      : null,
-  };
-}
-
-function mapEditPackage(packageRow: {
-  id: string;
-  name: string;
-  price: { toNumber(): number; toFixed(dp: number): string };
-  photoCount: number;
-}): OrderEditPackage {
-  return {
-    id: packageRow.id,
-    name: packageRow.name,
-    price: packageRow.price.toNumber(),
-    priceLabel: formatMoney(packageRow.price),
-    photoCount: packageRow.photoCount,
-  };
-}
-
-function buildSelectionPackageOptions(input: {
-  packages: Array<{
-    id: string;
-    name: string;
-    price: Prisma.Decimal;
-    photoCount: number;
-  }>;
-  currentPackage: {
-    id: string;
-    name: string;
-    price: Prisma.Decimal;
-    photoCount: number;
-  };
-  selectedPhotos: number;
-  packageAdjustmentBaseline: Prisma.Decimal;
-}): OrderSelectionPackageOption[] {
-  const byId = new Map<string, typeof input.currentPackage>();
-  for (const packageOption of input.packages) {
-    byId.set(packageOption.id, packageOption);
-  }
-  byId.set(input.currentPackage.id, input.currentPackage);
-
-  const sortedPackages = Array.from(byId.values()).sort((a, b) =>
-    a.price.minus(b.price).toNumber()
-  );
-  const recommended = sortedPackages.find(
-    (packageOption) =>
-      packageOption.id !== input.currentPackage.id &&
-      packageOption.photoCount >= input.selectedPhotos &&
-      packageOption.price.greaterThan(input.currentPackage.price)
-  );
-
-  return sortedPackages.map((packageOption) => {
-    const upgradeDifference = packageOption.price.minus(input.packageAdjustmentBaseline);
-    return {
-      id: packageOption.id,
-      name: packageOption.name,
-      price: packageOption.price.toNumber(),
-      priceLabel: formatMoney(packageOption.price),
-      photoCount: packageOption.photoCount,
-      upgradeDifference: upgradeDifference.toNumber(),
-      upgradeDifferenceLabel: formatSignedMoney(upgradeDifference),
-      isCurrent: packageOption.id === input.currentPackage.id,
-      isRecommended: recommended?.id === packageOption.id,
-    };
-  });
-}
-
-function mapOrderAddOnProductOption(option: {
-  id: string;
-  name: string;
-  category: ProductCategory;
-  canonicalPrice: Prisma.Decimal;
-}): OrderAddOnProductOption {
-  return {
-    id: option.id,
-    name: option.name,
-    category: option.category,
-    price: option.canonicalPrice.toNumber(),
-    priceLabel: formatMoney(option.canonicalPrice),
-  };
-}
-
-async function priceSelectionAddOns(addOns: OrderAddOn[]): Promise<OrderAddOn[]> {
-  const productIds = addOns.flatMap((addOn) => addOn.productId ? [addOn.productId] : []);
-  if (productIds.length === 0) return addOns;
-
-  const options = await db.product.findMany({
-    where: {
-      id: { in: productIds },
-      isActive: true,
-      isAddOn: true,
-    },
-    select: { id: true, name: true, canonicalPrice: true },
-  });
-  const byId = new Map(options.map((option) => [option.id, option]));
-
-  return addOns.map((addOn) => {
-    if (!addOn.productId) return addOn;
-    const option = byId.get(addOn.productId);
-    if (!option) {
-      if (addOn.name.trim() && addOn.price >= 0) {
-        return addOn;
-      }
-      throw new Error("Selected add-on product is not available");
-    }
-    return {
-      productId: option.id,
-      name: option.name,
-      price: option.canonicalPrice.toNumber(),
-    };
-  });
-}
-
-function resolveSelectionFinancialAction(input: {
-  extraPhotoCount: number;
-  addOnTotal: Prisma.Decimal;
-  remainingAmount: Prisma.Decimal;
-  recommendedPackage: OrderSelectionPackageOption | null;
-}): string {
-  if (input.recommendedPackage && input.extraPhotoCount > 0) {
-    return `Review upgrade to ${input.recommendedPackage.name} before completing selection.`;
-  }
-  if (input.extraPhotoCount > 0) {
-    return "Add an extra-photo charge or confirm package upgrade handling before completion.";
-  }
-  if (input.addOnTotal.greaterThan(0) || input.remainingAmount.greaterThan(0)) {
-    return "Confirm the invoice balance and collect any remaining payment adjustment.";
-  }
-  return "No payment adjustment is currently indicated.";
 }
 
 function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
@@ -3683,27 +3158,6 @@ function mapStructuredAddOns(
     }
     return entries;
   });
-}
-
-function areAddOnsEqual(first: OrderAddOn[], second: OrderAddOn[]): boolean {
-  if (first.length !== second.length) return false;
-  return first.every((addOn, index) => {
-    const other = second[index];
-    return (
-      other !== undefined &&
-      addOn.productId === other.productId &&
-      addOn.name === other.name &&
-      new Prisma.Decimal(addOn.price).equals(new Prisma.Decimal(other.price))
-    );
-  });
-}
-
-function serializeAddOnsForMetadata(addOns: OrderAddOn[]): Prisma.InputJsonArray {
-  return addOns.map((addOn) => ({
-    ...(addOn.productId ? { productId: addOn.productId } : {}),
-    name: addOn.name,
-    price: addOn.price,
-  }));
 }
 
 function formatAddOnsSummary(addOns: OrderAddOn[]): string {
@@ -4508,17 +3962,6 @@ function resolveAdvancedSelectionStatus(
   };
 
   return rank[next] >= rank[current] ? next : null;
-}
-
-function assertSelectionWorkflowWritable(status: OrderStatus): void {
-  if (status === OrderStatus.ACTIVE) {
-    throw new Error(
-      "Base payment has not been recorded. Record base payment on the booking to begin selection."
-    );
-  }
-  if (status === OrderStatus.CANCELLED) {
-    throw new Error("Cancelled orders cannot be updated through selection");
-  }
 }
 
 function resolveProductionUpdate(
