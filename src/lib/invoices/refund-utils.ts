@@ -7,8 +7,6 @@ export function moneyInputValue(value: string): string {
 export function shouldShowRefundForm(
   overpaymentCapacity: string | null
 ): boolean {
-  return (
-    overpaymentCapacity !== null &&
-    moneyInputValue(overpaymentCapacity) !== "0.000"
-  );
+  if (overpaymentCapacity === null) return false;
+  return parseFloat(moneyInputValue(overpaymentCapacity)) > 0;
 }
