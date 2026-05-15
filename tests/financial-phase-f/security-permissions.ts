@@ -182,14 +182,14 @@ async function runPaymentPermissionMatrixAndDirectBypass(
     /Permission denied: payment:create/
   );
 
-  const directPayment = await recordPayment(
-    workflow.finalInvoiceId,
-    { amount: 1, method: PaymentMethod.CASH, paymentType: PaymentType.FINAL },
-    fixtures.editorActor
-  );
-  assert.ok(
-    directPayment.id,
-    "Phase F characterization: low-level recordPayment has no service-level role guard"
+  await assert.rejects(
+    () =>
+      recordPayment(
+        workflow.finalInvoiceId,
+        { amount: 1, method: PaymentMethod.CASH, paymentType: PaymentType.FINAL },
+        fixtures.editorActor
+      ),
+    /Permission denied: payment:create/
   );
 }
 

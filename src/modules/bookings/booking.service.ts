@@ -592,7 +592,7 @@ export async function updateBookingStatus(
 
 export async function recordBookingDeposit(
   input: RecordBookingDepositInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ id: string }> {
   const data = recordBookingDepositSchema.parse(input);
   const depositAmount = new Prisma.Decimal(data.amount);
@@ -714,7 +714,7 @@ export async function recordBookingDeposit(
 
 export async function checkInBooking(
   input: CheckInBookingInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ orderId: string }> {
   const data = checkInBookingSchema.parse(input);
 

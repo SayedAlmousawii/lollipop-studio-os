@@ -5,6 +5,7 @@ import {
   MediaType,
   Prisma,
 } from "@prisma/client";
+import { makeManagerActor } from "../fixtures/actor";
 
 type Db = typeof import("../../src/lib/db")["db"];
 
@@ -19,6 +20,7 @@ interface OrderFixture {
 }
 
 export async function runInvoiceMathInvariantTest(): Promise<void> {
+  const managerActor = makeManagerActor();
   const [
     { db },
     {
@@ -61,14 +63,14 @@ export async function runInvoiceMathInvariantTest(): Promise<void> {
       expectedTotal: 150,
       expectedPackageLines: ["Backend Gold", "Backend Silver"],
     });
-    await closeInvoice(mixedInvoiceId);
+    await closeInvoice(mixedInvoiceId, managerActor);
     await assertSnapshottedInvoiceReconciles(db, mixedInvoiceId);
 
     const upgradeThroughService = await createOrderFixture(db, {
       label: "service-upgrade",
       lines: [{ packageKind: "silver", originalPrice: 60, finalPrice: 60 }],
     });
-    await createInvoiceForOrderWithClient(db, upgradeThroughService.orderId);
+    await createInvoiceForOrderWithClient(db, upgradeThroughService.orderId, managerActor);
 
     const orderPackageId = await findFirstOrderPackageId(
       db,
@@ -249,7 +251,11 @@ async function assertComputedInvoiceReconciles(
 ): Promise<string> {
   const { createInvoiceForOrderWithClient, getInvoiceWithLineItems } =
     await import("../../src/modules/invoices/invoice.service");
-  const invoice = await createInvoiceForOrderWithClient(db, orderId);
+  const invoice = await createInvoiceForOrderWithClient(
+    db,
+    orderId,
+    makeManagerActor()
+  );
   const invoiceDetail = await getInvoiceWithLineItems(invoice.id);
 
   assert.ok(invoiceDetail, "expected invoice detail to be available");

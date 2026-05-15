@@ -7,8 +7,10 @@ import {
   Prisma,
 } from "@prisma/client";
 import type { Payment, PaymentMethod } from "@prisma/client";
-import type { ActorContext } from "@/lib/auth";
+import { assertActorPermission } from "@/lib/auth/assert-actor-permission";
+import type { ActorContext } from "@/lib/auth/actor-context";
 import { db } from "@/lib/db";
+import { PERMISSIONS } from "@/lib/permissions";
 import { withRetry } from "@/lib/retry";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import type { FinancialPaymentDirection, Money } from "@/modules/financial/types";
@@ -179,7 +181,7 @@ async function createPaymentWithAllocationWithClient(
 export async function recordPayment(
   invoiceId: string,
   data: RecordPaymentInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ id: string }> {
   return withRetry(
     () =>
@@ -194,8 +196,10 @@ export async function recordPaymentWithClient(
   client: DbClient,
   invoiceId: string,
   data: RecordPaymentInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ id: string }> {
+  assertActorPermission(actorContext, PERMISSIONS.PAYMENT_CREATE);
+
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
     include: {
