@@ -395,6 +395,95 @@ registerInvariant({
 });
 
 registerInvariant({
+  name: "locked-invoice-frozen-fields-match-snapshot",
+  scope: "global",
+  run: async ({ tx }) => {
+    const lockedInvoices = await tx.invoice.findMany({
+      where: { isLocked: true },
+      select: {
+        id: true,
+        publicId: true,
+        totalAmount: true,
+        invoiceType: true,
+        parentInvoiceId: true,
+        financialCaseId: true,
+        jobId: true,
+        orderId: true,
+        invoiceNumber: true,
+        lockSnapshots: {
+          orderBy: [{ lockedAt: "desc" }, { id: "desc" }],
+          take: 1,
+          select: {
+            id: true,
+            publicId: true,
+            totalAmount: true,
+            invoiceType: true,
+            parentInvoiceId: true,
+            financialCaseId: true,
+            jobId: true,
+            orderId: true,
+            invoiceNumber: true,
+          },
+        },
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const invoice of lockedInvoices) {
+      const snapshot = invoice.lockSnapshots[0];
+      if (!snapshot) {
+        violations.push({
+          invariant: "locked-invoice-frozen-fields-match-snapshot",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: "latest InvoiceLockSnapshot exists",
+          actual: "no snapshot",
+        });
+        continue;
+      }
+
+      const mismatches: string[] = [];
+      if (!invoice.totalAmount.equals(snapshot.totalAmount)) {
+        mismatches.push("totalAmount");
+      }
+      if (invoice.invoiceType !== snapshot.invoiceType) {
+        mismatches.push("invoiceType");
+      }
+      if (invoice.parentInvoiceId !== snapshot.parentInvoiceId) {
+        mismatches.push("parentInvoiceId");
+      }
+      if (invoice.financialCaseId !== snapshot.financialCaseId) {
+        mismatches.push("financialCaseId");
+      }
+      if (invoice.jobId !== snapshot.jobId) {
+        mismatches.push("jobId");
+      }
+      if (invoice.orderId !== snapshot.orderId) {
+        mismatches.push("orderId");
+      }
+      if (invoice.invoiceNumber !== snapshot.invoiceNumber) {
+        mismatches.push("invoiceNumber");
+      }
+      if (invoice.publicId !== snapshot.publicId) {
+        mismatches.push("publicId");
+      }
+
+      if (mismatches.length > 0) {
+        violations.push({
+          invariant: "locked-invoice-frozen-fields-match-snapshot",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: `frozen fields match snapshot ${snapshot.id}`,
+          actual: `mismatched: ${mismatches.join(", ")}`,
+        });
+      }
+    }
+
+    return violations;
+  },
+});
+
+registerInvariant({
   name: "adjustment-has-no-document-application",
   scope: "global",
   run: async ({ tx }) => {

@@ -13,6 +13,10 @@ import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import {
+  invoiceLockSnapshotSelect,
+  recordInvoiceLockSnapshot,
+} from "@/modules/invoices/invoice-lock.service";
+import {
   createRefundInvoice,
   recalculateInvoiceStatus,
 } from "@/modules/invoices/invoice.service";
@@ -124,6 +128,7 @@ async function closeRefundInvoiceIfSettled(
   const invoice = await client.invoice.findUnique({
     where: { id: refundInvoiceId },
     select: {
+      ...invoiceLockSnapshotSelect,
       id: true,
       financialCaseId: true,
       orderId: true,
@@ -147,6 +152,8 @@ async function closeRefundInvoiceIfSettled(
       closedAt,
     },
   });
+
+  await recordInvoiceLockSnapshot(client, invoice, actorContext.actorUserId);
 
   await recordAuditLog(client, actorContext, {
     entityType: AuditEntityType.INVOICE,

@@ -195,6 +195,7 @@ Invariants:
 - Voucher purchase: SALE invoice → Payment → GiftCard created on payment close.
 - Voucher-backed booking: 20 KD DEPOSIT invoice → GiftCardRedemption (kind = `DEPOSIT_RESERVATION`, amount = 20 KD) settles it. Voucher moves to RESERVED.
 - POS final settlement: remaining voucher balance → GiftCardRedemption (kind = `FINAL_SETTLEMENT`). Voucher moves to REDEEMED.
+- Any voucher path that locks an invoice must use the existing invoice lock helper so `InvoiceLockSnapshot` is written in the same transaction; do not set `isLocked` directly.
 - No-show / cancel: GiftCardRedemption (kind = `NO_SHOW_FORFEIT` or `CANCEL_FORFEIT`), voucher records forfeit permanently.
 - Manager actions: VOID, EXTEND (audited expiresAt change), BALANCE ADJUSTMENT (audited currentBalance change with reason), TRANSFER (audited recipientCustomerId change).
 - Voucher reservation uniqueness: partial unique index — at most one row per voucher with `status = RESERVED`.

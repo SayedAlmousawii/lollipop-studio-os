@@ -17,6 +17,10 @@ import {
   generateInvoiceNumber,
   issueInvoiceWithClient,
 } from "@/modules/invoices/invoice.service";
+import {
+  invoiceLockSnapshotSelect,
+  recordInvoiceLockSnapshot,
+} from "@/modules/invoices/invoice-lock.service";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import {
   generateBookingReference,
@@ -580,6 +584,7 @@ export async function updateBookingStatus(
               isLocked: false,
             },
             select: {
+              ...invoiceLockSnapshotSelect,
               id: true,
               financialCaseId: true,
               orderId: true,
@@ -590,20 +595,19 @@ export async function updateBookingStatus(
             },
           });
           const closedAt = new Date();
-          await tx.invoice.updateMany({
-            where: {
-              bookingId: booking.id,
-              jobId: booking.jobId,
-              parentInvoiceId: null,
-              isLocked: false,
-            },
-            data: {
-              status: InvoiceStatus.CLOSED,
-              isLocked: true,
-              closedAt,
-            },
-          });
           for (const invoice of invoicesToLock) {
+            const updateResult = await tx.invoice.updateMany({
+              where: { id: invoice.id, isLocked: false },
+              data: {
+                status: InvoiceStatus.CLOSED,
+                isLocked: true,
+                closedAt,
+              },
+            });
+            if (updateResult.count === 0) continue;
+
+            await recordInvoiceLockSnapshot(tx, invoice, actorContext.actorUserId);
+
             await recordAuditLog(tx, actorContext, {
               entityType: AuditEntityType.INVOICE,
               entityId: invoice.id,
@@ -872,7 +876,7 @@ export async function checkInBooking(
         });
 
         await tx.invoice.updateMany({
-          where: { financialCaseId: booking.financialCase.id },
+          where: { financialCaseId: booking.financialCase.id, isLocked: false },
           data: { jobId: job.id, jobNumber },
         });
 

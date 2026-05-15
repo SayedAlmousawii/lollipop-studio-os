@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 80b is complete: locked invoices now get `InvoiceLockSnapshot` frozen-field baselines at lock time, and a PostgreSQL trigger rejects direct frozen-field mutations while allowing sanctioned unlock/status/payment-derived updates.
 - Feature 80a is complete: first-class `AuditLog` persistence now records co-transactional actor attribution and field snapshots for booking confirmation/no-show, payments, invoice locks, total mutations, adjustments, credit notes, refunds, and permitted locked-order mutations.
 - Feature 79d is complete: POS reductive locked-edit actions now surface a manager credit-note approval modal, retry through a dedicated approved action, and keep failed approval retries inside the modal.
 - Feature 79c is complete: refund capacity now uses canonical true overpayment (`inbound allocations - CREDIT_NOTE-net owed - prior REFUND totals`), refund creation rechecks the cap under a source invoice row lock, and invoice detail hides/defaults/caps the refund form from `overpaymentCapacity`.
@@ -17,7 +18,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 77 Phase D is complete: Layer 5 regression coverage for Features 74/75/76 and multi-package workflows now runs through `tests/financial-phase-d/` inside `npm run test:backend-invariants`, with legacy deposit-deduction and duplicate balance-display findings documented.
 - Dashboard date windows use the studio timezone (`Asia/Kuwait`) for today/week metrics and schedule time display, so late-night local payments land in the correct business day.
 - Dashboard refund display and payment creation hotfixes are complete: revenue shows net inbound-minus-refund, outbound refunds derive `PaymentType.REFUND` before the Prisma write, and optional refund trace fields are omitted unless supplied.
-- Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution is live, and lock-time snapshots/DB immutability remain the active frontier.
+- Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution and locked-invoice DB immutability are live.
 
 ## Key State
 - Multi-package is now the only package model: `BookingPackage` and `OrderPackage` are the source of truth; the former singular booking/order package fields and `BookingSessionType` enum are gone.
@@ -52,6 +53,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - POS and editing balance display read canonical `Invoice.remainingAmount`; the retired virtual deposit-deduction path is gone.
 - Payment settlement now acquires an invoice row lock before balance reads, and fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
 - Structured `AuditLog` is append-only at the service layer and tied to a required `actorUserId`; audited writes happen inside the same transaction as the action they record.
+- Locked invoices are protected below the service layer: every service lock path writes an `InvoiceLockSnapshot`, and the DB trigger blocks frozen-field mutation of locked invoices. Booking check-in no longer stamps `jobId/jobNumber` onto already-locked deposit invoices.
 - Refund issuance now acquires a source invoice row lock before checking true overpayment capacity; zero-capacity invoices have no refund UI path.
 - Phase G reconciliation runs inside a PostgreSQL `READ ONLY` transaction, reports only, and must use `FINANCIAL_RECON_DATABASE_URL` in production.
 - F6 classified the dev INV-18 mismatch as active: paid-ADJUSTMENT cause removal and manual CREDIT_NOTE issuance can diverge revenue documents from current order composition.
@@ -60,6 +62,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 80b: added `InvoiceLockSnapshot`, wired lock snapshots across invoice lock paths, installed a DB trigger for locked-invoice frozen fields, registered the reconciliation invariant, and covered direct Prisma mutation/unlock behavior.
 - Feature 80a: added `AuditLog`, `AuditEntityType`, and `AuditAction`, introduced `recordAuditLog`, wired co-transactional audit writes through booking/payment/invoice/adjustment/credit-note/refund paths, and added focused rollback/actor/audit integration coverage.
 - Feature 79d: replaced the generic reductive POS failure with an `approval-required` action contract, added a blocking manager approval modal with reduction amounts, retried approved reductions through `confirmReductiveEditWithApproval`, and added focused action-boundary regression coverage.
 - Feature 79c: replaced loose refundable inbound-payment capacity with true overpayment capacity, renamed the invoice detail API field to `overpaymentCapacity`, capped refund creation under row lock, added UI default/max validation, and covered zero/credit/prior-refund/concurrency regressions.
@@ -86,7 +89,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, enforced required true add-on product references.
 
 ## Open Follow-Ups
-- Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: INV-18 revenue-composition drift, DB-level locked-invoice immutability plus lock snapshots, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
+- Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: INV-18 revenue-composition drift, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
 - Configure production reconciliation secrets/env and monitoring: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, nightly 02:00 studio-local schedule, and a no-report-in-24h alert.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.

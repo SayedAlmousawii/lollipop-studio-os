@@ -727,6 +727,7 @@ model Invoice {
   adjustments                  Invoice[]             @relation("InvoiceAdjustments")
   payments                     Payment[]
   lineItems                    InvoiceLineItem[]
+  lockSnapshots                InvoiceLockSnapshot[]
   documentApplicationsAsSource DocumentApplication[] @relation("DocumentApplicationSource")
   documentApplicationsAsTarget DocumentApplication[] @relation("DocumentApplicationTarget")
   paymentAllocations           PaymentAllocation[]
@@ -736,6 +737,26 @@ model Invoice {
   @@index([jobId])
   @@index([jobNumber])
   @@map("invoices")
+}
+
+model InvoiceLockSnapshot {
+  id              String      @id @default(cuid())
+  invoiceId       String
+  lockedAt        DateTime    @default(now())
+  lockedByUserId  String?
+  totalAmount     Decimal     @db.Decimal(10, 3)
+  invoiceType     InvoiceType
+  parentInvoiceId String?
+  financialCaseId String
+  jobId           String?
+  orderId         String?
+  invoiceNumber   String
+  publicId        String
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, lockedAt])
+  @@map("invoice_lock_snapshots")
 }
 
 model InvoiceLineItem {

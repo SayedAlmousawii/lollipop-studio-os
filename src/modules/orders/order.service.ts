@@ -30,6 +30,10 @@ import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import {
+  invoiceLockSnapshotSelect,
+  recordInvoiceLockSnapshot,
+} from "@/modules/invoices/invoice-lock.service";
+import {
   snapshotInvoiceLineItemsWithClient,
   syncOrderInvoiceForFinancialEdit,
 } from "@/modules/invoices/invoice.service";
@@ -2284,6 +2288,8 @@ export async function updateOrderDeliveryWorkflow(
             });
             if (updateResult.count === 0) continue;
 
+            await recordInvoiceLockSnapshot(tx, invoice, actorContext.actorUserId);
+
             await recordAuditLog(tx, actorContext, {
               entityType: AuditEntityType.INVOICE,
               entityId: invoice.id,
@@ -3893,6 +3899,7 @@ const deliveryOrderSelect = {
   invoices: {
     where: FINAL_PARENT_INVOICE_WHERE,
     select: {
+      ...invoiceLockSnapshotSelect,
       id: true,
       financialCaseId: true,
       orderId: true,
