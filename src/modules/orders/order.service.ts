@@ -8,7 +8,6 @@ import {
   OrderProductionStatus,
   OrderSelectionStatus,
   OrderStatus,
-  PaymentType,
   Prisma,
   ProductCategory,
   MediaType,
@@ -123,7 +122,6 @@ const INVOICE_STATUS_FILTERS = new Set<InvoiceStatusFilter>([
   "CLOSED",
 ]);
 const MAX_CUSTOMER_ORDER_HISTORY_LIMIT = 100;
-const REQUIRED_BASE_PAYMENT_AMOUNT = new Prisma.Decimal(20);
 const FINAL_PARENT_INVOICE_WHERE = {
   parentInvoiceId: null,
   invoiceType: InvoiceType.FINAL,
@@ -877,7 +875,7 @@ export async function getOrderEditingWorkflowById(
                         parentInvoiceId: null,
                         invoiceType: InvoiceType.DEPOSIT,
                       },
-                      select: { paidAmount: true },
+                      select: { invoiceType: true, remainingAmount: true },
                       take: 1,
                     },
                   },
@@ -894,14 +892,7 @@ export async function getOrderEditingWorkflowById(
               where: FINAL_PARENT_INVOICE_WHERE,
               select: {
                 id: true,
-                totalAmount: true,
-                paidAmount: true,
                 remainingAmount: true,
-                payments: {
-                  where: { paymentType: PaymentType.FINAL },
-                  select: { id: true },
-                  take: 1,
-                },
               },
               orderBy: { createdAt: "asc" },
               take: 1,
@@ -1745,7 +1736,7 @@ export async function updateOrderEditingWorkflow(
                         parentInvoiceId: null,
                         invoiceType: InvoiceType.DEPOSIT,
                       },
-                      select: { paidAmount: true },
+                      select: { invoiceType: true, remainingAmount: true },
                       take: 1,
                     },
                   },
@@ -1755,14 +1746,7 @@ export async function updateOrderEditingWorkflow(
             invoices: {
               where: FINAL_PARENT_INVOICE_WHERE,
               select: {
-                totalAmount: true,
-                paidAmount: true,
                 remainingAmount: true,
-                payments: {
-                  where: { paymentType: PaymentType.FINAL },
-                  select: { id: true },
-                  take: 1,
-                },
               },
               orderBy: { createdAt: "asc" },
               take: 1,
@@ -1780,13 +1764,10 @@ export async function updateOrderEditingWorkflow(
           throw new Error("Delivered orders cannot be moved through editing");
         }
 
-        const depositPaidAmount = sumDepositInvoicePaidAmount(
-          order.booking.financialCase?.invoices ?? []
-        );
-        const basePaymentVerified = hasBasePayment(order.invoices, depositPaidAmount);
-        const outstandingBalance = calculateFinalBalanceDue(
-          order.invoices,
-          depositPaidAmount
+        const basePaymentVerified = basePaymentSettled(order);
+        const outstandingBalance = order.invoices.reduce(
+          (sum, invoice) => sum.plus(invoice.remainingAmount),
+          zeroMoney()
         );
         const now = new Date();
         let editingJob = order.editingJob;
@@ -3213,15 +3194,6 @@ async function syncOrderSelectedPhotoCountFromPackageLines(
   });
 }
 
-function sumDepositInvoicePaidAmount(
-  invoices: Array<{ paidAmount: Prisma.Decimal }>
-): Prisma.Decimal {
-  return invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.paidAmount),
-    zeroMoney()
-  );
-}
-
 function sumOrderPackageFinalPriceDecimal(
   lines: Array<{
     finalPackagePriceSnapshot: Prisma.Decimal | null;
@@ -3232,21 +3204,6 @@ function sumOrderPackageFinalPriceDecimal(
     (sum, line) => sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
     zeroMoney()
   );
-}
-
-function calculateFinalBalanceDue(
-  invoices: Array<{
-    totalAmount: Prisma.Decimal;
-    paidAmount: Prisma.Decimal;
-    remainingAmount: Prisma.Decimal;
-  }>,
-  depositPaidAmount: Prisma.Decimal
-): Prisma.Decimal {
-  const rawRemainingAmount = invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.remainingAmount),
-    zeroMoney()
-  );
-  return Prisma.Decimal.max(rawRemainingAmount.minus(depositPaidAmount), 0);
 }
 
 function sumAddOnsDecimal(addOns: OrderAddOn[]): Prisma.Decimal {
@@ -3582,10 +3539,6 @@ function mapPOSInvoiceSummary(input: {
 }): POSInvoiceSummary {
   const hasSnapshotLineItems = input.invoice.lineItems.length > 0;
   const depositPaidAmount = input.depositInvoice?.paidAmount ?? zeroMoney();
-  const displayRemainingAmount = Prisma.Decimal.max(
-    input.invoice.totalAmount.minus(depositPaidAmount).minus(input.paidAmount),
-    0
-  );
 
   return {
     invoiceId: input.invoice.id,
@@ -3606,7 +3559,7 @@ function mapPOSInvoiceSummary(input: {
     paidAmount: input.paidAmount.toNumber(),
     depositInvoiceNumber: input.depositInvoice?.invoiceNumber ?? null,
     depositPaidAmount: depositPaidAmount.toNumber(),
-    remainingAmount: displayRemainingAmount.toNumber(),
+    remainingAmount: input.invoice.remainingAmount.toNumber(),
     lineItems: input.invoice.lineItems.map(mapPOSInvoiceLineItem),
   };
 }
@@ -3708,7 +3661,10 @@ function mapOrderEditingWorkflow(
     productionJob: ProductionJobState | null;
     booking: {
       financialCase: {
-        invoices: Array<{ paidAmount: Prisma.Decimal }>;
+        invoices: Array<{
+          invoiceType: InvoiceType;
+          remainingAmount: Prisma.Decimal;
+        }>;
       } | null;
     };
     packages: Array<{
@@ -3717,10 +3673,7 @@ function mapOrderEditingWorkflow(
     }>;
     invoices: Array<{
       id: string;
-      totalAmount: Prisma.Decimal;
-      paidAmount: Prisma.Decimal;
       remainingAmount: Prisma.Decimal;
-      payments: Array<{ id: string }>;
     }>;
   },
   editors: OrderEditorOption[]
@@ -3742,11 +3695,11 @@ function mapOrderEditingWorkflow(
     targetPhotoCount > 0
       ? Math.min(Math.round((editedPhotoCount / targetPhotoCount) * 100), 100)
       : 0;
-  const depositPaidAmount = sumDepositInvoicePaidAmount(
-    order.booking.financialCase?.invoices ?? []
+  const basePaymentVerified = basePaymentSettled(order);
+  const outstandingBalance = order.invoices.reduce(
+    (sum, invoice) => sum.plus(invoice.remainingAmount),
+    zeroMoney()
   );
-  const basePaymentVerified = hasBasePayment(order.invoices, depositPaidAmount);
-  const outstandingBalance = calculateFinalBalanceDue(order.invoices, depositPaidAmount);
   const productionStatus =
     order.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
 
@@ -4668,14 +4621,23 @@ function isProductionReadyForDelivery(order: DeliveryOrderState): boolean {
   );
 }
 
-function hasBasePayment(
-  invoices: Array<{ payments: Array<{ id: string }> }>,
-  depositPaidAmount: Prisma.Decimal = zeroMoney()
-): boolean {
-  return (
-    invoices.some((invoice) => invoice.payments.length > 0) ||
-    depositPaidAmount.greaterThanOrEqualTo(REQUIRED_BASE_PAYMENT_AMOUNT)
+export function basePaymentSettled(order: {
+  booking: {
+    financialCase: {
+      invoices: Array<{
+        invoiceType: InvoiceType;
+        remainingAmount: Prisma.Decimal;
+      }>;
+    } | null;
+  };
+}): boolean {
+  const depositInvoice = order.booking.financialCase?.invoices.find(
+    (invoice) => invoice.invoiceType === InvoiceType.DEPOSIT
   );
+  if (!depositInvoice) {
+    return true;
+  }
+  return depositInvoice.remainingAmount.lessThanOrEqualTo(0);
 }
 
 function assertEditingReadyToStart(
