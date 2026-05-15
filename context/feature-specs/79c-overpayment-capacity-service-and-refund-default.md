@@ -105,7 +105,7 @@ if (requestedAmount.greaterThan(capacity)) {
 }
 ```
 
-This is in addition to any existing validation. Placed *inside* the same transaction as the refund creation (after row-lock if 78a's lock pattern is applicable here).
+This is in addition to any existing validation. Placed inside the same transaction as the refund creation, after acquiring a row-level lock on the source invoice (following 78a's pattern).
 
 **UI default and cap**
 
@@ -126,6 +126,7 @@ In `app/invoices/[id]/page.tsx`:
 - Test D: FINAL = 230, paid 250, prior 15 KD REFUND issued → capacity = 5.
 - Test E: refund-creation service rejects a 50 KD request when capacity is 20.
 - Test F: capacity = 0 → invoice-detail API emits `overpaymentCapacity: "0.000"`; UI hides the refund button (assert via component test or snapshot).
+- Test G: concurrent race guard. Create an invoice with `overpaymentCapacity = 20`, then fire two truly concurrent refund-creation requests for 15 KD each using the same service/endpoint path as the rest of the suite. Assert exactly one request succeeds, the other is rejected, and the final refund records/capacity prove the row lock and transaction isolation prevented both from succeeding.
 
 ### Out of Scope
 
@@ -159,7 +160,7 @@ In `app/invoices/[id]/page.tsx`:
 
 ## Verification
 
-- All six regression tests pass.
+- All seven regression tests pass.
 - All existing tests pass (after fixture updates for the semantic change).
 - `npm run build` passes.
 - `npm run lint` passes.

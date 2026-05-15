@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 79c is complete: refund capacity now uses canonical true overpayment (`inbound allocations - CREDIT_NOTE-net owed - prior REFUND totals`), refund creation rechecks the cap under a source invoice row lock, and invoice detail hides/defaults/caps the refund form from `overpaymentCapacity`.
 - Feature 79b is complete: legacy order-service deposit-deduction formulas are removed, POS invoice summaries use canonical `Invoice.remainingAmount`, and editing readiness verifies DEPOSIT settlement plus canonical outstanding balance.
 - Feature 78a is complete: `recordPayment()` now locks the invoice row before reading balances, fully paid FINAL invoices auto-close and lock even from `DRAFT`, and settlement regression coverage covers concurrent/full/overpay paths.
 - Feature 78b is complete: `ActorContext.actorRole` is required, permission checks throw on missing roles, and `recordPayment()` is guarded at the service boundary with regression coverage.
@@ -48,6 +49,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Editing start requires: selection complete + editor assigned + settled DEPOSIT invoice (when present) + canonical full invoice balance settled.
 - POS and editing balance display read canonical `Invoice.remainingAmount`; the retired virtual deposit-deduction path is gone.
 - Payment settlement now acquires an invoice row lock before balance reads, and fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
+- Refund issuance now acquires a source invoice row lock before checking true overpayment capacity; zero-capacity invoices have no refund UI path.
 - Phase G reconciliation runs inside a PostgreSQL `READ ONLY` transaction, reports only, and must use `FINANCIAL_RECON_DATABASE_URL` in production.
 - F6 classified the dev INV-18 mismatch as active: paid-ADJUSTMENT cause removal and manual CREDIT_NOTE issuance can diverge revenue documents from current order composition.
 - ADJUSTMENT cause linkage is live for classifier additions: line-targeted CREDIT_NOTE reversals apply to the originating ADJUSTMENT invoice line, while legacy/manual ADJUSTMENT lines remain null-linked.
@@ -55,6 +57,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 79c: replaced loose refundable inbound-payment capacity with true overpayment capacity, renamed the invoice detail API field to `overpaymentCapacity`, capped refund creation under row lock, added UI default/max validation, and covered zero/credit/prior-refund/concurrency regressions.
 - Feature 79b: deleted legacy deposit-deduction balance formulas from order service, made POS invoice summaries return canonical `Invoice.remainingAmount`, replaced the 20 KD base-payment threshold with DEPOSIT invoice settlement, and added canonical balance/editing gate regression coverage.
 - Feature 78a: locked invoice settlement with `SELECT ... FOR UPDATE`, auto-closed fully paid FINAL invoices from both `ISSUED` and `DRAFT`, added settlement regression coverage, and registered fully-paid-final lock invariants for runtime and nightly reconciliation.
 - Feature 78b: required `ActorContext.actorRole`, moved shared permission enforcement to `src/lib/auth/assert-actor-permission.ts`, guarded `recordPayment()` in-service, and added auth regression coverage plus typed actor test builders.

@@ -5,6 +5,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { db } from "@/lib/db";
+import { withRetry } from "@/lib/retry";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import {
   createRefundInvoice,
@@ -24,9 +25,22 @@ export async function issueRefundWithPayment(
     return issueRefundWithPaymentWithClient(input, tx);
   }
 
-  return db.$transaction(
-    (transaction) => issueRefundWithPaymentWithClient(input, transaction),
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  return withRetry(
+    () =>
+      db.$transaction(
+        (transaction) => issueRefundWithPaymentWithClient(input, transaction),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      ),
+    "Failed to issue refund",
+    3,
+    isSerializableWriteConflict
+  );
+}
+
+function isSerializableWriteConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
   );
 }
 

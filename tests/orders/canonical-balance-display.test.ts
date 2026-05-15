@@ -3,7 +3,7 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import Module from "node:module";
 import process from "node:process";
-import test from "node:test";
+import test, { after } from "node:test";
 import {
   InvoiceStatus,
   InvoiceType,
@@ -27,6 +27,9 @@ moduleWithLoader._load = function loadWithServerOnlyShim(request, parent, isMain
   if (request === "server-only") return {};
   return originalModuleLoad.call(this, request, parent, isMain);
 };
+after(() => {
+  moduleWithLoader._load = originalModuleLoad;
+});
 
 type BookingService = typeof import("@/modules/bookings/booking.service");
 type PhaseFFixturesModule = typeof import("../financial-phase-f/fixtures");

@@ -350,7 +350,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
             creditNotedFixture.finalInvoiceId,
             db
           );
-        assert.equal(creditedFinalEffectivePaid.toFixed(3), "120.000");
+        assert.equal(creditedFinalEffectivePaid.toFixed(3), "150.000");
 
         const creditNoteManager = await db.user.findUniqueOrThrow({
           where: { email: "financial-credit-note-manager@example.com" },

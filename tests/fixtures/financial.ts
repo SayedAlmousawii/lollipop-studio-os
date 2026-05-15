@@ -756,6 +756,33 @@ export async function makeRefundedBookingFixture(
     };
   }
 
+  const existingRefundCapacityCredit = await prisma.invoice.findFirst({
+    where: {
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      parentInvoiceId: adjusted.finalInvoiceId,
+      notes: REFUNDED_FIXTURE_KEYS.refundReason,
+    },
+    select: { id: true },
+  });
+  if (!existingRefundCapacityCredit) {
+    await createCreditNote(
+      {
+        targetFinalInvoiceId: adjusted.finalInvoiceId,
+        reason: REFUNDED_FIXTURE_KEYS.refundReason,
+        notes: REFUNDED_FIXTURE_KEYS.refundReason,
+        createdByUserId: manager.id,
+        lines: [
+          {
+            description: "Fixture reduction enabling refund capacity",
+            quantity: 1,
+            unitPrice: new Prisma.Decimal(30),
+          },
+        ],
+      },
+      prisma
+    );
+  }
+
   const refund = await issueRefundWithPayment(
     {
       sourceInvoiceId: adjusted.finalInvoiceId,

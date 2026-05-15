@@ -250,6 +250,12 @@ async function runRefundRollbackAfterRefundInvoice(
   fixtures: PhaseFFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "rec06");
+  await createCreditNote({
+    targetFinalInvoiceId: workflow.finalInvoiceId,
+    lines: [{ description: "F-REC-06 refundable capacity", quantity: 1, unitPrice: 30 }],
+    reason: "F-REC-06 refund rollback capacity",
+    createdByUserId: fixtures.managerId,
+  });
 
   await expectRejectsWithoutPartialWrites(
     () =>

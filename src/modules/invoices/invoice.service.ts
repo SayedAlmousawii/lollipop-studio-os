@@ -715,11 +715,11 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     row.invoiceType === InvoiceType.FINAL && row.financialCaseId
       ? await findDepositInvoiceForFinancialCase(row.financialCaseId)
       : null;
-  const refundableAmount =
+  const overpaymentCapacity =
     row.isLocked &&
     (row.invoiceType === InvoiceType.FINAL ||
       row.invoiceType === InvoiceType.ADJUSTMENT)
-      ? await computeRefundableAmountForInvoice(row.id, db)
+      ? await computeOverpaymentCapacity(row.id, db)
       : null;
   const creditNoteCapacity =
     row.isLocked && row.invoiceType === InvoiceType.FINAL
@@ -745,7 +745,9 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     remainingAmount: formatMoney(row.remainingAmount),
     depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
     depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
-    refundableAmount: refundableAmount ? formatMoney(refundableAmount) : null,
+    overpaymentCapacity: overpaymentCapacity
+      ? formatMoney(overpaymentCapacity)
+      : null,
     creditNoteCapacity: creditNoteCapacity ? formatMoney(creditNoteCapacity) : null,
     isOverpaid: overpaidAmount.greaterThan(0),
     overpaidAmount: overpaidAmount.greaterThan(0) ? formatMoney(overpaidAmount) : null,
@@ -1131,12 +1133,11 @@ export async function applyDepositToFinalIfPresent(
     return;
   }
 
-  const existingApplication = await client.documentApplication.findUnique({
+  const existingApplication = await client.documentApplication.findFirst({
     where: {
-      sourceInvoiceId_targetInvoiceId: {
-        sourceInvoiceId: depositInvoice.id,
-        targetInvoiceId: finalInvoiceId,
-      },
+      sourceInvoiceId: depositInvoice.id,
+      targetInvoiceId: finalInvoiceId,
+      targetInvoiceLineId: null,
     },
     select: { id: true },
   });
@@ -1844,32 +1845,48 @@ async function createAdjustmentInvoiceWithClient(
   return invoice;
 }
 
-export async function computeRefundableAmountForInvoice(
+export async function computeOverpaymentCapacity(
   sourceInvoiceId: string,
   client: DbClient = db
 ): Promise<Prisma.Decimal> {
-  const [inboundAllocations, priorRefunds] = await Promise.all([
-    client.paymentAllocation.aggregate({
-      _sum: { amount: true },
-      where: {
-        invoiceId: sourceInvoiceId,
-        payment: { direction: PaymentDirection.IN },
-      },
-    }),
-    client.invoice.aggregate({
-      _sum: { totalAmount: true },
-      where: {
-        parentInvoiceId: sourceInvoiceId,
-        invoiceType: InvoiceType.REFUND,
-      },
-    }),
-  ]);
+  const [inboundAllocations, source, creditNoteApplications, priorRefunds] =
+    await Promise.all([
+      client.paymentAllocation.aggregate({
+        _sum: { amount: true },
+        where: {
+          invoiceId: sourceInvoiceId,
+          payment: { direction: PaymentDirection.IN },
+        },
+      }),
+      client.invoice.findUnique({
+        where: { id: sourceInvoiceId },
+        select: { id: true, totalAmount: true },
+      }),
+      client.documentApplication.aggregate({
+        _sum: { amountApplied: true },
+        where: {
+          targetInvoiceId: sourceInvoiceId,
+          sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
+        },
+      }),
+      client.invoice.aggregate({
+        _sum: { totalAmount: true },
+        where: {
+          parentInvoiceId: sourceInvoiceId,
+          invoiceType: InvoiceType.REFUND,
+        },
+      }),
+    ]);
 
-  const inboundTotal =
-    inboundAllocations._sum.amount ?? new Prisma.Decimal(0);
-  const refundedTotal = priorRefunds._sum.totalAmount ?? new Prisma.Decimal(0);
+  if (!source) throw new Error("Invoice not found");
 
-  return Prisma.Decimal.max(inboundTotal.minus(refundedTotal), 0);
+  const inbound = inboundAllocations._sum.amount ?? new Prisma.Decimal(0);
+  const credited =
+    creditNoteApplications._sum.amountApplied ?? new Prisma.Decimal(0);
+  const refunded = priorRefunds._sum.totalAmount ?? new Prisma.Decimal(0);
+  const netOwed = source.totalAmount.minus(credited);
+
+  return Prisma.Decimal.max(inbound.minus(netOwed).minus(refunded), 0);
 }
 
 export async function computeCreditNoteCapacityForFinal(
@@ -2384,6 +2401,7 @@ async function createRefundInvoiceWithClient(
     throw new Error("Manager permission is required to issue a refund");
   }
 
+  await lockInvoiceForUpdate(client, input.sourceInvoiceId);
   const source = await client.invoice.findUnique({
     where: { id: input.sourceInvoiceId },
     select: {
@@ -2410,10 +2428,10 @@ async function createRefundInvoiceWithClient(
     throw new Error("Refunds can only be issued for locked invoices");
   }
 
-  const refundableAmount = await computeRefundableAmountForInvoice(source.id, client);
-  if (amount.greaterThan(refundableAmount)) {
+  const capacity = await computeOverpaymentCapacity(source.id, client);
+  if (amount.greaterThan(capacity)) {
     throw new Error(
-      `Refund amount cannot exceed refundable balance (${refundableAmount.toFixed(3)} KD)`
+      `Refund amount ${amount.toFixed(3)} KD exceeds overpayment capacity ${capacity.toFixed(3)} KD`
     );
   }
 
@@ -2470,6 +2488,15 @@ async function createRefundInvoiceWithClient(
   await assertFinancialCaseInvariants(source.financialCaseId, client);
 
   return invoice;
+}
+
+async function lockInvoiceForUpdate(
+  client: DbClient,
+  invoiceId: string
+): Promise<void> {
+  await client.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "invoices" WHERE id = ${invoiceId} FOR UPDATE
+  `;
 }
 
 function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput | undefined {
