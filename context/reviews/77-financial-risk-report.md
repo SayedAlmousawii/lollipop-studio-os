@@ -28,6 +28,7 @@ TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase B: INT-13 verifies a locked FINAL invoice remains at the original `500.000` total after a package upgrade and that only a `100.000` ADJUSTMENT invoice is created for the delta. INT-08 similarly verifies additive edits create ADJUSTMENT siblings instead of mutating the locked FINAL.
 - 2026-05-15 Phase C: EC-35 verifies stale recalculation after a paid ADJUSTMENT does not fold ADJUSTMENT payments back into the locked FINAL total.
+- 2026-05-15 Phase E: Manual POS QA showed a fully paid Final Invoice remained `Draft`/unlocked until manually closed from the Invoices page. During that window, adding another add-on mutated `INV-00002.totalAmount` from 210.000 KD to 275.000 KD instead of creating an ADJUSTMENT. This is a staff-facing mutation risk caused by settlement not auto-locking at zero remaining balance.
 
 ## B. Unresolved Architectural Weaknesses
 
@@ -59,6 +60,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase B: INT-05 through INT-12 query invoice state after every payment/application/refund transition and verify recalculated `remainingAmount` directly. No stale recalculation was observed in the tested service workflows.
 - 2026-05-15 Phase C: EC-18/EC-19 show `computeRefundableAmountForInvoice` treats inbound allocations as refundable capacity without checking credit-note-created overpayment. Do not treat that helper as an overpayment calculation.
 - 2026-05-15 Phase D: REG-LEGACY-01 proves editing readiness still derives outstanding balance by subtracting Deposit paid amount from Final Invoice `remainingAmount`. This retired virtual deposit assumption can make a Final Invoice with `20.000 KD` still due appear ready for editing.
+- 2026-05-15 Phase E: Invoice detail defaulted refund amount to 210.000 KD while the visible overpayment banner showed 45.000 KD. The UI therefore exposes the Phase C refund-capacity risk directly to managers.
 
 ### Places reading `Order.selectedPhotoCount` instead of deriving from `OrderPackage` lines
 
@@ -69,6 +71,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase D: Retired virtual deposit deduction remains in `src/modules/orders/order.service.ts` through `calculateFinalBalanceDue`, `mapPOSInvoiceSummary`, and `hasBasePayment`. Invoice service balance calculation is canonical, but order workflow/POS summary display paths can still apply Deposit deduction a second time.
+- 2026-05-15 Phase E: POS and invoice detail both displayed deposit deduction clearly, but order header financials after refund/credit-note actions still showed `Paid 255.000 KD of 230.000 KD` without reconciling customer credit/refund state. Staff-facing financial summaries still need one canonical settlement presentation.
 
 ## D. Missing Safeguards
 

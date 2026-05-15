@@ -24,6 +24,7 @@ TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase B: INT-12 confirms the operational refund workflow must call the combined `issueRefundWithPayment` service to create both REFUND invoice and OUT payment atomically. Calling `createRefundInvoice` alone is a document primitive and does not satisfy the full workflow matrix.
 - 2026-05-15 Phase C: Refund architecture needs a distinct overpayment-cap service. `createRefundInvoice` currently caps against inbound allocations, which is not equivalent to refundable credit after CREDIT_NOTE issuance.
+- 2026-05-15 Phase E: POS settlement currently requires staff to pay the Final Invoice in POS, leave POS for the invoice list, manually close/lock the invoice, then return to POS for ADJUSTMENT behavior. Full payment and final locking should be one settlement operation.
 
 ### Business logic leaked into API handlers or components
 
@@ -66,6 +67,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase D: Locked-edit dual-read discrepancy logging still fires in adjustment/credit-note classifier workflows even though the new path succeeds. Pure invoice reads do not emit the warning. Release gates should distinguish this known dual-read cleanup need from real data corruption.
+- 2026-05-15 Phase E: The live locked-edit flow still emits `financial.rearch.dual_read.discrepancy` logs during valid ADJUSTMENT and manager-required CREDIT_NOTE attempts. This is now visible during normal manual POS use and should be cleaned up before log-based operational monitoring is trusted.
 
 ## E. Future Scalability Concerns
 
@@ -95,6 +97,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase A: No `AuditLog` schema exists, which prevents exact locked-invoice immutability verification and full financial action audit coverage.
 - 2026-05-15 Phase B: The integration suite asserts `OrderActivity` entries for order-scoped financial/workflow actions (`Invoice created`, `Payment received`, `Auto-adjustment issued`, `Credit note issued`, `Refund payment recorded`, `Order completed`). Booking creation, confirmation, and no-show still cannot produce spec-level `AuditLog` assertions because the model is absent.
 - 2026-05-15 Phase C: EC-31 characterizes photographer reassignment after check-in as financially neutral but unaudited when written directly. A first-class audit model or service-only reassignment path is still needed.
+- 2026-05-15 Phase E: Browser QA confirmed order activity is visible for refund, credit note, invoice adjustment, and delivery actions, but there is still no first-class financial AuditLog view in the UI. Accountant-facing audit verification remains activity-feed based rather than audit-record based.
 
 ### `actorUserId` gap status on audit-critical services
 
