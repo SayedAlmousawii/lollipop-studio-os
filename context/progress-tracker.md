@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 79d is complete: POS reductive locked-edit actions now surface a manager credit-note approval modal, retry through a dedicated approved action, and keep failed approval retries inside the modal.
 - Feature 79c is complete: refund capacity now uses canonical true overpayment (`inbound allocations - CREDIT_NOTE-net owed - prior REFUND totals`), refund creation rechecks the cap under a source invoice row lock, and invoice detail hides/defaults/caps the refund form from `overpaymentCapacity`.
 - Feature 79b is complete: legacy order-service deposit-deduction formulas are removed, POS invoice summaries use canonical `Invoice.remainingAmount`, and editing readiness verifies DEPOSIT settlement plus canonical outstanding balance.
 - Feature 78a is complete: `recordPayment()` now locks the invoice row before reading balances, fully paid FINAL invoices auto-close and lock even from `DRAFT`, and settlement regression coverage covers concurrent/full/overpay paths.
@@ -57,6 +58,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 79d: replaced the generic reductive POS failure with an `approval-required` action contract, added a blocking manager approval modal with reduction amounts, retried approved reductions through `confirmReductiveEditWithApproval`, and added focused action-boundary regression coverage.
 - Feature 79c: replaced loose refundable inbound-payment capacity with true overpayment capacity, renamed the invoice detail API field to `overpaymentCapacity`, capped refund creation under row lock, added UI default/max validation, and covered zero/credit/prior-refund/concurrency regressions.
 - Feature 79b: deleted legacy deposit-deduction balance formulas from order service, made POS invoice summaries return canonical `Invoice.remainingAmount`, replaced the 20 KD base-payment threshold with DEPOSIT invoice settlement, and added canonical balance/editing gate regression coverage.
 - Feature 78a: locked invoice settlement with `SELECT ... FOR UPDATE`, auto-closed fully paid FINAL invoices from both `ISSUED` and `DRAFT`, added settlement regression coverage, and registered fully-paid-final lock invariants for runtime and nightly reconciliation.
@@ -81,7 +83,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, enforced required true add-on product references.
 
 ## Open Follow-Ups
-- Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: overpayment-based refund cap, paid ADJUSTMENT cause reversal and INV-18 revenue-composition drift, DB-level locked-invoice immutability, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
+- Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: INV-18 revenue-composition drift, DB-level locked-invoice immutability, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
 - Configure production reconciliation secrets/env and monitoring: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, nightly 02:00 studio-local schedule, and a no-report-in-24h alert.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.

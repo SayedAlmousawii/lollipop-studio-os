@@ -25,6 +25,7 @@ import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
+import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import {
   snapshotInvoiceLineItemsWithClient,
   syncOrderInvoiceForFinancialEdit,
@@ -1110,7 +1111,9 @@ export async function updateOrderPackage(
           });
         }
       }),
-    "Failed to update order package"
+    "Failed to update order package",
+    undefined,
+    shouldRetryOrderFinancialEditError
   );
 
   const workspace = await getPOSWorkspace(orderId);
@@ -1285,7 +1288,9 @@ export async function upgradeOrderPackageItem(
           });
         }
       }),
-    "Failed to upgrade package item"
+    "Failed to upgrade package item",
+    undefined,
+    shouldRetryOrderFinancialEditError
   );
 
   const workspace = await getPOSWorkspace(orderId);
@@ -1546,7 +1551,9 @@ export async function removeOrderAddOn(
           });
         }
       }),
-    "Failed to remove order add-on"
+    "Failed to remove order add-on",
+    undefined,
+    shouldRetryOrderFinancialEditError
   );
 
   const workspace = await getPOSWorkspace(orderId);
@@ -1697,7 +1704,9 @@ export async function updateOrderSelectedPhotoCount(
           });
         }
       }),
-    "Failed to update selected photo count"
+    "Failed to update selected photo count",
+    undefined,
+    shouldRetryOrderFinancialEditError
   );
 
   const workspace = await getPOSWorkspace(orderId);
@@ -5010,4 +5019,8 @@ function mapProductionQueueRow(row: ProductionQueueRow): ProductionQueueItem {
     productionStatus: ORDER_PRODUCTION_STATUS_LABELS[productionStatus],
     sectionSummary: `${completedSections} of 6 sections complete`,
   };
+}
+
+function shouldRetryOrderFinancialEditError(error: unknown): boolean {
+  return !(error instanceof PendingCreditNoteApprovalError);
 }

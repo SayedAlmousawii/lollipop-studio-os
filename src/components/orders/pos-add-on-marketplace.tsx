@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreditNoteApprovalFields } from "@/components/orders/credit-note-approval-fields";
+import { ReductiveEditApprovalModal } from "@/components/orders/reductive-edit-approval-modal";
 import {
   Dialog,
   DialogContent,
@@ -233,12 +233,19 @@ function CatalogCard({
           <GlobalError messages={addState.errors?._global} />
         </form>
         {added && addOn ? (
-        <form action={removeAction} className="space-y-2">
-          <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
-          <SubmitButton label="Remove One" variant="ghost" icon="trash" />
-          <CreditNoteApprovalFields approval={removeState.pendingCreditNoteApproval} />
-          <GlobalError messages={removeState.errors?._global} />
-        </form>
+          <>
+            <form action={removeAction} className="space-y-2">
+              <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
+              <SubmitButton label="Remove One" variant="ghost" icon="trash" />
+              <GlobalError messages={removeState.errors?._global} />
+            </form>
+            <ReductiveEditApprovalModal
+              orderId={orderId}
+              action="remove-add-on"
+              approval={removeState.payload}
+              hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
+            />
+          </>
         ) : null}
       </div>
     </div>
@@ -297,8 +304,13 @@ function CurrentAddOnRow({
         <form action={formAction} className="space-y-2">
           <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
           <SubmitIconButton />
-          <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
         </form>
+        <ReductiveEditApprovalModal
+          orderId={orderId}
+          action="remove-add-on"
+          approval={state.payload}
+          hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
+        />
       </div>
     </div>
   );

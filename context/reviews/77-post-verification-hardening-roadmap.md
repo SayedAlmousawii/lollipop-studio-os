@@ -18,6 +18,7 @@ However, the verification effort also exposed a small number of **structural wea
 - **Paid-ADJUSTMENT reversal is now closed by Feature 79a** — the classifier carries an adjustment-cause ledger and routes reductive edits to the causing ADJUSTMENT, issuing a paired CREDIT_NOTE (and REFUND when already paid).
 - **Refund overpayment capacity is now closed by Feature 79c** — refunds are capped by true overpayment capacity from inbound allocations minus CREDIT_NOTE-net owed amount minus prior REFUND totals, and the invoice UI defaults/caps to that value.
 - **Retired virtual-deposit deduction is now closed by Feature 79b** — POS and editing readiness consume canonical `Invoice.remainingAmount`, and DEPOSIT readiness reads the DEPOSIT invoice settlement state.
+- **POS reductive locked-edit manager prompt is now closed by Feature 79d** — reductive POS actions return an approval-required contract, the client opens a blocking manager modal, and approved retries pass manager attribution back through the same service path.
 - **`assertActorPermission()` short-circuits when `actorRole` is missing**, and `recordPayment()` has no role guard at all — internal callers can bypass authorization.
 - **No `AuditLog` model exists.** Booking-level financial actions and locked-field history are unprovable.
 - **"Production ready" can be set with required sections incomplete**, and delivery then unlocks — a non-financial but real workflow-integrity bypass.
@@ -45,7 +46,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | # | Severity | Risk | Source | Required Fix |
 |---|---|---|---|---|
 | W1 | **DEFERRED** | "Mark ready for pickup" succeeds while required production sections (Album Design, Printing, Assembly, Vendor, Framed Prints) are still "Not started". Delivery then becomes available | Phase E | Deferred: not all orders require all sections; formalizing per-order-type required-section taxonomy is out of scope for stabilization. See §12 |
-| W2 | **HIGH** | Reductive locked-invoice edit in POS fails with "Unable to remove order add-on" instead of opening the manager credit-note workflow | Phase E | Surface the manager-approval/credit-note prompt in the POS reductive path |
+| W2 | **COMPLETED** | Reductive locked-invoice edit in POS now surfaces the manager credit-note approval modal instead of a generic add-on removal error | Closed by Feature 79d | POS reductive actions serialize `PendingCreditNoteApprovalError`; client modal collects manager user ID/reason and retries through `confirmReductiveEditWithApproval` |
 | W3 | **COMPLETED** | Editing-start readiness now rejects unsettled DEPOSIT invoices and outstanding canonical Final Invoice balance | Closed by Feature 79b | Covered by canonical balance display/editing gate regression tests |
 | W4 | **COMPLETED** | POS settlement now closes and locks FINAL invoices as part of the payment transaction instead of requiring a separate close step | Closed by Feature 78a | Full payment now performs settlement and lock in one operation |
 | W5 | **MEDIUM** | Photographer reassignment after check-in is financially neutral but unaudited when written directly | Phase C EC-31 | Service-only reassignment path, or audit on write |
@@ -109,7 +110,7 @@ All removals must land with characterization tests flipped to failure-expecting 
 | O1 | **COMPLETED** | Invoice detail refund form now hides at zero capacity and defaults/caps to overpayment capacity when a refund is available | Closed by Feature 79c | UI consumes `overpaymentCapacity`, sets the amount max/default to that value, and shows an over-capacity validation message |
 | O2 | **HIGH** | Order header shows "Paid 255 of 230" after refund/credit-note actions — no canonical settlement view | Phase E | One canonical financial summary component fed by invoice-service totals |
 | O3 | **COMPLETED** | POS no longer leaves a fully paid FINAL invoice in a misleading Draft/unlocked state after settlement | Closed by Feature 78a | Resolved by F1 |
-| O4 | **MEDIUM** | Locked-edit reductive path returns generic error instead of manager-approval prompt | Phase E; W2 | UI copy + flow change |
+| O4 | **COMPLETED** | Locked-edit reductive path now opens a blocking manager-approval modal with reduction line items and credit-note amounts | Closed by Feature 79d | Shared credit-note approval form is composed inside the POS reductive modal; cancel leaves the order unchanged |
 | O5 | **MEDIUM** | Slack delivery has no external "no-report-in-24h" monitor | Phase G; Ops §D | Add external monitor (Healthchecks.io / cron-monitor) |
 | O6 | **LOW** | No first-class financial AuditLog view for accountants; activity feed only | Phase E; Arch §F | Deferred until A1 lands |
 
@@ -142,7 +143,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 4. F2 + O1 — Completed in Feature 79c: real overpayment-capacity service; UI default/cap
 5. F4 — Completed in Feature 79a: adjustment-cause ledger + paired CREDIT_NOTE/REFUND on paid-ADJUSTMENT removal
 6. F5 + D1 + D2 + D3 + A2 — Completed in Feature 79b: legacy deposit-deduction formulas deleted; callers route through canonical balance
-7. W2 + O4 — Reductive locked-edit UX surfaces manager prompt
+7. W2 + O4 — Completed in Feature 79d: reductive locked-edit UX surfaces manager prompt
 
 **Sprint 3 — Workflow integrity & immutability proofs**
 8. A1 + F3 — `AuditLog` model + `InvoiceLockSnapshot` + DB-level locked-invoice mutation prevention
