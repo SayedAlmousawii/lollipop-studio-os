@@ -75,7 +75,7 @@ export async function updateOrderPackageAction(
   });
 
   if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    return { kind: "error", errors: parsed.error.flatten().fieldErrors };
   }
 
   try {
@@ -109,7 +109,7 @@ export async function upgradeOrderPackageItemAction(
   });
 
   if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    return { kind: "error", errors: parsed.error.flatten().fieldErrors };
   }
 
   try {
@@ -146,7 +146,7 @@ export async function addOrderProductAddOnAction(
   });
 
   if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    return { kind: "error", errors: parsed.error.flatten().fieldErrors };
   }
 
   try {
@@ -175,7 +175,7 @@ export async function removeOrderAddOnAction(
   });
 
   if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    return { kind: "error", errors: parsed.error.flatten().fieldErrors };
   }
 
   try {
@@ -215,7 +215,7 @@ export async function updateOrderSelectedPhotoCountAction(
   });
 
   if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
+    return { kind: "error", errors: parsed.error.flatten().fieldErrors };
   }
 
   try {
@@ -543,11 +543,38 @@ function parseRequiredSelectionStatus(
   return parsed.data.selectionStatus;
 }
 
+const SAFE_POS_ERROR_MESSAGES = new Set([
+  "Delivered orders cannot be edited",
+  "Digital and print extra allocations must equal the derived extra-photo count.",
+  "Invoice is locked. Use the adjustment flow before changing add-ons.",
+  "Invoice is locked. Use the adjustment flow before changing package composition.",
+  "Invoice is locked. Use the adjustment flow before changing selected photos.",
+  "Invoice does not belong to this order",
+  "Manager permission is required to issue a credit note",
+  "Manager permission is required to issue an adjustment invoice",
+  "No outstanding balance remains on this invoice",
+  "Package item is not part of the current order package",
+  "Package line not found on this order",
+  "Payment amount cannot exceed the remaining invoice balance",
+  "Replacement product is already included",
+  "Replacement product is not available",
+  "Replacement product must be in the same category",
+  "Selected add-on is not on this order",
+  "Selected add-on product is not available",
+  "Selected package is not available",
+  "Selected photos cannot be below included package photos",
+  "Use selected photo count for extra photos",
+]);
+
 function posActionErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
+  console.error("Unknown POS action error", error);
+
+  if (
+    error instanceof Error &&
+    SAFE_POS_ERROR_MESSAGES.has(error.message.trim())
+  ) {
     return error.message;
   }
 
-  console.error("Unknown POS action error", error);
   return "Unable to save POS changes";
 }

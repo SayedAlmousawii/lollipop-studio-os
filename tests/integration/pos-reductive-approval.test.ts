@@ -17,7 +17,8 @@ const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 const originalModuleLoad = moduleWithLoader._load;
 
 test("POS reductive actions surface and confirm manager approval", async () => {
-  let removeMode: "approval" | "success" | "permission-error" = "approval";
+  let removeMode: "approval" | "success" | "permission-error" | "internal-error" =
+    "approval";
   let capturedRemoveInput: unknown = null;
   const revalidatedPaths: string[] = [];
 
@@ -78,6 +79,9 @@ test("POS reductive actions surface and confirm manager approval", async () => {
           if (removeMode === "permission-error") {
             throw new Error("Manager permission is required to issue a credit note");
           }
+          if (removeMode === "internal-error") {
+            throw new Error("database password leaked: secret");
+          }
         },
       };
     }
@@ -86,6 +90,14 @@ test("POS reductive actions surface and confirm manager approval", async () => {
 
   try {
     const actions = await import("@/app/orders/[orderId]/sales/actions");
+
+    const invalid = await actions.removeOrderAddOnAction(
+      "order-1",
+      {},
+      new FormData()
+    );
+    assert.equal(invalid.kind, "error");
+    assert.ok(invalid.errors?.addOnId?.length);
 
     const pendingForm = new FormData();
     pendingForm.set("addOnId", "addon-1");
@@ -141,6 +153,15 @@ test("POS reductive actions surface and confirm manager approval", async () => {
       rejected.errors?._global?.[0],
       "Manager permission is required to issue a credit note"
     );
+
+    removeMode = "internal-error";
+    const generic = await actions.confirmReductiveEditWithApproval(
+      "order-1",
+      {},
+      confirmForm
+    );
+    assert.equal(generic.kind, "error");
+    assert.equal(generic.errors?._global?.[0], "Unable to save POS changes");
   } finally {
     moduleWithLoader._load = originalModuleLoad;
   }
