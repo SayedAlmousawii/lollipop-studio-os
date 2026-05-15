@@ -70,7 +70,7 @@ test("POS reductive actions surface and confirm manager approval", async () => {
                 {
                   description: "Replacement album",
                   quantity: 1,
-                  unitPrice: new Prisma.Decimal("5.000"),
+                  unitPrice: 5,
                   lineType: InvoiceLineType.ADD_ON,
                 },
               ]

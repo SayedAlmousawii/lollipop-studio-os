@@ -221,7 +221,12 @@ async function runForbiddenWorkflowTransitions(
 ): Promise<void> {
   const pending = await buildPendingBookingFixture(fixtures, "sec05-pending");
   await assert.rejects(
-    () => updateBookingStatus(pending.bookingId, BookingStatus.CHECKED_IN),
+    () =>
+      updateBookingStatus(
+        pending.bookingId,
+        BookingStatus.CHECKED_IN,
+        fixtures.managerActor
+      ),
     /Invalid booking status transition/
   );
 

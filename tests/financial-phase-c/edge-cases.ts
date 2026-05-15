@@ -276,6 +276,7 @@ async function runE8AdjustmentOfAdjustmentBlocked(
             unitPrice: 5,
           },
         ],
+        createdByUserId: fixtures.managerId,
       }),
     /final invoices/
   );
@@ -867,7 +868,11 @@ async function runEc35StaleRecalculationAfterAdjustmentPaid(
     fixtures.adminActor
   );
   const before = await paymentSnapshot(db, adjustment.id);
-  await syncOrderInvoiceForFinancialEdit(db, { orderId: workflow.orderId, previousAddOns: [] });
+  await syncOrderInvoiceForFinancialEdit(db, {
+    orderId: workflow.orderId,
+    actorContext: fixtures.adminActor,
+    previousAddOns: [],
+  });
   const after = await paymentSnapshot(db, adjustment.id);
   const finalInvoice = await db.invoice.findUniqueOrThrow({ where: { id: workflow.finalInvoiceId } });
 
@@ -975,7 +980,11 @@ async function runEc40MultiPackageAdjustmentScope(
       quantity: 1,
     },
   });
-  await syncOrderInvoiceForFinancialEdit(db, { orderId: workflow.orderId, previousAddOns: [] });
+  await syncOrderInvoiceForFinancialEdit(db, {
+    orderId: workflow.orderId,
+    actorContext: fixtures.adminActor,
+    previousAddOns: [],
+  });
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   const addOn = await db.orderAddOn.findFirstOrThrow({
     where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },

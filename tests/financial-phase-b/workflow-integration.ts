@@ -27,7 +27,6 @@ import {
 import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import { recordPayment } from "@/modules/payments/payment.service";
 import {
-  assertAuditLogModelUnavailable,
   assertMoney,
   assertNoFinancialRecordsForBooking,
   assertOrderActivity,
@@ -82,7 +81,6 @@ async function runInt01PendingBookingCreation(
   assert.equal(booking.publicId, null);
   assert.equal(booking.packages.length, 1);
   await assertNoFinancialRecordsForBooking(db, bookingId);
-  await assertAuditLogModelUnavailable(db, "INT-01 booking creation");
 }
 
 async function runInt02PendingBookingCancellation(
@@ -105,7 +103,6 @@ async function runInt02PendingBookingCancellation(
   assert.equal(packageCount, 0, "pending cancellation must remove package references");
   assert.equal(themeCount, 0, "pending cancellation must remove theme references");
   assert.equal(invoiceCount, 0, "pending cancellation must leave no invoices");
-  await assertAuditLogModelUnavailable(db, "INT-02 pending deletion");
 }
 
 async function runInt03BookingConfirmationAtomic(
@@ -139,7 +136,6 @@ async function runInt03BookingConfirmationAtomic(
   assertMoney(deposit?.paidAmount ?? new Prisma.Decimal(0), "20", "deposit paid");
   assert.ok(payment, "confirmation must record Deposit payment");
   await assertSinglePaymentAllocation(db, payment?.id ?? "", deposit?.id ?? "", "20");
-  await assertAuditLogModelUnavailable(db, "INT-03 booking confirmation");
 
   const rollback = await buildPendingBookingFixture(fixtures, "int03-rollback");
   await expectRejectsWithoutPartialWrites(
@@ -609,7 +605,11 @@ async function runInt14NoShowHandling(
   fixtures: PhaseBFixtures
 ): Promise<void> {
   const confirmed = await buildConfirmedBookingFixture(db, fixtures, "int14");
-  await updateBookingStatus(confirmed.bookingId, BookingStatus.NO_SHOW);
+  await updateBookingStatus(
+    confirmed.bookingId,
+    BookingStatus.NO_SHOW,
+    fixtures.managerActor
+  );
   const booking = await db.booking.findUniqueOrThrow({
     where: { id: confirmed.bookingId },
     include: {
@@ -623,7 +623,6 @@ async function runInt14NoShowHandling(
   assert.ok(booking.financialCase, "no-show must preserve financial case");
   assert.equal(deposit?.status, InvoiceStatus.CLOSED);
   assert.equal(deposit?.isLocked, true);
-  await assertAuditLogModelUnavailable(db, "INT-14 no-show");
 }
 
 async function runInt15OrderDeliveryCompletionGuards(

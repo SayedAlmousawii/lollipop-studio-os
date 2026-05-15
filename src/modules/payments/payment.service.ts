@@ -1,4 +1,6 @@
 import {
+  AuditAction,
+  AuditEntityType,
   InvoiceStatus,
   InvoiceType,
   OrderActivityType,
@@ -12,6 +14,7 @@ import type { ActorContext } from "@/lib/auth/actor-context";
 import { db } from "@/lib/db";
 import { PERMISSIONS } from "@/lib/permissions";
 import { withRetry } from "@/lib/retry";
+import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import type { FinancialPaymentDirection, Money } from "@/modules/financial/types";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
@@ -199,6 +202,7 @@ export async function recordPaymentWithClient(
   actorContext: ActorContext
 ): Promise<{ id: string }> {
   assertActorPermission(actorContext, PERMISSIONS.PAYMENT_CREATE);
+  assertActorHasUserId(actorContext);
   await lockInvoiceForUpdate(client, invoiceId);
 
   const invoice = await client.invoice.findUnique({
@@ -253,10 +257,29 @@ export async function recordPaymentWithClient(
     client
   );
 
+  await recordAuditLog(client, actorContext, {
+    entityType: AuditEntityType.INVOICE,
+    entityId: invoice.id,
+    action: AuditAction.PAYMENT_RECORDED,
+    after: {
+      paymentId: payment.id,
+      invoiceId: invoice.id,
+      amount: payment.amount.toFixed(3),
+      method: payment.method,
+      direction: payment.direction,
+    },
+    context: {
+      financialCaseId: invoice.financialCaseId,
+      orderId: invoice.orderId ?? null,
+      bookingId: invoice.bookingId ?? null,
+    },
+  });
+
   await recalculateInvoiceStatus(invoiceId, client);
   const recalculatedInvoice = await closeInvoiceIfSettled(
     client,
-    invoiceId
+    invoiceId,
+    actorContext
   );
   if (invoice.orderId) {
     const isAdjustmentPayment = data.paymentType === "ADJUSTMENT";
@@ -314,6 +337,12 @@ export async function recordPaymentWithClient(
   return payment;
 }
 
+function assertActorHasUserId(actorContext: ActorContext): void {
+  if (!actorContext.actorUserId.trim()) {
+    throw new Error("actorUserId is required to record a payment");
+  }
+}
+
 async function lockInvoiceForUpdate(
   client: DbClient,
   invoiceId: string
@@ -325,7 +354,8 @@ async function lockInvoiceForUpdate(
 
 async function closeInvoiceIfSettled(
   client: DbClient,
-  invoiceId: string
+  invoiceId: string,
+  actorContext: ActorContext
 ): Promise<{
   invoiceType: InvoiceType;
   justClosed: boolean;
@@ -340,6 +370,9 @@ async function closeInvoiceIfSettled(
       status: true,
       remainingAmount: true,
       issuedAt: true,
+      closedAt: true,
+      financialCaseId: true,
+      bookingId: true,
     },
   });
   if (!invoice) return null;
@@ -390,7 +423,32 @@ async function closeInvoiceIfSettled(
         },
       });
 
-  return { invoiceType: invoice.invoiceType, justClosed: updateResult.count > 0 };
+  const justClosed = updateResult.count > 0;
+  if (justClosed) {
+    await recordAuditLog(client, actorContext, {
+      entityType: AuditEntityType.INVOICE,
+      entityId: invoice.id,
+      action: AuditAction.INVOICE_LOCKED,
+      before: {
+        isLocked: invoice.isLocked,
+        status: invoice.status,
+        closedAt: invoice.closedAt?.toISOString() ?? null,
+      },
+      after: {
+        isLocked: true,
+        status: InvoiceStatus.CLOSED,
+        closedAt: settledAt.toISOString(),
+      },
+      context: {
+        financialCaseId: invoice.financialCaseId,
+        orderId: invoice.orderId ?? null,
+        bookingId: invoice.bookingId ?? null,
+        invoiceType: invoice.invoiceType,
+      },
+    });
+  }
+
+  return { invoiceType: invoice.invoiceType, justClosed };
 }
 
 function recordPaymentCounter(

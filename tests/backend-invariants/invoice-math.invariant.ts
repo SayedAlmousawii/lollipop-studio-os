@@ -112,6 +112,7 @@ export async function runInvoiceMathInvariantTest(): Promise<void> {
     const syncSummary = await db.$transaction(async (tx) =>
       syncOrderInvoiceForFinancialEdit(tx, {
         orderId: upgradeThroughService.orderId,
+        actorContext: managerActor,
         previousAddOns: [],
       })
     );
