@@ -2274,7 +2274,7 @@ export async function updateOrderDeliveryWorkflow(
               await snapshotInvoiceLineItemsWithClient(tx, invoice.id, invoice.orderId);
             }
             const closedAt = new Date();
-            await tx.invoice.updateMany({
+            const updateResult = await tx.invoice.updateMany({
               where: { id: invoice.id, isLocked: false },
               data: {
                 status: InvoiceStatus.CLOSED,
@@ -2282,6 +2282,8 @@ export async function updateOrderDeliveryWorkflow(
                 closedAt,
               },
             });
+            if (updateResult.count === 0) continue;
+
             await recordAuditLog(tx, actorContext, {
               entityType: AuditEntityType.INVOICE,
               entityId: invoice.id,

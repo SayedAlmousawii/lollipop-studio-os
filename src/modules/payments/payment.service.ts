@@ -202,6 +202,7 @@ export async function recordPaymentWithClient(
   actorContext: ActorContext
 ): Promise<{ id: string }> {
   assertActorPermission(actorContext, PERMISSIONS.PAYMENT_CREATE);
+  assertActorHasUserId(actorContext);
   await lockInvoiceForUpdate(client, invoiceId);
 
   const invoice = await client.invoice.findUnique({
@@ -334,6 +335,12 @@ export async function recordPaymentWithClient(
     });
   }
   return payment;
+}
+
+function assertActorHasUserId(actorContext: ActorContext): void {
+  if (!actorContext.actorUserId.trim()) {
+    throw new Error("actorUserId is required to record a payment");
+  }
 }
 
 async function lockInvoiceForUpdate(

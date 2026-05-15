@@ -3,7 +3,7 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import Module from "node:module";
 import process from "node:process";
-import test from "node:test";
+import test, { after } from "node:test";
 import {
   AuditAction,
   AuditEntityType,
@@ -25,6 +25,10 @@ moduleWithLoader._load = function loadWithServerOnlyShim(request, parent, isMain
   if (request === "server-only") return {};
   return originalModuleLoad.call(this, request, parent, isMain);
 };
+
+after(() => {
+  moduleWithLoader._load = originalModuleLoad;
+});
 
 test("AuditLog records co-transactional financial and booking actions", async (t) => {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {

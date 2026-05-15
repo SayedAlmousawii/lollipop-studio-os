@@ -976,14 +976,17 @@ export async function closeInvoice(
         }
 
         const closedAt = new Date();
-        await tx.invoice.update({
-          where: { id },
+        const updateResult = await tx.invoice.updateMany({
+          where: { id, isLocked: false },
           data: {
             status: InvoiceStatus.CLOSED,
             isLocked: true,
             closedAt,
           },
         });
+        if (updateResult.count === 0) {
+          throw new Error("Invoice is already locked");
+        }
 
         await recordAuditLog(tx, actorContext, {
           entityType: AuditEntityType.INVOICE,
