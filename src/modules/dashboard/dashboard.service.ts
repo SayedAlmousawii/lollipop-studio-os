@@ -1,9 +1,11 @@
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
-import { BookingStatus } from "@prisma/client";
+import { BookingStatus, PaymentDirection } from "@prisma/client";
 import type { ScheduleStatus } from "./dashboard.types";
 
 type ActivityEntry = { id: string; createdAt: Date; timestamp: string; description: string };
+const STUDIO_TIME_ZONE = "Asia/Kuwait";
+const KUWAIT_UTC_OFFSET_HOURS = 3;
 
 export type DashboardData = {
   stats: {
@@ -11,6 +13,8 @@ export type DashboardData = {
     todayConfirmed: number;
     todayPending: number;
     revenueToday: number;
+    revenueReceivedToday: number;
+    revenueRefundedToday: number;
     pendingTasks: number;
     newCustomersThisWeek: number;
   };
@@ -20,21 +24,41 @@ export type DashboardData = {
 
 function todayRange() {
   const now = new Date();
+  const { year, month, day } = getStudioDateParts(now);
   const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0)
+    Date.UTC(year, month - 1, day, -KUWAIT_UTC_OFFSET_HOURS, 0, 0)
   );
   const end = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999)
+    Date.UTC(year, month - 1, day + 1, -KUWAIT_UTC_OFFSET_HOURS, 0, 0, -1)
   );
   return { start, end };
 }
 
+function getStudioDateParts(date: Date): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: STUDIO_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  return {
+    year: Number(parts.find((part) => part.type === "year")?.value),
+    month: Number(parts.find((part) => part.type === "month")?.value),
+    day: Number(parts.find((part) => part.type === "day")?.value),
+  };
+}
+
 function startOfWeekUTC(): Date {
   const now = new Date();
-  const day = now.getUTCDay();
-  const diff = day === 0 ? 6 : day - 1;
+  const studioNow = new Date(
+    now.toLocaleString("en-US", { timeZone: STUDIO_TIME_ZONE })
+  );
+  const { year, month, day } = getStudioDateParts(now);
+  const weekDay = studioNow.getDay();
+  const diff = weekDay === 0 ? 6 : weekDay - 1;
   return new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diff, 0, 0, 0)
+    Date.UTC(year, month - 1, day - diff, -KUWAIT_UTC_OFFSET_HOURS, 0, 0)
   );
 }
 
@@ -43,7 +67,7 @@ function formatTime(date: Date): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-    timeZone: "UTC",
+    timeZone: STUDIO_TIME_ZONE,
   }).format(date);
 }
 
@@ -79,7 +103,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     todaySessionCount,
     todayConfirmed,
     todayPending,
-    revenueAgg,
+    revenueReceivedAgg,
+    revenueRefundedAgg,
     pendingTasks,
     newCustomersThisWeek,
     todayBookings,
@@ -99,7 +124,17 @@ export async function getDashboardData(): Promise<DashboardData> {
         }),
         db.payment.aggregate({
           _sum: { amount: true },
-          where: { paidAt: { gte: todayStart, lte: todayEnd } },
+          where: {
+            direction: PaymentDirection.IN,
+            paidAt: { gte: todayStart, lte: todayEnd },
+          },
+        }),
+        db.payment.aggregate({
+          _sum: { amount: true },
+          where: {
+            direction: PaymentDirection.OUT,
+            paidAt: { gte: todayStart, lte: todayEnd },
+          },
         }),
         db.order.count({
           where: { status: { in: ["WAITING_SELECTION", "EDITING", "READY"] } },
@@ -128,11 +163,16 @@ export async function getDashboardData(): Promise<DashboardData> {
     "Failed to fetch dashboard data"
   );
 
+  const revenueReceivedToday = revenueReceivedAgg._sum.amount?.toNumber() ?? 0;
+  const revenueRefundedToday = revenueRefundedAgg._sum.amount?.toNumber() ?? 0;
+
   const stats = {
     todaySessionCount,
     todayConfirmed,
     todayPending,
-    revenueToday: revenueAgg._sum.amount?.toNumber() ?? 0,
+    revenueToday: revenueReceivedToday - revenueRefundedToday,
+    revenueReceivedToday,
+    revenueRefundedToday,
     pendingTasks,
     newCustomersThisWeek,
   };
@@ -148,7 +188,10 @@ export async function getDashboardData(): Promise<DashboardData> {
     id: `payment-${p.id}`,
     createdAt: p.paidAt,
     timestamp: relativeTime(p.paidAt),
-    description: `Payment received from ${p.invoice.customer.name} — KD ${p.amount.toNumber()}`,
+    description:
+      p.direction === PaymentDirection.OUT
+        ? `Refund issued to ${p.invoice.customer.name} — KD ${p.amount.toNumber()}`
+        : `Payment received from ${p.invoice.customer.name} — KD ${p.amount.toNumber()}`,
   }));
 
   const bookingEntries: ActivityEntry[] = recentBookings.map((b) => ({

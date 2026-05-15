@@ -25,7 +25,7 @@ export default async function DashboardPage() {
             <StatCard
               title="Revenue Today"
               value={`KD ${stats.revenueToday.toLocaleString()}`}
-              subtext="Payments received today"
+              subtext={`KD ${stats.revenueReceivedToday.toLocaleString()} received · KD ${stats.revenueRefundedToday.toLocaleString()} refunded`}
               icon={<DollarSign size={18} />}
             />
             <StatCard

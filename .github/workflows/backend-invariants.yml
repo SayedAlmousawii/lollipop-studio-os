@@ -1,0 +1,54 @@
+name: Backend Invariants
+
+on:
+  pull_request:
+  push:
+    branches:
+      - development
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-invariants:
+    name: Backend invariant suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: studio_os
+          POSTGRES_PASSWORD: studio_os
+          POSTGRES_DB: studio_os_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio_os -d studio_os_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://studio_os:studio_os@localhost:5432/studio_os_test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Run backend invariants
+        run: npm run test:backend-invariants

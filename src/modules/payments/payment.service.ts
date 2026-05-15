@@ -101,11 +101,13 @@ async function createPaymentWithAllocationWithClient(
   }
 
   const direction = input.direction ?? PaymentDirection.IN;
+  const paymentType =
+    direction === PaymentDirection.OUT ? PaymentType.REFUND : input.paymentType;
   if (direction === PaymentDirection.OUT) {
     if (invoice.invoiceType !== InvoiceType.REFUND) {
       throw new Error("Outbound payments must target a refund invoice");
     }
-    if (input.paymentType !== PaymentType.REFUND) {
+    if (paymentType !== PaymentType.REFUND) {
       throw new Error("Outbound payments must use refund payment type");
     }
     if (input.refundOfPaymentId) {
@@ -151,8 +153,10 @@ async function createPaymentWithAllocationWithClient(
       amount: input.amount,
       direction,
       method: input.method,
-      paymentType: input.paymentType,
-      refundOfPaymentId: input.refundOfPaymentId ?? null,
+      paymentType,
+      ...(input.refundOfPaymentId
+        ? { refundOfPaymentId: input.refundOfPaymentId }
+        : {}),
       paidAt: input.paidAt ?? new Date(),
       reference: input.reference ?? null,
       notes: input.notes ?? null,

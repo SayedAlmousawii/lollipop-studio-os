@@ -1,7 +1,25 @@
 import "dotenv/config";
 
+import Module from "node:module";
 import process from "node:process";
 import { withIsolatedBackendInvariantSchema } from "./harness";
+
+type ModuleLoader = (
+  request: string,
+  parent: NodeJS.Module | null | undefined,
+  isMain: boolean
+) => unknown;
+
+const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
+const originalModuleLoad = moduleWithLoader._load;
+moduleWithLoader._load = function loadWithServerOnlyShim(
+  request,
+  parent,
+  isMain
+) {
+  if (request === "server-only") return {};
+  return originalModuleLoad.call(this, request, parent, isMain);
+};
 
 async function main() {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
@@ -24,7 +42,31 @@ async function main() {
     const { runDuplicateBookingPackageInvariantTest } = await import(
       "./duplicate-booking-package.invariant"
     );
+    const { runPhaseAFinancialArchitectureVerification } = await import(
+      "../financial-phase-a/run"
+    );
+    const { runPhaseBFinancialWorkflowIntegration } = await import(
+      "../financial-phase-b/run"
+    );
+    const { runPhaseCFinancialEdgeCases } = await import(
+      "../financial-phase-c/run"
+    );
+    const { runPhaseDFinancialRegressionSuite } = await import(
+      "../financial-phase-d/run"
+    );
+    const { runPhaseFFinancialConcurrencySecurityRecovery } = await import(
+      "../financial-phase-f/run"
+    );
+    const { runPhaseGFinancialReconciliation } = await import(
+      "../financial-phase-g/reconciliation"
+    );
+    const { db } = await import("@/lib/db");
 
+    await runPhaseAFinancialArchitectureVerification(databaseUrl);
+    await runPhaseBFinancialWorkflowIntegration();
+    await runPhaseCFinancialEdgeCases();
+    await runPhaseDFinancialRegressionSuite();
+    await runPhaseFFinancialConcurrencySecurityRecovery();
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();
@@ -32,6 +74,7 @@ async function main() {
     await runCalendarSessionTypeDisplayInvariantTest();
     await runScopedAddOnDeleteInvariantTest();
     await runDuplicateBookingPackageInvariantTest();
+    await runPhaseGFinancialReconciliation(db);
   });
 
   process.stdout.write("backend invariant tests passed\n");
