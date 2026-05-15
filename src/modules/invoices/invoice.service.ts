@@ -1793,6 +1793,13 @@ async function createAdjustmentInvoiceWithClient(
   if (!parent.isLocked) {
     throw new Error("Adjustment invoices can only be created for locked final invoices");
   }
+  if (input.createdByUserId) {
+    await assertManagerApprovalActor(
+      client,
+      input.createdByUserId,
+      "Manager permission is required to issue an adjustment invoice"
+    );
+  }
 
   const totalAmount = input.lines.reduce(
     (sum, line) =>
@@ -1843,6 +1850,23 @@ async function createAdjustmentInvoiceWithClient(
   await assertFinancialCaseInvariants(parent.financialCaseId, client);
 
   return invoice;
+}
+
+async function assertManagerApprovalActor(
+  client: DbClient,
+  userId: string,
+  message: string
+): Promise<void> {
+  const actor = await client.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true },
+  });
+  if (
+    !actor ||
+    (actor.role !== UserRole.ADMIN && actor.role !== UserRole.MANAGER)
+  ) {
+    throw new Error(message);
+  }
 }
 
 export async function computeOverpaymentCapacity(

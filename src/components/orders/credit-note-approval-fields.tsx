@@ -3,27 +3,26 @@
 import { useFormStatus } from "react-dom";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import type { PendingCreditNoteApprovalPayload } from "@/app/orders/[orderId]/sales/actions";
 
-type PendingCreditNoteApproval = {
-  reductions: Array<{ lineName: string; amount: string; reason: string }>;
-  adjustmentLines: Array<{
-    description: string;
-    quantity: number;
-    unitPrice: string;
-  }>;
+type CreditNoteApprovalFormProps = {
+  approval: PendingCreditNoteApprovalPayload;
+  managerInputId?: string;
+  reasonInputId?: string;
 };
 
 type CreditNoteApprovalFieldsProps = {
-  approval?: PendingCreditNoteApproval;
+  approval?: PendingCreditNoteApprovalPayload;
 };
 
-export function CreditNoteApprovalFields({
+export function CreditNoteApprovalForm({
   approval,
-}: CreditNoteApprovalFieldsProps) {
-  if (!approval) return null;
-
+  managerInputId = "managerApprovedReductionByUserId",
+  reasonInputId = "managerApprovedReason",
+}: CreditNoteApprovalFormProps) {
   const reductionTotal = approval.reductions.reduce(
     (sum, reduction) => sum + Number(reduction.amount),
     0
@@ -38,40 +37,75 @@ export function CreditNoteApprovalFields({
             Manager confirmation required
           </p>
           <p>
-            This reduces the final invoice by {formatKD(reductionTotal)} via
-            credit note.
+            Removing these items will issue a {formatKD(reductionTotal)} credit
+            note. A manager must authorize the reduction before it is saved.
           </p>
         </div>
       </div>
 
-      <div className="space-y-1 text-xs">
+      <div className="space-y-1 text-xs" aria-live="polite">
         {approval.reductions.map((reduction, index) => (
           <div
             key={`${reduction.lineName}:${reduction.reason}:${reduction.amount}:${index}`}
             className="flex justify-between gap-3"
           >
-            <span className="min-w-0 truncate">{reduction.lineName}</span>
+            <span className="min-w-0 truncate">
+              {reduction.lineName}
+              <span className="text-text-secondary"> · {formatReason(reduction.reason)}</span>
+            </span>
             <span className="shrink-0 tabular-nums">{reduction.amount} KD</span>
           </div>
         ))}
         {approval.adjustmentLines.length > 0 ? (
-          <p className="pt-1 text-text-secondary">
-            This save also issues an adjustment invoice in the same transaction.
-          </p>
+          <div className="space-y-1 pt-1 text-text-secondary">
+            <p>This save also issues adjustment lines in the same transaction.</p>
+            {approval.adjustmentLines.map((line, index) => (
+              <div
+                key={`${line.description}:${line.quantity}:${line.unitPrice}:${index}`}
+                className="flex justify-between gap-3"
+              >
+                <span className="min-w-0 truncate">{line.description}</span>
+                <span className="shrink-0 tabular-nums">
+                  {line.quantity} x {line.unitPrice} KD
+                </span>
+              </div>
+            ))}
+          </div>
         ) : null}
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="managerApprovedReason">Reason</Label>
-        <Textarea
-          id="managerApprovedReason"
-          name="managerApprovedReason"
-          maxLength={500}
-          placeholder="Reason for issuing this credit note"
+        <Label htmlFor={managerInputId}>Manager user ID</Label>
+        <Input
+          id={managerInputId}
+          name="managerApprovedReductionByUserId"
+          placeholder="Manager or admin user ID"
+          required
         />
       </div>
-      <ConfirmReductionButton />
+      <div className="space-y-2">
+        <Label htmlFor={reasonInputId}>Reason</Label>
+        <Textarea
+          id={reasonInputId}
+          name="managerApprovedReason"
+          maxLength={500}
+          placeholder="Optional reason for issuing this credit note"
+        />
+      </div>
     </div>
+  );
+}
+
+export function CreditNoteApprovalFields({
+  approval,
+}: CreditNoteApprovalFieldsProps) {
+  if (!approval) return null;
+
+  return (
+    <>
+      <CreditNoteApprovalForm approval={approval} />
+      <ConfirmReductionButton />
+    </>
   );
 }
 
@@ -88,4 +122,8 @@ function ConfirmReductionButton() {
 
 function formatKD(value: number): string {
   return `${value.toFixed(3)} KD`;
+}
+
+function formatReason(reason: string): string {
+  return reason.toLowerCase().replace(/_/g, " ");
 }

@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreditNoteApprovalFields } from "@/components/orders/credit-note-approval-fields";
+import { ReductiveEditApprovalModal } from "@/components/orders/reductive-edit-approval-modal";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -173,6 +173,8 @@ function POSPhotoLineForm({
   );
   const [draft, setDraft] = useState(() => buildPhotoLineDraft(line));
   const [clientErrors, setClientErrors] = useState<POSCompositionActionState["errors"]>({});
+  const [approvalPayload, setApprovalPayload] =
+    useState<PhotoPayload | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const selectedHiddenInputRef = useRef<HTMLInputElement>(null);
   const digitalHiddenInputRef = useRef<HTMLInputElement>(null);
@@ -206,6 +208,7 @@ function POSPhotoLineForm({
 
     setClientErrors({});
     lastSubmittedPayloadRef.current = payloadKey;
+    setApprovalPayload(payload);
 
     if (
       !formRef.current ||
@@ -223,11 +226,12 @@ function POSPhotoLineForm({
   }
 
   return (
-    <form
-      ref={formRef}
-      action={formAction}
-      className="space-y-4 rounded-md border border-border bg-surface-soft p-4"
-    >
+    <>
+      <form
+        ref={formRef}
+        action={formAction}
+        className="space-y-4 rounded-md border border-border bg-surface-soft p-4"
+      >
       <input type="hidden" name="orderPackageId" value={line.id} />
       <input
         ref={selectedHiddenInputRef}
@@ -472,9 +476,29 @@ function POSPhotoLineForm({
           </div>
         </div>
       </div>
-      <GlobalError messages={state.errors?._global} />
-      <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
-    </form>
+        <GlobalError messages={state.errors?._global} />
+      </form>
+      <ReductiveEditApprovalModal
+        orderId={orderId}
+        action="update-selected-photo-count"
+        approval={state.payload}
+        hiddenFields={[
+          { name: "orderPackageId", value: line.id },
+          {
+            name: "selectedPhotoCount",
+            value: approvalPayload?.selectedPhotoCount ?? line.selectedPhotoCount,
+          },
+          {
+            name: "extraDigitalCount",
+            value: approvalPayload?.extraDigitalCount ?? line.extraDigitalCount,
+          },
+          {
+            name: "extraPrintCount",
+            value: approvalPayload?.extraPrintCount ?? line.extraPrintCount,
+          },
+        ]}
+      />
+    </>
   );
 }
 
@@ -492,6 +516,12 @@ interface PhotoLineDraft {
   splitDigitalCount: string;
   splitPrintCount: string;
 }
+
+type PhotoPayload = {
+  selectedPhotoCount: number;
+  extraDigitalCount: number;
+  extraPrintCount: number;
+};
 
 function buildPhotoLineDraft(line: POSPackageLine): PhotoLineDraft {
   return {
@@ -805,11 +835,19 @@ function PackageUpgradeDialog({
             <FieldError messages={state.errors?.packageId} />
           </div>
           <GlobalError messages={state.errors?._global} />
-          <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
           <DialogFooter>
             <SubmitButton label="Update Package" disabled={!selectedPackageId} />
           </DialogFooter>
         </form>
+        <ReductiveEditApprovalModal
+          orderId={orderId}
+          action="update-package"
+          approval={state.payload}
+          hiddenFields={[
+            { name: "orderPackageId", value: line.id },
+            { name: "packageId", value: selectedPackageId },
+          ]}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -918,11 +956,20 @@ function ItemUpgradeDialog({
             <FieldError messages={state.errors?.newProductId} />
           </div>
           <GlobalError messages={state.errors?._global} />
-          <CreditNoteApprovalFields approval={state.pendingCreditNoteApproval} />
           <DialogFooter>
             <SubmitButton label="Apply Upgrade" disabled={disabled || !selectedProductId} />
           </DialogFooter>
         </form>
+        <ReductiveEditApprovalModal
+          orderId={orderId}
+          action="upgrade-package-item"
+          approval={state.payload}
+          hiddenFields={[
+            { name: "orderPackageId", value: orderPackageId },
+            { name: "packageItemId", value: item.id },
+            { name: "newProductId", value: selectedProductId },
+          ]}
+        />
       </DialogContent>
     </Dialog>
   );

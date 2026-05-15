@@ -28,16 +28,25 @@ import {
 } from "@/modules/orders/order.service";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 
+export type PendingCreditNoteApprovalPayload = {
+  reductions: Array<{ lineName: string; amount: string; reason: string }>;
+  adjustmentLines: Array<{
+    description: string;
+    quantity: number;
+    unitPrice: string;
+  }>;
+};
+
+export type ReductiveEditAction =
+  | "update-package"
+  | "upgrade-package-item"
+  | "remove-add-on"
+  | "update-selected-photo-count";
+
 export type POSCompositionActionState = {
+  kind?: "approval-required" | "success" | "error";
   errors?: Partial<Record<string, string[]>>;
-  pendingCreditNoteApproval?: {
-    reductions: Array<{ lineName: string; amount: string; reason: string }>;
-    adjustmentLines: Array<{
-      description: string;
-      quantity: number;
-      unitPrice: string;
-    }>;
-  };
+  payload?: PendingCreditNoteApprovalPayload;
 };
 
 export type POSRecordPaymentActionState = {
@@ -73,20 +82,19 @@ export async function updateOrderPackageAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    const approval = await parseReductionApproval(formData);
-    await updateOrderPackage(orderId, { ...parsed.data, ...approval }, {
+    await updateOrderPackage(orderId, parsed.data, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
     if (error instanceof PendingCreditNoteApprovalError) {
-      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+      return serializePendingCreditNoteAction(error);
     }
-    return { errors: { _global: [safePOSActionMessage(error, "Unable to update package")] } };
+    return { kind: "error", errors: { _global: [posActionErrorMessage(error)] } };
   }
 
   revalidatePOSPaths(orderId);
-  return {};
+  return { kind: "success" };
 }
 
 export async function upgradeOrderPackageItemAction(
@@ -108,24 +116,24 @@ export async function upgradeOrderPackageItemAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    const approval = await parseReductionApproval(formData);
-    await upgradeOrderPackageItem(orderId, { ...parsed.data, ...approval }, {
+    await upgradeOrderPackageItem(orderId, parsed.data, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
     if (error instanceof PendingCreditNoteApprovalError) {
-      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+      return serializePendingCreditNoteAction(error);
     }
     return {
+      kind: "error",
       errors: {
-        _global: [safePOSActionMessage(error, "Unable to upgrade package item")],
+        _global: [posActionErrorMessage(error)],
       },
     };
   }
 
   revalidatePOSPaths(orderId);
-  return {};
+  return { kind: "success" };
 }
 
 export async function addOrderProductAddOnAction(
@@ -150,11 +158,11 @@ export async function addOrderProductAddOnAction(
       actorRole: appUser.role,
     });
   } catch (error) {
-    return { errors: { _global: [safePOSActionMessage(error, "Unable to add order add-on")] } };
+    return { kind: "error", errors: { _global: [posActionErrorMessage(error)] } };
   }
 
   revalidatePOSPaths(orderId);
-  return {};
+  return { kind: "success" };
 }
 
 export async function removeOrderAddOnAction(
@@ -174,24 +182,24 @@ export async function removeOrderAddOnAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    const approval = await parseReductionApproval(formData);
-    await removeOrderAddOn(orderId, { ...parsed.data, ...approval }, {
+    await removeOrderAddOn(orderId, parsed.data, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
     if (error instanceof PendingCreditNoteApprovalError) {
-      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+      return serializePendingCreditNoteAction(error);
     }
     return {
+      kind: "error",
       errors: {
-        _global: [safePOSActionMessage(error, "Unable to remove order add-on")],
+        _global: [posActionErrorMessage(error)],
       },
     };
   }
 
   revalidatePOSPaths(orderId);
-  return {};
+  return { kind: "success" };
 }
 
 export async function updateOrderSelectedPhotoCountAction(
@@ -214,24 +222,62 @@ export async function updateOrderSelectedPhotoCountAction(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    const approval = await parseReductionApproval(formData);
-    await updateOrderSelectedPhotoCount(orderId, { ...parsed.data, ...approval }, {
+    await updateOrderSelectedPhotoCount(orderId, parsed.data, {
       actorUserId: appUser.id,
       actorRole: appUser.role,
     });
   } catch (error) {
     if (error instanceof PendingCreditNoteApprovalError) {
-      return { pendingCreditNoteApproval: serializePendingCreditNote(error) };
+      return serializePendingCreditNoteAction(error);
     }
     return {
+      kind: "error",
       errors: {
-        _global: [safePOSActionMessage(error, "Unable to update selected photos")],
+        _global: [posActionErrorMessage(error)],
       },
     };
   }
 
   revalidatePOSPaths(orderId);
-  return {};
+  return { kind: "success" };
+}
+
+export async function confirmReductiveEditWithApproval(
+  orderId: string,
+  _prev: POSCompositionActionState,
+  formData: FormData
+): Promise<POSCompositionActionState> {
+  const action = formData.get("reductiveAction");
+  if (!isReductiveEditAction(action)) {
+    return {
+      kind: "error",
+      errors: { _global: ["Reduction action is required"] },
+    };
+  }
+
+  const approval = parseReductionApproval(formData);
+  if (!approval.managerApprovedReductionByUserId) {
+    return {
+      kind: "error",
+      errors: { managerApprovedReductionByUserId: ["Manager approval is required"] },
+    };
+  }
+
+  try {
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    await executeReductiveEdit(action, orderId, formData, approval, {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    });
+  } catch (error) {
+    console.error("Approved reductive POS edit failed", error);
+    return { kind: "error", errors: { _global: [posActionErrorMessage(error)] } };
+  }
+
+  revalidatePOSPaths(orderId);
+  return { kind: "success" };
 }
 
 export async function recordPOSPaymentAction(
@@ -309,7 +355,7 @@ export async function recordPOSPaymentAction(
       actorRole: appUser.role,
     });
   } catch (error) {
-    return { errors: { _global: [safePOSActionMessage(error, "Unable to record payment")] } };
+    return { errors: { _global: [posActionErrorMessage(error)] } };
   }
 
   revalidatePOSPaymentPaths(orderId, invoiceId);
@@ -336,22 +382,93 @@ function revalidatePOSPaths(orderId: string): void {
   revalidatePath("/invoices");
 }
 
-async function parseReductionApproval(formData: FormData): Promise<{
+function parseReductionApproval(formData: FormData): {
   managerApprovedReductionByUserId?: string;
   managerApprovedReason?: string;
-}> {
+} {
+  const managerValue = formData.get("managerApprovedReductionByUserId");
   const reasonValue = formData.get("managerApprovedReason");
-  if (typeof reasonValue !== "string" || !reasonValue.trim()) {
-    return {};
-  }
-
-  const manager = await requireCurrentAppUserPermission(
-    PERMISSIONS.CREDIT_NOTE_ISSUE
-  );
 
   return {
-    managerApprovedReductionByUserId: manager.id,
-    managerApprovedReason: reasonValue.trim(),
+    managerApprovedReductionByUserId:
+      typeof managerValue === "string" && managerValue.trim()
+        ? managerValue.trim()
+        : undefined,
+    managerApprovedReason:
+      typeof reasonValue === "string" && reasonValue.trim()
+        ? reasonValue.trim()
+        : undefined,
+  };
+}
+
+async function executeReductiveEdit(
+  action: ReductiveEditAction,
+  orderId: string,
+  formData: FormData,
+  approval: {
+    managerApprovedReductionByUserId?: string;
+    managerApprovedReason?: string;
+  },
+  actor: { actorUserId: string; actorRole: Awaited<ReturnType<typeof requireCurrentAppUserPermission>>["role"] }
+): Promise<void> {
+  if (action === "update-package") {
+    const parsed = updateOrderPackageSchema.safeParse({
+      orderPackageId: formData.get("orderPackageId"),
+      packageId: formData.get("packageId"),
+      ...approval,
+    });
+    if (!parsed.success) {
+      throw new Error(firstZodError(parsed.error) ?? "Unable to update package");
+    }
+    await updateOrderPackage(orderId, parsed.data, actor);
+    return;
+  }
+
+  if (action === "upgrade-package-item") {
+    const parsed = upgradeOrderPackageItemSchema.safeParse({
+      orderPackageId: formData.get("orderPackageId"),
+      packageItemId: formData.get("packageItemId"),
+      newProductId: formData.get("newProductId"),
+      ...approval,
+    });
+    if (!parsed.success) {
+      throw new Error(firstZodError(parsed.error) ?? "Unable to upgrade package item");
+    }
+    await upgradeOrderPackageItem(orderId, parsed.data, actor);
+    return;
+  }
+
+  if (action === "remove-add-on") {
+    const parsed = removeOrderAddOnSchema.safeParse({
+      addOnId: formData.get("addOnId"),
+      ...approval,
+    });
+    if (!parsed.success) {
+      throw new Error(firstZodError(parsed.error) ?? "Unable to remove add-on");
+    }
+    await removeOrderAddOn(orderId, parsed.data, actor);
+    return;
+  }
+
+  const parsed = updateOrderSelectedPhotoCountSchema.safeParse({
+    orderPackageId: formData.get("orderPackageId"),
+    selectedPhotoCount: formData.get("selectedPhotoCount"),
+    extraDigitalCount: formData.get("extraDigitalCount"),
+    extraPrintCount: formData.get("extraPrintCount"),
+    ...approval,
+  });
+  if (!parsed.success) {
+    throw new Error(firstZodError(parsed.error) ?? "Unable to update selected photos");
+  }
+  await updateOrderSelectedPhotoCount(orderId, parsed.data, actor);
+}
+
+function serializePendingCreditNoteAction(
+  error: PendingCreditNoteApprovalError
+): POSCompositionActionState {
+  return {
+    kind: "approval-required",
+    payload: serializePendingCreditNote(error),
   };
 }
 
@@ -368,6 +485,19 @@ function serializePendingCreditNote(error: PendingCreditNoteApprovalError) {
       unitPrice: line.unitPrice.toFixed(3),
     })),
   };
+}
+
+function isReductiveEditAction(value: FormDataEntryValue | null): value is ReductiveEditAction {
+  return (
+    value === "update-package" ||
+    value === "upgrade-package-item" ||
+    value === "remove-add-on" ||
+    value === "update-selected-photo-count"
+  );
+}
+
+function firstZodError(error: z.ZodError): string | null {
+  return error.issues[0]?.message ?? null;
 }
 
 function revalidatePOSPaymentPaths(orderId: string, invoiceId: string): void {
@@ -413,30 +543,11 @@ function parseRequiredSelectionStatus(
   return parsed.data.selectionStatus;
 }
 
-const SAFE_POS_DOMAIN_MESSAGES = new Set([
-  "Delivered orders cannot be edited",
-  "Invoice is locked. Use the adjustment flow before changing package composition.",
-  "Selected package is not available",
-  "Package item is not part of the current order package",
-  "Replacement product is not available",
-  "Replacement product must be in the same category",
-  "Replacement product is already included",
-  "Invoice is locked. Use the adjustment flow before changing add-ons.",
-  "Invoice is locked. Use the adjustment flow before changing selected photos.",
-  "Selected add-on product is not available",
-  "Selected add-on is not on this order",
-  "Selected photos cannot be below included package photos",
-  "Use selected photo count for extra photos",
-  "No outstanding balance remains on this invoice",
-  "Payment amount cannot exceed the remaining invoice balance",
-  "Invoice does not belong to this order",
-]);
-
-function safePOSActionMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && SAFE_POS_DOMAIN_MESSAGES.has(error.message)) {
+function posActionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
 
-  console.error(fallback, error);
-  return fallback;
+  console.error("Unknown POS action error", error);
+  return "Unable to save POS changes";
 }

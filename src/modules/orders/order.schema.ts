@@ -7,9 +7,20 @@ import {
   ORDER_SELECTION_STATUS_VALUES,
 } from "./order.constants";
 
+const optionalTrimmedString = z.preprocess(
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  },
+  z.string().trim().optional()
+);
+
 const reductionApprovalFields = {
-  managerApprovedReductionByUserId: z.string().trim().min(1).optional(),
-  managerApprovedReason: z.string().trim().min(1, "Reduction reason is required").max(500).optional(),
+  managerApprovedReductionByUserId: optionalTrimmedString,
+  managerApprovedReason: optionalTrimmedString.pipe(
+    z.string().max(500, "Reduction reason must be 500 characters or fewer").optional()
+  ),
 };
 
 type ReductionApprovalInput = {
@@ -25,13 +36,13 @@ function withReductionApprovalFields<T extends z.ZodRawShape>(shape: T) {
     (value) => {
       const approval = value as ReductionApprovalInput;
       return (
-        Boolean(approval.managerApprovedReductionByUserId) ===
-        Boolean(approval.managerApprovedReason)
+        Boolean(approval.managerApprovedReductionByUserId) ||
+        !approval.managerApprovedReason
       );
     },
     {
-      message: "Manager approval requires both manager and reason",
-      path: ["managerApprovedReason"],
+      message: "Manager approval is required when a reduction reason is provided",
+      path: ["managerApprovedReductionByUserId"],
     }
   );
 }
