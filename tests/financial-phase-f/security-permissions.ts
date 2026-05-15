@@ -475,9 +475,9 @@ async function runStaticHiddenMutationPathSearch(): Promise<void> {
     /\b(?:db|tx|client)\.payment\.create\s*\(/,
     "production services outside payment.service must not create Payment rows directly"
   );
-  assert.match(
+  assert.doesNotMatch(
     orderSource,
     /if \(!actorContext\.actorRole\) return;/,
-    "Phase F documents optional actor role as a permission-bypass surface if service callers omit ActorContext"
+    "Phase F expects service permission checks to reject missing actor roles instead of bypassing them"
   );
 }

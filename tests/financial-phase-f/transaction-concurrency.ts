@@ -134,11 +134,13 @@ async function runDoubleClickFinalPaymentRace(
       where: { invoiceId: workflow.finalInvoiceId, paymentType: PaymentType.FINAL },
       include: { allocations: true },
     });
+    const invoice = await db.invoice.findUniqueOrThrow({
+      where: { id: workflow.finalInvoiceId },
+      select: { remainingAmount: true, status: true, isLocked: true },
+    });
 
-    assert.ok(
-      countFulfilled(results) >= 1,
-      "at least one simultaneous full payment should complete"
-    );
+    assert.equal(countFulfilled(results), 1, "exactly one simultaneous full payment should complete");
+    assert.equal(countRejected(results), 1, "the losing submission must reject once the invoice settles");
     assert.equal(
       storedPayments.length,
       countFulfilled(results),
@@ -148,24 +150,9 @@ async function runDoubleClickFinalPaymentRace(
       assert.equal(payment.allocations.length, 1, "each stored payment keeps one allocation");
       assertMoney(payment.amount, "480", "stored race payment amount");
     }
-
-    if (countFulfilled(results) > 1) {
-      const invoice = await db.invoice.findUniqueOrThrow({
-        where: { id: workflow.finalInvoiceId },
-        select: { totalAmount: true },
-      });
-      const effectivePaid = await computeEffectivePaidFromAllocations(
-        workflow.finalInvoiceId,
-        db
-      );
-      assert.equal(
-        effectivePaid.greaterThan(invoice.totalAmount),
-        true,
-        "Phase F characterization: current payment path can over-collect without invoice row locking"
-      );
-    } else {
-      assert.equal(countRejected(results), 1, "safe race outcome rejects one submission");
-    }
+    assertMoney(invoice.remainingAmount, "0", "winning payment must settle the invoice");
+    assert.equal(invoice.status, InvoiceStatus.CLOSED);
+    assert.equal(invoice.isLocked, true);
   } finally {
     await cleanupWorkflow(db, workflow);
   }
@@ -297,22 +284,20 @@ async function runFinalOnePercentSettlementRace(
       select: { status: true, isLocked: true, totalAmount: true },
     });
 
-    assert.ok(countFulfilled(results) >= 1, "one final 1% settlement should complete");
-    if (countFulfilled(results) === 1) {
-      assert.equal(payments.length, 2, "safe race outcome keeps initial payment plus one closer");
-      assert.equal(invoice.status, InvoiceStatus.CLOSED);
-      assert.equal(invoice.isLocked, true);
-    } else {
-      const effectivePaid = await computeEffectivePaidFromAllocations(
-        workflow.finalInvoiceId,
-        db
-      );
-      assert.equal(
-        effectivePaid.greaterThan(invoice.totalAmount),
-        true,
-        "Phase F characterization: simultaneous closers can over-collect without invoice row locking"
-      );
-    }
+    assert.equal(countFulfilled(results), 1, "exactly one final 1% settlement should complete");
+    assert.equal(countRejected(results), 1, "the losing closer must reject once the invoice is settled");
+    assert.equal(payments.length, 2, "safe race outcome keeps initial payment plus one closer");
+    assert.equal(invoice.status, InvoiceStatus.CLOSED);
+    assert.equal(invoice.isLocked, true);
+    const effectivePaid = await computeEffectivePaidFromAllocations(
+      workflow.finalInvoiceId,
+      db
+    );
+    assert.equal(
+      effectivePaid.equals(invoice.totalAmount),
+      true,
+      "the locked settlement path must not over-collect"
+    );
   } finally {
     await cleanupWorkflow(db, workflow);
   }
@@ -347,8 +332,8 @@ async function runPaymentRowLockCoverageCharacterization(): Promise<void> {
   const source = await readFile("src/modules/payments/payment.service.ts", "utf8");
   assert.equal(
     /FOR\s+UPDATE/i.test(source),
-    false,
-    "Phase F documents that invoice payment processing still lacks SELECT ... FOR UPDATE"
+    true,
+    "Phase F expects invoice payment processing to acquire SELECT ... FOR UPDATE"
   );
 }
 
