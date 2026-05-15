@@ -148,7 +148,6 @@ async function closeRefundInvoiceIfSettled(
     where: {
       id: refundInvoiceId,
       isLocked: false,
-      remainingAmount: invoice.remainingAmount,
     },
     data: {
       status: InvoiceStatus.CLOSED,
@@ -175,14 +174,9 @@ async function closeRefundInvoiceIfSettled(
     },
   });
   if (!persistedInvoice) {
-    console.warn(
-      JSON.stringify({
-        metric: "refund.invoice_lock_snapshot_skipped",
-        invoiceId: refundInvoiceId,
-        reason: "missing_after_lock",
-      })
+    throw new Error(
+      `refund.invoice_lock_snapshot_skipped: missing_after_lock for invoice ${refundInvoiceId}`
     );
-    return;
   }
 
   await recordInvoiceLockSnapshot(
