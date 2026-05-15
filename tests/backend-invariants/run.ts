@@ -48,9 +48,13 @@ async function main() {
     const { runPhaseBFinancialWorkflowIntegration } = await import(
       "../financial-phase-b/run"
     );
+    const { runPhaseCFinancialEdgeCases } = await import(
+      "../financial-phase-c/run"
+    );
 
     await runPhaseAFinancialArchitectureVerification(databaseUrl);
     await runPhaseBFinancialWorkflowIntegration();
+    await runPhaseCFinancialEdgeCases();
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();

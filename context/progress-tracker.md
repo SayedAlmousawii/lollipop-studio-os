@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 77 Phase B is complete: Layer 3 INT-01 through INT-15 service integration coverage now runs through `tests/financial-phase-b/` inside `npm run test:backend-invariants`, with first-class AuditLog and dual-read discrepancy-warning gaps documented before edge-case testing.
+- Feature 77 Phase C is complete: Layer 4 E1-E12 and EC-13 through EC-42 edge-case coverage now runs through `tests/financial-phase-c/` inside `npm run test:backend-invariants`, with refund-cap, paid-adjustment reversal, DB lock immutability, row-lock, commission, and voucher-schema gaps documented.
 - Dashboard date windows use the studio timezone (`Asia/Kuwait`) for today/week metrics and schedule time display, so late-night local payments land in the correct business day.
 - Dashboard refund display and payment creation hotfixes are complete: revenue shows net inbound-minus-refund, outbound refunds derive `PaymentType.REFUND` before the Prisma write, and optional refund trace fields are omitted unless supplied.
 - Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 (audit snapshots for locked-invoice immutability) is the active frontier.
@@ -44,6 +44,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 77 Phase C: Edge-case expansion — E1-E12 classifier coverage, EC-13 through EC-42 service/characterization tests, stale-state checks, hidden corruption findings, and Phase C review documentation.
 - Feature 77 Phase B: Workflow integration matrix — INT-01 through INT-15 service-layer scenarios, integration fixtures, rollback checks, payment allocation/document application assertions, financial workflow assertions, and audit-gap documentation.
 - Feature 77 Phase A: Financial invariant CI — schema integrity, migration/backfill verification, and invariant coverage in `tests/financial-phase-a/`; locked-invoice immutability blocked on missing audit snapshots.
 - Feature 76c: Wire reductions to credit notes — lifted Phase 2 hard-block into manager-approved POS flow, routed classifier reductions to CREDIT_NOTE creation, made mixed ADJUSTMENT + CREDIT_NOTE edits atomic with paired activity entries.
@@ -59,6 +60,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, enforced required true add-on product references.
 
 ## Open Follow-Ups
+- Fix Phase C high-risk findings before production financial expansion: overpayment-based refund cap, paid ADJUSTMENT cause reversal, DB-level locked-invoice immutability, payment row-level locking, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
 - Before merging Feature 74e, confirm the 74d verification window had zero `financial.rearch.dual_read.discrepancy` WARN logs and run the financial invariant suite against a prod-shaped staging dataset.
 - Configure and verify production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, and `FINANCIAL_RECON_SLACK_CHANNEL`.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.

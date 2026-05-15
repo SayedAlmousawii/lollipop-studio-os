@@ -15,6 +15,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase B: INT-10 verifies reductive locked-final edits require manager approval and roll back without it. INT-11 verifies credit-note issuance through a manager actor. Role-negative coverage for non-manager approval remains Layer 8 permission testing scope.
+- 2026-05-15 Phase C: EC-18/EC-19 show manager refund actions can exceed true overpayment if the service only checks inbound allocation capacity. Operationally, staff need a visible overpayment cap until the service is corrected.
 
 ### Photographer viewing financial data through a known URL
 
@@ -33,6 +34,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase B: The Layer 3 matrix covers additive ADJUSTMENT and reductive CREDIT_NOTE paths separately. Mixed edit communication remains Layer 4 edge-case scope.
+- 2026-05-15 Phase C: E4 verifies mixed classifier output. E11 exposes the more dangerous communication gap: removing the cause of a paid ADJUSTMENT gives no credit/refund prompt today.
 
 ### Locked invoice badge clarity
 
@@ -58,6 +60,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase B: INT-13 verifies package upgrades create only the delta ADJUSTMENT and preserve the locked FINAL. Commission persistence is still a hook-only area (`syncUpgradeCommissionForOrder`) and requires later commission-specific verification.
+- 2026-05-15 Phase C: EC-32/EC-33 confirm commission persistence is still absent; package upgrade workflows cannot yet prove photographer commission records.
 
 ## D. Reconciliation Risks
 
@@ -72,6 +75,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase A: Not changed. CI now catches invariant regressions before merge, but production reconciliation cadence remains the existing nightly schedule.
+- 2026-05-15 Phase C: EC-36 verifies missing DEPOSIT-to-FINAL `DocumentApplication` rows are detected by invariants and not auto-repaired. The production data-loss window remains the interval before CI/reconciliation runs.
 
 ## E. Production Failure Scenarios
 
@@ -86,3 +90,5 @@ TBD - to be filled during Phase A/B/C/etc.
 ### `identifier_sequences` collision handling
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase C: EC-42 verifies self-healing when the sequence row falls behind existing booking references. True concurrent sequence races remain Layer 7 scope.
