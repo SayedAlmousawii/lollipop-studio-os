@@ -14,6 +14,8 @@ TBD - to be filled during Phase A/B/C/etc.
 
 TBD - to be filled during Phase A/B/C/etc.
 
+- 2026-05-15 Phase B: INT-10 verifies reductive locked-final edits require manager approval and roll back without it. INT-11 verifies credit-note issuance through a manager actor. Role-negative coverage for non-manager approval remains Layer 8 permission testing scope.
+
 ### Photographer viewing financial data through a known URL
 
 TBD - to be filled during Phase A/B/C/etc.
@@ -24,9 +26,13 @@ TBD - to be filled during Phase A/B/C/etc.
 
 TBD - to be filled during Phase A/B/C/etc.
 
+- 2026-05-15 Phase B: Service-level INT-11 verifies credit note issuance creates an overpayment/refund-available activity after a fully paid FINAL. UI clarity for the POS flag remains Layer 6 manual QA scope.
+
 ### Mixed ADJUSTMENT and CREDIT_NOTE communication in one save
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase B: The Layer 3 matrix covers additive ADJUSTMENT and reductive CREDIT_NOTE paths separately. Mixed edit communication remains Layer 4 edge-case scope.
 
 ### Locked invoice badge clarity
 
@@ -39,14 +45,19 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase A: CI now includes INV-28 using the practical schema proxy `EditingJob.status != NOT_STARTED` and requires the order's primary FINAL invoice to be `CLOSED`. The exact spec wording `status != null` cannot be represented because `EditingJob.status` is non-null with a default.
+- 2026-05-15 Phase B: INT-07 verifies a fully paid, locked FINAL invoice makes editing start possible through the service. INT-15 verifies production readiness is blocked when editing is incomplete. Negative direct editing-start with open FINAL remains covered by Phase A invariant shape, not expanded into a separate Layer 8 permission/security test.
 
 ### Delivery marked complete without pickup recorded via direct API
 
 TBD - to be filled during Phase A/B/C/etc.
 
+- 2026-05-15 Phase B: INT-15 verifies delivery completion goes through `markPickedUp`, stamps `deliveryCompletedById`, sets `deliveryStatus=COMPLETED`, records `Order completed`, and blocks open-payment and production-not-ready attempts.
+
 ### Package upgrade bypassing commission creation
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase B: INT-13 verifies package upgrades create only the delta ADJUSTMENT and preserve the locked FINAL. Commission persistence is still a hook-only area (`syncUpgradeCommissionForOrder`) and requires later commission-specific verification.
 
 ## D. Reconciliation Risks
 

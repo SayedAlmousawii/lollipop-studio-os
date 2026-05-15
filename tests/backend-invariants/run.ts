@@ -1,7 +1,25 @@
 import "dotenv/config";
 
+import Module from "node:module";
 import process from "node:process";
 import { withIsolatedBackendInvariantSchema } from "./harness";
+
+type ModuleLoader = (
+  request: string,
+  parent: NodeJS.Module | null | undefined,
+  isMain: boolean
+) => unknown;
+
+const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
+const originalModuleLoad = moduleWithLoader._load;
+moduleWithLoader._load = function loadWithServerOnlyShim(
+  request,
+  parent,
+  isMain
+) {
+  if (request === "server-only") return {};
+  return originalModuleLoad.call(this, request, parent, isMain);
+};
 
 async function main() {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
@@ -27,8 +45,12 @@ async function main() {
     const { runPhaseAFinancialArchitectureVerification } = await import(
       "../financial-phase-a/run"
     );
+    const { runPhaseBFinancialWorkflowIntegration } = await import(
+      "../financial-phase-b/run"
+    );
 
     await runPhaseAFinancialArchitectureVerification(databaseUrl);
+    await runPhaseBFinancialWorkflowIntegration();
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();
