@@ -108,6 +108,13 @@ enum InvoiceLineType {
   MANUAL_SURCHARGE
 }
 
+enum OrderEntityKind {
+  ADDON
+  UPGRADE
+  EXTRA_PHOTO
+  PACKAGE_TIER_UPGRADE
+}
+
 enum PaymentMethod {
   CASH
   KNET
@@ -689,20 +696,24 @@ model Invoice {
 }
 
 model InvoiceLineItem {
-  id          String          @id @default(cuid())
-  invoiceId   String
-  lineType    InvoiceLineType
-  description String
-  quantity    Int             @default(1)
-  unitPrice   Decimal         @db.Decimal(10, 3)
-  lineTotal   Decimal         @db.Decimal(10, 3)
-  sortOrder   Int             @default(0)
-  createdAt   DateTime        @default(now())
+  id                   String           @id @default(cuid())
+  invoiceId            String
+  lineType             InvoiceLineType
+  description          String
+  quantity             Int              @default(1)
+  unitPrice            Decimal          @db.Decimal(10, 3)
+  lineTotal            Decimal          @db.Decimal(10, 3)
+  sortOrder            Int              @default(0)
+  causeOrderEntityKind OrderEntityKind?
+  causeOrderEntityId   String?
+  createdAt            DateTime         @default(now())
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice             Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  documentApplications DocumentApplication[]
 
   @@unique([invoiceId, sortOrder])
   @@index([invoiceId])
+  @@index([causeOrderEntityKind, causeOrderEntityId])
   @@map("invoice_line_items")
 }
 
@@ -739,22 +750,24 @@ model Payment {
 }
 
 model DocumentApplication {
-  id              String   @id @default(cuid())
-  sourceInvoiceId String   @map("source_invoice_id")
-  targetInvoiceId String   @map("target_invoice_id")
-  amountApplied   Decimal  @map("amount_applied") @db.Decimal(10, 3)
-  appliedAt       DateTime @default(now()) @map("applied_at")
-  appliedByUserId String?  @map("applied_by_user_id")
-  notes           String?
-  createdAt       DateTime @default(now()) @map("created_at")
+  id                  String   @id @default(cuid())
+  sourceInvoiceId     String   @map("source_invoice_id")
+  targetInvoiceId     String   @map("target_invoice_id")
+  targetInvoiceLineId String?  @map("target_invoice_line_id")
+  amountApplied       Decimal  @map("amount_applied") @db.Decimal(10, 3)
+  appliedAt           DateTime @default(now()) @map("applied_at")
+  appliedByUserId     String?  @map("applied_by_user_id")
+  notes               String?
+  createdAt           DateTime @default(now()) @map("created_at")
 
-  sourceInvoice Invoice @relation("DocumentApplicationSource", fields: [sourceInvoiceId], references: [id])
-  targetInvoice Invoice @relation("DocumentApplicationTarget", fields: [targetInvoiceId], references: [id])
-  appliedBy     User?   @relation(fields: [appliedByUserId], references: [id], onDelete: SetNull)
+  sourceInvoice     Invoice          @relation("DocumentApplicationSource", fields: [sourceInvoiceId], references: [id])
+  targetInvoice     Invoice          @relation("DocumentApplicationTarget", fields: [targetInvoiceId], references: [id])
+  targetInvoiceLine InvoiceLineItem? @relation(fields: [targetInvoiceLineId], references: [id], onDelete: SetNull)
+  appliedBy         User?            @relation(fields: [appliedByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([sourceInvoiceId, targetInvoiceId])
   @@index([sourceInvoiceId])
   @@index([targetInvoiceId])
+  @@index([targetInvoiceLineId])
   @@map("document_applications")
 }
 

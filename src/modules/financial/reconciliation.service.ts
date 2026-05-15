@@ -285,8 +285,8 @@ const RECONCILIATION_INVARIANTS: ReconciliationInvariantDefinition[] = [
     invariantId: "INV-09",
     severity: "HIGH",
     affectedEntityType: "DocumentApplication",
-    description: "CREDIT_NOTE document applications must target FINAL invoices",
-    expected: "target invoice type FINAL",
+    description: "CREDIT_NOTE document applications must target FINAL invoices or ADJUSTMENT lines",
+    expected: "target invoice type FINAL or line-targeted ADJUSTMENT",
     queryContext: "document_applications joined to source and target invoices",
     run: (tx) =>
       tx.$queryRaw<ReconciliationQueryRow[]>`
@@ -298,7 +298,13 @@ const RECONCILIATION_INVARIANTS: ReconciliationInvariantDefinition[] = [
         JOIN "invoices" source ON source.id = da.source_invoice_id
         JOIN "invoices" target ON target.id = da.target_invoice_id
         WHERE source."invoiceType" = 'CREDIT_NOTE'
-          AND target."invoiceType" != 'FINAL'
+          AND NOT (
+            target."invoiceType" = 'FINAL'
+            OR (
+              target."invoiceType" = 'ADJUSTMENT'
+              AND da.target_invoice_line_id IS NOT NULL
+            )
+          )
       `,
   },
   {
