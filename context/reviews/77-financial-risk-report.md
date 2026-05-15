@@ -15,6 +15,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase C: EC-18 and EC-19 show refund documents can be created from inbound allocation capacity rather than actual overpayment/credit-note capacity. This is a potential corruption vector if a manager issues a refund without a matching CREDIT_NOTE.
 - 2026-05-15 Phase D: Static regression search found no direct production `Payment.create` or `PaymentAllocation.create` outside `src/modules/payments/payment.service.ts`; Feature 75/76 regression payments continue to use the allocation choke point.
 - 2026-05-15 Phase F: Hidden mutation-path testing confirmed production `Payment.create` remains centralized in `src/modules/payments/payment.service.ts`, but the exported `recordPayment()` service has no role guard. Direct service callers can create payment/allocation rows even with an `EDITOR` actor if they bypass server-action/POS permission checks.
+- 2026-05-15 Phase G: Production reconciliation now detects Payment rows that bypass the allocation choke point through `INV-01` and classifies them as `CRITICAL`. The runner reports only; it does not create missing allocations or repair records.
 
 ### Service functions accepting `db` client directly instead of through a transaction
 
@@ -65,6 +66,8 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase C: EC-18/EC-19 show `computeRefundableAmountForInvoice` treats inbound allocations as refundable capacity without checking credit-note-created overpayment. Do not treat that helper as an overpayment calculation.
 - 2026-05-15 Phase D: REG-LEGACY-01 proves editing readiness still derives outstanding balance by subtracting Deposit paid amount from Final Invoice `remainingAmount`. This retired virtual deposit assumption can make a Final Invoice with `20.000 KD` still due appear ready for editing.
 - 2026-05-15 Phase E: Invoice detail defaulted refund amount to 210.000 KD while the visible overpayment banner showed 45.000 KD. The UI therefore exposes the Phase C refund-capacity risk directly to managers.
+- 2026-05-15 Phase G: Reconciliation effective-paid checks compute from `PaymentAllocation` and `DocumentApplication` joins, not cached `invoice.paidAmount`. Cached field drift remains a risk for UI/service paths, but the nightly report is allocation/application-backed.
+- 2026-05-15 Phase G: Local dev reconciliation found a real `INV-18` mismatch for order `cmp6tm9n30007n7t3ramturmp`: current order total `230.000 KD` versus revenue-document total `225.000 KD`. This is a reconciliation-risk finding, not an auto-repaired condition.
 
 ### Places reading `Order.selectedPhotoCount` instead of deriving from `OrderPackage` lines
 
@@ -101,6 +104,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase C: EC-37 statically verifies `recordPayment` still lacks `SELECT ... FOR UPDATE`. Stale sequential payments are rejected, but true simultaneous submissions remain unproven.
 - 2026-05-15 Phase D: Layer 5 did not add true concurrent execution; stale/race concerns remain at the Phase C risk level.
 - 2026-05-15 Phase F: Layer 7 now runs simultaneous Final Invoice payment and final-1%-settlement races. The service still has no `SELECT ... FOR UPDATE` on the invoice row, so double-click settlement remains a high-risk corruption vector until the balance read/payment write/recalculation/close sequence is serialized.
+- 2026-05-15 Phase G: Nightly reconciliation can detect several outcomes of payment race corruption, including missing allocations, negative open balances, and completed-order revenue mismatches. It is not a substitute for row-level locking because the maximum exposure remains the time until the next successful run.
 
 ## E. Transactional Weaknesses
 

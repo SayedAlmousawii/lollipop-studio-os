@@ -90,6 +90,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase A: Not tested in this phase. Existing nightly workflow still performs explicit environment verification before running reconciliation.
+- 2026-05-15 Phase G: `FINANCIAL_RECON_DATABASE_URL` is now required in production. In non-production the script can fall back to `DATABASE_URL` with a warning for local verification only. Missing Slack webhook configuration is non-fatal but logs the alert payload, so the runner does not silently discard findings.
 
 ### Maximum data loss window before next reconciliation run
 
@@ -98,6 +99,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase A: Not changed. CI now catches invariant regressions before merge, but production reconciliation cadence remains the existing nightly schedule.
 - 2026-05-15 Phase C: EC-36 verifies missing DEPOSIT-to-FINAL `DocumentApplication` rows are detected by invariants and not auto-repaired. The production data-loss window remains the interval before CI/reconciliation runs.
 - 2026-05-15 Phase D: Regression coverage is CI-facing only. Production data-loss window remains unchanged until Layer 10 reconciliation runner work is completed.
+- 2026-05-15 Phase G: With the nightly runner in place, the expected maximum detection window is one successful nightly cycle plus alert-response latency. Add a monitor for "no report in 24h" because a missed cron run is now the highest reconciliation-specific blind spot.
 
 ## E. Production Failure Scenarios
 
@@ -105,9 +107,13 @@ TBD - to be filled during Phase A/B/C/etc.
 
 TBD - to be filled during Phase A/B/C/etc.
 
+- 2026-05-15 Phase G: Slack posting retries three times and is non-fatal. Alert payloads are written to process logs when the webhook is missing or unavailable, but production still needs external monitoring for Slack delivery failures.
+
 ### Read-only replica outage behavior
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase G: The script exits with code `2` if it cannot create a trustworthy report, including missing production DB URL or database connection failure. It does not fall back to write-capable production `DATABASE_URL` and does not attempt repairs.
 
 ### `identifier_sequences` collision handling
 

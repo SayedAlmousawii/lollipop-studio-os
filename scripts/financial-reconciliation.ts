@@ -1,11 +1,49 @@
 import "dotenv/config";
 
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import process from "node:process";
-import { db } from "@/lib/db";
-import { runAllInvariants } from "@/modules/financial/invariants";
+import {
+  executeFinancialReconciliation,
+  postReconciliationAlerts,
+  type ReconciliationAlertPayload,
+} from "@/modules/financial/reconciliation.service";
 
 const SLACK_WEBHOOK_ATTEMPTS = 3;
 const SLACK_WEBHOOK_TIMEOUT_MS = 10_000;
+
+function createReconciliationClient(databaseUrl: string): PrismaClient {
+  const schema = new URL(databaseUrl).searchParams.get("schema") ?? undefined;
+  return new PrismaClient({
+    adapter: new PrismaPg(databaseUrl, { schema }),
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  });
+}
+
+function resolveDatabaseUrl(): string {
+  const reconciliationUrl = process.env.FINANCIAL_RECON_DATABASE_URL;
+  if (reconciliationUrl) {
+    return reconciliationUrl;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "FINANCIAL_RECON_DATABASE_URL is required for production reconciliation"
+    );
+  }
+
+  const developmentUrl = process.env.DATABASE_URL;
+  if (!developmentUrl) {
+    throw new Error(
+      "FINANCIAL_RECON_DATABASE_URL or DATABASE_URL is required for reconciliation"
+    );
+  }
+
+  console.warn(
+    "FINANCIAL_RECON_DATABASE_URL is not set; using DATABASE_URL for local reconciliation only"
+  );
+  return developmentUrl;
+}
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -13,13 +51,14 @@ function wait(ms: number): Promise<void> {
   });
 }
 
-async function postToSlackIfConfigured(message: string): Promise<void> {
+async function postSlackAlert(payload: ReconciliationAlertPayload): Promise<void> {
   const webhook = process.env.FINANCIAL_RECON_SLACK_WEBHOOK;
   if (!webhook) {
+    console.warn("FINANCIAL_RECON_SLACK_WEBHOOK is not set; alert written to logs only");
+    console.warn(payload.text);
     return;
   }
 
-  const channel = process.env.FINANCIAL_RECON_SLACK_CHANNEL;
   for (let attempt = 1; attempt <= SLACK_WEBHOOK_ATTEMPTS; attempt++) {
     try {
       const response = await fetch(webhook, {
@@ -27,10 +66,7 @@ async function postToSlackIfConfigured(message: string): Promise<void> {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          text: message,
-          ...(channel ? { channel } : {}),
-        }),
+        body: JSON.stringify(payload),
         signal: AbortSignal.timeout(SLACK_WEBHOOK_TIMEOUT_MS),
       });
 
@@ -63,18 +99,37 @@ async function postToSlackIfConfigured(message: string): Promise<void> {
 }
 
 async function main() {
+  const databaseUrl = resolveDatabaseUrl();
+  const db = createReconciliationClient(databaseUrl);
+
   try {
-    const violations = await runAllInvariants(db);
+    const report = await executeFinancialReconciliation(db);
+    await postReconciliationAlerts(
+      report,
+      postSlackAlert,
+      process.env.FINANCIAL_RECON_SLACK_CHANNEL
+    );
 
-    if (violations.length > 0) {
-      const message = `Financial invariant violations detected (${violations.length})`;
-      await postToSlackIfConfigured(message);
-      console.error("Financial invariant violations:", violations);
+    console.log(
+      JSON.stringify(
+        {
+          ...report,
+          runAt: report.runAt.toISOString(),
+          businessDateStart: report.businessDateStart.toISOString(),
+          businessDateEnd: report.businessDateEnd.toISOString(),
+          violations: report.violations.map((violation) => ({
+            ...violation,
+            detectedAt: violation.detectedAt.toISOString(),
+          })),
+        },
+        null,
+        2
+      )
+    );
+
+    if (report.violations.length > 0) {
       process.exitCode = 1;
-      return;
     }
-
-    console.log("Financial invariants: OK");
   } finally {
     await db.$disconnect();
   }
@@ -83,5 +138,5 @@ async function main() {
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.stack ?? error.message : String(error);
   process.stderr.write(`${message}\n`);
-  process.exitCode = 1;
+  process.exitCode = 2;
 });

@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 77 Phase G is complete for Layer 10 production reconciliation: read-only nightly runner, structured violation reports, severity classification, alert payload verification, monitoring recommendations, and review documentation are in place.
 - Feature 77 Phase F is complete: Layers 7-9 concurrency, permission/security, stale-state, hidden mutation path, and failure-recovery tests now run through `tests/financial-phase-f/` inside `npm run test:backend-invariants`.
 - Feature 77 Phase D is complete: Layer 5 regression coverage for Features 74/75/76 and multi-package workflows now runs through `tests/financial-phase-d/` inside `npm run test:backend-invariants`, with legacy deposit-deduction and duplicate balance-display findings documented.
 - Dashboard date windows use the studio timezone (`Asia/Kuwait`) for today/week metrics and schedule time display, so late-night local payments land in the correct business day.
@@ -43,10 +44,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Editing start requires: selection complete + editor assigned + full invoice balance settled.
 - Phase D found a legacy editing/POS balance display path that can still subtract Deposit paid amount from canonical Final Invoice remaining balance; fix before treating editing readiness as fully canonical.
 - Phase F found payment settlement still lacks invoice row-level locking, and low-level `recordPayment()` remains a permission-bypass risk for internal callers that skip server-action/POS guards.
+- Phase G reconciliation runs inside a PostgreSQL `READ ONLY` transaction, reports only, and must use `FINANCIAL_RECON_DATABASE_URL` in production.
 - Order completion requires: pickup recorded + production status `READY_FOR_PICKUP` or `COMPLETED` + settled payment or explicit admin override reason.
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 77 Phase G: Production reconciliation architecture — read-only runner, structured violation report, cross-table reconciliation invariants, severity/alert verification, and monitoring/risk documentation.
 - Feature 77 Phase F: Concurrency/security/recovery suite — simultaneous payment and settlement races, stale browser/payment states, service permission matrix, forbidden transitions, hidden mutation-path search, rollback injection checks, and review documentation in `context/reviews/77-phase-f-concurrency-security-recovery-review.md`.
 - Feature 77 Phase D: Regression suite — REG-74/75/76 and REG-70 multi-package coverage, static legacy-path searches, mixed document pairing checks, and review documentation in `context/reviews/77-phase-d-review.md`.
 - Feature 77 Phase C: Edge-case expansion — E1-E12 classifier coverage, EC-13 through EC-42 service/characterization tests, stale-state checks, hidden corruption findings, and Phase C review documentation.
@@ -67,8 +70,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 ## Open Follow-Ups
 - Fix the Phase D legacy deposit-deduction path in `src/modules/orders/order.service.ts` so editing readiness and POS invoice summaries consume canonical allocation/application-backed invoice balances.
 - Fix Phase C/Phase F high-risk findings before production financial expansion: overpayment-based refund cap, paid ADJUSTMENT cause reversal, DB-level locked-invoice immutability, payment row-level locking, low-level `recordPayment()` permission guard, optional actor-role bypass, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
-- Before merging Feature 74e, confirm the 74d verification window had zero `financial.rearch.dual_read.discrepancy` WARN logs and run the financial invariant suite against a prod-shaped staging dataset.
-- Configure and verify production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, and `FINANCIAL_RECON_SLACK_CHANNEL`.
+- Configure production reconciliation secrets/env and monitoring: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, nightly 02:00 studio-local schedule, and a no-report-in-24h alert.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.
 - Consider adding explicit job categorization (`SESSION`, `VOUCHER`, `RETAIL`, `OTHER`) before future voucher or standalone sales invoice flows.

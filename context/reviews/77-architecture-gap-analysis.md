@@ -47,6 +47,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase B: Layer 3 integration assertions now live in `tests/financial-phase-b/`, while Phase A query invariants remain in `tests/financial-phase-a/`. This keeps phase scope clear, but financial verification is now split across runtime invariants plus Phase A and Phase B CI suites.
 - 2026-05-15 Phase C: Layer 4 assertions now live in `tests/financial-phase-c/`. The split is still manageable, but financial verification now spans Phase A query checks, Phase B service workflows, Phase C edge cases, and runtime invariants.
 - 2026-05-15 Phase D: Layer 5 assertions now live in `tests/financial-phase-d/` and are wired into the backend invariant runner after Phase C. The verification surface is intentionally phase-organized, but regression ownership now spans four phase folders plus runtime invariants.
+- 2026-05-15 Phase G: Production reconciliation now has a dedicated service surface in `src/modules/financial/reconciliation.service.ts`, separate from runtime write-path invariants in `src/modules/financial/invariants.ts` and CI phase checks. This keeps read-only production monitoring isolated, but the long-term invariant catalog should be documented in one owner-facing index.
 
 ## D. Cleanup Recommendations
 
@@ -69,6 +70,7 @@ TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase D: Locked-edit dual-read discrepancy logging still fires in adjustment/credit-note classifier workflows even though the new path succeeds. Pure invoice reads do not emit the warning. Release gates should distinguish this known dual-read cleanup need from real data corruption.
 - 2026-05-15 Phase E: The live locked-edit flow still emits `financial.rearch.dual_read.discrepancy` logs during valid ADJUSTMENT and manager-required CREDIT_NOTE attempts. This is now visible during normal manual POS use and should be cleaned up before log-based operational monitoring is trusted.
+- 2026-05-15 Phase G: The previous reconciliation script only ran registered runtime invariants through the default DB client. It now delegates to the read-only production reconciliation service and returns structured reports, so the old unstructured `Financial invariants: OK` path is removed.
 
 ## E. Future Scalability Concerns
 
@@ -91,6 +93,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase F: Concurrent locked-POS additions successfully created separate ADJUSTMENT siblings using the shared invoice sequence. The remaining audit concern is not numbering; it is missing first-class `AuditLog` and lock-time immutable snapshots.
+- 2026-05-15 Phase G: Reconciliation now verifies invoice number prefix consistency across the shared sequence as a `MEDIUM` severity signal. It does not require type-isolated sequences.
 
 ## F. Auditability Concerns
 
@@ -102,6 +105,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase B: The integration suite asserts `OrderActivity` entries for order-scoped financial/workflow actions (`Invoice created`, `Payment received`, `Auto-adjustment issued`, `Credit note issued`, `Refund payment recorded`, `Order completed`). Booking creation, confirmation, and no-show still cannot produce spec-level `AuditLog` assertions because the model is absent.
 - 2026-05-15 Phase C: EC-31 characterizes photographer reassignment after check-in as financially neutral but unaudited when written directly. A first-class audit model or service-only reassignment path is still needed.
 - 2026-05-15 Phase E: Browser QA confirmed order activity is visible for refund, credit note, invoice adjustment, and delivery actions, but there is still no first-class financial AuditLog view in the UI. Accountant-facing audit verification remains activity-feed based rather than audit-record based.
+- 2026-05-15 Phase G: Because no `reconciliation_runs` or `AuditLog` persistence was authorized, reconciliation emits stdout JSON and Slack alerts only. Persisted run history remains a future schema-backed monitoring gap.
 
 ### `actorUserId` gap status on audit-critical services
 

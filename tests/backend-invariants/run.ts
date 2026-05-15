@@ -57,6 +57,10 @@ async function main() {
     const { runPhaseFFinancialConcurrencySecurityRecovery } = await import(
       "../financial-phase-f/run"
     );
+    const { runPhaseGFinancialReconciliation } = await import(
+      "../financial-phase-g/reconciliation"
+    );
+    const { db } = await import("@/lib/db");
 
     await runPhaseAFinancialArchitectureVerification(databaseUrl);
     await runPhaseBFinancialWorkflowIntegration();
@@ -70,6 +74,7 @@ async function main() {
     await runCalendarSessionTypeDisplayInvariantTest();
     await runScopedAddOnDeleteInvariantTest();
     await runDuplicateBookingPackageInvariantTest();
+    await runPhaseGFinancialReconciliation(db);
   });
 
   process.stdout.write("backend invariant tests passed\n");
