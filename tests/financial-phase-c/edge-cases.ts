@@ -874,8 +874,8 @@ async function runEc37PaymentRaceLockCoverageCharacterization(): Promise<void> {
   const source = await readFile("src/modules/payments/payment.service.ts", "utf8");
   assert.equal(
     /FOR\s+UPDATE/i.test(source),
-    false,
-    "EC-37 documents missing row-level payment lock coverage"
+    true,
+    "EC-37 expects row-level payment lock coverage in the settlement path"
   );
 }
 

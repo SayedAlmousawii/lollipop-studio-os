@@ -199,6 +199,7 @@ export async function recordPaymentWithClient(
   actorContext: ActorContext
 ): Promise<{ id: string }> {
   assertActorPermission(actorContext, PERMISSIONS.PAYMENT_CREATE);
+  await lockInvoiceForUpdate(client, invoiceId);
 
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
@@ -313,6 +314,15 @@ export async function recordPaymentWithClient(
   return payment;
 }
 
+async function lockInvoiceForUpdate(
+  client: DbClient,
+  invoiceId: string
+): Promise<void> {
+  await client.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "invoices" WHERE id = ${invoiceId} FOR UPDATE
+  `;
+}
+
 async function closeInvoiceIfSettled(
   client: DbClient,
   invoiceId: string
@@ -329,13 +339,17 @@ async function closeInvoiceIfSettled(
       isLocked: true,
       status: true,
       remainingAmount: true,
+      issuedAt: true,
     },
   });
   if (!invoice) return null;
+  const shouldAutoCloseDraftFinal =
+    invoice.invoiceType === InvoiceType.FINAL &&
+    invoice.status === InvoiceStatus.DRAFT;
   if (
     invoice.isLocked ||
     invoice.status === InvoiceStatus.CLOSED ||
-    invoice.status === InvoiceStatus.DRAFT ||
+    (invoice.status === InvoiceStatus.DRAFT && !shouldAutoCloseDraftFinal) ||
     invoice.remainingAmount.greaterThan(0)
   ) {
     return { invoiceType: invoice.invoiceType, justClosed: false };
@@ -345,19 +359,36 @@ async function closeInvoiceIfSettled(
     await snapshotInvoiceLineItemsWithClient(client, invoice.id, invoice.orderId);
   }
 
-  const updateResult = await client.invoice.updateMany({
-    where: {
-      id: invoice.id,
-      isLocked: false,
-      status: { notIn: [InvoiceStatus.CLOSED, InvoiceStatus.DRAFT] },
-      remainingAmount: new Prisma.Decimal(0),
-    },
-    data: {
-      status: InvoiceStatus.CLOSED,
-      isLocked: true,
-      closedAt: new Date(),
-    },
-  });
+  const settledAt = new Date();
+  const updateResult = shouldAutoCloseDraftFinal
+    ? await client.invoice.updateMany({
+        where: {
+          id: invoice.id,
+          invoiceType: InvoiceType.FINAL,
+          isLocked: false,
+          status: InvoiceStatus.DRAFT,
+          remainingAmount: new Prisma.Decimal(0),
+        },
+        data: {
+          status: InvoiceStatus.CLOSED,
+          isLocked: true,
+          issuedAt: invoice.issuedAt ?? settledAt,
+          closedAt: settledAt,
+        },
+      })
+    : await client.invoice.updateMany({
+        where: {
+          id: invoice.id,
+          isLocked: false,
+          status: { notIn: [InvoiceStatus.CLOSED, InvoiceStatus.DRAFT] },
+          remainingAmount: new Prisma.Decimal(0),
+        },
+        data: {
+          status: InvoiceStatus.CLOSED,
+          isLocked: true,
+          closedAt: settledAt,
+        },
+      });
 
   return { invoiceType: invoice.invoiceType, justClosed: updateResult.count > 0 };
 }

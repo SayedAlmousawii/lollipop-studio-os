@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 78a is complete: `recordPayment()` now locks the invoice row before reading balances, fully paid FINAL invoices auto-close and lock even from `DRAFT`, and settlement regression coverage covers concurrent/full/overpay paths.
 - Feature 78b is complete: `ActorContext.actorRole` is required, permission checks throw on missing roles, and `recordPayment()` is guarded at the service boundary with regression coverage.
 - Feature 77 F6 investigation is complete: the dev INV-18 mismatch is classified as an active divergence, with finding/data docs and an intentionally failing repro test for Sprint 4.
 - Feature 77 Phase G is complete for Layer 10 production reconciliation: read-only nightly runner, structured violation reports, severity classification, alert payload verification, monitoring recommendations, and review documentation are in place.
@@ -45,13 +46,14 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order package changes are scoped to each line's stored session type; cross-session overrides are intentionally blocked until a future permissioned, audited repricing workflow.
 - Editing start requires: selection complete + editor assigned + full invoice balance settled.
 - Phase D found a legacy editing/POS balance display path that can still subtract Deposit paid amount from canonical Final Invoice remaining balance; fix before treating editing readiness as fully canonical.
-- Payment settlement still lacks invoice row-level locking, but low-level `recordPayment()` now enforces `PAYMENT_CREATE` and shared actor-role checks at the service boundary.
+- Payment settlement now acquires an invoice row lock before balance reads, and fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
 - Phase G reconciliation runs inside a PostgreSQL `READ ONLY` transaction, reports only, and must use `FINANCIAL_RECON_DATABASE_URL` in production.
 - F6 classified the dev INV-18 mismatch as active: paid-ADJUSTMENT cause removal and manual CREDIT_NOTE issuance can diverge revenue documents from current order composition.
 - Order completion requires: pickup recorded + production status `READY_FOR_PICKUP` or `COMPLETED` + settled payment or explicit admin override reason.
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 78a: locked invoice settlement with `SELECT ... FOR UPDATE`, auto-closed fully paid FINAL invoices from both `ISSUED` and `DRAFT`, added settlement regression coverage, and registered fully-paid-final lock invariants for runtime and nightly reconciliation.
 - Feature 78b: required `ActorContext.actorRole`, moved shared permission enforcement to `src/lib/auth/assert-actor-permission.ts`, guarded `recordPayment()` in-service, and added auth regression coverage plus typed actor test builders.
 - Feature 77 F6 investigation: classified INV-18 order/revenue mismatch as active, documented raw composition and finding, updated the roadmap, and added a Sprint 4 repro test.
 - Feature 77 Phase G: Production reconciliation architecture — read-only runner, structured violation report, cross-table reconciliation invariants, severity/alert verification, and monitoring/risk documentation.
@@ -74,7 +76,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ## Open Follow-Ups
 - Fix the Phase D legacy deposit-deduction path in `src/modules/orders/order.service.ts` so editing readiness and POS invoice summaries consume canonical allocation/application-backed invoice balances.
-- Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: overpayment-based refund cap, paid ADJUSTMENT cause reversal and INV-18 revenue-composition drift, DB-level locked-invoice immutability, payment row-level locking, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
+- Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: overpayment-based refund cap, paid ADJUSTMENT cause reversal and INV-18 revenue-composition drift, DB-level locked-invoice immutability, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
 - Configure production reconciliation secrets/env and monitoring: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, nightly 02:00 studio-local schedule, and a no-report-in-24h alert.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.

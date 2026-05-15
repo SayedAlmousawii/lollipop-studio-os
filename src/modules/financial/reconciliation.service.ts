@@ -528,6 +528,25 @@ const RECONCILIATION_INVARIANTS: ReconciliationInvariantDefinition[] = [
       `,
   },
   {
+    invariantId: "INV-25",
+    severity: "CRITICAL",
+    affectedEntityType: "Invoice",
+    description: "Fully paid FINAL invoices must be closed and locked",
+    expected: "remainingAmount=0 with status CLOSED and isLocked=true",
+    queryContext: "final invoices filtered by zero remaining balance, status, and lock state",
+    run: (tx) =>
+      tx.$queryRaw<ReconciliationQueryRow[]>`
+        SELECT
+          id AS entity_id,
+          ARRAY[id] AS affected_entity_ids,
+          ('status=' || status || ', isLocked=' || "isLocked"::text) AS actual
+        FROM "invoices"
+        WHERE "invoiceType" = 'FINAL'
+          AND "remainingAmount" = 0
+          AND (status != 'CLOSED' OR "isLocked" = false)
+      `,
+  },
+  {
     invariantId: "INV-PREFIX",
     severity: "MEDIUM",
     affectedEntityType: "Invoice",

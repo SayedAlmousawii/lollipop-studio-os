@@ -741,6 +741,33 @@ registerInvariant({
 });
 
 registerInvariant({
+  name: "final-invoice-fully-paid-must-be-locked",
+  scope: "global",
+  run: async ({ tx }) => {
+    const finalInvoices = await tx.invoice.findMany({
+      where: {
+        invoiceType: InvoiceType.FINAL,
+        remainingAmount: new Prisma.Decimal(0),
+      },
+      select: { id: true, isLocked: true, status: true },
+    });
+
+    return finalInvoices
+      .filter(
+        (invoice) =>
+          !invoice.isLocked || invoice.status !== InvoiceStatus.CLOSED
+      )
+      .map((invoice) => ({
+        invariant: "final-invoice-fully-paid-must-be-locked",
+        entityType: "Invoice",
+        entityId: invoice.id,
+        expected: "remainingAmount=0 with isLocked=true and status=CLOSED",
+        actual: `isLocked=${invoice.isLocked}, status=${invoice.status}`,
+      }));
+  },
+});
+
+registerInvariant({
   name: "classifier-reductions-have-matching-credit-note",
   scope: "global",
   run: async ({ tx }) => {

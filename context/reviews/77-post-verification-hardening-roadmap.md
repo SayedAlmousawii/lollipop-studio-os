@@ -12,9 +12,9 @@ Feature 77 verification (Phases A–G) raised confidence in the choke-point arch
 
 However, the verification effort also exposed a small number of **structural weaknesses that are real production hazards today**:
 
-- **No row-level locking** on invoice settlement — double-click and final-1% race paths are unprotected. The reconciliation runner can detect aftermath, not prevent it.
+- **Invoice settlement row locking is now closed by Feature 78a** — `recordPayment()` takes a row-level lock before balance reads, removing the demonstrated double-click and final-1% race window.
 - **Locked invoice immutability is service-only** — a direct Prisma write can unset `isLocked` or mutate `totalAmount`; there is no DB trigger and no audit snapshot to even prove it happened.
-- **POS settlement does not auto-lock a fully paid Final Invoice**. During the unlocked window staff have reproduced direct `totalAmount` mutation (POS QA: 210 → 275 KD) instead of generating an ADJUSTMENT. This is the single most dangerous live-staff hazard found.
+- **POS settlement auto-lock is now closed by Feature 78a**. Fully paid FINAL invoices now close and lock inside the settlement transaction, including the prior `Draft` edge case.
 - **Refund capacity is computed from inbound allocations, not real overpayment**. Managers can issue refunds larger than true overpaid amount, and the UI defaults to the unsafe number (Phase E: 210 KD default vs 45 KD actual overpayment).
 - **Retired virtual-deposit deduction lives on** in `order.service.ts` (`calculateFinalBalanceDue`, `mapPOSInvoiceSummary`, `hasBasePayment`) and can mark an order ready-for-editing with money still due.
 - **`assertActorPermission()` short-circuits when `actorRole` is missing**, and `recordPayment()` has no role guard at all — internal callers can bypass authorization.
@@ -29,7 +29,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 
 | # | Severity | Risk | Source | Required Fix |
 |---|---|---|---|---|
-| F1 | **CRITICAL** | Fully paid Final Invoice remains `Draft`/unlocked in POS until manually closed; during the window, add-ons mutate `Invoice.totalAmount` directly instead of creating ADJUSTMENT | Phase E POS QA; Risk §A | Auto-lock Final Invoice at `remainingAmount = 0` inside the settlement transaction; remove "manual close" as the trigger |
+| F1 | **COMPLETED** | Fully paid FINAL invoices now auto-close and lock inside the settlement transaction, including the prior `Draft` edge case | Closed by Feature 78a | `recordPayment()` now settles FINAL invoices to `CLOSED + isLocked=true` at `remainingAmount = 0` |
 | F2 | **CRITICAL** | `computeRefundableAmountForInvoice` treats inbound allocations as refundable capacity; managers can refund beyond true overpayment, and invoice-detail UI defaults to the unsafe amount | Phase C EC-18/EC-19; Phase E (210 vs 45 KD) | New service `computeOverpaymentCapacity()` that derives capacity from `payments − CREDIT_NOTE-net invoice total − prior REFUND`. UI must default to this value and cap input |
 | F3 | **CRITICAL** | Locked invoice immutability is service-layer only. EC-27 proves direct Prisma can unset `isLocked`; `totalAmount` is also writable. No `AuditLog` snapshot exists to even detect after the fact | Risk §B, §D; Phase F | DB-level: trigger or `UPDATE` policy rejecting mutation when `isLocked=true` (except controlled fields). Add `InvoiceLockSnapshot` table written inside lock transaction |
 | F4 | **HIGH** | Paid ADJUSTMENT removal produces no CREDIT_NOTE/REFUND reversal because classifier has no adjustment-cause ledger | Phase C E11; Phase E | Add adjustment-cause linkage so reductive edits to a paid-ADJUSTMENT cause trigger the standard reversal flow |
@@ -46,7 +46,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | W1 | **DEFERRED** | "Mark ready for pickup" succeeds while required production sections (Album Design, Printing, Assembly, Vendor, Framed Prints) are still "Not started". Delivery then becomes available | Phase E | Deferred: not all orders require all sections; formalizing per-order-type required-section taxonomy is out of scope for stabilization. See §12 |
 | W2 | **HIGH** | Reductive locked-invoice edit in POS fails with "Unable to remove order add-on" instead of opening the manager credit-note workflow | Phase E | Surface the manager-approval/credit-note prompt in the POS reductive path |
 | W3 | **HIGH** | Editing-start readiness can return true with money still due, via legacy deposit deduction (see F5) | Phase D REG-LEGACY-01 | Same fix as F5; add a failure-expecting regression test once corrected |
-| W4 | **MEDIUM** | POS settlement is a 4-step staff journey (pay → leave → close/lock → return) | Phase E; Arch §B | Merge full payment + lock + ADJUSTMENT-readiness into one operation (depends on F1) |
+| W4 | **COMPLETED** | POS settlement now closes and locks FINAL invoices as part of the payment transaction instead of requiring a separate close step | Closed by Feature 78a | Full payment now performs settlement and lock in one operation |
 | W5 | **MEDIUM** | Photographer reassignment after check-in is financially neutral but unaudited when written directly | Phase C EC-31 | Service-only reassignment path, or audit on write |
 
 ---
@@ -55,7 +55,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 
 | # | Severity | Risk | Source | Required Fix |
 |---|---|---|---|---|
-| C1 | **CRITICAL** | `recordPayment()` has no `SELECT … FOR UPDATE` on the invoice row. Final-1% settlement race and double-click submission are demonstrated unprotected boundaries | Phase C EC-37; Phase F | Wrap balance-read → payment-write → recalculation → close in a transaction with `SELECT … FOR UPDATE` on the target invoice row |
+| C1 | **COMPLETED** | `recordPayment()` now acquires `SELECT … FOR UPDATE` on the invoice row before balance reads, removing the demonstrated settlement race window | Closed by Feature 78a | Balance-read → payment-write → recalculation → close now happens under the same locked transaction |
 | C2 | **HIGH** | Invoice-level over-collection prevention is app-layer only; no DB constraint enforces `sum(allocations) ≤ invoice.totalAmount` | Risk §B; Arch §E | Add a deferred CHECK or trigger; or enforce by writing settled `remainingAmount` under the same lock as C1 |
 | C3 | **MEDIUM** | ADJUSTMENT chaining is blocked at service/CI level but not at DB | Risk §D; Phase C E8 | DB CHECK: `parentInvoiceId` must reference an invoice whose `invoiceType != ADJUSTMENT` |
 | C4 | **LOW** | Cross-booking simultaneous reference generation relies on self-healing `identifier_sequences` upsert. Same-booking race already covered | Phase F | Acceptable; revisit only if higher booking volume is targeted |
@@ -107,7 +107,7 @@ All removals must land with characterization tests flipped to failure-expecting 
 |---|---|---|---|---|
 | O1 | **HIGH** | Refund default in invoice detail exceeds visible overpayment (210 vs 45 KD) | Phase E; F2 | UI must default to and cap by `computeOverpaymentCapacity()` |
 | O2 | **HIGH** | Order header shows "Paid 255 of 230" after refund/credit-note actions — no canonical settlement view | Phase E | One canonical financial summary component fed by invoice-service totals |
-| O3 | **MEDIUM** | POS shows "Fully Paid" while invoice is still Draft/unlocked (until F1 fixed). Misleads staff into editing | Phase E | Resolved by F1 |
+| O3 | **COMPLETED** | POS no longer leaves a fully paid FINAL invoice in a misleading Draft/unlocked state after settlement | Closed by Feature 78a | Resolved by F1 |
 | O4 | **MEDIUM** | Locked-edit reductive path returns generic error instead of manager-approval prompt | Phase E; W2 | UI copy + flow change |
 | O5 | **MEDIUM** | Slack delivery has no external "no-report-in-24h" monitor | Phase G; Ops §D | Add external monitor (Healthchecks.io / cron-monitor) |
 | O6 | **LOW** | No first-class financial AuditLog view for accountants; activity feed only | Phase E; Arch §F | Deferred until A1 lands |
@@ -132,8 +132,8 @@ All removals must land with characterization tests flipped to failure-expecting 
 The order is chosen to (a) close the largest production hazards first, (b) avoid building on top of soon-to-be-deleted code, and (c) make later removals safe.
 
 **Sprint 1 — Stop active corruption vectors**
-1. F1 — Auto-lock Final Invoice on full payment (settlement transaction)
-2. C1 — Row-level lock on invoice settlement (`SELECT … FOR UPDATE`)
+1. F1 — Completed in Feature 78a: auto-lock Final Invoice on full payment (settlement transaction)
+2. C1 — Completed in Feature 78a: row-level lock on invoice settlement (`SELECT … FOR UPDATE`)
 3. S1 + S2 — Completed in Feature 78b: required `actorRole` + role guard on `recordPayment()`
 4. F6 — **Investigation complete** for dev `INV-18` mismatch (order `cmp6tm9n30007n7t3ramturmp`, 230 vs 225 KD): active bug, root cause and repro test documented in [F6 finding](77-f6-investigation-finding.md). Fix lands in Sprint 4
 
@@ -165,12 +165,12 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 
 These must all be closed before commissions, reporting, vouchers, or integrations work begins. Each one would compound or be reintroduced by expansion work.
 
-- **F1** Auto-lock Final Invoice on full payment
+- **F1** Completed in Feature 78a: auto-lock Final Invoice on full payment
 - **F2** Real overpayment-capacity service + UI cap
 - **F3** DB-level locked-invoice immutability + lock snapshot
 - **F4** Paid-ADJUSTMENT reversal
 - **F5 / D1-D3 / A2** Legacy deposit-deduction removal
-- **C1** Invoice row-level locking on settlement
+- **C1** Completed in Feature 78a: invoice row-level locking on settlement
 - **C2** DB-level over-collection prevention
 - **C3** DB-level ADJUSTMENT chain prevention
 - **S1, S2** Completed in Feature 78b: required actor role + `recordPayment()` guard

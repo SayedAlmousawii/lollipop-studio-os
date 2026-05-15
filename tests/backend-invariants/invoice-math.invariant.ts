@@ -4,7 +4,9 @@ import {
   InvoiceLineType,
   MediaType,
   Prisma,
+  UserRole,
 } from "@prisma/client";
+import type { ActorContext } from "@/lib/auth";
 import { makeManagerActor } from "../fixtures/actor";
 
 type Db = typeof import("../../src/lib/db")["db"];
@@ -20,7 +22,6 @@ interface OrderFixture {
 }
 
 export async function runInvoiceMathInvariantTest(): Promise<void> {
-  const managerActor = makeManagerActor();
   const [
     { db },
     {
@@ -32,13 +33,22 @@ export async function runInvoiceMathInvariantTest(): Promise<void> {
     import("../../src/lib/db"),
     import("../../src/modules/invoices/invoice.service"),
   ]);
+  const manager = await db.user.create({
+    data: {
+      id: "backend-invariants-invoice-math-manager",
+      name: "Backend Invariants Manager",
+      email: "backend-invariants-invoice-math@example.com",
+      role: UserRole.MANAGER,
+    },
+  });
+  const managerActor = makeManagerActor({ actorUserId: manager.id });
 
   try {
     const nonUpgraded = await createOrderFixture(db, {
       label: "non-upgraded",
       lines: [{ packageKind: "silver", originalPrice: 60, finalPrice: 60 }],
     });
-    await assertComputedInvoiceReconciles(db, nonUpgraded.orderId, {
+    await assertComputedInvoiceReconciles(db, managerActor, nonUpgraded.orderId, {
       expectedTotal: 60,
       expectedPackageLines: ["Backend Silver"],
     });
@@ -47,7 +57,7 @@ export async function runInvoiceMathInvariantTest(): Promise<void> {
       label: "upgraded",
       lines: [{ packageKind: "gold", originalPrice: 60, finalPrice: 90 }],
     });
-    await assertComputedInvoiceReconciles(db, upgraded.orderId, {
+    await assertComputedInvoiceReconciles(db, managerActor, upgraded.orderId, {
       expectedTotal: 90,
       expectedPackageLines: ["Backend Gold"],
     });
@@ -59,10 +69,15 @@ export async function runInvoiceMathInvariantTest(): Promise<void> {
         { packageKind: "silver", originalPrice: 60, finalPrice: 60 },
       ],
     });
-    const mixedInvoiceId = await assertComputedInvoiceReconciles(db, mixed.orderId, {
-      expectedTotal: 150,
-      expectedPackageLines: ["Backend Gold", "Backend Silver"],
-    });
+    const mixedInvoiceId = await assertComputedInvoiceReconciles(
+      db,
+      managerActor,
+      mixed.orderId,
+      {
+        expectedTotal: 150,
+        expectedPackageLines: ["Backend Gold", "Backend Silver"],
+      }
+    );
     await closeInvoice(mixedInvoiceId, managerActor);
     await assertSnapshottedInvoiceReconciles(db, mixedInvoiceId);
 
@@ -243,6 +258,7 @@ async function createOrderFixture(
 
 async function assertComputedInvoiceReconciles(
   db: Db,
+  actorContext: ActorContext,
   orderId: string,
   input: {
     expectedTotal: number;
@@ -254,7 +270,7 @@ async function assertComputedInvoiceReconciles(
   const invoice = await createInvoiceForOrderWithClient(
     db,
     orderId,
-    makeManagerActor()
+    actorContext
   );
   const invoiceDetail = await getInvoiceWithLineItems(invoice.id);
 
