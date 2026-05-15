@@ -40,10 +40,10 @@ Closes roadmap item **F4**.
 
 **Schema migration**
 
-Add two nullable columns to `InvoiceLine`:
+Add two nullable columns to `InvoiceLineItem`:
 
 ```prisma
-model InvoiceLine {
+model InvoiceLineItem {
   // existing fields …
   causeOrderEntityKind  OrderEntityKind?
   causeOrderEntityId    String?
@@ -181,13 +181,17 @@ This invariant runs in the nightly reconciliation pass. After F4 lands, dev orde
 
 **Regression tests**
 
-`tests/financial/adjustment-reversal.test.ts`:
+Canonical focused suite: `tests/financial/adjustment-reversal.test.ts`
+(`adjustment reversal regressions A-E`). Existing financial-audit anchors also
+exercise the paid reversal path in `tests/financial-invariants.test.ts`
+(`financial invariants all pass against seeded fixtures`, auto-adjusted fixture
+block) and `tests/financial-phase-c/edge-cases.ts` (`E11`).
 
-- Test A: locked FINAL → add addon (ADJUSTMENT issued, paid in full) → remove addon → expect one CREDIT_NOTE line targeting the ADJUSTMENT line, one REFUND invoice, one outbound payment. FINAL balance unchanged.
-- Test B: locked FINAL → add addon (ADJUSTMENT issued, **unpaid**) → remove addon → expect CREDIT_NOTE targeting ADJUSTMENT, no REFUND.
-- Test C: locked FINAL → add upgrade (ADJUSTMENT, paid) → reduce upgrade quantity by 1 of 3 → expect partial reversal (1/3 amount) targeting the ADJUSTMENT, residual nothing (since this is full per-unit cause).
-- Test D: locked FINAL with addon present from original composition (NOT in any ADJUSTMENT) → remove addon → expect CREDIT_NOTE targeting FINAL (unchanged legacy behavior).
-- Test E: locked FINAL → add addon (ADJUSTMENT, paid, closed) → add second addon (second ADJUSTMENT, paid) → remove the first addon only → expect reversal targets only the first ADJUSTMENT line.
+- Test A: locked FINAL → add addon (ADJUSTMENT issued, paid in full) → remove addon → expect one CREDIT_NOTE line targeting the ADJUSTMENT line, one REFUND invoice, one outbound payment. FINAL balance unchanged. Covered by `adjustment reversal regressions A-E` scenario A, `financial invariants all pass against seeded fixtures` auto-adjusted fixture block, and Phase C `E11`.
+- Test B: locked FINAL → add addon (ADJUSTMENT issued, **unpaid**) → remove addon → expect CREDIT_NOTE targeting ADJUSTMENT, no REFUND. Covered by `adjustment reversal regressions A-E` scenario B.
+- Test C: locked FINAL → add upgrade (ADJUSTMENT, paid) → reduce upgrade quantity by 1 of 3 → expect partial reversal (1/3 amount) targeting the ADJUSTMENT, residual nothing (since this is full per-unit cause). Covered by `adjustment reversal regressions A-E` scenario C.
+- Test D: locked FINAL with addon present from original composition (NOT in any ADJUSTMENT) → remove addon → expect CREDIT_NOTE targeting FINAL (unchanged legacy behavior). Covered by `adjustment reversal regressions A-E` scenario D.
+- Test E: locked FINAL → add addon (ADJUSTMENT, paid, closed) → add second addon (second ADJUSTMENT, paid) → remove the first addon only → expect reversal targets only the first ADJUSTMENT line. Covered by `adjustment reversal regressions A-E` scenario E, including the same-cause overwrite regression extension.
 
 ### Out of Scope
 

@@ -1359,6 +1359,10 @@ async function buildOpenAdjustmentLineMap(
             where: { payment: { direction: PaymentDirection.IN } },
             select: { amount: true },
           },
+          lineItems: {
+            select: { id: true, lineTotal: true },
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          },
         },
       },
     },
@@ -1383,10 +1387,26 @@ async function buildOpenAdjustmentLineMap(
     );
     if (remainingAmount.lessThanOrEqualTo(0)) continue;
 
-    const paidAmount = line.invoice.paymentAllocations.reduce(
+    const invoicePaidAmount = line.invoice.paymentAllocations.reduce(
       (sum, allocation) => sum.plus(allocation.amount),
       new Prisma.Decimal(0)
     );
+    let paidAmount = new Prisma.Decimal(0);
+    let remainingPaidAmount = invoicePaidAmount;
+    for (const invoiceLine of line.invoice.lineItems) {
+      const linePaidAmount = Prisma.Decimal.min(
+        remainingPaidAmount,
+        invoiceLine.lineTotal
+      );
+      if (invoiceLine.id === line.id) {
+        paidAmount = linePaidAmount;
+        break;
+      }
+      remainingPaidAmount = Prisma.Decimal.max(
+        remainingPaidAmount.minus(invoiceLine.lineTotal),
+        0
+      );
+    }
     const key = adjustmentCauseKey(
       line.causeOrderEntityKind,
       line.causeOrderEntityId
@@ -1429,15 +1449,11 @@ async function buildAdjustmentCauseReductions(
 
     const currentAmount =
       currentAmounts.get(key) ?? new Prisma.Decimal(0);
-    const totalOpenLineAmount = lines.reduce(
-      (sum, line) => sum.plus(line.lineAmount),
-      new Prisma.Decimal(0)
-    );
     const totalRemainingAmount = lines.reduce(
       (sum, line) => sum.plus(line.remainingAmount),
       new Prisma.Decimal(0)
     );
-    const removedAmount = totalOpenLineAmount.minus(currentAmount);
+    const removedAmount = totalRemainingAmount.minus(currentAmount);
     if (removedAmount.lessThanOrEqualTo(0)) continue;
 
     const reversalAmount = removedAmount.lessThan(totalRemainingAmount)
@@ -1489,7 +1505,10 @@ async function buildCurrentAdjustmentCauseAmounts(
           select: {
             originalPackagePriceSnapshot: true,
             finalPackagePriceSnapshot: true,
-            package: { select: { price: true } },
+            sessionTypeId: true,
+            extraDigitalCount: true,
+            extraPrintCount: true,
+            package: { select: { name: true, price: true } },
           },
         },
       },
@@ -1525,6 +1544,42 @@ async function buildCurrentAdjustmentCauseAmounts(
       ),
       Prisma.Decimal.max(currentPackageUpgradeAmount, 0)
     );
+  }
+
+  const extraPhotoCauses = openAdjustmentLines.filter(
+    (line) => line.causeOrderEntityKind === OrderEntityKind.EXTRA_PHOTO
+  );
+  if (extraPhotoCauses.length > 0 && order) {
+    const extraPhotoAmounts = new Map<string, Prisma.Decimal>();
+    for (const orderPackage of order.packages) {
+      for (const mediaType of [MediaType.DIGITAL, MediaType.PRINT] as const) {
+        const quantity =
+          mediaType === MediaType.DIGITAL
+            ? orderPackage.extraDigitalCount
+            : orderPackage.extraPrintCount;
+        if (quantity <= 0) continue;
+
+        const description = `Extra photos - ${formatEnum(mediaType)} (${orderPackage.package.name})`;
+        const unitPrice = await getExtraPhotoUnitPriceWithClient(
+          client,
+          orderPackage.sessionTypeId,
+          mediaType
+        );
+        extraPhotoAmounts.set(
+          description,
+          (extraPhotoAmounts.get(description) ?? new Prisma.Decimal(0)).plus(
+            unitPrice.mul(quantity)
+          )
+        );
+      }
+    }
+
+    for (const line of extraPhotoCauses) {
+      amounts.set(
+        adjustmentCauseKey(OrderEntityKind.EXTRA_PHOTO, line.causeOrderEntityId),
+        extraPhotoAmounts.get(line.causeOrderEntityId) ?? new Prisma.Decimal(0)
+      );
+    }
   }
 
   return amounts;

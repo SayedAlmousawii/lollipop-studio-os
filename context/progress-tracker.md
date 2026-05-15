@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 79a is complete after PR review follow-up: classifier-issued ADJUSTMENT lines carry order-entity causes, same-cause lines reverse oldest-first, paid/unpaid post-lock cause removals create line-targeted CREDIT_NOTEs through the shared materialization path, and paid reversals issue REFUND/outbound payments.
+- Feature 79a is complete after PR review follow-up: classifier-issued ADJUSTMENT lines carry order-entity causes, same-cause lines reverse oldest-first, paid/unpaid post-lock cause removals create line-targeted CREDIT_NOTEs through the shared materialization path, paid reversals issue REFUND/outbound payments, and per-line paid/extra-photo cause handling is tightened.
 - Feature 78a is complete: `recordPayment()` now locks the invoice row before reading balances, fully paid FINAL invoices auto-close and lock even from `DRAFT`, and settlement regression coverage covers concurrent/full/overpay paths.
 - Feature 78b is complete: `ActorContext.actorRole` is required, permission checks throw on missing roles, and `recordPayment()` is guarded at the service boundary with regression coverage.
 - Feature 77 F6 investigation is complete: the dev INV-18 mismatch is classified as an active divergence, with finding/data docs and an intentionally failing repro test for Sprint 4.

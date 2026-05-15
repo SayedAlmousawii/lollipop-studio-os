@@ -75,11 +75,20 @@ export type CreateCreditNoteInput = {
   notes?: string;
 };
 
-export const createAdjustmentInvoiceLineSchema = z.object({
-  lineType: z.nativeEnum(InvoiceLineType),
-  description: z.string().trim().min(1),
-  quantity: z.coerce.number().int().positive(),
-  unitPrice: z.coerce.number().positive(),
-  causeOrderEntityKind: z.nativeEnum(OrderEntityKind).optional(),
-  causeOrderEntityId: z.string().trim().min(1).optional(),
-});
+export const createAdjustmentInvoiceLineSchema = z
+  .object({
+    lineType: z.nativeEnum(InvoiceLineType),
+    description: z.string().trim().min(1),
+    quantity: z.coerce.number().int().positive(),
+    unitPrice: z.coerce.number().positive(),
+    causeOrderEntityKind: z.nativeEnum(OrderEntityKind).optional(),
+    causeOrderEntityId: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (line) => Boolean(line.causeOrderEntityKind) === Boolean(line.causeOrderEntityId),
+    {
+      message:
+        "causeOrderEntityKind and causeOrderEntityId must be provided together",
+      path: ["causeOrderEntityId"],
+    }
+  );

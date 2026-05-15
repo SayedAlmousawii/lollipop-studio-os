@@ -337,6 +337,9 @@ async function runE11PaidAdjustmentCauseRemovalCharacterization(
   const addOn = await db.orderAddOn.findFirstOrThrow({
     where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
   });
+  const adjustmentLine = await db.invoiceLineItem.findFirstOrThrow({
+    where: { invoiceId: adjustment.id },
+  });
 
   await removeOrderAddOn(
     workflow.orderId,
@@ -362,7 +365,16 @@ async function runE11PaidAdjustmentCauseRemovalCharacterization(
   ]);
   assert.equal(creditNotes, 1, "E11 now reverses paid adjustment cause removal with a credit note");
   assert.equal(refunds, 1, "E11 now creates a refund invoice for paid adjustment reversal");
-  assert.ok(reversalApplication?.targetInvoiceLineId, "E11 reversal targets the adjustment line");
+  assert.equal(
+    reversalApplication?.targetInvoiceLineId,
+    adjustmentLine.id,
+    "E11 reversal targets the exact adjustment line"
+  );
+  assert.equal(
+    reversalApplication?.amountApplied.toFixed(3),
+    adjustmentLine.lineTotal.toFixed(3),
+    "E11 reversal amount matches the adjustment line"
+  );
   assert.equal(paidAdjustment.status, InvoiceStatus.CLOSED);
 }
 

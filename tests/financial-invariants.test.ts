@@ -124,6 +124,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
             isLocked: true,
             payments: {
               select: {
+                id: true,
                 paymentType: true,
                 direction: true,
                 allocations: { select: { invoiceId: true, amount: true } },
@@ -244,6 +245,10 @@ test("financial invariants all pass against seeded fixtures", async () => {
         assert.equal(
           adjustmentRefund.payments[0]?.amount.toFixed(3),
           "15.000"
+        );
+        assert.equal(
+          adjustmentRefund.payments[0]?.refundOfPaymentId,
+          paidAdjustmentInvoice.payments[0]?.id
         );
         assert.equal(
           adjustmentRefund.payments[0]?.allocations[0]?.invoiceId,

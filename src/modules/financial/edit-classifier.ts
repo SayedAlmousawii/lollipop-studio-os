@@ -6,6 +6,8 @@ import type {
   ReductionEvent,
 } from "@/modules/orders/order.delta";
 
+const PACKAGE_TIER_UPGRADE_CAUSE_ID = "package-tier-upgrade";
+
 export type CreditNoteRequirement = {
   reason:
     | "REMOVED_ADDON"
@@ -206,7 +208,7 @@ function toAdjustmentLine(addition: AdditionEvent): AdjustmentLineInput {
         quantity: 1,
         unitPrice: addition.newPriceSnapshot.minus(addition.oldPriceSnapshot).toNumber(),
         causeOrderEntityKind: OrderEntityKind.PACKAGE_TIER_UPGRADE,
-        causeOrderEntityId: "package-tier-upgrade",
+        causeOrderEntityId: PACKAGE_TIER_UPGRADE_CAUSE_ID,
       };
   }
 }
