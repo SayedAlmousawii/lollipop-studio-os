@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 79a is complete: classifier-issued ADJUSTMENT lines now carry order-entity causes, paid/unpaid post-lock cause removals reverse against the ADJUSTMENT line, and targeted CREDIT_NOTE/REFUND coverage is in the financial invariant suite.
+- Feature 79a is complete after PR review follow-up: classifier-issued ADJUSTMENT lines carry order-entity causes, same-cause lines reverse oldest-first, paid/unpaid post-lock cause removals create line-targeted CREDIT_NOTEs through the shared materialization path, and paid reversals issue REFUND/outbound payments.
 - Feature 78a is complete: `recordPayment()` now locks the invoice row before reading balances, fully paid FINAL invoices auto-close and lock even from `DRAFT`, and settlement regression coverage covers concurrent/full/overpay paths.
 - Feature 78b is complete: `ActorContext.actorRole` is required, permission checks throw on missing roles, and `recordPayment()` is guarded at the service boundary with regression coverage.
 - Feature 77 F6 investigation is complete: the dev INV-18 mismatch is classified as an active divergence, with finding/data docs and an intentionally failing repro test for Sprint 4.
@@ -55,7 +55,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
-- Feature 79a: adjustment cause ledger and paid reversal — added `OrderEntityKind` cause fields to invoice line items, line-targeted `DocumentApplication` support, pure classifier reversal routing, ADJUSTMENT-targeted CREDIT_NOTE materialization, REFUND/outbound payment creation for paid reversals, and regression coverage.
+- Feature 79a: adjustment cause ledger and paid reversal — added `OrderEntityKind` cause fields to invoice line items, line-targeted `DocumentApplication` support, oldest-first same-cause reversal routing, ADJUSTMENT-targeted CREDIT_NOTE materialization via the shared credit-note path, REFUND/outbound payment creation for paid reversals, and A-E regression coverage.
 - Feature 78a: locked invoice settlement with `SELECT ... FOR UPDATE`, auto-closed fully paid FINAL invoices from both `ISSUED` and `DRAFT`, added settlement regression coverage, and registered fully-paid-final lock invariants for runtime and nightly reconciliation.
 - Feature 78b: required `ActorContext.actorRole`, moved shared permission enforcement to `src/lib/auth/assert-actor-permission.ts`, guarded `recordPayment()` in-service, and added auth regression coverage plus typed actor test builders.
 - Feature 77 F6 investigation: classified INV-18 order/revenue mismatch as active, documented raw composition and finding, updated the roadmap, and added a Sprint 4 repro test.

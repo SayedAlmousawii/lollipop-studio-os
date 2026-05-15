@@ -765,7 +765,6 @@ model DocumentApplication {
   targetInvoiceLine InvoiceLineItem? @relation(fields: [targetInvoiceLineId], references: [id], onDelete: SetNull)
   appliedBy         User?            @relation(fields: [appliedByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([sourceInvoiceId, targetInvoiceId])
   @@index([sourceInvoiceId])
   @@index([targetInvoiceId])
   @@index([targetInvoiceLineId])

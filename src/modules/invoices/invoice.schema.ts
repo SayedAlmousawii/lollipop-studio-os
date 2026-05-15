@@ -59,10 +59,16 @@ export type CreditNoteLineInput = {
   description: string;
   quantity: number;
   unitPrice: Prisma.Decimal | number | string;
+  lineType?: InvoiceLineType;
+  causeOrderEntityKind?: OrderEntityKind;
+  causeOrderEntityId?: string;
+  targetInvoiceId?: string;
+  targetInvoiceLineId?: string;
 };
 
 export type CreateCreditNoteInput = {
-  targetFinalInvoiceId: string;
+  targetFinalInvoiceId?: string;
+  targetAdjustmentInvoiceId?: string;
   lines: CreditNoteLineInput[];
   reason: string;
   createdByUserId: string;

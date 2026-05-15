@@ -21,7 +21,7 @@ export type InvariantViolation = {
 
 export type InvariantCheck = {
   name: string;
-  scope: "financial-case" | "global";
+  scope: "financial-case" | "global" | "order";
   run: (
     ctx: InvariantContext,
     scopeArgs?: { financialCaseId?: string }
@@ -669,7 +669,7 @@ registerInvariant({
         id: true,
         parentInvoiceId: true,
         documentApplicationsAsSource: {
-          select: { id: true, targetInvoiceId: true },
+          select: { id: true, targetInvoiceId: true, targetInvoiceLineId: true },
         },
       },
     });
@@ -678,9 +678,14 @@ registerInvariant({
       const matchingApplications = invoice.documentApplicationsAsSource.filter(
         (application) => application.targetInvoiceId === invoice.parentInvoiceId
       );
+      const lineTargetedApplications = invoice.documentApplicationsAsSource.filter(
+        (application) => application.targetInvoiceLineId
+      );
       if (
-        invoice.documentApplicationsAsSource.length === 1 &&
-        matchingApplications.length === 1
+        (invoice.documentApplicationsAsSource.length === 1 &&
+          matchingApplications.length === 1) ||
+        (lineTargetedApplications.length > 0 &&
+          lineTargetedApplications.length === invoice.documentApplicationsAsSource.length)
       ) {
         return [];
       }
@@ -690,8 +695,9 @@ registerInvariant({
           invariant: "credit-note-has-document-application",
           entityType: "Invoice",
           entityId: invoice.id,
-          expected: "exactly 1 DocumentApplication to parent invoice",
-          actual: `${invoice.documentApplicationsAsSource.length} source applications, ${matchingApplications.length} to parent`,
+          expected:
+            "exactly 1 DocumentApplication to parent invoice or line-targeted applications only",
+          actual: `${invoice.documentApplicationsAsSource.length} source applications, ${matchingApplications.length} to parent, ${lineTargetedApplications.length} line-targeted`,
         },
       ];
     });
@@ -700,7 +706,7 @@ registerInvariant({
 
 registerInvariant({
   name: "paid-adjustment-line-removal-must-have-reversal",
-  scope: "global",
+  scope: "order",
   run: async ({ tx }) => {
     const adjustmentLines = await tx.invoiceLineItem.findMany({
       where: {

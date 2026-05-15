@@ -84,7 +84,7 @@ export class PendingCreditNoteApprovalError extends Error {
 
 export function classifyEditDelta(
   delta: EditDelta,
-  openAdjustmentLines: ReadonlyMap<string, OpenAdjustmentLine> = new Map()
+  openAdjustmentLines: ReadonlyMap<string, readonly OpenAdjustmentLine[]> = new Map()
 ): ClassifierResult {
   const adjustmentLines: AdjustmentLineInput[] = [];
   const creditNoteRequired: CreditNoteRequirement[] = [];
@@ -93,7 +93,14 @@ export function classifyEditDelta(
   let sawNetZeroSwap = false;
 
   for (const addition of delta.additions) {
-    adjustmentLines.push(toAdjustmentLine(addition));
+    const adjustmentLine = toAdjustmentLine(addition);
+    const residualLine = reduceAdditionByOpenAdjustmentCoverage(
+      adjustmentLine,
+      openAdjustmentLines
+    );
+    if (residualLine) {
+      adjustmentLines.push(residualLine);
+    }
   }
 
   for (const reduction of delta.reductions) {
@@ -188,6 +195,8 @@ function toAdjustmentLine(addition: AdditionEvent): AdjustmentLineInput {
         quantity: addition.quantity,
         unitPrice: addition.priceSnapshot.toNumber(),
         causeOrderEntityKind: OrderEntityKind.EXTRA_PHOTO,
+        // TODO(review 79a): replace the display-name key with a stable
+        // extra-photo cause id once the order extra-photo delta exposes one.
         causeOrderEntityId: addition.lineSnapshot.name,
       };
     case "PACKAGE_TIER_UPGRADE":
@@ -202,6 +211,41 @@ function toAdjustmentLine(addition: AdditionEvent): AdjustmentLineInput {
   }
 }
 
+function reduceAdditionByOpenAdjustmentCoverage(
+  line: AdjustmentLineInput,
+  openAdjustmentLines: ReadonlyMap<string, readonly OpenAdjustmentLine[]>
+): AdjustmentLineInput | null {
+  if (!line.causeOrderEntityKind || !line.causeOrderEntityId) return line;
+
+  const existingLines = openAdjustmentLines.get(
+    adjustmentCauseKey(line.causeOrderEntityKind, line.causeOrderEntityId)
+  );
+  if (!existingLines || existingLines.length === 0) return line;
+
+  const currentAmount = new Prisma.Decimal(line.unitPrice).mul(line.quantity);
+  const alreadyAdjustedAmount = existingLines.reduce(
+    (sum, existingLine) => sum.plus(existingLine.lineAmount),
+    new Prisma.Decimal(0)
+  );
+  const residualAmount = currentAmount.minus(alreadyAdjustedAmount);
+  if (residualAmount.lessThanOrEqualTo(0)) return null;
+
+  const unitPrice = new Prisma.Decimal(line.unitPrice);
+  const residualQuantity = residualAmount.div(unitPrice);
+  if (residualQuantity.isInteger() && residualQuantity.greaterThan(0)) {
+    return {
+      ...line,
+      quantity: residualQuantity.toNumber(),
+    };
+  }
+
+  return {
+    ...line,
+    quantity: 1,
+    unitPrice: residualAmount.toNumber(),
+  };
+}
+
 function routeReduction({
   reduction,
   openAdjustmentLines,
@@ -209,7 +253,7 @@ function routeReduction({
   creditNoteRequired,
 }: {
   reduction: Exclude<ReductionEvent, { kind: "PRICE_SNAPSHOT_EDIT_ATTEMPT" }>;
-  openAdjustmentLines: ReadonlyMap<string, OpenAdjustmentLine>;
+  openAdjustmentLines: ReadonlyMap<string, readonly OpenAdjustmentLine[]>;
   adjustmentReversals: AdjustmentReversal[];
   creditNoteRequired: CreditNoteRequirement[];
 }) {
@@ -220,18 +264,24 @@ function routeReduction({
     return;
   }
 
-  const adjustmentLine = openAdjustmentLines.get(
+  const adjustmentLines = openAdjustmentLines.get(
     adjustmentCauseKey(cause.causeOrderEntityKind, cause.causeOrderEntityId)
   );
-  if (!adjustmentLine || adjustmentLine.remainingAmount.lessThanOrEqualTo(0)) {
+  if (!adjustmentLines || adjustmentLines.length === 0) {
     creditNoteRequired.push(requirement);
     return;
   }
 
-  const reversalAmount = requirement.amount.lessThan(adjustmentLine.remainingAmount)
-    ? requirement.amount
-    : adjustmentLine.remainingAmount;
-  if (reversalAmount.greaterThan(0)) {
+  let remainingReduction = requirement.amount;
+  for (const adjustmentLine of adjustmentLines) {
+    if (remainingReduction.lessThanOrEqualTo(0)) break;
+    if (adjustmentLine.remainingAmount.lessThanOrEqualTo(0)) continue;
+
+    const reversalAmount = remainingReduction.lessThan(adjustmentLine.remainingAmount)
+      ? remainingReduction
+      : adjustmentLine.remainingAmount;
+    if (reversalAmount.lessThanOrEqualTo(0)) continue;
+
     adjustmentReversals.push({
       causingInvoiceLineId: adjustmentLine.invoiceLineId,
       causingInvoiceId: adjustmentLine.invoiceId,
@@ -241,13 +291,13 @@ function routeReduction({
       requiresRefund: adjustmentLine.isPaid,
       lineSnapshot: { name: requirement.lineSnapshot.name },
     });
+    remainingReduction = remainingReduction.minus(reversalAmount);
   }
 
-  const residualAmount = requirement.amount.minus(reversalAmount);
-  if (residualAmount.greaterThan(0)) {
+  if (remainingReduction.greaterThan(0)) {
     creditNoteRequired.push({
       ...requirement,
-      amount: residualAmount,
+      amount: remainingReduction,
     });
   }
 }
