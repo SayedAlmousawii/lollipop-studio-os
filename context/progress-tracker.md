@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 77 Phase A is complete: schema integrity, migration/backfill verification, and financial invariant CI coverage now run through `tests/financial-phase-a/` inside `npm run test:backend-invariants`, with exact locked-invoice immutability still documented as blocked on missing audit snapshots.
 - Dashboard date windows now use the studio timezone (`Asia/Kuwait`) for today/week metrics and schedule time display, so late-night local payments are included in the correct business day.
 - Dashboard refund display hotfix is complete: revenue shows net inbound-minus-refund payments with a received/refunded breakdown, recent dashboard payment activity labels outbound refunds as refunds, and refund order activity no longer uses the `PAYMENT_RECEIVED` type.
 - Payment creation hotfix is complete: optional refund trace fields are omitted unless supplied, and outbound payments derive `PaymentType.REFUND` before the Prisma write so deposits and refunds cannot miss required payment fields.

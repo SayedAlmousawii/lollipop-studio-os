@@ -24,7 +24,11 @@ async function main() {
     const { runDuplicateBookingPackageInvariantTest } = await import(
       "./duplicate-booking-package.invariant"
     );
+    const { runPhaseAFinancialArchitectureVerification } = await import(
+      "../financial-phase-a/run"
+    );
 
+    await runPhaseAFinancialArchitectureVerification(databaseUrl);
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();
