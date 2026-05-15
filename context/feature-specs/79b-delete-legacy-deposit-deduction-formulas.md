@@ -116,7 +116,7 @@ In the POS detail page assembly (around `order.service.ts:481`), the `aggregateO
 
 **Grep audit** (also part of Verification):
 
-```
+```bash
 grep -rn "calculateFinalBalanceDue\|REQUIRED_BASE_PAYMENT_AMOUNT\|hasBasePayment" src
 # expected: zero matches
 ```
