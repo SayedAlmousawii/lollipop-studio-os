@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 77 Phase C is complete: Layer 4 E1-E12 and EC-13 through EC-42 edge-case coverage now runs through `tests/financial-phase-c/` inside `npm run test:backend-invariants`, with refund-cap, paid-adjustment reversal, DB lock immutability, row-lock, commission, and voucher-schema gaps documented.
+- Feature 77 Phase D is complete: Layer 5 regression coverage for Features 74/75/76 and multi-package workflows now runs through `tests/financial-phase-d/` inside `npm run test:backend-invariants`, with legacy deposit-deduction and duplicate balance-display findings documented.
 - Dashboard date windows use the studio timezone (`Asia/Kuwait`) for today/week metrics and schedule time display, so late-night local payments land in the correct business day.
 - Dashboard refund display and payment creation hotfixes are complete: revenue shows net inbound-minus-refund, outbound refunds derive `PaymentType.REFUND` before the Prisma write, and optional refund trace fields are omitted unless supplied.
 - Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 (audit snapshots for locked-invoice immutability) is the active frontier.
@@ -40,10 +40,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `Order.addOns` JSON is deprecated; `OrderAddOn` rows with snapshot fields are the active source of truth.
 - Order package changes are scoped to each line's stored session type; cross-session overrides are intentionally blocked until a future permissioned, audited repricing workflow.
 - Editing start requires: selection complete + editor assigned + full invoice balance settled.
+- Phase D found a legacy editing/POS balance display path that can still subtract Deposit paid amount from canonical Final Invoice remaining balance; fix before treating editing readiness as fully canonical.
 - Order completion requires: pickup recorded + production status `READY_FOR_PICKUP` or `COMPLETED` + settled payment or explicit admin override reason.
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 77 Phase D: Regression suite — REG-74/75/76 and REG-70 multi-package coverage, static legacy-path searches, mixed document pairing checks, and review documentation in `context/reviews/77-phase-d-review.md`.
 - Feature 77 Phase C: Edge-case expansion — E1-E12 classifier coverage, EC-13 through EC-42 service/characterization tests, stale-state checks, hidden corruption findings, and Phase C review documentation.
 - Feature 77 Phase B: Workflow integration matrix — INT-01 through INT-15 service-layer scenarios, integration fixtures, rollback checks, payment allocation/document application assertions, financial workflow assertions, and audit-gap documentation.
 - Feature 77 Phase A: Financial invariant CI — schema integrity, migration/backfill verification, and invariant coverage in `tests/financial-phase-a/`; locked-invoice immutability blocked on missing audit snapshots.
@@ -60,6 +62,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, enforced required true add-on product references.
 
 ## Open Follow-Ups
+- Fix the Phase D legacy deposit-deduction path in `src/modules/orders/order.service.ts` so editing readiness and POS invoice summaries consume canonical allocation/application-backed invoice balances.
 - Fix Phase C high-risk findings before production financial expansion: overpayment-based refund cap, paid ADJUSTMENT cause reversal, DB-level locked-invoice immutability, payment row-level locking, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
 - Before merging Feature 74e, confirm the 74d verification window had zero `financial.rearch.dual_read.discrepancy` WARN logs and run the financial invariant suite against a prod-shaped staging dataset.
 - Configure and verify production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, and `FINANCIAL_RECON_SLACK_CHANNEL`.

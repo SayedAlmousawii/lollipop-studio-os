@@ -14,6 +14,8 @@ TBD - to be filled during Phase A/B/C/etc.
 
 TBD - to be filled during Phase A/B/C/etc.
 
+- 2026-05-15 Phase D: Canonical effective-paid math is centralized in `src/modules/invoices/invoice.calculation.ts`, but duplicate balance-display formulas remain in `src/modules/orders/order.service.ts`. `calculateFinalBalanceDue` and `mapPOSInvoiceSummary` subtract Deposit paid amount from Final Invoice values instead of relying on canonical `DocumentApplication`-backed `remainingAmount`.
+
 ## B. Overly Complex Flows
 
 ### Flows requiring more than 3 service calls for a single user action
@@ -26,6 +28,8 @@ TBD - to be filled during Phase A/B/C/etc.
 ### Business logic leaked into API handlers or components
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase D: No new API/component financial write paths were added. Static regression checks found payment creation remains centralized in `src/modules/payments/payment.service.ts`; invoice document application writes remain in `src/modules/invoices/invoice.service.ts`.
 
 ## C. Maintainability Concerns
 
@@ -40,6 +44,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase A: Phase A adds a dedicated `tests/financial-phase-a/` runner with reusable schema, migration, and invariant check modules. Existing service-level invariants remain in `src/modules/financial/invariants.ts`, so there are still two verification surfaces: runtime/service invariants and CI query invariants.
 - 2026-05-15 Phase B: Layer 3 integration assertions now live in `tests/financial-phase-b/`, while Phase A query invariants remain in `tests/financial-phase-a/`. This keeps phase scope clear, but financial verification is now split across runtime invariants plus Phase A and Phase B CI suites.
 - 2026-05-15 Phase C: Layer 4 assertions now live in `tests/financial-phase-c/`. The split is still manageable, but financial verification now spans Phase A query checks, Phase B service workflows, Phase C edge cases, and runtime invariants.
+- 2026-05-15 Phase D: Layer 5 assertions now live in `tests/financial-phase-d/` and are wired into the backend invariant runner after Phase C. The verification surface is intentionally phase-organized, but regression ownership now spans four phase folders plus runtime invariants.
 
 ## D. Cleanup Recommendations
 
@@ -48,14 +53,19 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase A: No retired production code paths were deleted in this phase. Legacy backend test fixtures should be normalized in a later cleanup so they no longer create financial cases for default-`PENDING` bookings.
+- 2026-05-15 Phase D: `calculateFinalBalanceDue`, `mapPOSInvoiceSummary` deposit subtraction, `hasBasePayment`, and `REQUIRED_BASE_PAYMENT_AMOUNT` should be retired or rewritten to consume canonical invoice balances/applications. REG-LEGACY-01 keeps this path visible until corrected.
 
 ### Deprecated fields that are still read
 
 TBD - to be filled during Phase A/B/C/etc.
 
+- 2026-05-15 Phase D: No active `PaymentType.BASE` enum usage remains, but base-payment terminology still drives workflow readiness helpers in `src/modules/orders/order.service.ts`.
+
 ### Legacy fallback paths that can now be removed
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase D: Locked-edit dual-read discrepancy logging still fires in adjustment/credit-note classifier workflows even though the new path succeeds. Pure invoice reads do not emit the warning. Release gates should distinguish this known dual-read cleanup need from real data corruption.
 
 ## E. Future Scalability Concerns
 
