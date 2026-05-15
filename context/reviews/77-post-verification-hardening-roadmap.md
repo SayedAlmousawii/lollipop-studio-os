@@ -13,7 +13,7 @@ Feature 77 verification (Phases A–G) raised confidence in the choke-point arch
 However, the verification effort also exposed a small number of **structural weaknesses that are real production hazards today**:
 
 - **Invoice settlement row locking is now closed by Feature 78a** — `recordPayment()` takes a row-level lock before balance reads, removing the demonstrated double-click and final-1% race window.
-- **Locked invoice immutability is service-only** — a direct Prisma write can unset `isLocked` or mutate `totalAmount`; Feature 80a now records first-class `AuditLog` attribution for service paths, but there is still no DB trigger or lock-time snapshot.
+- **Locked invoice immutability is now closed by Feature 80b** — `InvoiceLockSnapshot` records lock-time frozen fields and a DB trigger rejects frozen-field mutation while `isLocked=true`.
 - **POS settlement auto-lock is now closed by Feature 78a**. Fully paid FINAL invoices now close and lock inside the settlement transaction, including the prior `Draft` edge case.
 - **Paid-ADJUSTMENT reversal is now closed by Feature 79a** — the classifier carries an adjustment-cause ledger and routes reductive edits to the causing ADJUSTMENT, issuing a paired CREDIT_NOTE (and REFUND when already paid).
 - **Refund overpayment capacity is now closed by Feature 79c** — refunds are capped by true overpayment capacity from inbound allocations minus CREDIT_NOTE-net owed amount minus prior REFUND totals, and the invoice UI defaults/caps to that value.
@@ -33,7 +33,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 |---|---|---|---|---|
 | F1 | **COMPLETED** | Fully paid FINAL invoices now auto-close and lock inside the settlement transaction, including the prior `Draft` edge case | Closed by Feature 78a | `recordPayment()` now settles FINAL invoices to `CLOSED + isLocked=true` at `remainingAmount = 0` |
 | F2 | **COMPLETED** | Refund capacity now uses true overpayment instead of total inbound allocation, so paid-but-not-overpaid invoices have zero refund capacity | Closed by Feature 79c | `computeOverpaymentCapacity()` derives capacity from inbound allocations minus CREDIT_NOTE-net owed amount minus prior REFUND totals; refund creation rechecks under a source invoice row lock |
-| F3 | **CRITICAL** | Locked invoice immutability is service-layer only. EC-27 proves direct Prisma can unset `isLocked`; `totalAmount` is also writable. Audit actor attribution now exists, but no lock-time immutable snapshot exists to prove frozen field drift | Risk §B, §D; Phase F | DB-level: trigger or `UPDATE` policy rejecting mutation when `isLocked=true` (except controlled fields). Add `InvoiceLockSnapshot` table written inside lock transaction |
+| F3 | **COMPLETED** | Locked invoice frozen fields are now protected by `InvoiceLockSnapshot` plus a DB-level trigger; direct Prisma can no longer mutate frozen fields while `isLocked=true` | Closed by Feature 80b | `invoice_lock_snapshots` stores the lock-time baseline, service lock paths write snapshots in-transaction, and `trg_reject_frozen_field_mutation_on_locked_invoice` blocks frozen-field UPDATEs |
 | F4 | **COMPLETED** | Paid ADJUSTMENT removal now triggers a CREDIT_NOTE targeting the causing ADJUSTMENT line (and a REFUND when the ADJUSTMENT was already paid) via the new cause ledger | Closed by Feature 79a | `InvoiceLineItem.causeOrderEntityKind/Id` + `DocumentApplication.targetInvoiceLineId`; classifier emits `adjustmentReversals`; `applyAdjustmentReversalsWithClient` materializes them |
 | F5 | **COMPLETED** | Order-layer balance display no longer subtracts Deposit paid amount from Final Invoice remaining; the legacy `calculateFinalBalanceDue`, POS remaining recomputation, and base-payment threshold helpers were removed by Feature 79b | Closed by Feature 79b | POS and editing readiness now consume canonical `Invoice.remainingAmount`; deposit settlement is read from the DEPOSIT invoice's own remaining balance |
 | F6 | **HIGH** | Reconciliation `INV-18` mismatch found in dev: order `cmp6tm9n30007n7t3ramturmp` total 230 KD vs revenue-documents total 225 KD | Phase G; [F6 finding](77-f6-investigation-finding.md) | Classified active: paid-ADJUSTMENT cause removal plus manual CREDIT_NOTE can diverge revenue documents from current order composition. Sprint 4 fixes the underlying paths and backfills |
@@ -79,7 +79,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 
 | # | Severity | Item | Source | Action |
 |---|---|---|---|---|
-| A1 | **COMPLETED** | First-class structured audit log for booking, financial, and lock-scoped service actions now exists | Closed by Feature 80a | `AuditLog(actorUserId, entityType, entityId, action, before, after, context, occurredAt)` added with co-transactional service writes; `InvoiceLockSnapshot` remains in F3/80b |
+| A1 | **COMPLETED** | First-class structured audit log for booking, financial, and lock-scoped service actions now exists | Closed by Feature 80a | `AuditLog(actorUserId, entityType, entityId, action, before, after, context, occurredAt)` added with co-transactional service writes; Feature 80b now pairs lock audit rows with `InvoiceLockSnapshot` baselines |
 | A2 | **COMPLETED** | Duplicate order-service balance formulas were removed by Feature 79b | Closed by Feature 79b | Order-level callers now sum canonical `Invoice.remainingAmount`; POS invoice summaries return each invoice's stored remaining amount |
 | A3 | **MEDIUM** | Invariant verification surface spans Phase A/B/C/D/F/G suites + runtime `src/modules/financial/invariants.ts`. Ownership is unclear | Arch §C; Phase G | Single owner-facing invariant catalog/index; keep phase folders but document which is canonical |
 | A4 | **MEDIUM** | `financial.rearch.dual_read.discrepancy` fires during *valid* locked-edit workflows. Pollutes log-based gating | Phase B/D/E; Arch §D | Remove the dual-read path now that classifier is canonical; or scope the warning to actual divergences only |
@@ -118,7 +118,7 @@ All removals must land with characterization tests flipped to failure-expecting 
 
 ## 9. Remaining Untested / Low-Confidence Areas
 
-- **INV-14 locked-field immutability** — cannot be exactly verified without lock-time snapshot. Audit attribution is available after Feature 80a; exact frozen-field comparison remains blocked on `InvoiceLockSnapshot`.
+- **INV-14 locked-field immutability** — now directly verified by Feature 80b's `InvoiceLockSnapshot` invariant and DB trigger.
 - **INV-18 full revenue composition** — runner reports; dev mismatch found (F6).
 - **Browser role-negative UX** — non-manager credit-note/refund attempts, photographer URL access (S3).
 - **Commission persistence at package upgrade** — EC-32/EC-33; no `Commission` model. Defer to commission expansion phase.
@@ -146,7 +146,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 7. W2 + O4 — Completed in Feature 79d: reductive locked-edit UX surfaces manager prompt
 
 **Sprint 3 — Workflow integrity & immutability proofs**
-8. A1 + F3 — A1 completed by Feature 80a (`AuditLog` model/service); F3 continues with `InvoiceLockSnapshot` + DB-level locked-invoice mutation prevention
+8. A1 + F3 — Completed by Features 80a/80b: `AuditLog`, `InvoiceLockSnapshot`, and DB-level locked-invoice frozen-field prevention
 9. C2 — DB-level over-collection prevention
 10. C3 — DB-level ADJUSTMENT chain prevention
 
@@ -169,7 +169,7 @@ These must all be closed before commissions, reporting, vouchers, or integration
 
 - **F1** Completed in Feature 78a: auto-lock Final Invoice on full payment
 - **F2** Completed in Feature 79c: real overpayment-capacity service + UI cap
-- **F3** DB-level locked-invoice immutability + lock snapshot
+- **F3** Completed in Feature 80b: DB-level locked-invoice immutability + lock snapshot
 - **F4** Completed in Feature 79a: paid-ADJUSTMENT reversal
 - **F5 / D1-D3 / A2** Completed in Feature 79b: legacy deposit-deduction removal
 - **C1** Completed in Feature 78a: invoice row-level locking on settlement

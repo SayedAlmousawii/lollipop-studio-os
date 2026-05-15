@@ -419,35 +419,31 @@ async function runLockedInvoiceDirectMutationCharacterization(
     where: { id: workflow.finalInvoiceId },
     select: { totalAmount: true, invoiceType: true, isLocked: true },
   });
-  let directTotalMutationAccepted = false;
-  let directUnlockAccepted = false;
 
   await assert.rejects(
     () =>
-      db.$transaction(async (tx) => {
-        const updatedTotal = await tx.invoice.update({
-          where: { id: workflow.finalInvoiceId },
-          data: { totalAmount: new Prisma.Decimal(499) },
-          select: { totalAmount: true },
-        });
-        directTotalMutationAccepted = updatedTotal.totalAmount.equals(499);
-        const unlocked = await tx.invoice.update({
-          where: { id: workflow.finalInvoiceId },
-          data: { isLocked: false },
-          select: { isLocked: true },
-        });
-        directUnlockAccepted = !unlocked.isLocked;
-        throw new Error("Phase F rollback after direct locked-invoice mutation characterization");
+      db.invoice.update({
+        where: { id: workflow.finalInvoiceId },
+        data: { totalAmount: new Prisma.Decimal(499) },
       }),
-    /Phase F rollback after direct locked-invoice mutation/
+    /Frozen field mutation|check_violation|constraint failed/i
   );
+
+  const unlocked = await db.invoice.update({
+    where: { id: workflow.finalInvoiceId },
+    data: { isLocked: false },
+    select: { isLocked: true },
+  });
+  assert.equal(unlocked.isLocked, false);
+  await db.invoice.update({
+    where: { id: workflow.finalInvoiceId },
+    data: { isLocked: true },
+  });
 
   const after = await db.invoice.findUniqueOrThrow({
     where: { id: workflow.finalInvoiceId },
     select: { totalAmount: true, invoiceType: true, isLocked: true },
   });
-  assert.equal(directTotalMutationAccepted, true);
-  assert.equal(directUnlockAccepted, true);
   assert.equal(after.totalAmount.equals(before.totalAmount), true);
   assert.equal(after.invoiceType, before.invoiceType);
   assert.equal(after.isLocked, before.isLocked);

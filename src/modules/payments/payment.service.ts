@@ -20,6 +20,10 @@ import type { FinancialPaymentDirection, Money } from "@/modules/financial/types
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import {
+  invoiceLockSnapshotSelect,
+  recordInvoiceLockSnapshot,
+} from "@/modules/invoices/invoice-lock.service";
+import {
   recalculateInvoiceStatus,
   snapshotInvoiceLineItemsWithClient,
 } from "@/modules/invoices/invoice.service";
@@ -363,6 +367,7 @@ async function closeInvoiceIfSettled(
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
     select: {
+      ...invoiceLockSnapshotSelect,
       id: true,
       invoiceType: true,
       orderId: true,
@@ -425,6 +430,8 @@ async function closeInvoiceIfSettled(
 
   const justClosed = updateResult.count > 0;
   if (justClosed) {
+    await recordInvoiceLockSnapshot(client, invoice, actorContext.actorUserId);
+
     await recordAuditLog(client, actorContext, {
       entityType: AuditEntityType.INVOICE,
       entityId: invoice.id,

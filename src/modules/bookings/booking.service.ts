@@ -17,6 +17,10 @@ import {
   generateInvoiceNumber,
   issueInvoiceWithClient,
 } from "@/modules/invoices/invoice.service";
+import {
+  invoiceLockSnapshotSelect,
+  recordInvoiceLockSnapshot,
+} from "@/modules/invoices/invoice-lock.service";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import {
   generateBookingReference,
@@ -580,6 +584,7 @@ export async function updateBookingStatus(
               isLocked: false,
             },
             select: {
+              ...invoiceLockSnapshotSelect,
               id: true,
               financialCaseId: true,
               orderId: true,
@@ -590,23 +595,45 @@ export async function updateBookingStatus(
             },
           });
           const closedAt = new Date();
-          await tx.invoice.updateMany({
-            where: {
-              bookingId: booking.id,
-              jobId: booking.jobId,
-              parentInvoiceId: null,
-              isLocked: false,
-            },
-            data: {
-              status: InvoiceStatus.CLOSED,
-              isLocked: true,
-              closedAt,
-            },
-          });
           for (const invoice of invoicesToLock) {
+            const updateResult = await tx.invoice.updateMany({
+              where: { id: invoice.id, isLocked: false },
+              data: {
+                status: InvoiceStatus.CLOSED,
+                isLocked: true,
+                closedAt,
+              },
+            });
+            if (updateResult.count === 0) continue;
+
+            const persistedInvoice = await tx.invoice.findUnique({
+              where: { id: invoice.id },
+              select: {
+                ...invoiceLockSnapshotSelect,
+                id: true,
+                financialCaseId: true,
+                orderId: true,
+                bookingId: true,
+                isLocked: true,
+                status: true,
+                closedAt: true,
+              },
+            });
+            if (!persistedInvoice) {
+              throw new Error(
+                `booking.no_show.invoice_lock_snapshot_skipped: missing_after_lock for invoice ${invoice.id}`
+              );
+            }
+
+            await recordInvoiceLockSnapshot(
+              tx,
+              persistedInvoice,
+              actorContext.actorUserId
+            );
+
             await recordAuditLog(tx, actorContext, {
               entityType: AuditEntityType.INVOICE,
-              entityId: invoice.id,
+              entityId: persistedInvoice.id,
               action: AuditAction.INVOICE_LOCKED,
               before: {
                 isLocked: invoice.isLocked,
@@ -619,9 +646,9 @@ export async function updateBookingStatus(
                 closedAt: closedAt.toISOString(),
               },
               context: {
-                financialCaseId: invoice.financialCaseId,
-                orderId: invoice.orderId ?? null,
-                bookingId: invoice.bookingId ?? null,
+                financialCaseId: persistedInvoice.financialCaseId,
+                orderId: persistedInvoice.orderId ?? null,
+                bookingId: persistedInvoice.bookingId ?? null,
               },
             });
           }
@@ -872,7 +899,7 @@ export async function checkInBooking(
         });
 
         await tx.invoice.updateMany({
-          where: { financialCaseId: booking.financialCase.id },
+          where: { financialCaseId: booking.financialCase.id, isLocked: false },
           data: { jobId: job.id, jobNumber },
         });
 

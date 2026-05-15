@@ -50,6 +50,45 @@ export type MixedEditBookingFixtureResult = AdjustedBookingFixtureResult & {
   creditNoteInvoiceId: string;
 };
 
+async function ensureLockSnapshotsForFixtureInvoices(
+  prisma: PrismaClient
+): Promise<void> {
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      isLocked: true,
+      lockSnapshots: { none: {} },
+    },
+    select: {
+      id: true,
+      publicId: true,
+      totalAmount: true,
+      invoiceType: true,
+      parentInvoiceId: true,
+      financialCaseId: true,
+      jobId: true,
+      orderId: true,
+      invoiceNumber: true,
+    },
+  });
+
+  if (invoices.length === 0) return;
+
+  await prisma.invoiceLockSnapshot.createMany({
+    data: invoices.map((invoice) => ({
+      invoiceId: invoice.id,
+      lockedByUserId: null,
+      totalAmount: invoice.totalAmount,
+      invoiceType: invoice.invoiceType,
+      parentInvoiceId: invoice.parentInvoiceId,
+      financialCaseId: invoice.financialCaseId,
+      jobId: invoice.jobId,
+      orderId: invoice.orderId,
+      invoiceNumber: invoice.invoiceNumber,
+      publicId: invoice.publicId,
+    })),
+  });
+}
+
 const FIXTURE_KEYS = {
   departmentCode: "FIN_FIXTURE_DEPT_73B",
   customerPhone: "+96550007300",
@@ -1253,4 +1292,5 @@ export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void>
   await makeRefundedBookingFixture(prisma);
   await makeCreditNotedBookingFixture(prisma);
   await makeMixedEditBookingFixture(prisma);
+  await ensureLockSnapshotsForFixtureInvoices(prisma);
 }

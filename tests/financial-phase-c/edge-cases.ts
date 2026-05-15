@@ -15,6 +15,7 @@ import { classifyEditDelta } from "@/modules/financial/edit-classifier";
 import { runAllInvariants } from "@/modules/financial/invariants";
 import {
   applyDepositToFinalIfPresent,
+  closeInvoice,
   computeOverpaymentCapacity,
   createAdjustmentInvoice,
   createCreditNote,
@@ -603,10 +604,7 @@ async function runEc22AppendOnlyPaymentOnLockedFinal(
     issue: true,
     finalPaymentAmounts: [200],
   });
-  await db.invoice.update({
-    where: { id: workflow.finalInvoiceId },
-    data: { status: InvoiceStatus.CLOSED, isLocked: true },
-  });
+  await closeInvoice(workflow.finalInvoiceId, fixtures.adminActor);
   await recordPayment(
     workflow.finalInvoiceId,
     { amount: 280, method: PaymentMethod.CASH, paymentType: PaymentType.FINAL },

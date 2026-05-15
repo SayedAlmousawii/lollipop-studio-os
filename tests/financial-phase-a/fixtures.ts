@@ -31,6 +31,40 @@ export type PhaseAFixtureIds = {
 
 const FIXTURE_PREFIX = "phase-a-77";
 
+async function createMissingLockSnapshots(db: PrismaClient): Promise<void> {
+  const invoices = await db.invoice.findMany({
+    where: { isLocked: true, lockSnapshots: { none: {} } },
+    select: {
+      id: true,
+      publicId: true,
+      totalAmount: true,
+      invoiceType: true,
+      parentInvoiceId: true,
+      financialCaseId: true,
+      jobId: true,
+      orderId: true,
+      invoiceNumber: true,
+    },
+  });
+
+  if (invoices.length === 0) return;
+
+  await db.invoiceLockSnapshot.createMany({
+    data: invoices.map((invoice) => ({
+      invoiceId: invoice.id,
+      lockedByUserId: null,
+      totalAmount: invoice.totalAmount,
+      invoiceType: invoice.invoiceType,
+      parentInvoiceId: invoice.parentInvoiceId,
+      financialCaseId: invoice.financialCaseId,
+      jobId: invoice.jobId,
+      orderId: invoice.orderId,
+      invoiceNumber: invoice.invoiceNumber,
+      publicId: invoice.publicId,
+    })),
+  });
+}
+
 export async function seedPhaseAFinancialFixtures(
   db: PrismaClient
 ): Promise<PhaseAFixtureIds> {
@@ -492,6 +526,8 @@ export async function seedPhaseAFinancialFixtures(
     refundOfPaymentId: finalPayment.id,
     paidAt: new Date("2026-05-22T09:24:00.000Z"),
   });
+
+  await createMissingLockSnapshots(db);
 
   return {
     pendingBookingId: pendingBooking.id,

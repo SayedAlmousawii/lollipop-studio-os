@@ -13,6 +13,10 @@ import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import {
+  invoiceLockSnapshotSelect,
+  recordInvoiceLockSnapshot,
+} from "@/modules/invoices/invoice-lock.service";
+import {
   createRefundInvoice,
   recalculateInvoiceStatus,
 } from "@/modules/invoices/invoice.service";
@@ -124,6 +128,7 @@ async function closeRefundInvoiceIfSettled(
   const invoice = await client.invoice.findUnique({
     where: { id: refundInvoiceId },
     select: {
+      ...invoiceLockSnapshotSelect,
       id: true,
       financialCaseId: true,
       orderId: true,
@@ -139,18 +144,50 @@ async function closeRefundInvoiceIfSettled(
   }
 
   const closedAt = new Date();
-  await client.invoice.update({
-    where: { id: refundInvoiceId },
+  const updateResult = await client.invoice.updateMany({
+    where: {
+      id: refundInvoiceId,
+      isLocked: false,
+    },
     data: {
       status: InvoiceStatus.CLOSED,
       isLocked: true,
       closedAt,
     },
   });
+  if (updateResult.count === 0) {
+    return;
+  }
+
+  const persistedInvoice = await client.invoice.findUnique({
+    where: { id: refundInvoiceId },
+    select: {
+      ...invoiceLockSnapshotSelect,
+      id: true,
+      financialCaseId: true,
+      orderId: true,
+      bookingId: true,
+      remainingAmount: true,
+      isLocked: true,
+      status: true,
+      closedAt: true,
+    },
+  });
+  if (!persistedInvoice) {
+    throw new Error(
+      `refund.invoice_lock_snapshot_skipped: missing_after_lock for invoice ${refundInvoiceId}`
+    );
+  }
+
+  await recordInvoiceLockSnapshot(
+    client,
+    persistedInvoice,
+    actorContext.actorUserId
+  );
 
   await recordAuditLog(client, actorContext, {
     entityType: AuditEntityType.INVOICE,
-    entityId: invoice.id,
+    entityId: persistedInvoice.id,
     action: AuditAction.INVOICE_LOCKED,
     before: {
       isLocked: invoice.isLocked,
@@ -163,9 +200,9 @@ async function closeRefundInvoiceIfSettled(
       closedAt: closedAt.toISOString(),
     },
     context: {
-      financialCaseId: invoice.financialCaseId,
-      orderId: invoice.orderId ?? null,
-      bookingId: invoice.bookingId ?? null,
+      financialCaseId: persistedInvoice.financialCaseId,
+      orderId: persistedInvoice.orderId ?? null,
+      bookingId: persistedInvoice.bookingId ?? null,
       invoiceType: "REFUND",
     },
   });

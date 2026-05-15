@@ -33,6 +33,10 @@ import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import {
+  invoiceLockSnapshotSelect,
+  recordInvoiceLockSnapshot,
+} from "@/modules/invoices/invoice-lock.service";
+import {
   computeOrderEditDelta,
   type EditDelta,
   type ReductionEvent,
@@ -954,6 +958,7 @@ export async function closeInvoice(
         const invoice = await tx.invoice.findUnique({
           where: { id },
           select: {
+            ...invoiceLockSnapshotSelect,
             id: true,
             invoiceNumber: true,
             orderId: true,
@@ -987,6 +992,8 @@ export async function closeInvoice(
         if (updateResult.count === 0) {
           throw new Error("Invoice is already locked");
         }
+
+        await recordInvoiceLockSnapshot(tx, invoice, actorContext.actorUserId);
 
         await recordAuditLog(tx, actorContext, {
           entityType: AuditEntityType.INVOICE,
@@ -2294,6 +2301,8 @@ async function createCreditNoteWithClient(
       lineItems: { create: lineItems },
     },
   });
+
+  await recordInvoiceLockSnapshot(client, creditNote, input.createdByUserId);
 
   if (lineTargetedApplications.length > 0) {
     await client.documentApplication.createMany({
