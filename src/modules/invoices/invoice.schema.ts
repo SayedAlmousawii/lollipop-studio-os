@@ -1,4 +1,4 @@
-import { InvoiceLineType, PaymentMethod, Prisma } from "@prisma/client";
+import { InvoiceLineType, OrderEntityKind, PaymentMethod, Prisma } from "@prisma/client";
 import { z } from "zod";
 
 export const createAdjustmentInvoiceSchema = z.object({
@@ -13,6 +13,8 @@ export type AdjustmentLineInput = {
   description: string;
   quantity: number;
   unitPrice: number;
+  causeOrderEntityKind?: OrderEntityKind;
+  causeOrderEntityId?: string;
 };
 
 export type CreateAdjustmentInvoiceInput = {
@@ -57,19 +59,36 @@ export type CreditNoteLineInput = {
   description: string;
   quantity: number;
   unitPrice: Prisma.Decimal | number | string;
+  lineType?: InvoiceLineType;
+  causeOrderEntityKind?: OrderEntityKind;
+  causeOrderEntityId?: string;
+  targetInvoiceId?: string;
+  targetInvoiceLineId?: string;
 };
 
 export type CreateCreditNoteInput = {
-  targetFinalInvoiceId: string;
+  targetFinalInvoiceId?: string;
+  targetAdjustmentInvoiceId?: string;
   lines: CreditNoteLineInput[];
   reason: string;
   createdByUserId: string;
   notes?: string;
 };
 
-export const createAdjustmentInvoiceLineSchema = z.object({
-  lineType: z.nativeEnum(InvoiceLineType),
-  description: z.string().trim().min(1),
-  quantity: z.coerce.number().int().positive(),
-  unitPrice: z.coerce.number().positive(),
-});
+export const createAdjustmentInvoiceLineSchema = z
+  .object({
+    lineType: z.nativeEnum(InvoiceLineType),
+    description: z.string().trim().min(1),
+    quantity: z.coerce.number().int().positive(),
+    unitPrice: z.coerce.number().positive(),
+    causeOrderEntityKind: z.nativeEnum(OrderEntityKind).optional(),
+    causeOrderEntityId: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (line) => Boolean(line.causeOrderEntityKind) === Boolean(line.causeOrderEntityId),
+    {
+      message:
+        "causeOrderEntityKind and causeOrderEntityId must be provided together",
+      path: ["causeOrderEntityId"],
+    }
+  );

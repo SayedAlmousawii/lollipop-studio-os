@@ -46,6 +46,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
         },
         { computeEffectivePaidFromAllocations },
         { createPaymentWithAllocation, recordPayment },
+        { removeOrderAddOn },
       ] = await Promise.all([
         import("@prisma/client"),
         import("../src/lib/db"),
@@ -54,6 +55,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
         import("../src/modules/invoices/invoice.service"),
         import("../src/modules/invoices/invoice.calculation"),
         import("../src/modules/payments/payment.service"),
+        import("../src/modules/orders/order.service"),
       ]);
 
       const originalWarn = console.warn;
@@ -122,6 +124,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
             isLocked: true,
             payments: {
               select: {
+                id: true,
                 paymentType: true,
                 direction: true,
                 allocations: { select: { invoiceId: true, amount: true } },
@@ -166,6 +169,98 @@ test("financial invariants all pass against seeded fixtures", async () => {
             activity.description?.includes("settled and closed")
           )
         );
+
+        const adjustedAddOn = await db.orderAddOn.findFirstOrThrow({
+          where: { orderId: autoAdjustmentOrderId },
+          select: { id: true },
+        });
+        const adjustmentLine = await db.invoiceLineItem.findFirstOrThrow({
+          where: { invoiceId: autoAdjustedFixture.adjustmentInvoiceId },
+          select: {
+            id: true,
+            causeOrderEntityKind: true,
+            causeOrderEntityId: true,
+            lineTotal: true,
+          },
+        });
+        assert.equal(adjustmentLine.causeOrderEntityKind, "ADDON");
+        assert.equal(adjustmentLine.causeOrderEntityId, adjustedAddOn.id);
+
+        await removeOrderAddOn(
+          autoAdjustmentOrderId,
+          {
+            addOnId: adjustedAddOn.id,
+            managerApprovedReductionByUserId: manager.id,
+            managerApprovedReason: "Regression reversal test",
+          },
+          makeManagerActor({ actorUserId: manager.id })
+        );
+
+        const adjustmentReversalApplication =
+          await db.documentApplication.findFirstOrThrow({
+            where: {
+              targetInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
+              targetInvoiceLineId: adjustmentLine.id,
+            },
+            include: { sourceInvoice: { include: { lineItems: true } } },
+          });
+        assert.equal(
+          adjustmentReversalApplication.amountApplied.toFixed(3),
+          adjustmentLine.lineTotal.toFixed(3)
+        );
+        assert.equal(
+          adjustmentReversalApplication.sourceInvoice.invoiceType,
+          InvoiceType.CREDIT_NOTE
+        );
+        assert.equal(
+          adjustmentReversalApplication.sourceInvoice.parentInvoiceId,
+          autoAdjustedFixture.adjustmentInvoiceId
+        );
+        assert.equal(
+          adjustmentReversalApplication.sourceInvoice.lineItems[0]
+            ?.causeOrderEntityId,
+          adjustedAddOn.id
+        );
+
+        const adjustmentRefund = await db.invoice.findFirstOrThrow({
+          where: {
+            invoiceType: InvoiceType.REFUND,
+            parentInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
+          },
+          include: {
+            payments: {
+              select: {
+                direction: true,
+                paymentType: true,
+                amount: true,
+                refundOfPaymentId: true,
+                allocations: { select: { invoiceId: true, amount: true } },
+              },
+            },
+          },
+        });
+        assert.equal(adjustmentRefund.totalAmount.toFixed(3), "15.000");
+        assert.equal(adjustmentRefund.payments[0]?.direction, "OUT");
+        assert.equal(adjustmentRefund.payments[0]?.paymentType, PaymentType.REFUND);
+        assert.equal(
+          adjustmentRefund.payments[0]?.amount.toFixed(3),
+          "15.000"
+        );
+        assert.equal(
+          adjustmentRefund.payments[0]?.refundOfPaymentId,
+          paidAdjustmentInvoice.payments[0]?.id
+        );
+        assert.equal(
+          adjustmentRefund.payments[0]?.allocations[0]?.invoiceId,
+          adjustmentRefund.id
+        );
+
+        const finalAfterAdjustmentReversal = await db.invoice.findUniqueOrThrow({
+          where: { id: autoAdjustedFixture.finalInvoiceId },
+          select: { totalAmount: true, remainingAmount: true },
+        });
+        assert.equal(finalAfterAdjustmentReversal.totalAmount.toFixed(3), "100.000");
+        assert.equal(finalAfterAdjustmentReversal.remainingAmount.toFixed(3), "0.000");
 
         const refundedFixture = await makeRefundedBookingFixture(db);
         const refundInvoice = await db.invoice.findUniqueOrThrow({
