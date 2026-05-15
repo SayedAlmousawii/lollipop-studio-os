@@ -31,6 +31,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase D: No new API/component financial write paths were added. Static regression checks found payment creation remains centralized in `src/modules/payments/payment.service.ts`; invoice document application writes remain in `src/modules/invoices/invoice.service.ts`.
+- 2026-05-15 Phase F: Static hidden-mutation search found no production `Payment.create` outside `src/modules/payments/payment.service.ts`, but permission enforcement is split between server actions/POS wrappers and lower-level services. `recordPayment()` remains callable without a role check.
 
 ## C. Maintainability Concerns
 
@@ -77,6 +78,7 @@ TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase A: CI now enforces exactly one `PaymentAllocation` per `Payment`. This intentionally locks the current single-allocation architecture and should be revisited before any future multi-tranche allocation feature.
 - 2026-05-15 Phase C: EC-37 confirms payment race safety is still app-layer balance checking without row-level invoice locks. This should be revisited before higher-volume POS usage or multi-tranche allocation support.
+- 2026-05-15 Phase F: Concurrent payment tests confirm allocation shape stays intact per payment, but not invoice-level settlement serialization. Add invoice row-level locking before multi-tranche payments or higher-volume cashier workflows.
 
 ### `identifier_sequences` partitioning strategy for high volume
 
@@ -87,6 +89,8 @@ TBD - to be filled during Phase A/B/C/etc.
 ### Shared invoice number sequence and audit isolation concerns
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase F: Concurrent locked-POS additions successfully created separate ADJUSTMENT siblings using the shared invoice sequence. The remaining audit concern is not numbering; it is missing first-class `AuditLog` and lock-time immutable snapshots.
 
 ## F. Auditability Concerns
 
@@ -104,6 +108,7 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase B: Order-scoped tested services preserve `actorUserId` through `OrderActivity` for payment, package, credit-note, refund, and delivery actions. Booking status actions still have no first-class actor/audit persistence.
+- 2026-05-15 Phase F: `ActorContext.actorRole` is optional and `assertActorPermission()` returns early when it is missing. This creates an internal service-call bypass risk and weakens audit-critical guarantees even when server actions pass actor context correctly.
 
 ### Invoice closure attribution gap
 

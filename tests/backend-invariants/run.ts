@@ -54,11 +54,15 @@ async function main() {
     const { runPhaseDFinancialRegressionSuite } = await import(
       "../financial-phase-d/run"
     );
+    const { runPhaseFFinancialConcurrencySecurityRecovery } = await import(
+      "../financial-phase-f/run"
+    );
 
     await runPhaseAFinancialArchitectureVerification(databaseUrl);
     await runPhaseBFinancialWorkflowIntegration();
     await runPhaseCFinancialEdgeCases();
     await runPhaseDFinancialRegressionSuite();
+    await runPhaseFFinancialConcurrencySecurityRecovery();
     await runPackageOptionsSmokeTest();
     await runInvoiceMathInvariantTest();
     await runSelectedPhotoAggregateInvariantTest();

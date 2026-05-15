@@ -14,6 +14,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase B: INT-01 through INT-15 use service-layer workflow calls for user actions and assert payment allocation/document application shapes after each financial transition. Test setup still uses direct fixture writes for preconditions such as pre-invoice add-ons and delivery-ready states; those writes are isolated to deterministic fixtures and not production paths.
 - 2026-05-15 Phase C: EC-18 and EC-19 show refund documents can be created from inbound allocation capacity rather than actual overpayment/credit-note capacity. This is a potential corruption vector if a manager issues a refund without a matching CREDIT_NOTE.
 - 2026-05-15 Phase D: Static regression search found no direct production `Payment.create` or `PaymentAllocation.create` outside `src/modules/payments/payment.service.ts`; Feature 75/76 regression payments continue to use the allocation choke point.
+- 2026-05-15 Phase F: Hidden mutation-path testing confirmed production `Payment.create` remains centralized in `src/modules/payments/payment.service.ts`, but the exported `recordPayment()` service has no role guard. Direct service callers can create payment/allocation rows even with an `EDITOR` actor if they bypass server-action/POS permission checks.
 
 ### Service functions accepting `db` client directly instead of through a transaction
 
@@ -36,6 +37,8 @@ TBD - to be filled during Phase A/B/C/etc.
 
 TBD - to be filled during Phase A/B/C/etc.
 
+- 2026-05-15 Phase F: Concurrent payment tests keep the one-allocation-per-payment shape intact, but the invariant is still DB-enforced only at `PaymentAllocation.paymentId`; invoice-level over-collection prevention remains app-layer balance logic without invoice row locking.
+
 ### Locked invoice immutability enforced in the service layer only
 
 TBD - to be filled during Phase A/B/C/etc.
@@ -43,6 +46,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase A: INV-14 cannot be verified exactly because the schema has no `AuditLog` model or lock-time snapshot of locked invoice fields. This remains an architectural risk: tests can assert current locked state, but cannot prove `totalAmount`, `invoiceType`, or `financialCaseId` never changed after lock.
 - 2026-05-15 Phase B: Service workflows for additive edits, package upgrades, credit notes, refunds, and delivery preserve locked FINAL invoices in tested scenarios. DB-level locked-invoice mutation prevention is still absent.
 - 2026-05-15 Phase C: EC-27 proves the risk concretely: a direct Prisma update can unset `Invoice.isLocked` on a locked invoice. A DB trigger or immutable audit snapshot remains required.
+- 2026-05-15 Phase F: Rollback-only direct mutation characterization confirmed PostgreSQL still accepts direct updates to locked invoice `totalAmount` and `isLocked`; service tests roll back the mutation, but DB-level immutability remains absent.
 
 ### Remaining `PaymentType.BASE` references
 
@@ -96,6 +100,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase B: Payment workflows are transaction-safe in the sequential matrix, but concurrent payment/race coverage remains Layer 7 scope. The Phase B tests do not prove row-level lock behavior under simultaneous writes.
 - 2026-05-15 Phase C: EC-37 statically verifies `recordPayment` still lacks `SELECT ... FOR UPDATE`. Stale sequential payments are rejected, but true simultaneous submissions remain unproven.
 - 2026-05-15 Phase D: Layer 5 did not add true concurrent execution; stale/race concerns remain at the Phase C risk level.
+- 2026-05-15 Phase F: Layer 7 now runs simultaneous Final Invoice payment and final-1%-settlement races. The service still has no `SELECT ... FOR UPDATE` on the invoice row, so double-click settlement remains a high-risk corruption vector until the balance read/payment write/recalculation/close sequence is serialized.
 
 ## E. Transactional Weaknesses
 
@@ -105,6 +110,7 @@ TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase B: Tested booking confirmation, check-in, final payment closure, locked-final edits, credit-note issuance, refund-with-payment, and delivery completion leave no partial writes in the rollback cases covered by INT-03, INT-04, INT-08, and INT-10.
 - 2026-05-15 Phase C: EC-13 through EC-17 expand transaction/cap checks for double confirmation, minimum deposit, duplicate final invoice, overpayment, and excessive credit note attempts.
+- 2026-05-15 Phase F: Failure-recovery tests inject rollback after booking reference generation, job creation, Final Invoice/DocumentApplication creation, payment creation, mixed ADJUSTMENT/CREDIT_NOTE creation, and REFUND invoice creation. Each rollback left zero invariant violations.
 
 ### Async operations outside the transaction boundary
 

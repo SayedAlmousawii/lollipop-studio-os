@@ -20,10 +20,13 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase C: EC-18/EC-19 show manager refund actions can exceed true overpayment if the service only checks inbound allocation capacity. Operationally, staff need a visible overpayment cap until the service is corrected.
 - 2026-05-15 Phase D: REG-76-01 verifies a receptionist user cannot issue a CREDIT_NOTE through the service and the rejected attempt leaves no CREDIT_NOTE record.
 - 2026-05-15 Phase E: Locked add-on removal without manager approval was blocked server-side, but the POS UI did not show the required manager approval or credit-note prompt. It only displayed "Unable to remove order add-on", which leaves staff without a compliant next step.
+- 2026-05-15 Phase F: Service-level Layer 8 tests verify receptionist and accountant users cannot issue CREDIT_NOTE or REFUND documents. Manager-issued paths remain allowed.
 
 ### Photographer viewing financial data through a known URL
 
 TBD - to be filled during Phase A/B/C/etc.
+
+- 2026-05-15 Phase F: Service-level POS payment attempts by `PHOTOGRAPHER` and `EDITOR` actors are rejected. Browser URL-level invoice visibility remains untested in Phase F.
 
 ## B. UX Confusion Risks
 
@@ -60,6 +63,7 @@ TBD - to be filled during Phase A/B/C/etc.
 - 2026-05-15 Phase B: INT-07 verifies a fully paid, locked FINAL invoice makes editing start possible through the service. INT-15 verifies production readiness is blocked when editing is incomplete. Negative direct editing-start with open FINAL remains covered by Phase A invariant shape, not expanded into a separate Layer 8 permission/security test.
 - 2026-05-15 Phase D: REG-LEGACY-01 characterizes a bypass risk in the read/workflow readiness layer: when canonical Final Invoice `remainingAmount` is `20.000 KD`, editing readiness can still show no outstanding balance because Deposit paid amount is subtracted again. This should become a failure-expecting regression after the legacy path is fixed.
 - 2026-05-15 Phase E: Editing assignment/start worked after full payment and manual invoice close. Open-Final negative browser testing was not separately executed in this run.
+- 2026-05-15 Phase F: Service-level forbidden-transition tests reject editing start while the Final Invoice still has outstanding balance. The Phase D legacy deposit-deduction display/readiness risk remains separately open.
 
 ### Delivery marked complete without pickup recorded via direct API
 
@@ -110,3 +114,4 @@ TBD - to be filled during Phase A/B/C/etc.
 TBD - to be filled during Phase A/B/C/etc.
 
 - 2026-05-15 Phase C: EC-42 verifies self-healing when the sequence row falls behind existing booking references. True concurrent sequence races remain Layer 7 scope.
+- 2026-05-15 Phase F: Concurrent booking deposit/confirmation on the same pending booking produced exactly one booking reference and one financial case. Cross-booking simultaneous reference generation is still supported by the upsert/self-healing sequence approach, but the suite focuses on same-booking corruption prevention.
