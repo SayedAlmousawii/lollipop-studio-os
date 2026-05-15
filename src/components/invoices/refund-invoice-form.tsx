@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { moneyInputValue } from "@/lib/invoices/refund-utils";
 
 type RefundFormAction = (formData: FormData) => void | Promise<void>;
 
@@ -20,12 +21,6 @@ type RefundInvoiceFormProps = {
   overpaymentCapacity: string;
   sourcePayments: SourcePayment[];
 };
-
-export function shouldShowRefundForm(
-  overpaymentCapacity: string | null
-): boolean {
-  return overpaymentCapacity !== null && moneyInputValue(overpaymentCapacity) !== "0.000";
-}
 
 export function RefundInvoiceForm({
   action,
@@ -95,7 +90,7 @@ export function RefundInvoiceForm({
           id="refund-of-payment"
           name="refundOfPaymentId"
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          defaultValue={sourcePayments[0]?.id ?? ""}
+          defaultValue={sourcePayments.length === 1 ? sourcePayments[0].id : ""}
         >
           <option value="">Unattributed</option>
           {sourcePayments.map((payment) => (
@@ -128,10 +123,4 @@ export function RefundInvoiceForm({
       </Button>
     </form>
   );
-}
-
-function moneyInputValue(value: string): string {
-  const match = value.match(/-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/);
-  const parsedValue = Number(match?.[0].replace(/,/g, "") ?? 0);
-  return Number.isFinite(parsedValue) ? parsedValue.toFixed(3) : "0.000";
 }

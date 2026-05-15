@@ -1133,12 +1133,11 @@ export async function applyDepositToFinalIfPresent(
     return;
   }
 
-  const existingApplication = await client.documentApplication.findUnique({
+  const existingApplication = await client.documentApplication.findFirst({
     where: {
-      sourceInvoiceId_targetInvoiceId: {
-        sourceInvoiceId: depositInvoice.id,
-        targetInvoiceId: finalInvoiceId,
-      },
+      sourceInvoiceId: depositInvoice.id,
+      targetInvoiceId: finalInvoiceId,
+      targetInvoiceLineId: null,
     },
     select: { id: true },
   });

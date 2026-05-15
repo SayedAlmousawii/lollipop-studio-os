@@ -25,28 +25,30 @@ type ModuleLoader = (
 
 const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 const originalModuleLoad = moduleWithLoader._load;
-moduleWithLoader._load = function loadWithServerOnlyShim(request, parent, isMain) {
-  if (request === "server-only") return {};
-  return originalModuleLoad.call(this, request, parent, isMain);
-};
 
 test("invoice overpayment capacity bounds refunds to true overpayment", async (t) => {
-  await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
-    const previousDatabaseUrl = process.env.DATABASE_URL;
-    process.env.DATABASE_URL = databaseUrl;
+  moduleWithLoader._load = function loadWithServerOnlyShim(request, parent, isMain) {
+    if (request === "server-only") return {};
+    return originalModuleLoad.call(this, request, parent, isMain);
+  };
 
-    try {
-      const [
-        { db },
-        invoices,
-        refunds,
-        refundForm,
-      ] = await Promise.all([
-        import("@/lib/db"),
-        import("@/modules/invoices/invoice.service"),
-        import("@/modules/refunds/refund.service"),
-        import("@/components/invoices/refund-invoice-form"),
-      ]);
+  try {
+    await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
+      const previousDatabaseUrl = process.env.DATABASE_URL;
+      process.env.DATABASE_URL = databaseUrl;
+
+      try {
+        const [
+          { db },
+          invoices,
+          refunds,
+          refundUtils,
+        ] = await Promise.all([
+          import("@/lib/db"),
+          import("@/modules/invoices/invoice.service"),
+          import("@/modules/refunds/refund.service"),
+          import("@/lib/invoices/refund-utils"),
+        ]);
 
       const fixture = await seedOverpaymentFixture(db);
 
@@ -118,7 +120,7 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
 
         const detail = await invoices.getInvoiceById(source.id);
         assert.equal(detail?.overpaymentCapacity, "0.000 KD");
-        assert.equal(refundForm.shouldShowRefundForm(detail?.overpaymentCapacity ?? null), false);
+        assert.equal(refundUtils.shouldShowRefundForm(detail?.overpaymentCapacity ?? null), false);
       });
 
       await t.test("concurrent refunds cannot both consume the same capacity", async () => {
@@ -171,15 +173,18 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
         assert.equal(capacity.toFixed(3), "5.000");
       });
 
-      await db.$disconnect();
-    } finally {
-      if (previousDatabaseUrl === undefined) {
-        delete process.env.DATABASE_URL;
-      } else {
-        process.env.DATABASE_URL = previousDatabaseUrl;
+        await db.$disconnect();
+      } finally {
+        if (previousDatabaseUrl === undefined) {
+          delete process.env.DATABASE_URL;
+        } else {
+          process.env.DATABASE_URL = previousDatabaseUrl;
+        }
       }
-    }
-  });
+    });
+  } finally {
+    moduleWithLoader._load = originalModuleLoad;
+  }
 });
 
 async function seedOverpaymentFixture(db: PrismaClient) {

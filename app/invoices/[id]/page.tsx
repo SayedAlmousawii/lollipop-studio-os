@@ -10,11 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { PaymentHistoryTable } from "@/components/invoices/payment-history-table";
 import { RecordPaymentForm } from "@/components/invoices/record-payment-form";
-import {
-  RefundInvoiceForm,
-  shouldShowRefundForm,
-} from "@/components/invoices/refund-invoice-form";
+import { RefundInvoiceForm } from "@/components/invoices/refund-invoice-form";
 import { getCurrentAppUser } from "@/lib/auth";
+import { shouldShowRefundForm } from "@/lib/invoices/refund-utils";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
 import {
@@ -60,6 +58,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
   const sourcePayments = invoice.payments.filter(
     (payment) => payment.direction === "IN"
   );
+  const hasRefundCapacity = shouldShowRefundForm(invoice.overpaymentCapacity);
 
   return (
     <PageContainer>
@@ -88,10 +87,10 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
           <Metric label="Paid" value={invoice.paidAmount} />
           <Metric label="Remaining" value={invoice.remainingAmount} />
           <Metric
-            label={invoice.isOverpaid ? "Overpaid" : "Locked"}
+            label={hasRefundCapacity ? "Refundable" : "Locked"}
             value={
-              invoice.isOverpaid
-                ? invoice.overpaidAmount ?? "0.000 KD"
+              hasRefundCapacity
+                ? invoice.overpaymentCapacity ?? "0.000 KD"
                 : invoice.isLocked
                   ? "Yes"
                   : "No"
@@ -99,11 +98,11 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
           />
         </div>
 
-        {invoice.isOverpaid && invoice.overpaidAmount ? (
+        {hasRefundCapacity ? (
           <Card>
             <CardContent className="pt-6 text-sm text-text-secondary">
-              Credit available: {invoice.overpaidAmount}. Issue a refund when the
-              outbound money movement is ready to record.
+              Refund capacity available: {invoice.overpaymentCapacity}. Issue a
+              refund when the outbound money movement is ready to record.
             </CardContent>
           </Card>
         ) : null}
