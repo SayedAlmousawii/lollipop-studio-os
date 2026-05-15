@@ -1,4 +1,6 @@
 import {
+  AuditAction,
+  AuditEntityType,
   InvoiceType,
   InvoiceStatus,
   OrderActivityType,
@@ -21,6 +23,7 @@ import { PERMISSIONS } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
@@ -1058,6 +1061,7 @@ export async function updateOrderPackage(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
+          actorContext,
           previousAddOns,
           previousSelectedPhotoCount: null,
           previousIncludedPhotoCount,
@@ -1239,6 +1243,7 @@ export async function upgradeOrderPackageItem(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
+          actorContext,
           previousAddOns,
           previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: currentPackage.photoCount,
@@ -1377,6 +1382,7 @@ export async function addOrderProductAddOn(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
+          actorContext,
           previousAddOns,
           previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: null,
@@ -1505,6 +1511,7 @@ export async function removeOrderAddOn(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
+          actorContext,
           previousAddOns,
           previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
           previousIncludedPhotoCount: null,
@@ -1649,6 +1656,7 @@ export async function updateOrderSelectedPhotoCount(
 
         const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
           orderId,
+          actorContext,
           previousAddOns,
           previousSelectedPhotoCount: null,
           previousIncludedPhotoCount: currentPackage.photoCount,
@@ -2265,12 +2273,34 @@ export async function updateOrderDeliveryWorkflow(
             if (invoice.orderId) {
               await snapshotInvoiceLineItemsWithClient(tx, invoice.id, invoice.orderId);
             }
+            const closedAt = new Date();
             await tx.invoice.updateMany({
               where: { id: invoice.id, isLocked: false },
               data: {
                 status: InvoiceStatus.CLOSED,
                 isLocked: true,
-                closedAt: new Date(),
+                closedAt,
+              },
+            });
+            await recordAuditLog(tx, actorContext, {
+              entityType: AuditEntityType.INVOICE,
+              entityId: invoice.id,
+              action: AuditAction.INVOICE_LOCKED,
+              before: {
+                isLocked: invoice.isLocked,
+                status: invoice.status,
+                closedAt: invoice.closedAt?.toISOString() ?? null,
+              },
+              after: {
+                isLocked: true,
+                status: InvoiceStatus.CLOSED,
+                closedAt: closedAt.toISOString(),
+              },
+              context: {
+                financialCaseId: invoice.financialCaseId,
+                orderId: invoice.orderId ?? null,
+                bookingId: invoice.bookingId ?? null,
+                invoiceType: invoice.invoiceType,
               },
             });
           }
@@ -3862,13 +3892,17 @@ const deliveryOrderSelect = {
     where: FINAL_PARENT_INVOICE_WHERE,
     select: {
       id: true,
+      financialCaseId: true,
       orderId: true,
+      bookingId: true,
+      invoiceType: true,
       parentInvoiceId: true,
       isLocked: true,
       totalAmount: true,
       paidAmount: true,
       remainingAmount: true,
       status: true,
+      closedAt: true,
       createdAt: true,
     },
     orderBy: { createdAt: "desc" },

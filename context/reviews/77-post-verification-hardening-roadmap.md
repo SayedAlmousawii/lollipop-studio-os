@@ -13,14 +13,14 @@ Feature 77 verification (Phases A–G) raised confidence in the choke-point arch
 However, the verification effort also exposed a small number of **structural weaknesses that are real production hazards today**:
 
 - **Invoice settlement row locking is now closed by Feature 78a** — `recordPayment()` takes a row-level lock before balance reads, removing the demonstrated double-click and final-1% race window.
-- **Locked invoice immutability is service-only** — a direct Prisma write can unset `isLocked` or mutate `totalAmount`; there is no DB trigger and no audit snapshot to even prove it happened.
+- **Locked invoice immutability is service-only** — a direct Prisma write can unset `isLocked` or mutate `totalAmount`; Feature 80a now records first-class `AuditLog` attribution for service paths, but there is still no DB trigger or lock-time snapshot.
 - **POS settlement auto-lock is now closed by Feature 78a**. Fully paid FINAL invoices now close and lock inside the settlement transaction, including the prior `Draft` edge case.
 - **Paid-ADJUSTMENT reversal is now closed by Feature 79a** — the classifier carries an adjustment-cause ledger and routes reductive edits to the causing ADJUSTMENT, issuing a paired CREDIT_NOTE (and REFUND when already paid).
 - **Refund overpayment capacity is now closed by Feature 79c** — refunds are capped by true overpayment capacity from inbound allocations minus CREDIT_NOTE-net owed amount minus prior REFUND totals, and the invoice UI defaults/caps to that value.
 - **Retired virtual-deposit deduction is now closed by Feature 79b** — POS and editing readiness consume canonical `Invoice.remainingAmount`, and DEPOSIT readiness reads the DEPOSIT invoice settlement state.
 - **POS reductive locked-edit manager prompt is now closed by Feature 79d** — reductive POS actions return an approval-required contract, the client opens a blocking manager modal, and approved retries pass manager attribution back through the same service path.
 - **`assertActorPermission()` short-circuits when `actorRole` is missing**, and `recordPayment()` has no role guard at all — internal callers can bypass authorization.
-- **No `AuditLog` model exists.** Booking-level financial actions and locked-field history are unprovable.
+- **First-class `AuditLog` is now closed by Feature 80a.** Booking confirmation/no-show, payment, invoice-lock, adjustment, credit-note, refund, and service-level locked-field mutations now write structured co-transactional audit rows.
 - **"Production ready" can be set with required sections incomplete**, and delivery then unlocks — a non-financial but real workflow-integrity bypass.
 
 The recommendation is to **freeze new feature work until the CRITICAL list is closed**. The HIGH list should be closed in the same stabilization window before commissions/reporting/vouchers expansion begins. Reconciliation is a safety net, not a substitute for these fixes.
@@ -33,7 +33,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 |---|---|---|---|---|
 | F1 | **COMPLETED** | Fully paid FINAL invoices now auto-close and lock inside the settlement transaction, including the prior `Draft` edge case | Closed by Feature 78a | `recordPayment()` now settles FINAL invoices to `CLOSED + isLocked=true` at `remainingAmount = 0` |
 | F2 | **COMPLETED** | Refund capacity now uses true overpayment instead of total inbound allocation, so paid-but-not-overpaid invoices have zero refund capacity | Closed by Feature 79c | `computeOverpaymentCapacity()` derives capacity from inbound allocations minus CREDIT_NOTE-net owed amount minus prior REFUND totals; refund creation rechecks under a source invoice row lock |
-| F3 | **CRITICAL** | Locked invoice immutability is service-layer only. EC-27 proves direct Prisma can unset `isLocked`; `totalAmount` is also writable. No `AuditLog` snapshot exists to even detect after the fact | Risk §B, §D; Phase F | DB-level: trigger or `UPDATE` policy rejecting mutation when `isLocked=true` (except controlled fields). Add `InvoiceLockSnapshot` table written inside lock transaction |
+| F3 | **CRITICAL** | Locked invoice immutability is service-layer only. EC-27 proves direct Prisma can unset `isLocked`; `totalAmount` is also writable. Audit actor attribution now exists, but no lock-time immutable snapshot exists to prove frozen field drift | Risk §B, §D; Phase F | DB-level: trigger or `UPDATE` policy rejecting mutation when `isLocked=true` (except controlled fields). Add `InvoiceLockSnapshot` table written inside lock transaction |
 | F4 | **COMPLETED** | Paid ADJUSTMENT removal now triggers a CREDIT_NOTE targeting the causing ADJUSTMENT line (and a REFUND when the ADJUSTMENT was already paid) via the new cause ledger | Closed by Feature 79a | `InvoiceLineItem.causeOrderEntityKind/Id` + `DocumentApplication.targetInvoiceLineId`; classifier emits `adjustmentReversals`; `applyAdjustmentReversalsWithClient` materializes them |
 | F5 | **COMPLETED** | Order-layer balance display no longer subtracts Deposit paid amount from Final Invoice remaining; the legacy `calculateFinalBalanceDue`, POS remaining recomputation, and base-payment threshold helpers were removed by Feature 79b | Closed by Feature 79b | POS and editing readiness now consume canonical `Invoice.remainingAmount`; deposit settlement is read from the DEPOSIT invoice's own remaining balance |
 | F6 | **HIGH** | Reconciliation `INV-18` mismatch found in dev: order `cmp6tm9n30007n7t3ramturmp` total 230 KD vs revenue-documents total 225 KD | Phase G; [F6 finding](77-f6-investigation-finding.md) | Classified active: paid-ADJUSTMENT cause removal plus manual CREDIT_NOTE can diverge revenue documents from current order composition. Sprint 4 fixes the underlying paths and backfills |
@@ -71,7 +71,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | S1 | **COMPLETED** | `actorRole` is now required on `ActorContext`, and `assertActorPermission()` throws `MissingActorRoleError` if an untyped caller passes a missing role | Closed by Feature 78b | Shared auth helper moved to `src/lib/auth/assert-actor-permission.ts`; typed callers must pass a real role |
 | S2 | **COMPLETED** | `recordPaymentWithClient()` now enforces `PAYMENT_CREATE` at the service boundary, closing the internal-caller bypass path | Closed by Feature 78b | Explicit role-check now runs inside the payment service before invoice reads/writes |
 | S3 | **MEDIUM** | Browser URL-level financial visibility for `PHOTOGRAPHER`/`EDITOR` is untested | Phase F | Add Playwright role-negative tests on invoice/order/POS pages |
-| S4 | **MEDIUM** | No `AuditLog` model means actor attribution for booking-level financial actions is unprovable | Arch §F | Introduce `AuditLog` (see A1) |
+| S4 | **COMPLETED** | Booking-level financial/action attribution is now backed by first-class `AuditLog` rows | Closed by Feature 80a | `AuditLog` records co-transactional actor/context snapshots for booking confirmation/no-show and audited financial actions |
 
 ---
 
@@ -79,7 +79,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 
 | # | Severity | Item | Source | Action |
 |---|---|---|---|---|
-| A1 | **HIGH** | No `AuditLog` model; `OrderActivity` covers order-scoped actions only. Booking confirmation, no-show, lock events, reassignment are unprovable | Arch §F; Risk §B | Introduce `AuditLog(actorUserId, entityType, entityId, action, before, after, at)` plus `InvoiceLockSnapshot` row written on lock |
+| A1 | **COMPLETED** | First-class structured audit log for booking, financial, and lock-scoped service actions now exists | Closed by Feature 80a | `AuditLog(actorUserId, entityType, entityId, action, before, after, context, occurredAt)` added with co-transactional service writes; `InvoiceLockSnapshot` remains in F3/80b |
 | A2 | **COMPLETED** | Duplicate order-service balance formulas were removed by Feature 79b | Closed by Feature 79b | Order-level callers now sum canonical `Invoice.remainingAmount`; POS invoice summaries return each invoice's stored remaining amount |
 | A3 | **MEDIUM** | Invariant verification surface spans Phase A/B/C/D/F/G suites + runtime `src/modules/financial/invariants.ts`. Ownership is unclear | Arch §C; Phase G | Single owner-facing invariant catalog/index; keep phase folders but document which is canonical |
 | A4 | **MEDIUM** | `financial.rearch.dual_read.discrepancy` fires during *valid* locked-edit workflows. Pollutes log-based gating | Phase B/D/E; Arch §D | Remove the dual-read path now that classifier is canonical; or scope the warning to actual divergences only |
@@ -112,13 +112,13 @@ All removals must land with characterization tests flipped to failure-expecting 
 | O3 | **COMPLETED** | POS no longer leaves a fully paid FINAL invoice in a misleading Draft/unlocked state after settlement | Closed by Feature 78a | Resolved by F1 |
 | O4 | **COMPLETED** | Locked-edit reductive path now opens a blocking manager-approval modal with reduction line items and credit-note amounts | Closed by Feature 79d | Shared credit-note approval form is composed inside the POS reductive modal; cancel leaves the order unchanged |
 | O5 | **MEDIUM** | Slack delivery has no external "no-report-in-24h" monitor | Phase G; Ops §D | Add external monitor (Healthchecks.io / cron-monitor) |
-| O6 | **LOW** | No first-class financial AuditLog view for accountants; activity feed only | Phase E; Arch §F | Deferred until A1 lands |
+| O6 | **LOW** | No first-class financial AuditLog view for accountants; activity feed only | Phase E; Arch §F | A1 has landed; accountant-facing read view remains deferred |
 
 ---
 
 ## 9. Remaining Untested / Low-Confidence Areas
 
-- **INV-14 locked-field immutability** — cannot be exactly verified without lock-time snapshot. Blocked on A1.
+- **INV-14 locked-field immutability** — cannot be exactly verified without lock-time snapshot. Audit attribution is available after Feature 80a; exact frozen-field comparison remains blocked on `InvoiceLockSnapshot`.
 - **INV-18 full revenue composition** — runner reports; dev mismatch found (F6).
 - **Browser role-negative UX** — non-manager credit-note/refund attempts, photographer URL access (S3).
 - **Commission persistence at package upgrade** — EC-32/EC-33; no `Commission` model. Defer to commission expansion phase.
@@ -146,7 +146,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 7. W2 + O4 — Completed in Feature 79d: reductive locked-edit UX surfaces manager prompt
 
 **Sprint 3 — Workflow integrity & immutability proofs**
-8. A1 + F3 — `AuditLog` model + `InvoiceLockSnapshot` + DB-level locked-invoice mutation prevention
+8. A1 + F3 — A1 completed by Feature 80a (`AuditLog` model/service); F3 continues with `InvoiceLockSnapshot` + DB-level locked-invoice mutation prevention
 9. C2 — DB-level over-collection prevention
 10. C3 — DB-level ADJUSTMENT chain prevention
 
@@ -176,7 +176,7 @@ These must all be closed before commissions, reporting, vouchers, or integration
 - **C2** DB-level over-collection prevention
 - **C3** DB-level ADJUSTMENT chain prevention
 - **S1, S2** Completed in Feature 78b: required actor role + `recordPayment()` guard
-- **A1** `AuditLog` model (commissions and reporting both depend on it)
+- **A1** Completed in Feature 80a: `AuditLog` model/service (commissions and reporting can now depend on it)
 - **O1** Completed in Feature 79c: canonical refund default/cap
 - **O2** Canonical order-header settlement display
 
@@ -196,7 +196,7 @@ These are real gaps, but the cost of fixing them now outweighs the residual risk
 - **EC-32/EC-33** Commission persistence — not in scope until commissions expansion phase.
 - **EC-39** Voucher/GiftCardRedemption schema — not in scope until voucher expansion phase.
 - **S3** Browser role-negative tests — service-level coverage in Phase F is sufficient short-term; add before public-internet exposure expands.
-- **O6** First-class AuditLog UI for accountants — depends on A1; deferred view.
+- **O6** First-class AuditLog UI for accountants — A1 has landed; deferred view.
 - **F7** Cached `paidAmount` field — keep it but ensure every write recomputes; full removal is a larger refactor.
 
 ---
@@ -206,8 +206,8 @@ These are real gaps, but the cost of fixing them now outweighs the residual risk
 Once Sections 11 are closed and Section 10 Sprint 4 is at least in progress, the architecture is safe to extend. Selected order (owner decision 2026-05-15):
 
 1. **Voucher / GiftCardRedemption schema (Phase 4)** — owner priority. New write path; must adopt the (now DB-enforced) invariants and locked-invoice protections from the start. This is the first real stress test of the stabilized financial foundation, so the gating list (§11) is non-negotiable before it begins.
-2. **Commission persistence (`Commission` model)** — EC-32/EC-33 already characterized; package-upgrade flows already exercised; depends on A1 (`AuditLog`) which lands during stabilization.
-3. **Reporting / accountant view** — read-only consumer of the now-frozen architecture; depends on A1 and canonical balance display (A2/F5/O2).
+2. **Commission persistence (`Commission` model)** — EC-32/EC-33 already characterized; package-upgrade flows already exercised; can now build on Feature 80a's `AuditLog`.
+3. **Reporting / accountant view** — read-only consumer of the now-frozen architecture; can now build on Feature 80a's `AuditLog` and still depends on canonical balance display (A2/F5/O2).
 4. **Integrations (external accounting / payment processors)** — last; depends on stable AuditLog and reconciliation as contract surface.
 
 *Note: items 2 and 3 ordering may be revisited.*

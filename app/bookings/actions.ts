@@ -44,8 +44,13 @@ export async function updateBookingStatusAction(
   }
 
   try {
-    await requireCurrentAppUserPermission(PERMISSIONS.BOOKING_STATUS_UPDATE);
-    await updateBookingStatus(parsed.data.bookingId, parsed.data.nextStatus);
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.BOOKING_STATUS_UPDATE
+    );
+    await updateBookingStatus(parsed.data.bookingId, parsed.data.nextStatus, {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update booking status";

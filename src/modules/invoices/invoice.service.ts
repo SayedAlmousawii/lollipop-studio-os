@@ -1,4 +1,6 @@
 import {
+  AuditAction,
+  AuditEntityType,
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
@@ -15,6 +17,7 @@ import {
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import { dualRead, LockedInvoiceEditError } from "@/modules/financial/dual-read";
 import {
   BlockedEditError,
@@ -65,6 +68,7 @@ export interface OrderInvoiceSyncInput {
   previousExtraPhotoCharge?: Prisma.Decimal;
   managerApprovedReductionByUserId?: string;
   managerApprovedReason?: string;
+  actorContext: ActorContext;
 }
 
 export interface OrderInvoiceSyncSummary {
@@ -91,8 +95,23 @@ function isUniqueConstraintError(error: unknown): boolean {
 async function updateUnlockedInvoiceTotal(
   client: DbClient,
   id: string,
-  totalAmount: Prisma.Decimal
+  totalAmount: Prisma.Decimal,
+  actorContext: ActorContext
 ) {
+  const beforeInvoice = await client.invoice.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      financialCaseId: true,
+      orderId: true,
+      bookingId: true,
+      totalAmount: true,
+    },
+  });
+  if (!beforeInvoice) {
+    throw new Error("Invoice not found before update");
+  }
+
   const updateResult = await client.invoice.updateMany({
     where: {
       id,
@@ -119,6 +138,19 @@ async function updateUnlockedInvoiceTotal(
   if (!invoice) {
     throw new Error("Invoice not found after update");
   }
+
+  await recordAuditLog(client, actorContext, {
+    entityType: AuditEntityType.INVOICE,
+    entityId: invoice.id,
+    action: AuditAction.INVOICE_TOTAL_MUTATED,
+    before: { totalAmount: beforeInvoice.totalAmount.toFixed(3) },
+    after: { totalAmount: invoice.totalAmount.toFixed(3) },
+    context: {
+      financialCaseId: beforeInvoice.financialCaseId,
+      orderId: beforeInvoice.orderId ?? null,
+      bookingId: beforeInvoice.bookingId ?? null,
+    },
+  });
 
   return invoice;
 }
@@ -350,6 +382,27 @@ export async function syncOrderInvoiceForFinancialEdit(
         }
 
         if (result.netZero && result.adjustmentLines.length === 0) {
+          await recordAuditLog(client, input.actorContext, {
+            entityType: AuditEntityType.ORDER,
+            entityId: order.id,
+            action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
+            before: {
+              swaps: delta.swaps.map((swap) => ({
+                removedName: swap.removedLineSnapshot.name,
+              })),
+            },
+            after: {
+              swaps: delta.swaps.map((swap) => ({
+                addedName: swap.addedLineSnapshot.name,
+                amount: swap.addedPriceSnapshot.toFixed(3),
+              })),
+            },
+            context: {
+              financialCaseId,
+              invoiceId: existingInvoice.id,
+            },
+          });
+
           await recordOrderActivity(client, {
             orderId: order.id,
             userId: null,
@@ -434,7 +487,7 @@ export async function syncOrderInvoiceForFinancialEdit(
               parentFinalInvoiceId: existingInvoice.id,
               lines: result.adjustmentLines,
               notes: `Auto-ADJUSTMENT from order edit on ${new Date().toISOString()}`,
-              createdByUserId: input.managerApprovedReductionByUserId,
+              createdByUserId: input.managerApprovedReductionByUserId ?? input.actorContext.actorUserId,
             },
             client
           );
@@ -551,7 +604,12 @@ export async function syncOrderInvoiceForFinancialEdit(
   }
 
   const invoice = existingInvoice
-    ? await updateUnlockedInvoiceTotal(client, existingInvoice.id, targetTotalAmount)
+    ? await updateUnlockedInvoiceTotal(
+        client,
+        existingInvoice.id,
+        targetTotalAmount,
+        input.actorContext
+      )
     : await createSyncedOrderInvoice(client, {
         orderId: order.id,
         bookingId: order.bookingId,
@@ -560,6 +618,7 @@ export async function syncOrderInvoiceForFinancialEdit(
         jobId: order.jobId,
         jobNumber: order.jobNumber,
         totalAmount: targetTotalAmount,
+        actorContext: input.actorContext,
       });
 
   await recalculateInvoiceStatus(invoice.id, client);
@@ -898,7 +957,11 @@ export async function closeInvoice(
             id: true,
             invoiceNumber: true,
             orderId: true,
+            bookingId: true,
+            financialCaseId: true,
             isLocked: true,
+            status: true,
+            closedAt: true,
           },
         });
         if (!invoice) {
@@ -912,12 +975,34 @@ export async function closeInvoice(
           await snapshotInvoiceLineItemsWithClient(tx, invoice.id, invoice.orderId);
         }
 
+        const closedAt = new Date();
         await tx.invoice.update({
           where: { id },
           data: {
             status: InvoiceStatus.CLOSED,
             isLocked: true,
-            closedAt: new Date(),
+            closedAt,
+          },
+        });
+
+        await recordAuditLog(tx, actorContext, {
+          entityType: AuditEntityType.INVOICE,
+          entityId: invoice.id,
+          action: AuditAction.INVOICE_LOCKED,
+          before: {
+            isLocked: invoice.isLocked,
+            status: invoice.status,
+            closedAt: invoice.closedAt?.toISOString() ?? null,
+          },
+          after: {
+            isLocked: true,
+            status: InvoiceStatus.CLOSED,
+            closedAt: closedAt.toISOString(),
+          },
+          context: {
+            financialCaseId: invoice.financialCaseId,
+            orderId: invoice.orderId ?? null,
+            bookingId: invoice.bookingId ?? null,
           },
         });
 
@@ -993,12 +1078,27 @@ async function createSyncedOrderInvoice(
     jobId: string;
     jobNumber: string;
     totalAmount: Prisma.Decimal;
+    actorContext: ActorContext;
   }
 ) {
   const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
     financialCaseId: data.financialCaseId,
   });
   if (existingInvoice) {
+    const beforeInvoice = await client.invoice.findUnique({
+      where: { id: existingInvoice.id },
+      select: {
+        id: true,
+        financialCaseId: true,
+        orderId: true,
+        bookingId: true,
+        totalAmount: true,
+      },
+    });
+    if (!beforeInvoice) {
+      throw new Error("Invoice not found before update");
+    }
+
     const updateResult = await client.invoice.updateMany({
       where: {
         id: existingInvoice.id,
@@ -1025,6 +1125,19 @@ async function createSyncedOrderInvoice(
     if (!refreshedInvoice) {
       throw new Error("Invoice not found after update");
     }
+
+    await recordAuditLog(client, data.actorContext, {
+      entityType: AuditEntityType.INVOICE,
+      entityId: refreshedInvoice.id,
+      action: AuditAction.INVOICE_TOTAL_MUTATED,
+      before: { totalAmount: beforeInvoice.totalAmount.toFixed(3) },
+      after: { totalAmount: refreshedInvoice.totalAmount.toFixed(3) },
+      context: {
+        financialCaseId: beforeInvoice.financialCaseId,
+        orderId: beforeInvoice.orderId ?? null,
+        bookingId: beforeInvoice.bookingId ?? null,
+      },
+    });
 
     return refreshedInvoice;
   }
@@ -1793,13 +1906,14 @@ async function createAdjustmentInvoiceWithClient(
   if (!parent.isLocked) {
     throw new Error("Adjustment invoices can only be created for locked final invoices");
   }
-  if (input.createdByUserId) {
-    await assertManagerApprovalActor(
-      client,
-      input.createdByUserId,
-      "Manager permission is required to issue an adjustment invoice"
-    );
+  if (!input.createdByUserId) {
+    throw new Error("createdByUserId is required to issue an adjustment invoice");
   }
+  const auditActorContext = await assertManagerApprovalActor(
+    client,
+    input.createdByUserId,
+    "Manager permission is required to issue an adjustment invoice"
+  );
 
   const totalAmount = input.lines.reduce(
     (sum, line) =>
@@ -1830,6 +1944,26 @@ async function createAdjustmentInvoiceWithClient(
     },
   });
 
+  await recordAuditLog(client, auditActorContext, {
+    entityType: AuditEntityType.INVOICE,
+    entityId: invoice.id,
+    action: AuditAction.ADJUSTMENT_ISSUED,
+    after: {
+      adjustmentInvoiceId: invoice.id,
+      parentFinalInvoiceId: parent.id,
+      lines: input.lines.map((line) => ({
+        description: line.description,
+        quantity: line.quantity,
+        unitPrice: new Prisma.Decimal(line.unitPrice).toFixed(3),
+      })),
+    },
+    context: {
+      financialCaseId: parent.financialCaseId,
+      orderId: parent.orderId ?? null,
+      bookingId: parent.bookingId ?? null,
+    },
+  });
+
   if (parent.orderId) {
     await recordOrderActivity(client, {
       orderId: parent.orderId,
@@ -1856,7 +1990,7 @@ async function assertManagerApprovalActor(
   client: DbClient,
   userId: string,
   message: string
-): Promise<void> {
+): Promise<ActorContext> {
   const actor = await client.user.findUnique({
     where: { id: userId },
     select: { id: true, role: true },
@@ -1867,6 +2001,8 @@ async function assertManagerApprovalActor(
   ) {
     throw new Error(message);
   }
+
+  return { actorUserId: actor.id, actorRole: actor.role };
 }
 
 export async function computeOverpaymentCapacity(
@@ -2014,6 +2150,10 @@ async function createCreditNoteWithClient(
   ) {
     throw new Error("Manager permission is required to issue a credit note");
   }
+  const auditActorContext: ActorContext = {
+    actorUserId: actor.id,
+    actorRole: actor.role,
+  };
 
   const targetInvoiceId = input.targetFinalInvoiceId ?? input.targetAdjustmentInvoiceId;
   if (!targetInvoiceId) {
@@ -2176,6 +2316,30 @@ async function createCreditNoteWithClient(
       },
     });
   }
+
+  await recordAuditLog(client, auditActorContext, {
+    entityType: AuditEntityType.CREDIT_NOTE,
+    entityId: creditNote.id,
+    action: AuditAction.CREDIT_NOTE_ISSUED,
+    after: {
+      creditNoteInvoiceId: creditNote.id,
+      targetInvoiceId: target.id,
+      lines: input.lines.map((line) => ({
+        description: line.description,
+        quantity: line.quantity,
+        unitPrice: new Prisma.Decimal(line.unitPrice).toFixed(3),
+        targetInvoiceId: line.targetInvoiceId ?? null,
+        targetInvoiceLineId: line.targetInvoiceLineId ?? null,
+      })),
+      managerApprovedReductionByUserId: input.createdByUserId,
+    },
+    context: {
+      financialCaseId: target.financialCaseId,
+      orderId: target.orderId ?? null,
+      bookingId: target.bookingId ?? null,
+      targetInvoiceId: target.id,
+    },
+  });
 
   const targetInvoiceIdsToRecalculate = new Set([
     target.id,
@@ -2424,6 +2588,10 @@ async function createRefundInvoiceWithClient(
   ) {
     throw new Error("Manager permission is required to issue a refund");
   }
+  const auditActorContext: ActorContext = {
+    actorUserId: actor.id,
+    actorRole: actor.role,
+  };
 
   await lockInvoiceForUpdate(client, input.sourceInvoiceId);
   const source = await client.invoice.findUnique({
@@ -2488,6 +2656,23 @@ async function createRefundInvoiceWithClient(
           }),
         ],
       },
+    },
+  });
+
+  await recordAuditLog(client, auditActorContext, {
+    entityType: AuditEntityType.REFUND,
+    entityId: invoice.id,
+    action: AuditAction.REFUND_ISSUED,
+    after: {
+      refundInvoiceId: invoice.id,
+      sourceInvoiceId: source.id,
+      amount: amount.toFixed(3),
+    },
+    context: {
+      financialCaseId: source.financialCaseId,
+      orderId: source.orderId ?? null,
+      bookingId: source.bookingId ?? null,
+      sourceInvoiceId: source.id,
     },
   });
 

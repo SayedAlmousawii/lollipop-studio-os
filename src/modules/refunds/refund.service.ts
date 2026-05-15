@@ -1,11 +1,16 @@
 import {
+  AuditAction,
+  AuditEntityType,
   InvoiceStatus,
   OrderActivityType,
   PaymentType,
   Prisma,
+  UserRole,
 } from "@prisma/client";
+import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import {
   createRefundInvoice,
@@ -48,6 +53,10 @@ async function issueRefundWithPaymentWithClient(
   input: CreateRefundWithPaymentInput,
   client: DbClient
 ): Promise<{ refundInvoiceId: string; refundPaymentId: string }> {
+  const auditActorContext = await getManagerAuditActorContext(
+    client,
+    input.createdByUserId
+  );
   const refundInvoice = await createRefundInvoice(input, client);
   const payment = await createPaymentWithAllocation(
     {
@@ -66,7 +75,23 @@ async function issueRefundWithPaymentWithClient(
   );
 
   await recalculateInvoiceStatus(refundInvoice.id, client);
-  await closeRefundInvoiceIfSettled(client, refundInvoice.id);
+  await recordAuditLog(client, auditActorContext, {
+    entityType: AuditEntityType.PAYMENT,
+    entityId: payment.id,
+    action: AuditAction.PAYMENT_REFUNDED,
+    after: {
+      paymentId: payment.id,
+      parentInvoiceId: refundInvoice.parentInvoiceId ?? null,
+      refundInvoiceId: refundInvoice.id,
+      amount: payment.amount.toFixed(3),
+    },
+    context: {
+      financialCaseId: refundInvoice.financialCaseId,
+      orderId: refundInvoice.orderId ?? null,
+      bookingId: refundInvoice.bookingId ?? null,
+    },
+  });
+  await closeRefundInvoiceIfSettled(client, refundInvoice.id, auditActorContext);
 
   if (refundInvoice.orderId) {
     await recordOrderActivity(client, {
@@ -93,22 +118,73 @@ async function issueRefundWithPaymentWithClient(
 
 async function closeRefundInvoiceIfSettled(
   client: DbClient,
-  refundInvoiceId: string
+  refundInvoiceId: string,
+  actorContext: ActorContext
 ): Promise<void> {
   const invoice = await client.invoice.findUnique({
     where: { id: refundInvoiceId },
-    select: { remainingAmount: true, isLocked: true },
+    select: {
+      id: true,
+      financialCaseId: true,
+      orderId: true,
+      bookingId: true,
+      remainingAmount: true,
+      isLocked: true,
+      status: true,
+      closedAt: true,
+    },
   });
   if (!invoice || invoice.isLocked || invoice.remainingAmount.greaterThan(0)) {
     return;
   }
 
+  const closedAt = new Date();
   await client.invoice.update({
     where: { id: refundInvoiceId },
     data: {
       status: InvoiceStatus.CLOSED,
       isLocked: true,
-      closedAt: new Date(),
+      closedAt,
     },
   });
+
+  await recordAuditLog(client, actorContext, {
+    entityType: AuditEntityType.INVOICE,
+    entityId: invoice.id,
+    action: AuditAction.INVOICE_LOCKED,
+    before: {
+      isLocked: invoice.isLocked,
+      status: invoice.status,
+      closedAt: invoice.closedAt?.toISOString() ?? null,
+    },
+    after: {
+      isLocked: true,
+      status: InvoiceStatus.CLOSED,
+      closedAt: closedAt.toISOString(),
+    },
+    context: {
+      financialCaseId: invoice.financialCaseId,
+      orderId: invoice.orderId ?? null,
+      bookingId: invoice.bookingId ?? null,
+      invoiceType: "REFUND",
+    },
+  });
+}
+
+async function getManagerAuditActorContext(
+  client: DbClient,
+  userId: string
+): Promise<ActorContext> {
+  const actor = await client.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true },
+  });
+  if (
+    !actor ||
+    (actor.role !== UserRole.ADMIN && actor.role !== UserRole.MANAGER)
+  ) {
+    throw new Error("Manager permission is required to issue a refund");
+  }
+
+  return { actorUserId: actor.id, actorRole: actor.role };
 }

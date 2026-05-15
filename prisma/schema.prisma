@@ -171,6 +171,30 @@ enum OrderActivityType {
   GUARD_BLOCKED
 }
 
+enum AuditEntityType {
+  INVOICE
+  PAYMENT
+  ORDER
+  BOOKING
+  FINANCIAL_CASE
+  CREDIT_NOTE
+  REFUND
+}
+
+enum AuditAction {
+  INVOICE_LOCKED
+  INVOICE_UNLOCKED
+  INVOICE_TOTAL_MUTATED
+  PAYMENT_RECORDED
+  PAYMENT_REFUNDED
+  CREDIT_NOTE_ISSUED
+  ADJUSTMENT_ISSUED
+  REFUND_ISSUED
+  BOOKING_CONFIRMED
+  BOOKING_NO_SHOW
+  ORDER_LOCKED_FIELD_MUTATED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -187,6 +211,7 @@ model User {
   assignedJobs         Job[]                 @relation("JobAssignedPhotographer")
   assignedEditingJobs  EditingJob[]          @relation("AssignedEditor")
   orderActivities      OrderActivity[]
+  auditLogs            AuditLog[]
   deliveryCompletions  Order[]               @relation("DeliveryCompletedBy")
   documentApplications DocumentApplication[]
 
@@ -605,6 +630,25 @@ model OrderActivity {
   @@map("order_activities")
 }
 
+model AuditLog {
+  id          String          @id @default(cuid())
+  actorUserId String
+  entityType  AuditEntityType
+  entityId    String
+  action      AuditAction
+  before      Json?
+  after       Json?
+  context     Json            @default("{}")
+  occurredAt  DateTime        @default(now())
+
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+  @@map("audit_logs")
+}
+
 model OrderAddOn {
   id             String   @id @default(cuid())
   orderId        String
@@ -708,7 +752,7 @@ model InvoiceLineItem {
   causeOrderEntityId   String?
   createdAt            DateTime         @default(now())
 
-  invoice             Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice              Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   documentApplications DocumentApplication[]
 
   @@unique([invoiceId, sortOrder])

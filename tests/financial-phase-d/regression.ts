@@ -301,6 +301,7 @@ async function runReg7603MixedEditCreatesPairedDocuments(
       });
       await syncOrderInvoiceForFinancialEdit(tx, {
         orderId: workflow.orderId,
+        actorContext: fixtures.managerActor,
         previousAddOns: [],
         managerApprovedReductionByUserId: fixtures.managerId,
         managerApprovedReason: "Phase D mixed edit reduction",

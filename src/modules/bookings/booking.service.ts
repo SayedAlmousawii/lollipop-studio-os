@@ -1,4 +1,6 @@
 import {
+  AuditAction,
+  AuditEntityType,
   BookingStatus,
   InvoiceStatus,
   InvoiceType,
@@ -10,6 +12,7 @@ import {
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import {
   generateInvoiceNumber,
   issueInvoiceWithClient,
@@ -519,7 +522,8 @@ export async function updateBooking(
 
 export async function updateBookingStatus(
   bookingId: string,
-  nextStatus: UpdateBookingStatusInput["nextStatus"]
+  nextStatus: UpdateBookingStatusInput["nextStatus"],
+  actorContext: ActorContext
 ) {
   const data = updateBookingStatusSchema.parse({ bookingId, nextStatus });
 
@@ -568,6 +572,24 @@ export async function updateBookingStatus(
         });
 
         if (data.nextStatus === BookingStatus.NO_SHOW) {
+          const invoicesToLock = await tx.invoice.findMany({
+            where: {
+              bookingId: booking.id,
+              jobId: booking.jobId,
+              parentInvoiceId: null,
+              isLocked: false,
+            },
+            select: {
+              id: true,
+              financialCaseId: true,
+              orderId: true,
+              bookingId: true,
+              isLocked: true,
+              status: true,
+              closedAt: true,
+            },
+          });
+          const closedAt = new Date();
           await tx.invoice.updateMany({
             where: {
               bookingId: booking.id,
@@ -578,8 +600,41 @@ export async function updateBookingStatus(
             data: {
               status: InvoiceStatus.CLOSED,
               isLocked: true,
-              closedAt: new Date(),
+              closedAt,
             },
+          });
+          for (const invoice of invoicesToLock) {
+            await recordAuditLog(tx, actorContext, {
+              entityType: AuditEntityType.INVOICE,
+              entityId: invoice.id,
+              action: AuditAction.INVOICE_LOCKED,
+              before: {
+                isLocked: invoice.isLocked,
+                status: invoice.status,
+                closedAt: invoice.closedAt?.toISOString() ?? null,
+              },
+              after: {
+                isLocked: true,
+                status: InvoiceStatus.CLOSED,
+                closedAt: closedAt.toISOString(),
+              },
+              context: {
+                financialCaseId: invoice.financialCaseId,
+                orderId: invoice.orderId ?? null,
+                bookingId: invoice.bookingId ?? null,
+              },
+            });
+          }
+        }
+
+        if (data.nextStatus === BookingStatus.NO_SHOW) {
+          await recordAuditLog(tx, actorContext, {
+            entityType: AuditEntityType.BOOKING,
+            entityId: booking.id,
+            action: AuditAction.BOOKING_NO_SHOW,
+            before: { status: booking.status },
+            after: { status: BookingStatus.NO_SHOW },
+            context: { jobId: booking.jobId ?? null },
           });
         }
 
@@ -703,6 +758,19 @@ export async function recordBookingDeposit(
         await tx.booking.update({
           where: { id: booking.id },
           data: { status: BookingStatus.CONFIRMED },
+        });
+
+        await recordAuditLog(tx, actorContext, {
+          entityType: AuditEntityType.BOOKING,
+          entityId: booking.id,
+          action: AuditAction.BOOKING_CONFIRMED,
+          before: { status: booking.status },
+          after: { status: BookingStatus.CONFIRMED },
+          context: {
+            financialCaseId: financialCase.id,
+            invoiceId: invoice.id,
+            paymentId: payment.id,
+          },
         });
 
         return payment;

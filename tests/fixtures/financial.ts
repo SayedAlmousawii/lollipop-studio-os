@@ -428,6 +428,19 @@ export async function makeAdjustedBookingFixture(
     },
     select: { id: true },
   });
+  const manager = await prisma.user.upsert({
+    where: { email: "financial-adjustment-manager@example.com" },
+    update: {
+      name: "Financial Adjustment Manager",
+      role: UserRole.MANAGER,
+      active: true,
+    },
+    create: {
+      name: "Financial Adjustment Manager",
+      email: "financial-adjustment-manager@example.com",
+      role: UserRole.MANAGER,
+    },
+  });
 
   const adjustmentInvoice = existingAdjustment
     ? existingAdjustment
@@ -435,6 +448,7 @@ export async function makeAdjustedBookingFixture(
         {
           parentFinalInvoiceId: finalInvoice.id,
           notes: ADJUSTED_FIXTURE_KEYS.adjustmentNotes,
+          createdByUserId: manager.id,
           lines: [
             {
               lineType: InvoiceLineType.ADD_ON,
@@ -692,8 +706,22 @@ export async function makeAutoAdjustedBookingFixture(
       quantity: 1,
     },
   });
+  const manager = await prisma.user.upsert({
+    where: { email: "financial-auto-adjustment-manager@example.com" },
+    update: {
+      name: "Financial Auto Adjustment Manager",
+      role: UserRole.MANAGER,
+      active: true,
+    },
+    create: {
+      name: "Financial Auto Adjustment Manager",
+      email: "financial-auto-adjustment-manager@example.com",
+      role: UserRole.MANAGER,
+    },
+  });
   await syncOrderInvoiceForFinancialEdit(prisma, {
     orderId: order.id,
+    actorContext: { actorUserId: manager.id, actorRole: manager.role },
     previousAddOns: [],
   });
 
@@ -1178,6 +1206,7 @@ export async function makeMixedEditBookingFixture(
 
   await syncOrderInvoiceForFinancialEdit(prisma, {
     orderId: order.id,
+    actorContext: { actorUserId: manager.id, actorRole: manager.role },
     previousAddOns: [
       {
         productId: oldAddOnProduct.id,

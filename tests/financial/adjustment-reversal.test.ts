@@ -167,6 +167,7 @@ test("adjustment reversal regressions A-E", async () => {
     });
     await ctx.syncOrderInvoiceForFinancialEdit(ctx.db, {
       orderId: workflow.orderId,
+      actorContext: ctx.fixtures.managerActor,
       previousAddOns: [
         { name: upgrade.nameSnapshot, price: upgrade.priceSnapshot.toNumber() },
         { name: upgrade.nameSnapshot, price: upgrade.priceSnapshot.toNumber() },
@@ -285,6 +286,7 @@ async function assertSameCauseReversalConsumesAllOpenLines(ctx: TestContext) {
   });
   await ctx.syncOrderInvoiceForFinancialEdit(ctx.db, {
     orderId: workflow.orderId,
+    actorContext: ctx.fixtures.adminActor,
     previousAddOns: [{ productId: addOn.productId ?? undefined, name: addOn.nameSnapshot, price: 50 }],
   });
   const secondAdjustment = await latestAdjustmentWithLine(ctx.db, workflow.orderId);
@@ -293,6 +295,7 @@ async function assertSameCauseReversalConsumesAllOpenLines(ctx: TestContext) {
   await ctx.db.orderAddOn.delete({ where: { id: addOn.id } });
   await ctx.syncOrderInvoiceForFinancialEdit(ctx.db, {
     orderId: workflow.orderId,
+    actorContext: ctx.fixtures.managerActor,
     previousAddOns: [
       { productId: addOn.productId ?? undefined, name: addOn.nameSnapshot, price: 50 },
       { productId: addOn.productId ?? undefined, name: addOn.nameSnapshot, price: 50 },
