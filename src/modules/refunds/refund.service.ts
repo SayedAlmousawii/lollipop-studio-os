@@ -144,20 +144,56 @@ async function closeRefundInvoiceIfSettled(
   }
 
   const closedAt = new Date();
-  await client.invoice.update({
-    where: { id: refundInvoiceId },
+  const updateResult = await client.invoice.updateMany({
+    where: {
+      id: refundInvoiceId,
+      isLocked: false,
+      remainingAmount: invoice.remainingAmount,
+    },
     data: {
       status: InvoiceStatus.CLOSED,
       isLocked: true,
       closedAt,
     },
   });
+  if (updateResult.count === 0) {
+    return;
+  }
 
-  await recordInvoiceLockSnapshot(client, invoice, actorContext.actorUserId);
+  const persistedInvoice = await client.invoice.findUnique({
+    where: { id: refundInvoiceId },
+    select: {
+      ...invoiceLockSnapshotSelect,
+      id: true,
+      financialCaseId: true,
+      orderId: true,
+      bookingId: true,
+      remainingAmount: true,
+      isLocked: true,
+      status: true,
+      closedAt: true,
+    },
+  });
+  if (!persistedInvoice) {
+    console.warn(
+      JSON.stringify({
+        metric: "refund.invoice_lock_snapshot_skipped",
+        invoiceId: refundInvoiceId,
+        reason: "missing_after_lock",
+      })
+    );
+    return;
+  }
+
+  await recordInvoiceLockSnapshot(
+    client,
+    persistedInvoice,
+    actorContext.actorUserId
+  );
 
   await recordAuditLog(client, actorContext, {
     entityType: AuditEntityType.INVOICE,
-    entityId: invoice.id,
+    entityId: persistedInvoice.id,
     action: AuditAction.INVOICE_LOCKED,
     before: {
       isLocked: invoice.isLocked,
@@ -170,9 +206,9 @@ async function closeRefundInvoiceIfSettled(
       closedAt: closedAt.toISOString(),
     },
     context: {
-      financialCaseId: invoice.financialCaseId,
-      orderId: invoice.orderId ?? null,
-      bookingId: invoice.bookingId ?? null,
+      financialCaseId: persistedInvoice.financialCaseId,
+      orderId: persistedInvoice.orderId ?? null,
+      bookingId: persistedInvoice.bookingId ?? null,
       invoiceType: "REFUND",
     },
   });
