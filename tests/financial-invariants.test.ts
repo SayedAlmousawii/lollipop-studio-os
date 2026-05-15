@@ -1,9 +1,24 @@
 import "dotenv/config";
 
 import assert from "node:assert/strict";
+import Module from "node:module";
 import process from "node:process";
 import test from "node:test";
 import { withIsolatedBackendInvariantSchema } from "./backend-invariants/harness";
+import { makeManagerActor } from "./fixtures/actor";
+
+type ModuleLoader = (
+  request: string,
+  parent: NodeJS.Module | null | undefined,
+  isMain: boolean
+) => unknown;
+
+const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
+const originalModuleLoad = moduleWithLoader._load;
+moduleWithLoader._load = function loadWithServerOnlyShim(request, parent, isMain) {
+  if (request === "server-only") return {};
+  return originalModuleLoad.call(this, request, parent, isMain);
+};
 
 test("financial invariants all pass against seeded fixtures", async () => {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
@@ -51,6 +66,18 @@ test("financial invariants all pass against seeded fixtures", async () => {
 
       try {
         await seedAllSharedFixtures(db);
+        const manager = await db.user.upsert({
+          where: { email: "financial-invariants-manager@example.com" },
+          update: {
+            name: "Financial Invariants Manager",
+            role: "MANAGER",
+          },
+          create: {
+            name: "Financial Invariants Manager",
+            email: "financial-invariants-manager@example.com",
+            role: "MANAGER",
+          },
+        });
         const adjustedFixture = await makeAdjustedBookingFixture(db);
         const adjustmentInvoice = await db.invoice.findUniqueOrThrow({
           where: { id: adjustedFixture.adjustmentInvoiceId },
@@ -76,12 +103,16 @@ test("financial invariants all pass against seeded fixtures", async () => {
         const autoAdjustmentOrderId = autoAdjustmentInvoice.orderId;
         assert.ok(autoAdjustmentOrderId, "expected auto adjustment to belong to an order");
 
-        await recordPayment(autoAdjustedFixture.adjustmentInvoiceId, {
-          amount: 15,
-          method: PaymentMethod.CASH,
-          paymentType: PaymentType.ADJUSTMENT,
-          paidAt: new Date("2026-05-14T10:30:00.000Z"),
-        });
+        await recordPayment(
+          autoAdjustedFixture.adjustmentInvoiceId,
+          {
+            amount: 15,
+            method: PaymentMethod.CASH,
+            paymentType: PaymentType.ADJUSTMENT,
+            paidAt: new Date("2026-05-14T10:30:00.000Z"),
+          },
+          makeManagerActor({ actorUserId: manager.id })
+        );
         const paidAdjustmentInvoice = await db.invoice.findUniqueOrThrow({
           where: { id: autoAdjustedFixture.adjustmentInvoiceId },
           select: {

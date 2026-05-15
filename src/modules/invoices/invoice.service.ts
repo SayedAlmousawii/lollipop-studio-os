@@ -116,7 +116,7 @@ async function updateUnlockedInvoiceTotal(
 
 export async function createInvoiceForOrder(
   orderId: string,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ id: string }> {
   return withRetry(
     () =>
@@ -130,7 +130,7 @@ export async function createInvoiceForOrder(
 export async function createInvoiceForOrderWithClient(
   client: DbClient,
   orderId: string,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ id: string; status: InvoiceStatus }> {
   const order = await client.order.findUnique({
     where: { id: orderId },
@@ -699,7 +699,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
 
 export async function issueInvoice(
   id: string,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<void> {
   await withRetry(
     () =>
@@ -711,7 +711,7 @@ export async function issueInvoice(
 export async function issueInvoiceWithClient(
   client: DbClient,
   id: string,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<void> {
   const invoice = await client.invoice.findUnique({
     where: { id },
@@ -801,7 +801,7 @@ export async function snapshotInvoiceLineItemsWithClient(
 
 export async function closeInvoice(
   id: string,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<void> {
   await withRetry(
     () =>

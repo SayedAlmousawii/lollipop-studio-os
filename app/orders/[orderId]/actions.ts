@@ -153,7 +153,10 @@ export async function recordUpgradePaymentAction(
       };
     }
 
-    await recordPayment(invoice.id, { ...parsed.data, amount: serverAmount }, { actorUserId: appUser.id });
+    await recordPayment(invoice.id, { ...parsed.data, amount: serverAmount }, {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    });
   } catch (error) {
     if (error instanceof Error && "digest" in error) throw error;
     const message =

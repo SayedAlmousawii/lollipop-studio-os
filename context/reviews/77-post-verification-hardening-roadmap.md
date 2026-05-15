@@ -66,8 +66,8 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 
 | # | Severity | Risk | Source | Required Fix |
 |---|---|---|---|---|
-| S1 | **HIGH** | `assertActorPermission()` returns early when `actorRole` is missing — optional role makes internal callers an authorization bypass | Phase F; Arch §F | Make `actorRole` required at the type level; throw on missing |
-| S2 | **HIGH** | `recordPayment()` has no role guard. Internal/service callers can create payments with an `EDITOR` actor | Phase F; Risk §A | Add explicit role-check inside the service, not only at the server-action wrapper |
+| S1 | **COMPLETED** | `actorRole` is now required on `ActorContext`, and `assertActorPermission()` throws `MissingActorRoleError` if an untyped caller passes a missing role | Closed by Feature 78b | Shared auth helper moved to `src/lib/auth/assert-actor-permission.ts`; typed callers must pass a real role |
+| S2 | **COMPLETED** | `recordPaymentWithClient()` now enforces `PAYMENT_CREATE` at the service boundary, closing the internal-caller bypass path | Closed by Feature 78b | Explicit role-check now runs inside the payment service before invoice reads/writes |
 | S3 | **MEDIUM** | Browser URL-level financial visibility for `PHOTOGRAPHER`/`EDITOR` is untested | Phase F | Add Playwright role-negative tests on invoice/order/POS pages |
 | S4 | **MEDIUM** | No `AuditLog` model means actor attribution for booking-level financial actions is unprovable | Arch §F | Introduce `AuditLog` (see A1) |
 
@@ -134,7 +134,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 **Sprint 1 — Stop active corruption vectors**
 1. F1 — Auto-lock Final Invoice on full payment (settlement transaction)
 2. C1 — Row-level lock on invoice settlement (`SELECT … FOR UPDATE`)
-3. S1 + S2 — Required `actorRole` + role guard on `recordPayment()`
+3. S1 + S2 — Completed in Feature 78b: required `actorRole` + role guard on `recordPayment()`
 4. F6 — **Investigation complete** for dev `INV-18` mismatch (order `cmp6tm9n30007n7t3ramturmp`, 230 vs 225 KD): active bug, root cause and repro test documented in [F6 finding](77-f6-investigation-finding.md). Fix lands in Sprint 4
 
 **Sprint 2 — Fix money correctness**
@@ -173,7 +173,7 @@ These must all be closed before commissions, reporting, vouchers, or integration
 - **C1** Invoice row-level locking on settlement
 - **C2** DB-level over-collection prevention
 - **C3** DB-level ADJUSTMENT chain prevention
-- **S1, S2** Required actor role + `recordPayment()` guard
+- **S1, S2** Completed in Feature 78b: required actor role + `recordPayment()` guard
 - **A1** `AuditLog` model (commissions and reporting both depend on it)
 - **O1, O2** Canonical refund-default and order-header settlement display
 

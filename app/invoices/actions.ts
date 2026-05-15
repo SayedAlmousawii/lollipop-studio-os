@@ -29,14 +29,20 @@ export type RecordPaymentActionState = {
 
 export async function issueInvoiceAction(invoiceId: string): Promise<void> {
   const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_ISSUE);
-  await issueInvoice(invoiceId, { actorUserId: appUser.id });
+  await issueInvoice(invoiceId, {
+    actorUserId: appUser.id,
+    actorRole: appUser.role,
+  });
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${invoiceId}`);
 }
 
 export async function closeInvoiceAction(invoiceId: string): Promise<void> {
   const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_CLOSE);
-  await closeInvoice(invoiceId, { actorUserId: appUser.id });
+  await closeInvoice(invoiceId, {
+    actorUserId: appUser.id,
+    actorRole: appUser.role,
+  });
   revalidatePath("/invoices");
   revalidatePath(`/invoices/${invoiceId}`);
 }
@@ -61,7 +67,10 @@ export async function recordPaymentAction(
 
   try {
     const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
-    await recordPayment(invoiceId, parsed.data, { actorUserId: appUser.id });
+    await recordPayment(invoiceId, parsed.data, {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    });
     revalidatePath("/invoices");
     revalidatePath(`/invoices/${invoiceId}`);
     return { success: "Payment recorded." };

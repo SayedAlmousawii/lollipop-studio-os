@@ -16,8 +16,9 @@ import {
 } from "@prisma/client";
 import { addDays } from "date-fns";
 import { cache } from "react";
-import type { ActorContext } from "@/lib/auth";
-import { hasPermission, PERMISSIONS, type Permission } from "@/lib/permissions";
+import { assertActorPermission } from "@/lib/auth/assert-actor-permission";
+import type { ActorContext } from "@/lib/auth/actor-context";
+import { PERMISSIONS } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
@@ -127,13 +128,6 @@ const FINAL_PARENT_INVOICE_WHERE = {
   parentInvoiceId: null,
   invoiceType: InvoiceType.FINAL,
 } satisfies Prisma.InvoiceWhereInput;
-
-function assertActorPermission(actorContext: ActorContext, permission: Permission): void {
-  if (!actorContext.actorRole) return;
-  if (!hasPermission({ role: actorContext.actorRole }, permission)) {
-    throw new Error(`Permission denied: ${permission}`);
-  }
-}
 
 function assertFinancialActorContext(actorContext: ActorContext): void {
   if (!actorContext.actorUserId || !actorContext.actorRole) {
@@ -1723,7 +1717,7 @@ export async function updateOrderSelectedPhotoCount(
 export async function updateOrderEditingWorkflow(
   orderId: string,
   input: UpdateOrderEditingWorkflowInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<OrderEditingWorkflow> {
   const data = updateOrderEditingWorkflowSchema.parse(input);
   assertActorPermission(actorContext, PERMISSIONS.WORKFLOW_EDITING_UPDATE);
@@ -2075,7 +2069,7 @@ export async function updateOrderEditingWorkflow(
 export async function updateOrderProductionWorkflow(
   orderId: string,
   input: UpdateOrderProductionWorkflowInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<OrderProductionWorkflow> {
   const data = updateOrderProductionWorkflowSchema.parse(input);
   assertActorPermission(actorContext, PERMISSIONS.WORKFLOW_PRODUCTION_UPDATE);
@@ -2191,7 +2185,7 @@ export async function updateOrderProductionWorkflow(
 export async function updateOrderDeliveryWorkflow(
   orderId: string,
   input: UpdateOrderDeliveryWorkflowInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<OrderDeliveryWorkflow> {
   const data = updateOrderDeliveryWorkflowSchema.parse(input);
   assertActorPermission(actorContext, PERMISSIONS.DELIVERY_UPDATE);
@@ -2319,7 +2313,7 @@ export async function updateOrderDeliveryWorkflow(
 export async function updateOrderWorkflowStatus(
   orderId: string,
   input: UpdateOrderWorkflowInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<OrderDetail> {
   const data = updateOrderWorkflowSchema.parse(input);
 
@@ -2449,7 +2443,7 @@ export async function updateOrderWorkflowStatus(
 
 export async function createOrderFromBooking(
   bookingId: string,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ id: string }> {
   return withRetry(
     () =>
@@ -2465,7 +2459,7 @@ export async function createOrderFromBookingWithClient(
   client: OrderWriteClient,
   bookingId: string,
   initialStatus: OrderStatus = OrderStatus.ACTIVE,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<{ id: string }> {
   const booking = await client.booking.findUnique({
     where: { id: bookingId },
@@ -4514,7 +4508,7 @@ function assertDeliveryWorkflowWritable(status: OrderStatus): void {
 function resolveDeliveryUpdate(
   order: DeliveryOrderState,
   input: UpdateOrderDeliveryWorkflowInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): DeliveryWorkflowUpdate {
   const now = new Date();
   const pickupNotes = input.pickupNotes?.trim() || null;
@@ -4715,7 +4709,7 @@ async function recordEditingStatusActivity(
     title: string;
     metadata?: Prisma.InputJsonObject;
   },
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<void> {
   await recordOrderActivity(client, {
     orderId,
@@ -4741,7 +4735,7 @@ async function recordWorkflowActivities(
     deliveryStatus: OrderDeliveryStatus;
   },
   next: UpdateOrderWorkflowInput,
-  actorContext: ActorContext = {}
+  actorContext: ActorContext
 ): Promise<void> {
   if (next.selectionStatus && next.selectionStatus !== previous.selectionStatus) {
     await recordOrderActivity(client, {
