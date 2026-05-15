@@ -201,7 +201,7 @@ test("order POS and editing gates consume canonical invoice balances", async (t)
                 { action: "markStarted" },
                 fixtures.adminActor
               ),
-            /base package payment|Failed to update editing workflow/
+            /Editing cannot start until base package payment is recorded/
           );
         } finally {
           await phaseFFixtures.cleanupWorkflow(db, workflow);

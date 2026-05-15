@@ -32,13 +32,8 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | F1 | **COMPLETED** | Fully paid FINAL invoices now auto-close and lock inside the settlement transaction, including the prior `Draft` edge case | Closed by Feature 78a | `recordPayment()` now settles FINAL invoices to `CLOSED + isLocked=true` at `remainingAmount = 0` |
 | F2 | **CRITICAL** | `computeRefundableAmountForInvoice` treats inbound allocations as refundable capacity; managers can refund beyond true overpayment, and invoice-detail UI defaults to the unsafe amount | Phase C EC-18/EC-19; Phase E (210 vs 45 KD) | New service `computeOverpaymentCapacity()` that derives capacity from `payments − CREDIT_NOTE-net invoice total − prior REFUND`. UI must default to this value and cap input |
 | F3 | **CRITICAL** | Locked invoice immutability is service-layer only. EC-27 proves direct Prisma can unset `isLocked`; `totalAmount` is also writable. No `AuditLog` snapshot exists to even detect after the fact | Risk §B, §D; Phase F | DB-level: trigger or `UPDATE` policy rejecting mutation when `isLocked=true` (except controlled fields). Add `InvoiceLockSnapshot` table written inside lock transaction |
-<<<<<<< HEAD
-| F4 | **COMPLETED** | Paid ADJUSTMENT removal now has an adjustment-cause ledger and line-targeted reversal path | Closed by Feature 79a | Classifier-issued ADJUSTMENT lines carry cause metadata; removals issue CREDIT_NOTE applications to the originating ADJUSTMENT line and REFUND/outbound payment when paid |
-| F5 | **HIGH** | Order-layer balance display still subtracts Deposit paid amount from Final Invoice remaining (`calculateFinalBalanceDue`, `mapPOSInvoiceSummary`, `hasBasePayment`). Order can show "no outstanding" while canonical Final Invoice has 20 KD due | Phase D REG-LEGACY-01; Phase E ("Paid 255 of 230") | Delete legacy formulas. All balance display must consume canonical `Invoice.remainingAmount` + `DocumentApplication`. Editing readiness must read canonical balance only |
-=======
 | F4 | **HIGH** | Paid ADJUSTMENT removal produces no CREDIT_NOTE/REFUND reversal because classifier has no adjustment-cause ledger | Phase C E11; Phase E | Add adjustment-cause linkage so reductive edits to a paid-ADJUSTMENT cause trigger the standard reversal flow |
 | F5 | **COMPLETED** | Order-layer balance display no longer subtracts Deposit paid amount from Final Invoice remaining; the legacy `calculateFinalBalanceDue`, POS remaining recomputation, and base-payment threshold helpers were removed by Feature 79b | Closed by Feature 79b | POS and editing readiness now consume canonical `Invoice.remainingAmount`; deposit settlement is read from the DEPOSIT invoice's own remaining balance |
->>>>>>> a99bb65 (79b)
 | F6 | **HIGH** | Reconciliation `INV-18` mismatch found in dev: order `cmp6tm9n30007n7t3ramturmp` total 230 KD vs revenue-documents total 225 KD | Phase G; [F6 finding](77-f6-investigation-finding.md) | Classified active: paid-ADJUSTMENT cause removal plus manual CREDIT_NOTE can diverge revenue documents from current order composition. Sprint 4 fixes the underlying paths and backfills |
 | F7 | **MEDIUM** | `Invoice.paidAmount` is a cached field; reconciliation derives from joins but service/UI paths can read stale cache | Risk §C; Phase G | Either remove cached field and compute, or guarantee write-side update under transaction; reconcile every write that touches payments/applications |
 
@@ -144,13 +139,8 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 
 **Sprint 2 — Fix money correctness**
 4. F2 + O1 — Real overpayment-capacity service; UI default/cap
-<<<<<<< HEAD
-5. F4 — Completed in Feature 79a: adjustment-cause ledger; reversal on paid-ADJUSTMENT removal
-6. F5 + D1 + D2 + D3 + A2 — Delete legacy deposit-deduction formulas; route through canonical balance
-=======
 5. F4 — Adjustment-cause ledger; reversal on paid-ADJUSTMENT removal
 6. F5 + D1 + D2 + D3 + A2 — Completed in Feature 79b: legacy deposit-deduction formulas deleted; callers route through canonical balance
->>>>>>> a99bb65 (79b)
 7. W2 + O4 — Reductive locked-edit UX surfaces manager prompt
 
 **Sprint 3 — Workflow integrity & immutability proofs**
@@ -178,13 +168,8 @@ These must all be closed before commissions, reporting, vouchers, or integration
 - **F1** Completed in Feature 78a: auto-lock Final Invoice on full payment
 - **F2** Real overpayment-capacity service + UI cap
 - **F3** DB-level locked-invoice immutability + lock snapshot
-<<<<<<< HEAD
-- **F4** Completed in Feature 79a: paid-ADJUSTMENT reversal
-- **F5 / D1-D3 / A2** Legacy deposit-deduction removal
-=======
 - **F4** Paid-ADJUSTMENT reversal
 - **F5 / D1-D3 / A2** Completed in Feature 79b: legacy deposit-deduction removal
->>>>>>> a99bb65 (79b)
 - **C1** Completed in Feature 78a: invoice row-level locking on settlement
 - **C2** DB-level over-collection prevention
 - **C3** DB-level ADJUSTMENT chain prevention
