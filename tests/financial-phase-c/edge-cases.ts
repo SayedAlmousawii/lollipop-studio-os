@@ -15,7 +15,7 @@ import { classifyEditDelta } from "@/modules/financial/edit-classifier";
 import { runAllInvariants } from "@/modules/financial/invariants";
 import {
   applyDepositToFinalIfPresent,
-  computeRefundableAmountForInvoice,
+  computeOverpaymentCapacity,
   createAdjustmentInvoice,
   createCreditNote,
   createInvoiceForOrder,
@@ -512,13 +512,17 @@ async function runEc18RefundExceedsOverpaymentCharacterization(
     createdByUserId: fixtures.managerId,
   });
 
-  const refund = await createRefundInvoice({
-    sourceInvoiceId: workflow.finalInvoiceId,
-    amount: 51,
-    reason: "EC-18 characterizes refund cap gap",
-    createdByUserId: fixtures.managerId,
-  });
-  assert.equal(refund.invoiceType, InvoiceType.REFUND);
+  await expectRejectsWithoutPartialWrites(
+    () =>
+      createRefundInvoice({
+        sourceInvoiceId: workflow.finalInvoiceId,
+        amount: 51,
+        reason: "EC-18 rejects refunds above overpayment capacity",
+        createdByUserId: fixtures.managerId,
+      }),
+    () => invoiceTypeSnapshot(db, workflow.orderId),
+    /exceeds overpayment capacity/
+  );
   assert.equal(finalPayment.paymentType, PaymentType.FINAL);
 }
 
@@ -535,8 +539,8 @@ async function runEc19RefundAfterAdjustmentWithoutCreditCharacterization(
     fixtures.adminActor
   );
 
-  const refundable = await computeRefundableAmountForInvoice(adjustment.id, db);
-  assertMoney(refundable, "50", "EC-19 characterizes current refundable amount gap without credit note");
+  const capacity = await computeOverpaymentCapacity(adjustment.id, db);
+  assertMoney(capacity, "0", "EC-19 rejects paid-but-not-overpaid adjustment refund capacity");
 }
 
 async function runEc20SecondAdjustmentIsSibling(
@@ -907,13 +911,13 @@ async function runEc38RefundInvoiceAmountIntegrity(
   const finalPayment = await firstPayment(db, workflow.finalInvoiceId, PaymentType.FINAL);
   await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
-    lines: [{ description: "Refundable", quantity: 1, unitPrice: 20 }],
+    lines: [{ description: "Refundable", quantity: 1, unitPrice: 50 }],
     reason: "EC-38 credit",
     createdByUserId: fixtures.managerId,
   });
   const refund = await issueRefundWithPayment({
     sourceInvoiceId: workflow.finalInvoiceId,
-    amount: 20,
+    amount: 30,
     reason: "EC-38 refund",
     createdByUserId: fixtures.managerId,
     method: PaymentMethod.CASH,
@@ -925,9 +929,9 @@ async function runEc38RefundInvoiceAmountIntegrity(
   });
   const payment = refundInvoice.payments[0];
 
-  assertMoney(refundInvoice.totalAmount, "20", "refund invoice amount");
-  assertMoney(payment?.amount ?? zero, "20", "refund payment amount");
-  assertMoney(payment?.allocations[0]?.amount ?? zero, "20", "refund allocation amount");
+  assertMoney(refundInvoice.totalAmount, "30", "refund invoice amount");
+  assertMoney(payment?.amount ?? zero, "30", "refund payment amount");
+  assertMoney(payment?.allocations[0]?.amount ?? zero, "30", "refund allocation amount");
 }
 
 async function runEc39VoucherSchemaCompatibilityCharacterization(
@@ -989,7 +993,7 @@ async function runEc41InvoiceNumberPrefixes(
   const finalPayment = await firstPayment(db, workflow.finalInvoiceId, PaymentType.FINAL);
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
-    lines: [{ description: "Prefix credit", quantity: 1, unitPrice: 10 }],
+    lines: [{ description: "Prefix credit", quantity: 1, unitPrice: 30 }],
     reason: "EC-41 credit",
     createdByUserId: fixtures.managerId,
   });

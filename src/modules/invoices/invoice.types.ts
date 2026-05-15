@@ -42,7 +42,7 @@ export interface InvoiceListItem {
 export interface InvoiceDetail extends InvoiceListItem {
   depositInvoiceNumber: string | null;
   depositPaidAmount: string | null;
-  refundableAmount: string | null;
+  overpaymentCapacity: string | null;
   creditNoteCapacity: string | null;
   isOverpaid: boolean;
   overpaidAmount: string | null;

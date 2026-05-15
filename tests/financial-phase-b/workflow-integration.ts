@@ -524,7 +524,7 @@ async function runInt12RefundIssuance(
 
   const refund = await issueRefundWithPayment({
     sourceInvoiceId: workflow.finalInvoiceId,
-    amount: 50,
+    amount: 30,
     reason: "Phase B refund",
     createdByUserId: fixtures.managerId,
     method: PaymentMethod.CASH,
@@ -539,7 +539,7 @@ async function runInt12RefundIssuance(
   assert.equal(refundInvoice.invoiceType, InvoiceType.REFUND);
   assert.equal(refundInvoice.status, InvoiceStatus.CLOSED);
   assert.equal(refundInvoice.isLocked, true);
-  assertMoney(refundInvoice.totalAmount, "50", "refund amount");
+  assertMoney(refundInvoice.totalAmount, "30", "refund amount");
   assert.equal(refundPayment?.direction, PaymentDirection.OUT);
   assert.equal(refundPayment?.paymentType, PaymentType.REFUND);
   assert.equal(refundPayment?.refundOfPaymentId, finalPayment.id);
@@ -547,7 +547,7 @@ async function runInt12RefundIssuance(
     db,
     refundPayment?.id ?? "",
     refundInvoice.id,
-    "50"
+    "30"
   );
   await assertOrderActivity(db, {
     orderId: workflow.orderId,

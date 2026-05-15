@@ -10,6 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { PaymentHistoryTable } from "@/components/invoices/payment-history-table";
 import { RecordPaymentForm } from "@/components/invoices/record-payment-form";
+import {
+  RefundInvoiceForm,
+  shouldShowRefundForm,
+} from "@/components/invoices/refund-invoice-form";
 import { getCurrentAppUser } from "@/lib/auth";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
@@ -52,8 +56,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
     canIssueRefund &&
     invoice.isLocked &&
     (invoice.invoiceType === "FINAL" || invoice.invoiceType === "ADJUSTMENT") &&
-    invoice.refundableAmount !== null &&
-    moneyInputValue(invoice.refundableAmount) !== "0.000";
+    shouldShowRefundForm(invoice.overpaymentCapacity);
   const sourcePayments = invoice.payments.filter(
     (payment) => payment.direction === "IN"
   );
@@ -175,55 +178,11 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
                   <CardTitle className="text-base">Refund This Invoice</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <form action={issueRefund} className="space-y-4">
-                    <Field
-                      label="Refund Amount"
-                      name="amount"
-                      type="number"
-                      step="0.001"
-                      min="0.001"
-                      max={moneyInputValue(invoice.refundableAmount ?? "0.000 KD")}
-                      defaultValue={moneyInputValue(invoice.refundableAmount ?? "0.000 KD")}
-                    />
-                    <div className="space-y-2">
-                      <Label htmlFor="refund-reason">Reason</Label>
-                      <Textarea id="refund-reason" name="reason" required />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="refund-of-payment">Original Payment</Label>
-                      <select
-                        id="refund-of-payment"
-                        name="refundOfPaymentId"
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        defaultValue={sourcePayments[0]?.id ?? ""}
-                      >
-                        <option value="">Unattributed</option>
-                        {sourcePayments.map((payment) => (
-                          <option key={payment.id} value={payment.id}>
-                            {payment.publicId} · {payment.amount} · {payment.method}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="refund-method">Payment Method</Label>
-                      <select
-                        id="refund-method"
-                        name="method"
-                        required
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        defaultValue="CASH"
-                      >
-                        <option value="CASH">CASH</option>
-                        <option value="KNET">KNET</option>
-                        <option value="LINK">LINK</option>
-                      </select>
-                    </div>
-                    <Field label="Reference" name="reference" required={false} />
-                    <Button type="submit" className="w-full">
-                      Issue Refund
-                    </Button>
-                  </form>
+                  <RefundInvoiceForm
+                    action={issueRefund}
+                    overpaymentCapacity={invoice.overpaymentCapacity ?? "0.000 KD"}
+                    sourcePayments={sourcePayments}
+                  />
                 </CardContent>
               </Card>
             ) : null}

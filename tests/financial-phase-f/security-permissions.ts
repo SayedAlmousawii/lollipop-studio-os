@@ -387,7 +387,6 @@ async function runApiValidationBypassAttempts(
     /final invoices/
   );
 
-  let reachedInjectedRollback = false;
   await assert.rejects(
     () =>
       db.$transaction(async (tx) => {
@@ -400,15 +399,9 @@ async function runApiValidationBypassAttempts(
           },
           tx
         );
-        reachedInjectedRollback = true;
-        throw new Error("Phase F rollback after refund-capacity bypass characterization");
       }),
-    /Phase F rollback after refund-capacity bypass/
-  );
-  assert.equal(
-    reachedInjectedRollback,
-    true,
-    "Phase F characterization: refund service still accepts amount above true overpayment when inbound allocation capacity exists"
+    /exceeds overpayment capacity/,
+    "refund service rejects amount above true overpayment capacity"
   );
 }
 

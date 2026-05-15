@@ -247,7 +247,7 @@ async function runReg7602RefundDirectionAndAllocation(
   });
   const refund = await issueRefundWithPayment({
     sourceInvoiceId: workflow.finalInvoiceId,
-    amount: 40,
+    amount: 20,
     reason: "Phase D refund",
     createdByUserId: fixtures.managerId,
     method: PaymentMethod.CASH,
@@ -264,8 +264,8 @@ async function runReg7602RefundDirectionAndAllocation(
   assert.equal(refundInvoice.isLocked, true);
   assert.equal(refundPayment?.direction, PaymentDirection.OUT);
   assert.equal(refundPayment?.paymentType, PaymentType.REFUND);
-  assertMoney(refundPayment?.amount ?? new Prisma.Decimal(0), "40", "refund payment amount");
-  await assertSinglePaymentAllocation(db, refundPayment?.id ?? "", refundInvoice.id, "40");
+  assertMoney(refundPayment?.amount ?? new Prisma.Decimal(0), "20", "refund payment amount");
+  await assertSinglePaymentAllocation(db, refundPayment?.id ?? "", refundInvoice.id, "20");
 }
 
 async function runReg7603MixedEditCreatesPairedDocuments(
