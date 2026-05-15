@@ -1,6 +1,7 @@
 import {
   InvoiceStatus,
   InvoiceType,
+  OrderEntityKind,
   PaymentDirection,
   Prisma,
   type PrismaClient,
@@ -406,18 +407,29 @@ registerInvariant({
       },
       select: {
         id: true,
+        targetInvoiceLineId: true,
         sourceInvoice: { select: { invoiceType: true } },
         targetInvoice: { select: { invoiceType: true } },
       },
     });
 
-    return applications.map((application) => ({
-      invariant: "adjustment-has-no-document-application",
-      entityType: "DocumentApplication",
-      entityId: application.id,
-      expected: "neither source nor target invoice is ADJUSTMENT",
-      actual: `source ${application.sourceInvoice.invoiceType}, target ${application.targetInvoice.invoiceType}`,
-    }));
+    return applications
+      .filter(
+        (application) =>
+          !(
+            application.sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE &&
+            application.targetInvoice.invoiceType === InvoiceType.ADJUSTMENT &&
+            application.targetInvoiceLineId
+          )
+      )
+      .map((application) => ({
+        invariant: "adjustment-has-no-document-application",
+        entityType: "DocumentApplication",
+        entityId: application.id,
+        expected:
+          "neither source nor target invoice is ADJUSTMENT except line-targeted CREDIT_NOTE reversals",
+        actual: `source ${application.sourceInvoice.invoiceType}, target ${application.targetInvoice.invoiceType}`,
+      }));
   },
 });
 
@@ -618,16 +630,28 @@ registerInvariant({
       select: {
         id: true,
         parentInvoice: { select: { id: true, invoiceType: true } },
+        documentApplicationsAsSource: {
+          select: { targetInvoiceLineId: true },
+        },
       },
     });
 
     return creditNotes
-      .filter((invoice) => invoice.parentInvoice?.invoiceType !== InvoiceType.FINAL)
+      .filter((invoice) => {
+        if (invoice.parentInvoice?.invoiceType === InvoiceType.FINAL) return false;
+        const targetsAdjustmentLine =
+          invoice.parentInvoice?.invoiceType === InvoiceType.ADJUSTMENT &&
+          invoice.documentApplicationsAsSource.some(
+            (application) => application.targetInvoiceLineId
+          );
+        return !targetsAdjustmentLine;
+      })
       .map((invoice) => ({
         invariant: "credit-note-targets-final",
         entityType: "Invoice",
         entityId: invoice.id,
-        expected: "parentInvoiceId set to FINAL invoice",
+        expected:
+          "parentInvoiceId set to FINAL invoice or line-targeted ADJUSTMENT reversal",
         actual: invoice.parentInvoice
           ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
           : "no parent invoice",
@@ -666,13 +690,109 @@ registerInvariant({
           invariant: "credit-note-has-document-application",
           entityType: "Invoice",
           entityId: invoice.id,
-          expected: "exactly 1 DocumentApplication to parent FINAL",
+          expected: "exactly 1 DocumentApplication to parent invoice",
           actual: `${invoice.documentApplicationsAsSource.length} source applications, ${matchingApplications.length} to parent`,
         },
       ];
     });
   },
 });
+
+registerInvariant({
+  name: "paid-adjustment-line-removal-must-have-reversal",
+  scope: "global",
+  run: async ({ tx }) => {
+    const adjustmentLines = await tx.invoiceLineItem.findMany({
+      where: {
+        causeOrderEntityKind: { not: null },
+        causeOrderEntityId: { not: null },
+        invoice: {
+          invoiceType: InvoiceType.ADJUSTMENT,
+          paymentAllocations: {
+            some: { payment: { direction: PaymentDirection.IN } },
+          },
+        },
+      },
+      select: {
+        id: true,
+        invoiceId: true,
+        lineTotal: true,
+        causeOrderEntityKind: true,
+        causeOrderEntityId: true,
+        invoice: { select: { orderId: true } },
+        documentApplications: {
+          where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
+          select: { amountApplied: true },
+        },
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const line of adjustmentLines) {
+      if (
+        !line.invoice.orderId ||
+        !line.causeOrderEntityKind ||
+        !line.causeOrderEntityId
+      ) {
+        continue;
+      }
+
+      const causeStillExists = await adjustmentCauseStillExists({
+        tx,
+        orderId: line.invoice.orderId,
+        kind: line.causeOrderEntityKind,
+        id: line.causeOrderEntityId,
+      });
+      if (causeStillExists) continue;
+
+      const reversedAmount = line.documentApplications.reduce(
+        (sum, application) => sum.plus(application.amountApplied),
+        new Prisma.Decimal(0)
+      );
+      if (reversedAmount.greaterThanOrEqualTo(line.lineTotal)) continue;
+
+      violations.push({
+        invariant: "paid-adjustment-line-removal-must-have-reversal",
+        entityType: "InvoiceLineItem",
+        entityId: line.id,
+        expected: `CREDIT_NOTE DocumentApplication targeting line for ${line.lineTotal.toFixed(3)}`,
+        actual: `${reversedAmount.toFixed(3)} reversed for adjustment ${line.invoiceId}`,
+      });
+    }
+
+    return violations;
+  },
+});
+
+async function adjustmentCauseStillExists({
+  tx,
+  orderId,
+  kind,
+  id,
+}: {
+  tx: PrismaClient | Prisma.TransactionClient;
+  orderId: string;
+  kind: OrderEntityKind;
+  id: string;
+}): Promise<boolean> {
+  if (kind === OrderEntityKind.ADDON) {
+    const addOn = await tx.orderAddOn.findFirst({
+      where: { id, orderId },
+      select: { id: true },
+    });
+    return Boolean(addOn);
+  }
+
+  if (kind === OrderEntityKind.UPGRADE) {
+    const upgrade = await tx.orderPackageItemUpgrade.findFirst({
+      where: { id, orderId },
+      select: { id: true },
+    });
+    return Boolean(upgrade);
+  }
+
+  return true;
+}
 
 registerInvariant({
   name: "credit-note-amount-not-over-final",

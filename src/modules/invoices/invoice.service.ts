@@ -3,9 +3,11 @@ import {
   InvoiceStatus,
   InvoiceType,
   MediaType,
+  OrderEntityKind,
   OrderActivityType,
   OrderStatus,
   PaymentDirection,
+  PaymentMethod,
   Prisma,
   UserRole,
   type Invoice,
@@ -16,7 +18,10 @@ import { withRetry } from "@/lib/retry";
 import { dualRead, LockedInvoiceEditError } from "@/modules/financial/dual-read";
 import {
   BlockedEditError,
+  type AdjustmentReversal,
+  adjustmentCauseKey,
   classifyEditDelta,
+  type OpenAdjustmentLine,
   PendingCreditNoteApprovalError,
 } from "@/modules/financial/edit-classifier";
 import { FINANCIAL_REARCH_PHASE_2_AUTO_ADJUSTMENT } from "@/modules/financial/feature-flags";
@@ -24,7 +29,11 @@ import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
-import { computeOrderEditDelta } from "@/modules/orders/order.delta";
+import {
+  computeOrderEditDelta,
+  type EditDelta,
+  type ReductionEvent,
+} from "@/modules/orders/order.delta";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
 import { computeEffectivePaidFromAllocations } from "./invoice.calculation";
@@ -322,8 +331,19 @@ export async function syncOrderInvoiceForFinancialEdit(
         throw new LockedInvoiceEditError();
       },
       newFn: async () => {
+        const openAdjustmentLines = await buildOpenAdjustmentLineMap(client, order.id);
         const delta = await computeOrderEditDelta(order.id, client);
-        const result = classifyEditDelta(delta);
+        const adjustmentCauseReductions =
+          await buildAdjustmentCauseReductions(
+            client,
+            order.id,
+            openAdjustmentLines
+          );
+        const classifiedDelta: EditDelta = {
+          ...delta,
+          reductions: [...delta.reductions, ...adjustmentCauseReductions],
+        };
+        const result = classifyEditDelta(classifiedDelta, openAdjustmentLines);
 
         if (result.blocked.length > 0) {
           throw new BlockedEditError(result.blocked);
@@ -357,14 +377,27 @@ export async function syncOrderInvoiceForFinancialEdit(
 
         let creditNoteInvoice: Invoice | null = null;
         let adjustmentInvoice: Invoice | null = null;
-        if (result.creditNoteRequired.length > 0) {
+        let adjustmentReversalCreditNotes: Invoice[] = [];
+        if (
+          result.creditNoteRequired.length > 0 ||
+          result.adjustmentReversals.length > 0
+        ) {
           if (!input.managerApprovedReductionByUserId) {
             throw new PendingCreditNoteApprovalError(
-              result.creditNoteRequired,
+              [
+                ...result.creditNoteRequired,
+                ...result.adjustmentReversals.map((reversal) => ({
+                  reason: "REMOVED_ADDON" as const,
+                  amount: reversal.amount,
+                  lineSnapshot: reversal.lineSnapshot,
+                })),
+              ],
               result.adjustmentLines
             );
           }
+        }
 
+        if (result.creditNoteRequired.length > 0) {
           const creditReason =
             input.managerApprovedReason?.trim() || "Reduction from order edit";
           creditNoteInvoice = await createCreditNote(
@@ -377,10 +410,22 @@ export async function syncOrderInvoiceForFinancialEdit(
               })),
               reason: creditReason,
               notes: `Auto-CREDIT_NOTE from order edit on ${new Date().toISOString()}`,
-              createdByUserId: input.managerApprovedReductionByUserId,
+              createdByUserId: input.managerApprovedReductionByUserId!,
             },
             client
           );
+        }
+
+        if (result.adjustmentReversals.length > 0) {
+          adjustmentReversalCreditNotes = await applyAdjustmentReversalsWithClient({
+            client,
+            orderId: order.id,
+            reversals: result.adjustmentReversals,
+            createdByUserId: input.managerApprovedReductionByUserId!,
+            reason:
+              input.managerApprovedReason?.trim() ||
+              "Adjustment reversal from order edit",
+          });
         }
 
         if (result.adjustmentLines.length > 0) {
@@ -416,6 +461,45 @@ export async function syncOrderInvoiceForFinancialEdit(
                 reason: requirement.reason,
                 amount: requirement.amount.toFixed(3),
                 lineName: requirement.lineSnapshot.name,
+              })),
+              adjustmentReversals: result.adjustmentReversals.map((reversal) => ({
+                adjustmentInvoiceId: reversal.causingInvoiceId,
+                adjustmentInvoiceLineId: reversal.causingInvoiceLineId,
+                amount: reversal.amount.toFixed(3),
+                lineName: reversal.lineSnapshot.name,
+                requiresRefund: reversal.requiresRefund,
+              })),
+            },
+          });
+        }
+
+        if (adjustmentReversalCreditNotes.length > 0 && !creditNoteInvoice) {
+          await recordOrderActivity(client, {
+            orderId: order.id,
+            userId: input.managerApprovedReductionByUserId ?? null,
+            type: OrderActivityType.INVOICE_ADJUSTED,
+            title: "Classifier adjustment reversal issued",
+            description: `${adjustmentReversalCreditNotes.length} adjustment reversal credit note(s) issued.`,
+            metadata: {
+              parentInvoiceId: existingInvoice.id,
+              creditNoteInvoiceIds: adjustmentReversalCreditNotes.map(
+                (invoice) => invoice.id
+              ),
+              creditNoteInvoiceNumbers: adjustmentReversalCreditNotes.map(
+                (invoice) => invoice.invoiceNumber
+              ),
+              totalAmount: adjustmentReversalCreditNotes
+                .reduce(
+                  (sum, invoice) => sum.plus(invoice.totalAmount),
+                  new Prisma.Decimal(0)
+                )
+                .toFixed(3),
+              adjustmentReversals: result.adjustmentReversals.map((reversal) => ({
+                adjustmentInvoiceId: reversal.causingInvoiceId,
+                adjustmentInvoiceLineId: reversal.causingInvoiceLineId,
+                amount: reversal.amount.toFixed(3),
+                lineName: reversal.lineSnapshot.name,
+                requiresRefund: reversal.requiresRefund,
               })),
             },
           });
@@ -1225,12 +1309,16 @@ function createLineItem({
   quantity = 1,
   unitPrice,
   sortOrder,
+  causeOrderEntityKind,
+  causeOrderEntityId,
 }: {
   lineType: InvoiceLineType;
   description: string;
   quantity?: number;
   unitPrice: Prisma.Decimal;
   sortOrder: number;
+  causeOrderEntityKind?: OrderEntityKind;
+  causeOrderEntityId?: string;
 }): SnapshotInvoiceLineItem {
   return {
     lineType,
@@ -1239,6 +1327,241 @@ function createLineItem({
     unitPrice,
     lineTotal: unitPrice.mul(quantity),
     sortOrder,
+    ...(causeOrderEntityKind && causeOrderEntityId
+      ? { causeOrderEntityKind, causeOrderEntityId }
+      : {}),
+  };
+}
+
+async function buildOpenAdjustmentLineMap(
+  client: DbClient,
+  orderId: string
+): Promise<Map<string, OpenAdjustmentLine>> {
+  const adjustmentLines = await client.invoiceLineItem.findMany({
+    where: {
+      invoice: {
+        orderId,
+        invoiceType: InvoiceType.ADJUSTMENT,
+      },
+      causeOrderEntityKind: { not: null },
+      causeOrderEntityId: { not: null },
+    },
+    select: {
+      id: true,
+      invoiceId: true,
+      description: true,
+      lineTotal: true,
+      causeOrderEntityKind: true,
+      causeOrderEntityId: true,
+      invoice: {
+        select: {
+          paymentAllocations: {
+            where: { payment: { direction: PaymentDirection.IN } },
+            select: { amount: true },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const openLines = new Map<string, OpenAdjustmentLine>();
+  for (const line of adjustmentLines) {
+    if (!line.causeOrderEntityKind || !line.causeOrderEntityId) continue;
+
+    const credited = await client.documentApplication.aggregate({
+      _sum: { amountApplied: true },
+      where: {
+        targetInvoiceLineId: line.id,
+        sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
+      },
+    });
+    const creditedAmount = credited._sum.amountApplied ?? new Prisma.Decimal(0);
+    const remainingAmount = Prisma.Decimal.max(
+      line.lineTotal.minus(creditedAmount),
+      0
+    );
+    if (remainingAmount.lessThanOrEqualTo(0)) continue;
+
+    const paidAmount = line.invoice.paymentAllocations.reduce(
+      (sum, allocation) => sum.plus(allocation.amount),
+      new Prisma.Decimal(0)
+    );
+    openLines.set(
+      adjustmentCauseKey(line.causeOrderEntityKind, line.causeOrderEntityId),
+      {
+        invoiceLineId: line.id,
+        invoiceId: line.invoiceId,
+        causeOrderEntityKind: line.causeOrderEntityKind,
+        causeOrderEntityId: line.causeOrderEntityId,
+        lineAmount: line.lineTotal,
+        remainingAmount,
+        isPaid: paidAmount.greaterThan(0),
+        lineSnapshot: { name: line.description },
+      }
+    );
+  }
+
+  return openLines;
+}
+
+async function buildAdjustmentCauseReductions(
+  client: DbClient,
+  orderId: string,
+  openAdjustmentLines: ReadonlyMap<string, OpenAdjustmentLine>
+): Promise<ReductionEvent[]> {
+  if (openAdjustmentLines.size === 0) return [];
+
+  const currentAmounts = await buildCurrentAdjustmentCauseAmounts(
+    client,
+    orderId,
+    [...openAdjustmentLines.values()]
+  );
+  const reductions: ReductionEvent[] = [];
+
+  for (const line of openAdjustmentLines.values()) {
+    const currentAmount =
+      currentAmounts.get(
+        adjustmentCauseKey(line.causeOrderEntityKind, line.causeOrderEntityId)
+      ) ?? new Prisma.Decimal(0);
+    const removedAmount = line.lineAmount.minus(currentAmount);
+    if (removedAmount.lessThanOrEqualTo(0)) continue;
+
+    const reversalAmount = removedAmount.lessThan(line.remainingAmount)
+      ? removedAmount
+      : line.remainingAmount;
+    if (reversalAmount.lessThanOrEqualTo(0)) continue;
+
+    reductions.push(
+      toAdjustmentCauseReduction({
+        line,
+        amount: reversalAmount,
+      })
+    );
+  }
+
+  return reductions;
+}
+
+async function buildCurrentAdjustmentCauseAmounts(
+  client: DbClient,
+  orderId: string,
+  openAdjustmentLines: OpenAdjustmentLine[]
+): Promise<Map<string, Prisma.Decimal>> {
+  const amounts = new Map<string, Prisma.Decimal>();
+  const addOnIds = openAdjustmentLines
+    .filter((line) => line.causeOrderEntityKind === OrderEntityKind.ADDON)
+    .map((line) => line.causeOrderEntityId);
+  const upgradeIds = openAdjustmentLines
+    .filter((line) => line.causeOrderEntityKind === OrderEntityKind.UPGRADE)
+    .map((line) => line.causeOrderEntityId);
+
+  const [addOns, upgrades, order] = await Promise.all([
+    addOnIds.length > 0
+      ? client.orderAddOn.findMany({
+          where: { orderId, id: { in: addOnIds } },
+          select: { id: true, priceSnapshot: true, quantity: true },
+        })
+      : Promise.resolve([]),
+    upgradeIds.length > 0
+      ? client.orderPackageItemUpgrade.findMany({
+          where: { orderId, id: { in: upgradeIds } },
+          select: { id: true, priceSnapshot: true, quantity: true },
+        })
+      : Promise.resolve([]),
+    client.order.findUnique({
+      where: { id: orderId },
+      select: {
+        packages: {
+          select: {
+            originalPackagePriceSnapshot: true,
+            finalPackagePriceSnapshot: true,
+            package: { select: { price: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  for (const addOn of addOns) {
+    amounts.set(
+      adjustmentCauseKey(OrderEntityKind.ADDON, addOn.id),
+      addOn.priceSnapshot.mul(addOn.quantity)
+    );
+  }
+  for (const upgrade of upgrades) {
+    amounts.set(
+      adjustmentCauseKey(OrderEntityKind.UPGRADE, upgrade.id),
+      upgrade.priceSnapshot.mul(upgrade.quantity)
+    );
+  }
+
+  const packageTierCause = openAdjustmentLines.find(
+    (line) => line.causeOrderEntityKind === OrderEntityKind.PACKAGE_TIER_UPGRADE
+  );
+  if (packageTierCause && order) {
+    const currentPackageUpgradeAmount = order.packages.reduce((sum, line) => {
+      const original = line.originalPackagePriceSnapshot ?? line.package.price;
+      const current = line.finalPackagePriceSnapshot ?? line.package.price;
+      return sum.plus(current.minus(original));
+    }, new Prisma.Decimal(0));
+    amounts.set(
+      adjustmentCauseKey(
+        OrderEntityKind.PACKAGE_TIER_UPGRADE,
+        packageTierCause.causeOrderEntityId
+      ),
+      Prisma.Decimal.max(currentPackageUpgradeAmount, 0)
+    );
+  }
+
+  return amounts;
+}
+
+function toAdjustmentCauseReduction({
+  line,
+  amount,
+}: {
+  line: OpenAdjustmentLine;
+  amount: Prisma.Decimal;
+}): ReductionEvent {
+  const adjustmentCause = {
+    causeOrderEntityKind: line.causeOrderEntityKind,
+    causeOrderEntityId: line.causeOrderEntityId,
+  };
+
+  if (line.causeOrderEntityKind === OrderEntityKind.UPGRADE) {
+    return {
+      kind: "REMOVED_UPGRADE",
+      lineSnapshot: { name: line.lineSnapshot.name, totalValue: amount },
+      adjustmentCause,
+      amountOverride: amount,
+    };
+  }
+
+  if (line.causeOrderEntityKind === OrderEntityKind.EXTRA_PHOTO) {
+    return {
+      kind: "REMOVED_EXTRA_PHOTO",
+      lineSnapshot: { name: line.lineSnapshot.name, totalValue: amount },
+      adjustmentCause,
+      amountOverride: amount,
+    };
+  }
+
+  if (line.causeOrderEntityKind === OrderEntityKind.PACKAGE_TIER_UPGRADE) {
+    return {
+      kind: "PACKAGE_TIER_DOWNGRADE",
+      oldPriceSnapshot: amount,
+      newPriceSnapshot: new Prisma.Decimal(0),
+      adjustmentCause,
+      amountOverride: amount,
+    };
+  }
+
+  return {
+    kind: "REMOVED_ADDON",
+    lineSnapshot: { name: line.lineSnapshot.name, totalValue: amount },
+    adjustmentCause,
+    amountOverride: amount,
   };
 }
 
@@ -1375,6 +1698,8 @@ async function createAdjustmentInvoiceWithClient(
       quantity: line.quantity,
       unitPrice,
       sortOrder: index,
+      causeOrderEntityKind: line.causeOrderEntityKind,
+      causeOrderEntityId: line.causeOrderEntityId,
     });
   });
 
@@ -1704,6 +2029,185 @@ async function createCreditNoteWithClient(
   await assertFinancialCaseInvariants(target.financialCaseId, client);
 
   return creditNote;
+}
+
+async function applyAdjustmentReversalsWithClient({
+  client,
+  orderId,
+  reversals,
+  createdByUserId,
+  reason,
+}: {
+  client: DbClient;
+  orderId: string;
+  reversals: AdjustmentReversal[];
+  createdByUserId: string;
+  reason: string;
+}): Promise<Invoice[]> {
+  if (reversals.length === 0) return [];
+
+  const actor = await client.user.findUnique({
+    where: { id: createdByUserId },
+    select: { id: true, role: true },
+  });
+  if (
+    !actor ||
+    (actor.role !== UserRole.ADMIN && actor.role !== UserRole.MANAGER)
+  ) {
+    throw new Error("Manager permission is required to reverse adjustment lines");
+  }
+
+  const creditNotes: Invoice[] = [];
+  for (const reversal of reversals) {
+    const causingLine = await client.invoiceLineItem.findUnique({
+      where: { id: reversal.causingInvoiceLineId },
+      select: {
+        id: true,
+        invoiceId: true,
+        lineType: true,
+        description: true,
+        causeOrderEntityKind: true,
+        causeOrderEntityId: true,
+        invoice: {
+          select: {
+            id: true,
+            financialCaseId: true,
+            invoiceNumber: true,
+            invoiceType: true,
+            orderId: true,
+            bookingId: true,
+            customerId: true,
+            jobId: true,
+            jobNumber: true,
+          },
+        },
+      },
+    });
+    if (!causingLine) {
+      throw new Error("Adjustment line to reverse was not found");
+    }
+    if (
+      causingLine.invoice.invoiceType !== InvoiceType.ADJUSTMENT ||
+      causingLine.invoice.orderId !== orderId
+    ) {
+      throw new Error("Adjustment reversal must target an order adjustment line");
+    }
+
+    const now = new Date();
+    const invoiceNumberData = await generateInvoiceNumber(
+      client,
+      InvoiceType.CREDIT_NOTE
+    );
+    const creditNote = await client.invoice.create({
+      data: {
+        publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
+        financialCaseId: causingLine.invoice.financialCaseId,
+        invoiceType: InvoiceType.CREDIT_NOTE,
+        jobId: causingLine.invoice.jobId,
+        jobNumber: causingLine.invoice.jobNumber,
+        orderId: causingLine.invoice.orderId,
+        bookingId: causingLine.invoice.bookingId,
+        customerId: causingLine.invoice.customerId,
+        parentInvoiceId: causingLine.invoice.id,
+        ...invoiceNumberData,
+        totalAmount: reversal.amount,
+        paidAmount: new Prisma.Decimal(0),
+        remainingAmount: new Prisma.Decimal(0),
+        status: InvoiceStatus.CLOSED,
+        isLocked: true,
+        notes: `Auto-CREDIT_NOTE adjustment reversal from order edit on ${now.toISOString()}`,
+        issuedAt: now,
+        closedAt: now,
+        lineItems: {
+          create: [
+            createLineItem({
+              lineType: causingLine.lineType,
+              description: `Reversal: ${reversal.lineSnapshot.name}`,
+              quantity: 1,
+              unitPrice: reversal.amount,
+              sortOrder: 0,
+              causeOrderEntityKind:
+                causingLine.causeOrderEntityKind ?? reversal.causeOrderEntityKind,
+              causeOrderEntityId:
+                causingLine.causeOrderEntityId ?? reversal.causeOrderEntityId,
+            }),
+          ],
+        },
+      },
+    });
+
+    await client.documentApplication.create({
+      data: {
+        sourceInvoiceId: creditNote.id,
+        targetInvoiceId: causingLine.invoice.id,
+        targetInvoiceLineId: causingLine.id,
+        amountApplied: reversal.amount,
+        appliedAt: now,
+        appliedByUserId: createdByUserId,
+        notes: `Adjustment reversal for reason: ${reason}`,
+      },
+    });
+
+    await recalculateInvoiceStatus(causingLine.invoice.id, client);
+    await recalculateInvoiceStatus(creditNote.id, client);
+
+    if (reversal.requiresRefund) {
+      const sourcePayment = await client.payment.findFirst({
+        where: {
+          invoiceId: causingLine.invoice.id,
+          financialCaseId: causingLine.invoice.financialCaseId,
+          direction: PaymentDirection.IN,
+          allocations: { some: { invoiceId: causingLine.invoice.id } },
+        },
+        select: { id: true, method: true },
+        orderBy: { paidAt: "asc" },
+      });
+      if (!sourcePayment) {
+        throw new Error("Paid adjustment reversal could not find a source payment");
+      }
+
+      const { issueRefundWithPayment } = await import(
+        "@/modules/refunds/refund.service"
+      );
+      await issueRefundWithPayment(
+        {
+          sourceInvoiceId: causingLine.invoice.id,
+          amount: reversal.amount,
+          reason: `Adjustment reversal: ${reversal.lineSnapshot.name}`,
+          createdByUserId,
+          method: sourcePayment.method ?? PaymentMethod.CASH,
+          refundOfPaymentId: sourcePayment.id,
+          notes: `Auto-REFUND from adjustment reversal on ${now.toISOString()}`,
+        },
+        client
+      );
+    }
+
+    if (causingLine.invoice.orderId) {
+      await recordOrderActivity(client, {
+        orderId: causingLine.invoice.orderId,
+        userId: createdByUserId,
+        type: OrderActivityType.INVOICE_ADJUSTED,
+        title: "Adjustment reversal credit note issued",
+        description: `Credit note ${creditNote.invoiceNumber} reversed ${reversal.amount.toFixed(3)} KD from ${causingLine.invoice.invoiceNumber}.`,
+        metadata: {
+          adjustmentInvoiceId: causingLine.invoice.id,
+          adjustmentInvoiceLineId: causingLine.id,
+          creditNoteInvoiceId: creditNote.id,
+          creditNoteInvoiceNumber: creditNote.invoiceNumber,
+          amount: reversal.amount.toFixed(3),
+          requiresRefund: reversal.requiresRefund,
+          causeOrderEntityKind: reversal.causeOrderEntityKind,
+          causeOrderEntityId: reversal.causeOrderEntityId,
+        },
+      });
+    }
+
+    await assertFinancialCaseInvariants(causingLine.invoice.financialCaseId, client);
+    creditNotes.push(creditNote);
+  }
+
+  return creditNotes;
 }
 
 export async function createRefundInvoice(

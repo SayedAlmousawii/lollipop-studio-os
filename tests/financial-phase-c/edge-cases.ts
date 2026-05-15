@@ -348,13 +348,21 @@ async function runE11PaidAdjustmentCauseRemovalCharacterization(
     fixtures.adminActor
   );
 
-  const [creditNotes, refunds, paidAdjustment] = await Promise.all([
+  const [creditNotes, refunds, paidAdjustment, reversalApplication] = await Promise.all([
     db.invoice.count({ where: { orderId: workflow.orderId, invoiceType: InvoiceType.CREDIT_NOTE } }),
     db.invoice.count({ where: { orderId: workflow.orderId, invoiceType: InvoiceType.REFUND } }),
     db.invoice.findUniqueOrThrow({ where: { id: adjustment.id } }),
+    db.documentApplication.findFirst({
+      where: {
+        targetInvoiceId: adjustment.id,
+        targetInvoiceLineId: { not: null },
+        sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
+      },
+    }),
   ]);
-  assert.equal(creditNotes, 0, "E11 is a documented gap: paid adjustment cause removal creates no credit note");
-  assert.equal(refunds, 0, "E11 is a documented gap: no refund invoice is created");
+  assert.equal(creditNotes, 1, "E11 now reverses paid adjustment cause removal with a credit note");
+  assert.equal(refunds, 1, "E11 now creates a refund invoice for paid adjustment reversal");
+  assert.ok(reversalApplication?.targetInvoiceLineId, "E11 reversal targets the adjustment line");
   assert.equal(paidAdjustment.status, InvoiceStatus.CLOSED);
 }
 

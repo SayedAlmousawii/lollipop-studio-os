@@ -1,4 +1,10 @@
-import { InvoiceLineType, InvoiceType, MediaType, Prisma } from "@prisma/client";
+import {
+  InvoiceLineType,
+  InvoiceType,
+  MediaType,
+  OrderEntityKind,
+  Prisma,
+} from "@prisma/client";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
 import { db } from "@/lib/db";
 
@@ -39,23 +45,48 @@ export type AdditionEvent =
     };
 
 export type ReductionEvent =
-  | { kind: "REMOVED_ADDON"; lineSnapshot: { name: string; totalValue: Money } }
-  | { kind: "REMOVED_UPGRADE"; lineSnapshot: { name: string; totalValue: Money } }
+  | {
+      kind: "REMOVED_ADDON";
+      lineSnapshot: { name: string; totalValue: Money };
+      adjustmentCause?: AdjustmentCause;
+      amountOverride?: Money;
+    }
+  | {
+      kind: "REMOVED_UPGRADE";
+      lineSnapshot: { name: string; totalValue: Money };
+      adjustmentCause?: AdjustmentCause;
+      amountOverride?: Money;
+    }
   | {
       kind: "ADDON_QUANTITY_DECREASE";
       deltaQuantity: number;
       lineSnapshot: { name: string; unitPrice: Money };
+      adjustmentCause?: AdjustmentCause;
+      amountOverride?: Money;
     }
-  | { kind: "REMOVED_EXTRA_PHOTO"; lineSnapshot: { name: string; totalValue: Money } }
+  | {
+      kind: "REMOVED_EXTRA_PHOTO";
+      lineSnapshot: { name: string; totalValue: Money };
+      adjustmentCause?: AdjustmentCause;
+      amountOverride?: Money;
+    }
   | {
       kind: "PACKAGE_TIER_DOWNGRADE";
       oldPriceSnapshot: Money;
       newPriceSnapshot: Money;
+      adjustmentCause?: AdjustmentCause;
+      amountOverride?: Money;
     }
   | { kind: "PRICE_SNAPSHOT_EDIT_ATTEMPT"; lineSnapshot: { name: string } };
 
+export type AdjustmentCause = {
+  causeOrderEntityKind: OrderEntityKind;
+  causeOrderEntityId: string;
+};
+
 export type SwapEvent = {
   kind: "UPGRADE_REPLACEMENT";
+  addedOrderPackageItemUpgradeId?: string;
   removedPriceSnapshot: Money;
   addedPriceSnapshot: Money;
   removedLineSnapshot: { name: string };
@@ -277,6 +308,7 @@ function compareLines({
     if (removed && added) {
       swaps.push({
         kind: "UPGRADE_REPLACEMENT",
+        ...(added.id ? { addedOrderPackageItemUpgradeId: added.id } : {}),
         removedPriceSnapshot: removed.unitPrice.mul(removed.quantity),
         addedPriceSnapshot: added.unitPrice.mul(added.quantity),
         removedLineSnapshot: { name: removed.name },
