@@ -2019,44 +2019,29 @@ export async function computeOverpaymentCapacity(
   sourceInvoiceId: string,
   client: DbClient = db
 ): Promise<Prisma.Decimal> {
-  const [inboundAllocations, source, creditNoteApplications, priorRefunds] =
-    await Promise.all([
-      client.paymentAllocation.aggregate({
-        _sum: { amount: true },
-        where: {
-          invoiceId: sourceInvoiceId,
-          payment: { direction: PaymentDirection.IN },
-        },
-      }),
-      client.invoice.findUnique({
-        where: { id: sourceInvoiceId },
-        select: { id: true, totalAmount: true },
-      }),
-      client.documentApplication.aggregate({
-        _sum: { amountApplied: true },
-        where: {
-          targetInvoiceId: sourceInvoiceId,
-          sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
-        },
-      }),
-      client.invoice.aggregate({
-        _sum: { totalAmount: true },
-        where: {
-          parentInvoiceId: sourceInvoiceId,
-          invoiceType: InvoiceType.REFUND,
-        },
-      }),
-    ]);
+  const source = await client.invoice.findUnique({
+    where: { id: sourceInvoiceId },
+    select: { id: true, totalAmount: true },
+  });
 
   if (!source) throw new Error("Invoice not found");
 
-  const inbound = inboundAllocations._sum.amount ?? new Prisma.Decimal(0);
-  const credited =
-    creditNoteApplications._sum.amountApplied ?? new Prisma.Decimal(0);
+  const [effectivePaid, priorRefunds] = await Promise.all([
+    computeEffectivePaidFromAllocations(sourceInvoiceId, client),
+    client.invoice.aggregate({
+      _sum: { totalAmount: true },
+      where: {
+        parentInvoiceId: sourceInvoiceId,
+        invoiceType: InvoiceType.REFUND,
+      },
+    }),
+  ]);
   const refunded = priorRefunds._sum.totalAmount ?? new Prisma.Decimal(0);
-  const netOwed = source.totalAmount.minus(credited);
 
-  return Prisma.Decimal.max(inbound.minus(netOwed).minus(refunded), 0);
+  return Prisma.Decimal.max(
+    effectivePaid.minus(source.totalAmount).minus(refunded),
+    0
+  );
 }
 
 export async function computeCreditNoteCapacityForFinal(

@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Refund capacity hotfix is complete: overpayment capacity now uses canonical effective-paid allocation/application math, and regression coverage includes deposit-applied final invoices with credit notes plus refund-detail visibility.
 - Feature 80b is complete: locked invoices now get `InvoiceLockSnapshot` frozen-field baselines at lock time, and a PostgreSQL trigger rejects direct frozen-field mutations while allowing sanctioned unlock/status/payment-derived updates.
 - Feature 80a is complete: first-class `AuditLog` persistence now records co-transactional actor attribution and field snapshots for booking confirmation/no-show, payments, invoice locks, total mutations, adjustments, credit notes, refunds, and permitted locked-order mutations.
 - Feature 79d is complete: POS reductive locked-edit actions now surface a manager credit-note approval modal, retry through a dedicated approved action, and keep failed approval retries inside the modal.
@@ -62,6 +63,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Refund capacity hotfix: replaced the parallel inbound-only capacity formula with effective-paid math, preserved prior REFUND invoice consumption, and added deposit + CREDIT_NOTE regression/invariant coverage.
 - Feature 80b: added `InvoiceLockSnapshot`, wired lock snapshots across invoice lock paths, installed a DB trigger for locked-invoice frozen fields, registered the reconciliation invariant, and covered direct Prisma mutation/unlock behavior.
 - Feature 80a: added `AuditLog`, `AuditEntityType`, and `AuditAction`, introduced `recordAuditLog`, wired co-transactional audit writes through booking/payment/invoice/adjustment/credit-note/refund paths, and added focused rollback/actor/audit integration coverage.
 - Feature 79d: replaced the generic reductive POS failure with an `approval-required` action contract, added a blocking manager approval modal with reduction amounts, retried approved reductions through `confirmReductiveEditWithApproval`, and added focused action-boundary regression coverage.

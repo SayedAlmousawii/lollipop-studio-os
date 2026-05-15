@@ -41,137 +41,201 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
         const [
           { db },
           invoices,
+          invoiceCalculations,
           refunds,
           refundUtils,
         ] = await Promise.all([
           import("@/lib/db"),
           import("@/modules/invoices/invoice.service"),
+          import("@/modules/invoices/invoice.calculation"),
           import("@/modules/refunds/refund.service"),
           import("@/lib/invoices/refund-utils"),
         ]);
 
-      const fixture = await seedOverpaymentFixture(db);
+        const fixture = await seedOverpaymentFixture(db);
 
-      await t.test("paid below invoice total has zero capacity", async () => {
-        const source = await createSourceInvoice(db, fixture, "a", {
-          total: "230",
-          paid: "210",
+        await t.test("paid below invoice total has zero capacity", async () => {
+          const source = await createSourceInvoice(db, fixture, "a", {
+            total: "230",
+            paid: "210",
+          });
+
+          const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
+          assert.equal(capacity.toFixed(3), "0.000");
         });
 
-        const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
-        assert.equal(capacity.toFixed(3), "0.000");
-      });
+        await t.test("paid above invoice total exposes only the excess", async () => {
+          const source = await createSourceInvoice(db, fixture, "b", {
+            total: "230",
+            paid: "250",
+          });
 
-      await t.test("paid above invoice total exposes only the excess", async () => {
-        const source = await createSourceInvoice(db, fixture, "b", {
-          total: "230",
-          paid: "250",
+          const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
+          assert.equal(capacity.toFixed(3), "20.000");
+          await assertOverpaymentCapacityInvariant(
+            db,
+            invoices,
+            invoiceCalculations,
+            source.id
+          );
         });
 
-        const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
-        assert.equal(capacity.toFixed(3), "20.000");
-      });
+        await t.test("credit notes reduce net owed before capacity is calculated", async () => {
+          const source = await createSourceInvoice(db, fixture, "c", {
+            total: "230",
+            paid: "210",
+            creditNote: "50",
+          });
 
-      await t.test("credit notes reduce net owed before capacity is calculated", async () => {
-        const source = await createSourceInvoice(db, fixture, "c", {
-          total: "230",
-          paid: "210",
-          creditNote: "50",
+          const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
+          assert.equal(capacity.toFixed(3), "30.000");
+          await assertOverpaymentCapacityInvariant(
+            db,
+            invoices,
+            invoiceCalculations,
+            source.id
+          );
         });
 
-        const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
-        assert.equal(capacity.toFixed(3), "30.000");
-      });
+        await t.test("prior refunds reduce remaining capacity", async () => {
+          const source = await createSourceInvoice(db, fixture, "d", {
+            total: "230",
+            paid: "250",
+            priorRefund: "15",
+          });
 
-      await t.test("prior refunds reduce remaining capacity", async () => {
-        const source = await createSourceInvoice(db, fixture, "d", {
-          total: "230",
-          paid: "250",
-          priorRefund: "15",
+          const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
+          assert.equal(capacity.toFixed(3), "5.000");
+          await assertOverpaymentCapacityInvariant(
+            db,
+            invoices,
+            invoiceCalculations,
+            source.id
+          );
         });
 
-        const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
-        assert.equal(capacity.toFixed(3), "5.000");
-      });
+        await t.test("deposit applications and credit notes expose true overpayment", async () => {
+          const source = await createSourceInvoice(db, fixture, "h", {
+            total: "198",
+            paid: "178",
+            depositApplied: "20",
+            creditNote: "3",
+          });
 
-      await t.test("refund creation rejects requests above capacity", async () => {
-        const source = await createSourceInvoice(db, fixture, "e", {
-          total: "230",
-          paid: "250",
+          const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
+          assert.equal(capacity.toFixed(3), "3.000");
+          await assertOverpaymentCapacityInvariant(
+            db,
+            invoices,
+            invoiceCalculations,
+            source.id
+          );
         });
 
-        await assert.rejects(
-          () =>
-            invoices.createRefundInvoice({
+        await t.test("deposit-settled credit note detail shows refund capacity", async () => {
+          const source = await createSourceInvoice(db, fixture, "i", {
+            total: "198",
+            paid: "178",
+            depositApplied: "20",
+            creditNote: "3",
+            withOrder: true,
+          });
+
+          const detail = await invoices.getInvoiceById(source.id);
+          assert.equal(detail?.overpaymentCapacity, "3.000 KD");
+          assert.equal(
+            refundUtils.shouldShowRefundForm(detail?.overpaymentCapacity ?? null),
+            true
+          );
+          await assertOverpaymentCapacityInvariant(
+            db,
+            invoices,
+            invoiceCalculations,
+            source.id
+          );
+        });
+
+        await t.test("refund creation rejects requests above capacity", async () => {
+          const source = await createSourceInvoice(db, fixture, "e", {
+            total: "230",
+            paid: "250",
+          });
+
+          await assert.rejects(
+            () =>
+              invoices.createRefundInvoice({
+                sourceInvoiceId: source.id,
+                amount: 50,
+                reason: "Over capacity",
+                createdByUserId: fixture.managerId,
+              }),
+            /Refund amount 50\.000 KD exceeds overpayment capacity 20\.000 KD/
+          );
+        });
+
+        await t.test("zero-capacity detail emits the renamed API field and hides refund form", async () => {
+          const source = await createSourceInvoice(db, fixture, "f", {
+            total: "230",
+            paid: "210",
+          });
+
+          const detail = await invoices.getInvoiceById(source.id);
+          assert.equal(detail?.overpaymentCapacity, "0.000 KD");
+          assert.equal(
+            refundUtils.shouldShowRefundForm(detail?.overpaymentCapacity ?? null),
+            false
+          );
+        });
+
+        await t.test("concurrent refunds cannot both consume the same capacity", async () => {
+          const source = await createSourceInvoice(db, fixture, "g", {
+            total: "230",
+            paid: "250",
+          });
+
+          const results = await Promise.allSettled([
+            refunds.issueRefundWithPayment({
               sourceInvoiceId: source.id,
-              amount: 50,
-              reason: "Over capacity",
+              amount: 15,
+              reason: "Concurrent refund A",
               createdByUserId: fixture.managerId,
+              method: PaymentMethod.CASH,
             }),
-          /Refund amount 50\.000 KD exceeds overpayment capacity 20\.000 KD/
-        );
-      });
+            refunds.issueRefundWithPayment({
+              sourceInvoiceId: source.id,
+              amount: 15,
+              reason: "Concurrent refund B",
+              createdByUserId: fixture.managerId,
+              method: PaymentMethod.KNET,
+            }),
+          ]);
 
-      await t.test("zero-capacity detail emits the renamed API field and hides refund form", async () => {
-        const source = await createSourceInvoice(db, fixture, "f", {
-          total: "230",
-          paid: "210",
+          assert.equal(
+            results.filter((result) => result.status === "fulfilled").length,
+            1
+          );
+          assert.equal(
+            results.filter((result) => result.status === "rejected").length,
+            1
+          );
+          const rejected = results.find((result) => result.status === "rejected");
+          assert.match(
+            rejected?.status === "rejected" && rejected.reason instanceof Error
+              ? rejected.reason.message
+              : "",
+            /exceeds overpayment capacity/
+          );
+
+          const refundInvoices = await db.invoice.findMany({
+            where: { parentInvoiceId: source.id, invoiceType: InvoiceType.REFUND },
+            select: { totalAmount: true },
+          });
+          const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
+
+          assert.equal(refundInvoices.length, 1);
+          assert.equal(refundInvoices[0]?.totalAmount.toFixed(3), "15.000");
+          assert.equal(capacity.toFixed(3), "5.000");
         });
-
-        const detail = await invoices.getInvoiceById(source.id);
-        assert.equal(detail?.overpaymentCapacity, "0.000 KD");
-        assert.equal(refundUtils.shouldShowRefundForm(detail?.overpaymentCapacity ?? null), false);
-      });
-
-      await t.test("concurrent refunds cannot both consume the same capacity", async () => {
-        const source = await createSourceInvoice(db, fixture, "g", {
-          total: "230",
-          paid: "250",
-        });
-
-        const results = await Promise.allSettled([
-          refunds.issueRefundWithPayment({
-            sourceInvoiceId: source.id,
-            amount: 15,
-            reason: "Concurrent refund A",
-            createdByUserId: fixture.managerId,
-            method: PaymentMethod.CASH,
-          }),
-          refunds.issueRefundWithPayment({
-            sourceInvoiceId: source.id,
-            amount: 15,
-            reason: "Concurrent refund B",
-            createdByUserId: fixture.managerId,
-            method: PaymentMethod.KNET,
-          }),
-        ]);
-
-        assert.equal(
-          results.filter((result) => result.status === "fulfilled").length,
-          1
-        );
-        assert.equal(
-          results.filter((result) => result.status === "rejected").length,
-          1
-        );
-        const rejected = results.find((result) => result.status === "rejected");
-        assert.match(
-          rejected?.status === "rejected" && rejected.reason instanceof Error
-            ? rejected.reason.message
-            : "",
-          /exceeds overpayment capacity/
-        );
-
-        const refundInvoices = await db.invoice.findMany({
-          where: { parentInvoiceId: source.id, invoiceType: InvoiceType.REFUND },
-          select: { totalAmount: true },
-        });
-        const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
-
-        assert.equal(refundInvoices.length, 1);
-        assert.equal(refundInvoices[0]?.totalAmount.toFixed(3), "15.000");
-        assert.equal(capacity.toFixed(3), "5.000");
-      });
 
         await db.$disconnect();
       } finally {
@@ -217,8 +281,10 @@ async function createSourceInvoice(
   options: {
     total: string;
     paid: string;
+    depositApplied?: string;
     creditNote?: string;
     priorRefund?: string;
+    withOrder?: boolean;
   }
 ) {
   const customer = await db.customer.create({
@@ -245,18 +311,58 @@ async function createSourceInvoice(
       customerId: customer.id,
     },
   });
+
+  let orderId: string | undefined;
+  let jobId: string | undefined;
+  let jobNumber: string | undefined;
+  if (options.withOrder) {
+    const job = await db.job.create({
+      data: {
+        id: `overpayment-capacity-job-${suffix}`,
+        jobNumber: `JOB-OVERPAY-${suffix}`,
+        customerId: customer.id,
+      },
+    });
+    await db.booking.update({
+      where: { id: booking.id },
+      data: { jobId: job.id, jobNumber: job.jobNumber },
+    });
+    await db.financialCase.update({
+      where: { id: financialCase.id },
+      data: { jobId: job.id },
+    });
+    const order = await db.order.create({
+      data: {
+        id: `overpayment-capacity-order-${suffix}`,
+        publicId: `ORD-OVERPAY-${suffix}`,
+        jobId: job.id,
+        jobNumber: job.jobNumber,
+        bookingId: booking.id,
+        customerId: customer.id,
+      },
+    });
+    orderId = order.id;
+    jobId = job.id;
+    jobNumber = job.jobNumber;
+  }
+
+  const depositApplied = new Prisma.Decimal(options.depositApplied ?? 0);
+  const initialApplied = new Prisma.Decimal(options.paid).plus(depositApplied);
   const invoice = await db.invoice.create({
     data: {
       publicId: `INV-OVERPAY-${suffix}`,
       financialCaseId: financialCase.id,
       invoiceType: InvoiceType.FINAL,
       bookingId: booking.id,
+      jobId,
+      jobNumber,
+      orderId,
       customerId: customer.id,
       invoiceNumber: `INV-OVERPAY-${suffix}`,
       totalAmount: new Prisma.Decimal(options.total),
       paidAmount: new Prisma.Decimal(0),
       remainingAmount: Prisma.Decimal.max(
-        new Prisma.Decimal(options.total).minus(options.paid),
+        new Prisma.Decimal(options.total).minus(initialApplied),
         0
       ),
       status: InvoiceStatus.CLOSED,
@@ -265,6 +371,44 @@ async function createSourceInvoice(
       closedAt: new Date(),
     },
   });
+
+  if (options.depositApplied) {
+    const depositInvoice = await db.invoice.create({
+      data: {
+        publicId: `DEP-OVERPAY-${suffix}`,
+        financialCaseId: financialCase.id,
+        invoiceType: InvoiceType.DEPOSIT,
+        bookingId: booking.id,
+        jobId,
+        jobNumber,
+        customerId: customer.id,
+        invoiceNumber: `DEP-OVERPAY-${suffix}`,
+        totalAmount: depositApplied,
+        paidAmount: depositApplied,
+        remainingAmount: new Prisma.Decimal(0),
+        status: InvoiceStatus.CLOSED,
+        isLocked: true,
+        issuedAt: new Date(),
+        closedAt: new Date(),
+      },
+    });
+    await createInboundPayment(
+      db,
+      financialCase.id,
+      depositInvoice.id,
+      `${suffix}-deposit`,
+      options.depositApplied,
+      PaymentType.DEPOSIT
+    );
+    await db.documentApplication.create({
+      data: {
+        sourceInvoiceId: depositInvoice.id,
+        targetInvoiceId: invoice.id,
+        amountApplied: depositApplied,
+        appliedByUserId: fixture.managerId,
+      },
+    });
+  }
 
   await createInboundPayment(db, financialCase.id, invoice.id, suffix, options.paid);
 
@@ -325,7 +469,8 @@ async function createInboundPayment(
   financialCaseId: string,
   invoiceId: string,
   suffix: string,
-  amount: string
+  amount: string,
+  paymentType: PaymentType = PaymentType.FINAL
 ): Promise<void> {
   const payment = await db.payment.create({
     data: {
@@ -335,7 +480,7 @@ async function createInboundPayment(
       amount: new Prisma.Decimal(amount),
       direction: PaymentDirection.IN,
       method: PaymentMethod.CASH,
-      paymentType: PaymentType.FINAL,
+      paymentType,
     },
   });
 
@@ -346,4 +491,37 @@ async function createInboundPayment(
       amount: new Prisma.Decimal(amount),
     },
   });
+}
+
+async function assertOverpaymentCapacityInvariant(
+  db: PrismaClient,
+  invoices: typeof import("@/modules/invoices/invoice.service"),
+  invoiceCalculations: typeof import("@/modules/invoices/invoice.calculation"),
+  invoiceId: string
+): Promise<void> {
+  const [invoice, priorRefunds, capacity, effectivePaid] = await Promise.all([
+    db.invoice.findUniqueOrThrow({
+      where: { id: invoiceId },
+      select: { totalAmount: true, invoiceType: true, isLocked: true },
+    }),
+    db.invoice.aggregate({
+      _sum: { totalAmount: true },
+      where: {
+        parentInvoiceId: invoiceId,
+        invoiceType: InvoiceType.REFUND,
+      },
+    }),
+    invoices.computeOverpaymentCapacity(invoiceId, db),
+    invoiceCalculations.computeEffectivePaidFromAllocations(invoiceId, db),
+  ]);
+  assert.equal(invoice.invoiceType, InvoiceType.FINAL);
+  assert.equal(invoice.isLocked, true);
+
+  const refunded = priorRefunds._sum.totalAmount ?? new Prisma.Decimal(0);
+  const expectedCapacity = Prisma.Decimal.max(
+    effectivePaid.minus(invoice.totalAmount).minus(refunded),
+    0
+  );
+
+  assert.equal(capacity.toFixed(3), expectedCapacity.toFixed(3));
 }
