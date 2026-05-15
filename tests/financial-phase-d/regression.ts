@@ -475,13 +475,13 @@ async function runRegLegacy01EditingWorkflowLegacyDepositCharacterization(
   assertMoney(storedFinal.remainingAmount, "20", "fixture must leave canonical final balance due");
   assert.equal(
     editingWorkflow?.outstandingBalanceAmount,
-    null,
-    "characterization: editing workflow still subtracts deposit from canonical final remaining"
+    20,
+    "editing workflow must read canonical final remaining without deposit subtraction"
   );
   assert.equal(
     editingWorkflow?.canMarkStarted,
-    true,
-    "characterization: retired virtual deposit path can still open editing early"
+    false,
+    "editing workflow must stay blocked while canonical final balance remains due"
   );
 }
 
