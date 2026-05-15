@@ -21,6 +21,8 @@ However, the verification effort also exposed a small number of **structural wea
 - **POS reductive locked-edit manager prompt is now closed by Feature 79d** — reductive POS actions return an approval-required contract, the client opens a blocking manager modal, and approved retries pass manager attribution back through the same service path.
 - **`assertActorPermission()` short-circuits when `actorRole` is missing**, and `recordPayment()` has no role guard at all — internal callers can bypass authorization.
 - **First-class `AuditLog` is now closed by Feature 80a.** Booking confirmation/no-show, payment, invoice-lock, adjustment, credit-note, refund, and service-level locked-field mutations now write structured co-transactional audit rows.
+- **DB-level over-collection prevention is now closed by Feature 80c** — `PaymentAllocation` writes cannot push an invoice's allocated total above `Invoice.totalAmount`.
+- **DB-level ADJUSTMENT-chain prevention is now closed by Feature 80c** — ADJUSTMENT invoices cannot reference another ADJUSTMENT as their parent.
 - **"Production ready" can be set with required sections incomplete**, and delivery then unlocks — a non-financial but real workflow-integrity bypass.
 
 The recommendation is to **freeze new feature work until the CRITICAL list is closed**. The HIGH list should be closed in the same stabilization window before commissions/reporting/vouchers expansion begins. Reconciliation is a safety net, not a substitute for these fixes.
@@ -58,8 +60,8 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | # | Severity | Risk | Source | Required Fix |
 |---|---|---|---|---|
 | C1 | **COMPLETED** | `recordPayment()` now acquires `SELECT … FOR UPDATE` on the invoice row before balance reads, removing the demonstrated settlement race window | Closed by Feature 78a | Balance-read → payment-write → recalculation → close now happens under the same locked transaction |
-| C2 | **HIGH** | Invoice-level over-collection prevention is app-layer only; no DB constraint enforces `sum(allocations) ≤ invoice.totalAmount` | Risk §B; Arch §E | Add a deferred CHECK or trigger; or enforce by writing settled `remainingAmount` under the same lock as C1 |
-| C3 | **MEDIUM** | ADJUSTMENT chaining is blocked at service/CI level but not at DB | Risk §D; Phase C E8 | DB CHECK: `parentInvoiceId` must reference an invoice whose `invoiceType != ADJUSTMENT` |
+| C2 | **COMPLETED** | Invoice-level over-collection prevention is now enforced by a DB trigger on `PaymentAllocation` writes | Closed by Feature 80c | `trg_reject_payment_allocation_overcollection` rejects INSERT/UPDATE attempts that would push allocation totals above `Invoice.totalAmount` |
+| C3 | **COMPLETED** | ADJUSTMENT chaining is now blocked by a DB trigger on `Invoice` writes | Closed by Feature 80c | `trg_reject_adjustment_invoice_chaining` rejects ADJUSTMENT invoices whose parent is another ADJUSTMENT |
 | C4 | **LOW** | Cross-booking simultaneous reference generation relies on self-healing `identifier_sequences` upsert. Same-booking race already covered | Phase F | Acceptable; revisit only if higher booking volume is targeted |
 
 ---
@@ -147,8 +149,8 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 
 **Sprint 3 — Workflow integrity & immutability proofs**
 8. A1 + F3 — Completed by Features 80a/80b: `AuditLog`, `InvoiceLockSnapshot`, and DB-level locked-invoice frozen-field prevention
-9. C2 — DB-level over-collection prevention
-10. C3 — DB-level ADJUSTMENT chain prevention
+9. C2 — Completed by Feature 80c: DB-level over-collection prevention
+10. C3 — Completed by Feature 80c: DB-level ADJUSTMENT chain prevention
 
 **Sprint 4 — Cleanup & operability**
 11. A4 + D4 — Remove dual-read warning path
@@ -173,14 +175,16 @@ These must all be closed before commissions, reporting, vouchers, or integration
 - **F4** Completed in Feature 79a: paid-ADJUSTMENT reversal
 - **F5 / D1-D3 / A2** Completed in Feature 79b: legacy deposit-deduction removal
 - **C1** Completed in Feature 78a: invoice row-level locking on settlement
-- **C2** DB-level over-collection prevention
-- **C3** DB-level ADJUSTMENT chain prevention
+- **C2** Completed in Feature 80c: DB-level over-collection prevention
+- **C3** Completed in Feature 80c: DB-level ADJUSTMENT chain prevention
 - **S1, S2** Completed in Feature 78b: required actor role + `recordPayment()` guard
 - **A1** Completed in Feature 80a: `AuditLog` model/service (commissions and reporting can now depend on it)
 - **O1** Completed in Feature 79c: canonical refund default/cap
 - **O2** Canonical order-header settlement display
 
 Rationale: every expansion feature on the roadmap (commissions, reporting, vouchers, integrations) reads from balance, applies money, or relies on auditability. Shipping any of them on top of the current weaknesses guarantees they inherit the same gaps and make later fixes far more invasive.
+
+Feature 80c completes the Sprint 3 DB guardrails. Remaining expansion blockers are tracked in Sprint 4 cleanup/operability items.
 
 ---
 
