@@ -58,7 +58,7 @@ async function issueRefundWithPaymentWithClient(
     await recordOrderActivity(client, {
       orderId: refundInvoice.orderId,
       userId: input.createdByUserId,
-      type: OrderActivityType.PAYMENT_RECEIVED,
+      type: OrderActivityType.INVOICE_ADJUSTED,
       title: "Refund payment recorded",
       description: `Refund payment recorded: ${new Prisma.Decimal(input.amount).toFixed(3)} KD via ${input.method} (${refundInvoice.invoiceNumber}).`,
       metadata: {
