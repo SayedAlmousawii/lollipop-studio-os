@@ -11,6 +11,7 @@ import {
 
 const SLACK_WEBHOOK_ATTEMPTS = 3;
 const SLACK_WEBHOOK_TIMEOUT_MS = 10_000;
+const RECONCILIATION_PING_TIMEOUT_MS = 10_000;
 
 function createReconciliationClient(databaseUrl: string): PrismaClient {
   const schema = new URL(databaseUrl).searchParams.get("schema") ?? undefined;
@@ -51,12 +52,12 @@ function wait(ms: number): Promise<void> {
   });
 }
 
-async function postSlackAlert(payload: ReconciliationAlertPayload): Promise<void> {
+async function postSlackAlert(payload: ReconciliationAlertPayload): Promise<boolean> {
   const webhook = process.env.FINANCIAL_RECON_SLACK_WEBHOOK;
   if (!webhook) {
     console.warn("FINANCIAL_RECON_SLACK_WEBHOOK is not set; alert written to logs only");
     console.warn(payload.text);
-    return;
+    return false;
   }
 
   for (let attempt = 1; attempt <= SLACK_WEBHOOK_ATTEMPTS; attempt++) {
@@ -71,7 +72,7 @@ async function postSlackAlert(payload: ReconciliationAlertPayload): Promise<void
       });
 
       if (response.ok) {
-        return;
+        return true;
       }
 
       const body = await response.text();
@@ -81,7 +82,7 @@ async function postSlackAlert(payload: ReconciliationAlertPayload): Promise<void
       );
 
       if (!retryable || attempt === SLACK_WEBHOOK_ATTEMPTS) {
-        return;
+        return false;
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
@@ -90,11 +91,34 @@ async function postSlackAlert(payload: ReconciliationAlertPayload): Promise<void
       );
 
       if (attempt === SLACK_WEBHOOK_ATTEMPTS) {
-        return;
+        return false;
       }
     }
 
     await wait(100 * 2 ** (attempt - 1));
+  }
+
+  return false;
+}
+
+async function pingReconciliationMonitor(): Promise<void> {
+  const pingUrl = process.env.RECONCILIATION_PING_URL;
+  if (!pingUrl) {
+    return;
+  }
+
+  try {
+    const response = await fetch(pingUrl, {
+      method: "POST",
+      signal: AbortSignal.timeout(RECONCILIATION_PING_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.warn(
+        `Reconciliation ping failed (non-fatal): status=${response.status}`
+      );
+    }
+  } catch (error) {
+    console.warn("Reconciliation ping failed (non-fatal):", error);
   }
 }
 
@@ -104,9 +128,13 @@ async function main() {
 
   try {
     const report = await executeFinancialReconciliation(db);
+    let slackDeliverySucceeded = true;
     await postReconciliationAlerts(
       report,
-      postSlackAlert,
+      async (payload) => {
+        const delivered = await postSlackAlert(payload);
+        slackDeliverySucceeded = slackDeliverySucceeded && delivered;
+      },
       process.env.FINANCIAL_RECON_SLACK_CHANNEL
     );
 
@@ -129,6 +157,10 @@ async function main() {
 
     if (report.violations.length > 0) {
       process.exitCode = 1;
+    }
+
+    if (slackDeliverySucceeded) {
+      await pingReconciliationMonitor();
     }
   } finally {
     await db.$disconnect();
