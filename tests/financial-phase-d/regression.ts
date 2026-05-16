@@ -46,7 +46,6 @@ export async function runPhaseDRegressionSuite(db: PrismaClient): Promise<void> 
   const cases: CaseRunner[] = [
     { id: "REG-74-01", run: runReg7401InvoiceDetailUsesCanonicalApplications },
     { id: "REG-74-02", run: runReg7402BackfilledShapeStillPresent },
-    { id: "REG-74-03", run: runReg7403PureReadsDoNotEmitDualReadWarning },
     { id: "REG-75-01", run: runReg7501AdjustmentCreationAndSettlement },
     { id: "REG-75-02", run: runReg7502SettlementPanelSeesAdjustmentOutstanding },
     { id: "REG-76-01", run: runReg7601CreditNoteRoleAndOverpaymentFlag },
@@ -102,23 +101,6 @@ async function runReg7402BackfilledShapeStillPresent(
   await assertSinglePaymentAllocation(db, depositPayment.id, workflow.depositInvoiceId, "20");
   assert.ok(application, "deposit must be bound to final invoice through DocumentApplication");
   assertMoney(application?.amountApplied ?? new Prisma.Decimal(0), "20", "deposit application");
-}
-
-async function runReg7403PureReadsDoNotEmitDualReadWarning(
-  db: PrismaClient,
-  fixtures: PhaseDFixtures
-): Promise<void> {
-  const workflow = await buildFinalInvoiceWorkflowFixture(db, fixtures, "reg7403");
-  const warnings = await captureWarnings(async () => {
-    await getInvoiceById(workflow.finalInvoiceId);
-    await computeEffectivePaidFromAllocations(workflow.finalInvoiceId, db);
-  });
-
-  assert.equal(
-    warnings.filter((line) => line.includes("financial.rearch.dual_read.discrepancy")).length,
-    0,
-    "pure invoice reads must not emit dual-read discrepancy warnings"
-  );
 }
 
 async function runReg7501AdjustmentCreationAndSettlement(
@@ -283,36 +265,29 @@ async function runReg7603MixedEditCreatesPairedDocuments(
     ],
   });
 
-  const warnings = await captureWarnings(async () => {
-    await db.$transaction(async (tx) => {
-      const existingAddOn = await tx.orderAddOn.findFirstOrThrow({
-        where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
-        select: { id: true },
-      });
-      await tx.orderAddOn.delete({ where: { id: existingAddOn.id } });
-      await tx.orderAddOn.create({
-        data: {
-          orderId: workflow.orderId,
-          productId: fixtures.secondAddOnProductId,
-          nameSnapshot: "Phase D Second Add-on",
-          priceSnapshot: new Prisma.Decimal(30),
-          quantity: 1,
-        },
-      });
-      await syncOrderInvoiceForFinancialEdit(tx, {
+  await db.$transaction(async (tx) => {
+    const existingAddOn = await tx.orderAddOn.findFirstOrThrow({
+      where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
+      select: { id: true },
+    });
+    await tx.orderAddOn.delete({ where: { id: existingAddOn.id } });
+    await tx.orderAddOn.create({
+      data: {
         orderId: workflow.orderId,
-        actorContext: fixtures.managerActor,
-        previousAddOns: [],
-        managerApprovedReductionByUserId: fixtures.managerId,
-        managerApprovedReason: "Phase D mixed edit reduction",
-      });
+        productId: fixtures.secondAddOnProductId,
+        nameSnapshot: "Phase D Second Add-on",
+        priceSnapshot: new Prisma.Decimal(30),
+        quantity: 1,
+      },
+    });
+    await syncOrderInvoiceForFinancialEdit(tx, {
+      orderId: workflow.orderId,
+      actorContext: fixtures.managerActor,
+      previousAddOns: [],
+      managerApprovedReductionByUserId: fixtures.managerId,
+      managerApprovedReason: "Phase D mixed edit reduction",
     });
   });
-
-  assert.ok(
-    warnings.every((line) => line.includes("financial.rearch.dual_read.discrepancy")),
-    "mixed locked edit warnings, when present, must be the known dual-read metric"
-  );
 
   const [creditNotes, adjustments] = await Promise.all([
     db.invoice.findMany({
@@ -516,20 +491,6 @@ async function runStaticFinancialArchitectureSearch(): Promise<void> {
     invoiceService.includes("computeEffectivePaidFromAllocations"),
     "invoice service must keep canonical allocation/application balance calculation wired"
   );
-}
-
-async function captureWarnings(action: () => Promise<void>): Promise<string[]> {
-  const originalWarn = console.warn;
-  const warnings: string[] = [];
-  console.warn = (...args: unknown[]) => {
-    warnings.push(args.map(String).join(" "));
-  };
-  try {
-    await action();
-  } finally {
-    console.warn = originalWarn;
-  }
-  return warnings;
 }
 
 function asMetadata(value: Prisma.JsonValue | undefined): Record<string, unknown> {

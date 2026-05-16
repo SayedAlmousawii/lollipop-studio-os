@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 81a is complete: the locked-edit dual-read comparison module and orphaned feature flag are removed, `syncOrderInvoiceForFinancialEdit()` runs the canonical classifier path directly, and Phase D warning-only regression coverage was deleted.
 - Feature 80c is complete: PostgreSQL triggers now reject PaymentAllocation over-collection and ADJUSTMENT-to-ADJUSTMENT invoice parent chains, with focused DB-constraint regression coverage.
 - Refund capacity hotfix is complete: overpayment capacity now uses canonical effective-paid allocation/application math, and regression coverage includes deposit-applied final invoices with credit notes plus refund-detail visibility.
 - Feature 80b is complete: locked invoices now get `InvoiceLockSnapshot` frozen-field baselines at lock time, and a PostgreSQL trigger rejects direct frozen-field mutations while allowing sanctioned unlock/status/payment-derived updates.
@@ -65,6 +66,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 81a: deleted the dual-read warning path and orphaned feature flag, removed `financial.rearch.dual_read.discrepancy` runtime emission, kept locked-edit classifier behavior canonical, and removed warning-only Phase D assertions.
 - Feature 80c: added raw SQL triggers for PaymentAllocation over-collection and ADJUSTMENT-parent chaining, plus isolated-schema regression coverage for insert/update failures and service-level preflight errors.
 - Refund capacity hotfix: replaced the parallel inbound-only capacity formula with effective-paid math, preserved prior REFUND invoice consumption, and added deposit + CREDIT_NOTE regression/invariant coverage.
 - Feature 80b: added `InvoiceLockSnapshot`, wired lock snapshots across invoice lock paths, installed a DB trigger for locked-invoice frozen fields, registered the reconciliation invariant, and covered direct Prisma mutation/unlock behavior.

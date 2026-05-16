@@ -18,7 +18,6 @@ import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
-import { dualRead, LockedInvoiceEditError } from "@/modules/financial/dual-read";
 import {
   BlockedEditError,
   type AdjustmentReversal,
@@ -27,7 +26,6 @@ import {
   type OpenAdjustmentLine,
   PendingCreditNoteApprovalError,
 } from "@/modules/financial/edit-classifier";
-import { FINANCIAL_REARCH_PHASE_2_AUTO_ADJUSTMENT } from "@/modules/financial/feature-flags";
 import { assertFinancialCaseInvariants } from "@/modules/financial/invariants";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
@@ -357,245 +355,233 @@ export async function syncOrderInvoiceForFinancialEdit(
   const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
 
   if (existingInvoice?.isLocked) {
-    return dualRead({
-      phase: "phase-2-classifier",
-      path: "invoice.syncOrderInvoiceForFinancialEdit",
-      entityId: order.id,
-      flagKey: FINANCIAL_REARCH_PHASE_2_AUTO_ADJUSTMENT,
-      authoritative: "old",
-      oldFn: async () => {
-        throw new LockedInvoiceEditError();
-      },
-      newFn: async () => {
-        const openAdjustmentLines = await buildOpenAdjustmentLineMap(client, order.id);
-        const delta = await computeOrderEditDelta(order.id, client);
-        const adjustmentCauseReductions =
-          await buildAdjustmentCauseReductions(
-            client,
-            order.id,
-            openAdjustmentLines
-          );
-        const classifiedDelta: EditDelta = {
-          ...delta,
-          reductions: [...delta.reductions, ...adjustmentCauseReductions],
-        };
-        const result = classifyEditDelta(classifiedDelta, openAdjustmentLines);
+    const openAdjustmentLines = await buildOpenAdjustmentLineMap(client, order.id);
+    const delta = await computeOrderEditDelta(order.id, client);
+    const adjustmentCauseReductions =
+      await buildAdjustmentCauseReductions(
+        client,
+        order.id,
+        openAdjustmentLines
+      );
+    const classifiedDelta: EditDelta = {
+      ...delta,
+      reductions: [...delta.reductions, ...adjustmentCauseReductions],
+    };
+    const result = classifyEditDelta(classifiedDelta, openAdjustmentLines);
 
-        if (result.blocked.length > 0) {
-          throw new BlockedEditError(result.blocked);
-        }
+    if (result.blocked.length > 0) {
+      throw new BlockedEditError(result.blocked);
+    }
 
-        if (result.netZero && result.adjustmentLines.length === 0) {
-          await recordAuditLog(client, input.actorContext, {
-            entityType: AuditEntityType.ORDER,
-            entityId: order.id,
-            action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
-            before: {
-              swaps: delta.swaps.map((swap) => ({
-                removedName: swap.removedLineSnapshot.name,
-              })),
-            },
-            after: {
-              swaps: delta.swaps.map((swap) => ({
-                addedName: swap.addedLineSnapshot.name,
-                amount: swap.addedPriceSnapshot.toFixed(3),
-              })),
-            },
-            context: {
-              financialCaseId,
-              invoiceId: existingInvoice.id,
-            },
-          });
+    if (result.netZero && result.adjustmentLines.length === 0) {
+      await recordAuditLog(client, input.actorContext, {
+        entityType: AuditEntityType.ORDER,
+        entityId: order.id,
+        action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
+        before: {
+          swaps: delta.swaps.map((swap) => ({
+            removedName: swap.removedLineSnapshot.name,
+          })),
+        },
+        after: {
+          swaps: delta.swaps.map((swap) => ({
+            addedName: swap.addedLineSnapshot.name,
+            amount: swap.addedPriceSnapshot.toFixed(3),
+          })),
+        },
+        context: {
+          financialCaseId,
+          invoiceId: existingInvoice.id,
+        },
+      });
 
-          await recordOrderActivity(client, {
-            orderId: order.id,
-            userId: null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: "Upgrade swapped (equal price)",
-            description: "Upgrade swapped (equal price).",
-            metadata: {
-              swaps: delta.swaps.map((swap) => ({
-                removedName: swap.removedLineSnapshot.name,
-                addedName: swap.addedLineSnapshot.name,
-                amount: swap.addedPriceSnapshot.toFixed(3),
-              })),
-            },
-          });
+      await recordOrderActivity(client, {
+        orderId: order.id,
+        userId: null,
+        type: OrderActivityType.INVOICE_ADJUSTED,
+        title: "Upgrade swapped (equal price)",
+        description: "Upgrade swapped (equal price).",
+        metadata: {
+          swaps: delta.swaps.map((swap) => ({
+            removedName: swap.removedLineSnapshot.name,
+            addedName: swap.addedLineSnapshot.name,
+            amount: swap.addedPriceSnapshot.toFixed(3),
+          })),
+        },
+      });
 
-          return buildOrderInvoiceSyncSummary({
-            invoice: existingInvoice,
-            packageAdjustmentAmount,
-            addOnAdjustmentAmount,
-            totalAdjustmentAmount: new Prisma.Decimal(0),
-            packageAdjustmentBaseline,
-            createdInvoice: false,
-          });
-        }
+      return buildOrderInvoiceSyncSummary({
+        invoice: existingInvoice,
+        packageAdjustmentAmount,
+        addOnAdjustmentAmount,
+        totalAdjustmentAmount: new Prisma.Decimal(0),
+        packageAdjustmentBaseline,
+        createdInvoice: false,
+      });
+    }
 
-        let creditNoteInvoice: Invoice | null = null;
-        let adjustmentInvoice: Invoice | null = null;
-        let adjustmentReversalCreditNotes: Invoice[] = [];
-        if (
-          result.creditNoteRequired.length > 0 ||
-          result.adjustmentReversals.length > 0
-        ) {
-          if (!input.managerApprovedReductionByUserId) {
-            throw new PendingCreditNoteApprovalError(
-              [
-                ...result.creditNoteRequired,
-                ...result.adjustmentReversals.map((reversal) => ({
-                  reason: "REMOVED_ADDON" as const,
-                  amount: reversal.amount,
-                  lineSnapshot: reversal.lineSnapshot,
-                })),
-              ],
-              result.adjustmentLines
-            );
-          }
-        }
+    let creditNoteInvoice: Invoice | null = null;
+    let adjustmentInvoice: Invoice | null = null;
+    let adjustmentReversalCreditNotes: Invoice[] = [];
+    if (
+      result.creditNoteRequired.length > 0 ||
+      result.adjustmentReversals.length > 0
+    ) {
+      if (!input.managerApprovedReductionByUserId) {
+        throw new PendingCreditNoteApprovalError(
+          [
+            ...result.creditNoteRequired,
+            ...result.adjustmentReversals.map((reversal) => ({
+              reason: "REMOVED_ADDON" as const,
+              amount: reversal.amount,
+              lineSnapshot: reversal.lineSnapshot,
+            })),
+          ],
+          result.adjustmentLines
+        );
+      }
+    }
 
-        if (result.creditNoteRequired.length > 0) {
-          const creditReason =
-            input.managerApprovedReason?.trim() || "Reduction from order edit";
-          creditNoteInvoice = await createCreditNote(
-            {
-              targetFinalInvoiceId: existingInvoice.id,
-              lines: result.creditNoteRequired.map((requirement) => ({
-                description: `Reduction: ${requirement.lineSnapshot.name}`,
-                quantity: 1,
-                unitPrice: requirement.amount,
-              })),
-              reason: creditReason,
-              notes: `Auto-CREDIT_NOTE from order edit on ${new Date().toISOString()}`,
-              createdByUserId: input.managerApprovedReductionByUserId!,
-            },
-            client
-          );
-        }
+    if (result.creditNoteRequired.length > 0) {
+      const creditReason =
+        input.managerApprovedReason?.trim() || "Reduction from order edit";
+      creditNoteInvoice = await createCreditNote(
+        {
+          targetFinalInvoiceId: existingInvoice.id,
+          lines: result.creditNoteRequired.map((requirement) => ({
+            description: `Reduction: ${requirement.lineSnapshot.name}`,
+            quantity: 1,
+            unitPrice: requirement.amount,
+          })),
+          reason: creditReason,
+          notes: `Auto-CREDIT_NOTE from order edit on ${new Date().toISOString()}`,
+          createdByUserId: input.managerApprovedReductionByUserId!,
+        },
+        client
+      );
+    }
 
-        if (result.adjustmentReversals.length > 0) {
-          adjustmentReversalCreditNotes = await applyAdjustmentReversalsWithClient({
-            client,
-            orderId: order.id,
-            reversals: result.adjustmentReversals,
-            createdByUserId: input.managerApprovedReductionByUserId!,
-            reason:
-              input.managerApprovedReason?.trim() ||
-              "Adjustment reversal from order edit",
-          });
-        }
+    if (result.adjustmentReversals.length > 0) {
+      adjustmentReversalCreditNotes = await applyAdjustmentReversalsWithClient({
+        client,
+        orderId: order.id,
+        reversals: result.adjustmentReversals,
+        createdByUserId: input.managerApprovedReductionByUserId!,
+        reason:
+          input.managerApprovedReason?.trim() ||
+          "Adjustment reversal from order edit",
+      });
+    }
 
-        if (result.adjustmentLines.length > 0) {
-          adjustmentInvoice = await createAdjustmentInvoice(
-            {
-              parentFinalInvoiceId: existingInvoice.id,
-              lines: result.adjustmentLines,
-              notes: `Auto-ADJUSTMENT from order edit on ${new Date().toISOString()}`,
-              createdByUserId: input.managerApprovedReductionByUserId ?? input.actorContext.actorUserId,
-            },
-            client
-          );
-        }
+    if (result.adjustmentLines.length > 0) {
+      adjustmentInvoice = await createAdjustmentInvoice(
+        {
+          parentFinalInvoiceId: existingInvoice.id,
+          lines: result.adjustmentLines,
+          notes: `Auto-ADJUSTMENT from order edit on ${new Date().toISOString()}`,
+          createdByUserId: input.managerApprovedReductionByUserId ?? input.actorContext.actorUserId,
+        },
+        client
+      );
+    }
 
-        if (creditNoteInvoice) {
-          await recordOrderActivity(client, {
-            orderId: order.id,
-            userId: input.managerApprovedReductionByUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: "Classifier reduction credit note issued",
-            description: adjustmentInvoice
-              ? `Credit note issued: ${creditNoteInvoice.invoiceNumber} for ${formatMoney(creditNoteInvoice.totalAmount)} (paired with ${adjustmentInvoice.invoiceNumber}).`
-              : `Credit note issued: ${creditNoteInvoice.invoiceNumber} for ${formatMoney(creditNoteInvoice.totalAmount)}.`,
-            metadata: {
-              parentInvoiceId: existingInvoice.id,
-              creditNoteInvoiceId: creditNoteInvoice.id,
-              creditNoteInvoiceNumber: creditNoteInvoice.invoiceNumber,
-              pairedAdjustmentInvoiceId: adjustmentInvoice?.id ?? null,
-              pairedAdjustmentInvoiceNumber: adjustmentInvoice?.invoiceNumber ?? null,
-              totalAmount: creditNoteInvoice.totalAmount.toFixed(3),
-              pairedWithAdjustment: Boolean(adjustmentInvoice),
-              reductions: result.creditNoteRequired.map((requirement) => ({
-                reason: requirement.reason,
-                amount: requirement.amount.toFixed(3),
-                lineName: requirement.lineSnapshot.name,
-              })),
-              adjustmentReversals: result.adjustmentReversals.map((reversal) => ({
-                adjustmentInvoiceId: reversal.causingInvoiceId,
-                adjustmentInvoiceLineId: reversal.causingInvoiceLineId,
-                amount: reversal.amount.toFixed(3),
-                lineName: reversal.lineSnapshot.name,
-                requiresRefund: reversal.requiresRefund,
-              })),
-            },
-          });
-        }
+    if (creditNoteInvoice) {
+      await recordOrderActivity(client, {
+        orderId: order.id,
+        userId: input.managerApprovedReductionByUserId ?? null,
+        type: OrderActivityType.INVOICE_ADJUSTED,
+        title: "Classifier reduction credit note issued",
+        description: adjustmentInvoice
+          ? `Credit note issued: ${creditNoteInvoice.invoiceNumber} for ${formatMoney(creditNoteInvoice.totalAmount)} (paired with ${adjustmentInvoice.invoiceNumber}).`
+          : `Credit note issued: ${creditNoteInvoice.invoiceNumber} for ${formatMoney(creditNoteInvoice.totalAmount)}.`,
+        metadata: {
+          parentInvoiceId: existingInvoice.id,
+          creditNoteInvoiceId: creditNoteInvoice.id,
+          creditNoteInvoiceNumber: creditNoteInvoice.invoiceNumber,
+          pairedAdjustmentInvoiceId: adjustmentInvoice?.id ?? null,
+          pairedAdjustmentInvoiceNumber: adjustmentInvoice?.invoiceNumber ?? null,
+          totalAmount: creditNoteInvoice.totalAmount.toFixed(3),
+          pairedWithAdjustment: Boolean(adjustmentInvoice),
+          reductions: result.creditNoteRequired.map((requirement) => ({
+            reason: requirement.reason,
+            amount: requirement.amount.toFixed(3),
+            lineName: requirement.lineSnapshot.name,
+          })),
+          adjustmentReversals: result.adjustmentReversals.map((reversal) => ({
+            adjustmentInvoiceId: reversal.causingInvoiceId,
+            adjustmentInvoiceLineId: reversal.causingInvoiceLineId,
+            amount: reversal.amount.toFixed(3),
+            lineName: reversal.lineSnapshot.name,
+            requiresRefund: reversal.requiresRefund,
+          })),
+        },
+      });
+    }
 
-        if (adjustmentReversalCreditNotes.length > 0 && !creditNoteInvoice) {
-          await recordOrderActivity(client, {
-            orderId: order.id,
-            userId: input.managerApprovedReductionByUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: "Classifier adjustment reversal issued",
-            description: `${adjustmentReversalCreditNotes.length} adjustment reversal credit note(s) issued.`,
-            metadata: {
-              parentInvoiceId: existingInvoice.id,
-              creditNoteInvoiceIds: adjustmentReversalCreditNotes.map(
-                (invoice) => invoice.id
-              ),
-              creditNoteInvoiceNumbers: adjustmentReversalCreditNotes.map(
-                (invoice) => invoice.invoiceNumber
-              ),
-              totalAmount: adjustmentReversalCreditNotes
-                .reduce(
-                  (sum, invoice) => sum.plus(invoice.totalAmount),
-                  new Prisma.Decimal(0)
-                )
-                .toFixed(3),
-              adjustmentReversals: result.adjustmentReversals.map((reversal) => ({
-                adjustmentInvoiceId: reversal.causingInvoiceId,
-                adjustmentInvoiceLineId: reversal.causingInvoiceLineId,
-                amount: reversal.amount.toFixed(3),
-                lineName: reversal.lineSnapshot.name,
-                requiresRefund: reversal.requiresRefund,
-              })),
-            },
-          });
-        }
+    if (adjustmentReversalCreditNotes.length > 0 && !creditNoteInvoice) {
+      await recordOrderActivity(client, {
+        orderId: order.id,
+        userId: input.managerApprovedReductionByUserId ?? null,
+        type: OrderActivityType.INVOICE_ADJUSTED,
+        title: "Classifier adjustment reversal issued",
+        description: `${adjustmentReversalCreditNotes.length} adjustment reversal credit note(s) issued.`,
+        metadata: {
+          parentInvoiceId: existingInvoice.id,
+          creditNoteInvoiceIds: adjustmentReversalCreditNotes.map(
+            (invoice) => invoice.id
+          ),
+          creditNoteInvoiceNumbers: adjustmentReversalCreditNotes.map(
+            (invoice) => invoice.invoiceNumber
+          ),
+          totalAmount: adjustmentReversalCreditNotes
+            .reduce(
+              (sum, invoice) => sum.plus(invoice.totalAmount),
+              new Prisma.Decimal(0)
+            )
+            .toFixed(3),
+          adjustmentReversals: result.adjustmentReversals.map((reversal) => ({
+            adjustmentInvoiceId: reversal.causingInvoiceId,
+            adjustmentInvoiceLineId: reversal.causingInvoiceLineId,
+            amount: reversal.amount.toFixed(3),
+            lineName: reversal.lineSnapshot.name,
+            requiresRefund: reversal.requiresRefund,
+          })),
+        },
+      });
+    }
 
-        if (adjustmentInvoice) {
-          await recordOrderActivity(client, {
-            orderId: order.id,
-            userId: input.managerApprovedReductionByUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: "Auto-adjustment issued",
-            description: creditNoteInvoice
-              ? `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)} (paired with ${creditNoteInvoice.invoiceNumber}).`
-              : `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)}.`,
-            metadata: {
-              parentInvoiceId: existingInvoice.id,
-              adjustmentInvoiceId: adjustmentInvoice.id,
-              adjustmentInvoiceNumber: adjustmentInvoice.invoiceNumber,
-              pairedCreditNoteInvoiceId: creditNoteInvoice?.id ?? null,
-              pairedCreditNoteInvoiceNumber: creditNoteInvoice?.invoiceNumber ?? null,
-              totalAmount: adjustmentInvoice.totalAmount.toFixed(3),
-              lines: result.adjustmentLines.map((line) => ({
-                description: line.description,
-                quantity: line.quantity,
-                unitPrice: line.unitPrice.toFixed(3),
-              })),
-            },
-          });
-        }
+    if (adjustmentInvoice) {
+      await recordOrderActivity(client, {
+        orderId: order.id,
+        userId: input.managerApprovedReductionByUserId ?? null,
+        type: OrderActivityType.INVOICE_ADJUSTED,
+        title: "Auto-adjustment issued",
+        description: creditNoteInvoice
+          ? `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)} (paired with ${creditNoteInvoice.invoiceNumber}).`
+          : `Auto-adjustment issued: ${adjustmentInvoice.invoiceNumber} for ${formatMoney(adjustmentInvoice.totalAmount)}.`,
+        metadata: {
+          parentInvoiceId: existingInvoice.id,
+          adjustmentInvoiceId: adjustmentInvoice.id,
+          adjustmentInvoiceNumber: adjustmentInvoice.invoiceNumber,
+          pairedCreditNoteInvoiceId: creditNoteInvoice?.id ?? null,
+          pairedCreditNoteInvoiceNumber: creditNoteInvoice?.invoiceNumber ?? null,
+          totalAmount: adjustmentInvoice.totalAmount.toFixed(3),
+          lines: result.adjustmentLines.map((line) => ({
+            description: line.description,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice.toFixed(3),
+          })),
+        },
+      });
+    }
 
-        return buildOrderInvoiceSyncSummary({
-          invoice: existingInvoice,
-          packageAdjustmentAmount,
-          addOnAdjustmentAmount,
-          totalAdjustmentAmount,
-          packageAdjustmentBaseline,
-          createdInvoice: false,
-        });
-      },
+    return buildOrderInvoiceSyncSummary({
+      invoice: existingInvoice,
+      packageAdjustmentAmount,
+      addOnAdjustmentAmount,
+      totalAdjustmentAmount,
+      packageAdjustmentBaseline,
+      createdInvoice: false,
     });
   }
   if (existingInvoice && existingInvoice._count.lineItems > 0) {
