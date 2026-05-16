@@ -83,7 +83,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 |---|---|---|---|---|
 | A1 | **COMPLETED** | First-class structured audit log for booking, financial, and lock-scoped service actions now exists | Closed by Feature 80a | `AuditLog(actorUserId, entityType, entityId, action, before, after, context, occurredAt)` added with co-transactional service writes; Feature 80b now pairs lock audit rows with `InvoiceLockSnapshot` baselines |
 | A2 | **COMPLETED** | Duplicate order-service balance formulas were removed by Feature 79b | Closed by Feature 79b | Order-level callers now sum canonical `Invoice.remainingAmount`; POS invoice summaries return each invoice's stored remaining amount |
-| A3 | **MEDIUM** | Invariant verification surface spans Phase A/B/C/D/F/G suites + runtime `src/modules/financial/invariants.ts`. Ownership is unclear | Arch §C; Phase G | Single owner-facing invariant catalog/index; keep phase folders but document which is canonical |
+| A3 | **COMPLETED** | Invariant verification surface now has a single owner-facing catalog/index over runtime and nightly reconciliation invariants | Closed by Feature 81e | `src/modules/financial/invariant-catalog.ts` is canonical, and `context/reviews/invariant-catalog.md` is generated from it |
 | A4 | **COMPLETED** | The dual-read warning path has been removed, so valid locked-edit classifier workflows no longer emit comparison noise | Closed by Feature 81a | `syncOrderInvoiceForFinancialEdit()` now runs the canonical classifier path directly |
 | A5 | **COMPLETED** | `issueRefundWithPayment` is now the only exported refund workflow; the REFUND-invoice primitive is private inside the refund service | Closed by Feature 81b | Public callers and tests route through `issueRefundWithPayment`, and `createRefundInvoice` is no longer exported from invoice service |
 | A6 | **LOW** | Reconciliation alerting is Slack-only with no persisted run history | Phase G; Arch §F | Add `reconciliation_runs` table (deferred to post-stabilization) |
@@ -194,7 +194,6 @@ These are real gaps, but the cost of fixing them now outweighs the residual risk
 
 - **W1** Server-side "production ready" gating — not all order types require all production sections; formalizing the per-order-type required-section taxonomy is its own project. Revisit after voucher/commission expansion when order-type definitions are touched anyway.
 - **C4** Cross-booking reference generation race — self-healing path holds at current volume.
-- **A3** Multi-folder invariant verification surface — owner-facing index is nice-to-have; phase folders work.
 - **A6** Persisted `reconciliation_runs` table — Slack + stdout is sufficient given operator response time.
 - **O5** External no-report monitor — add when ops has bandwidth; alternative is to alert from CI on the nightly schedule.
 - **EC-32/EC-33** Commission persistence — not in scope until commissions expansion phase.
