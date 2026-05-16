@@ -35,7 +35,7 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
             <TableHead className="text-text-secondary">Job Number</TableHead>
             <TableHead className="text-text-secondary">Booking Ref</TableHead>
             <TableHead className="text-text-secondary">Total</TableHead>
-            <TableHead className="text-text-secondary">Paid</TableHead>
+            <TableHead className="text-text-secondary">Settled</TableHead>
             <TableHead className="text-text-secondary">Remaining</TableHead>
             <TableHead className="text-text-secondary">Status</TableHead>
             <TableHead className="text-text-secondary">Locked</TableHead>
@@ -69,7 +69,7 @@ export function InvoicesTable({ invoices }: InvoicesTableProps) {
                   {invoice.totalAmount}
                 </TableCell>
                 <TableCell className="text-sm text-success">
-                  {invoice.paidAmount}
+                  {invoice.settledAmount}
                 </TableCell>
                 <TableCell className="text-sm text-danger">
                   {invoice.remainingAmount}

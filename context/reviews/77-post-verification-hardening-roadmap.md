@@ -110,7 +110,7 @@ All removals must land with characterization tests flipped to failure-expecting 
 | # | Severity | Risk | Source | Action |
 |---|---|---|---|---|
 | O1 | **COMPLETED** | Invoice detail refund form now hides at zero capacity and defaults/caps to overpayment capacity when a refund is available | Closed by Feature 79c | UI consumes `overpaymentCapacity`, sets the amount max/default to that value, and shows an over-capacity validation message |
-| O2 | **HIGH** | Order header shows "Paid 255 of 230" after refund/credit-note actions — no canonical settlement view | Phase E | One canonical financial summary component fed by invoice-service totals |
+| O2 | **COMPLETED** | Order header now renders a canonical settlement summary from invoice totals, remaining balances, credit notes, and refunds | Closed by Feature 81c | `computeOrderSettlementSummary()` feeds the order detail header; refunds stay in their own bucket and negative outstanding clamps/logs |
 | O3 | **COMPLETED** | POS no longer leaves a fully paid FINAL invoice in a misleading Draft/unlocked state after settlement | Closed by Feature 78a | Resolved by F1 |
 | O4 | **COMPLETED** | Locked-edit reductive path now opens a blocking manager-approval modal with reduction line items and credit-note amounts | Closed by Feature 79d | Shared credit-note approval form is composed inside the POS reductive modal; cancel leaves the order unchanged |
 | O5 | **COMPLETED** | Nightly reconciliation has an external no-report monitor integration point | Closed by Feature 81d | Runner pings `RECONCILIATION_PING_URL` only after Slack delivery succeeds; setup is documented in `context/ops/reconciliation-monitor.md` |
@@ -155,7 +155,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 **Sprint 4 — Cleanup & operability**
 11. A4 + D4 — Completed by Feature 81a: remove dual-read warning path
 12. A5 — Completed by Feature 81b: make `createRefundInvoice` private and keep `issueRefundWithPayment` as the public refund entry point
-13. O2 — Canonical order-header settlement summary
+13. O2 — Completed by Feature 81c: canonical order-header settlement summary
 14. O5 — Completed by Feature 81d: external "no-report" monitor for nightly reconciliation
 15. A3 — Invariant catalog/index
 16. F6 — Resolve active `INV-18` mismatch: fix paid-ADJUSTMENT cause removal/manual CREDIT_NOTE divergence, backfill dev row, and flip `tests/financial/inv-18-regression.test.ts` to pass

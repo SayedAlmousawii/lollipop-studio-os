@@ -38,7 +38,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
             <TableHead className="text-text-secondary">Order Status</TableHead>
             <TableHead className="text-text-secondary">Invoice Status</TableHead>
             <TableHead className="text-text-secondary">Total</TableHead>
-            <TableHead className="text-text-secondary">Paid</TableHead>
+            <TableHead className="text-text-secondary">Settled</TableHead>
             <TableHead className="text-text-secondary">Remaining</TableHead>
             <TableHead className="text-text-secondary">Created Date</TableHead>
             <TableHead className="w-12">

@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 81c is complete: the order detail header, orders list, invoices list, and invoice detail summary now consume canonical settled/outstanding displays derived from invoice totals/remaining balances, credit notes, and refunds, so the legacy "Paid X of Y" overpayment shape is gone.
 - Feature 81d is complete: nightly reconciliation pings the external no-report monitor only after reconciliation runs and Slack delivery succeeds, with Healthchecks.io setup documented for on-call.
 - Feature 81e review cleanup is complete: reconciliation invariant definitions moved out of `reconciliation.service.ts`, the circular catalog/service import path is gone, catalog entries use typed runtime/reconciliation variants, exported runtime invariants are immutable, and A3 no longer appears as unresolved debt.
 - Feature 81e is complete: runtime and nightly reconciliation invariants are indexed through `INVARIANT_CATALOG`, reconciliation runs through the catalog, and `context/reviews/invariant-catalog.md` is generated from the registry.
@@ -59,6 +60,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Order package changes are scoped to each line's stored session type; cross-session overrides are intentionally blocked until a future permissioned, audited repricing workflow.
 - Editing start requires: selection complete + editor assigned + settled DEPOSIT invoice (when present) + canonical full invoice balance settled.
 - POS and editing balance display read canonical `Invoice.remainingAmount`; the retired virtual deposit-deduction path is gone.
+- The order detail header and list/detail summary readouts avoid raw direct-payment display math; refunds are displayed separately and credit notes reduce collectible order value where order-level settlement is shown.
 - Payment settlement now acquires an invoice row lock before balance reads, and fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
 - Structured `AuditLog` is append-only at the service layer and tied to a required `actorUserId`; audited writes happen inside the same transaction as the action they record.
 - Locked invoices are protected below the service layer: every service lock path writes an `InvoiceLockSnapshot`, and the DB trigger blocks frozen-field mutation of locked invoices. Booking check-in no longer stamps `jobId/jobNumber` onto already-locked deposit invoices.
@@ -72,6 +74,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 81c: added a pure canonical order settlement summary, serialized it through order detail/list hydration, replaced header/list/detail financial readouts, and covered refund/credit-note/negative-outstanding display regressions.
 - Feature 81d: added successful-report Healthchecks.io ping support to the reconciliation runner, passed `RECONCILIATION_PING_URL` through the scheduled workflow, and documented monitor setup/on-call response.
 - Feature 81e: added the financial invariant catalog, wired nightly reconciliation to iterate cataloged reconciliation entries, generated the owner-facing invariant Markdown index, and added catalog uniqueness/callability/clean-db coverage.
 - Feature 81b: moved `createRefundInvoice` out of invoice-service exports into a private refund-service helper, routed action/tests through `issueRefundWithPayment`, and renamed refund validation to the composed workflow.

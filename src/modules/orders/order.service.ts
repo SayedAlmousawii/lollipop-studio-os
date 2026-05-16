@@ -39,6 +39,7 @@ import {
 } from "@/modules/invoices/invoice.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { RecordPaymentInput } from "@/modules/payments/payment.schema";
+import { computeOrderSettlementSummary } from "./order-settlement";
 import {
   ORDER_DELIVERY_STATUS_LABELS,
   ORDER_EDITING_STATUS_LABELS,
@@ -110,6 +111,8 @@ import type {
   OrderStatusLabel,
   OrderWorkflowStep,
 } from "./order.types";
+export type { OrderSettlementSummary } from "./order.types";
+export { computeOrderSettlementSummary } from "./order-settlement";
 
 const ORDER_STATUS_FILTERS = new Set<OrderStatusFilter>([
   "ACTIVE",
@@ -626,6 +629,9 @@ export async function recordPOSPaymentForOrder(
 
 function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
   const summary = mapOrderRow(row);
+  const settlementSummary = computeOrderSettlementSummary({
+    invoices: row.booking.financialCase?.invoices ?? row.invoices,
+  });
   const packageLines = row.packages.map((line) => {
     const selectedPhotoCount = line.selectedPhotoCount ?? line.package.photoCount;
     const extraPhotoCount = line.extraDigitalCount + line.extraPrintCount;
@@ -705,6 +711,7 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
     workflowSteps: buildWorkflowSteps(workflowStatus),
     recentActivity: [],
     notes: row.notes?.trim() ? row.notes : "—",
+    settlementSummary,
   };
 }
 
@@ -2659,7 +2666,21 @@ async function fetchOrders(filters: OrderFilters) {
     include: {
       customer: { select: { name: true, phone: true } },
       booking: {
-        select: { sessionDate: true },
+        select: {
+          sessionDate: true,
+          financialCase: {
+            select: {
+              invoices: {
+                select: {
+                  invoiceType: true,
+                  totalAmount: true,
+                  remainingAmount: true,
+                },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              },
+            },
+          },
+        },
       },
       packages: {
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -2672,6 +2693,7 @@ async function fetchOrders(filters: OrderFilters) {
         select: {
           id: true,
           invoiceNumber: true,
+          invoiceType: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -2700,6 +2722,7 @@ function fetchOrdersByCustomerId(customerId: string, limit: number) {
       invoices: {
         where: FINAL_PARENT_INVOICE_WHERE,
         select: {
+          invoiceType: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -2727,7 +2750,21 @@ function fetchOrderByIdWithClient(
     include: {
       customer: { select: { name: true, phone: true } },
       booking: {
-        select: { sessionDate: true },
+        select: {
+          sessionDate: true,
+          financialCase: {
+            select: {
+              invoices: {
+                select: {
+                  invoiceType: true,
+                  totalAmount: true,
+                  remainingAmount: true,
+                },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              },
+            },
+          },
+        },
       },
       packages: {
         include: {
@@ -2759,6 +2796,7 @@ function fetchOrderByIdWithClient(
         select: {
           id: true,
           invoiceNumber: true,
+          invoiceType: true,
           totalAmount: true,
           paidAmount: true,
           remainingAmount: true,
@@ -2786,6 +2824,9 @@ function fetchOrderByIdWithClient(
 
 function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
   const invoiceSummary = summarizeInvoices(row.invoices);
+  const settlementSummary = computeOrderSettlementSummary({
+    invoices: getOrderSettlementInvoices(row),
+  });
 
   return {
     id: row.id,
@@ -2797,13 +2838,31 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     orderStatus: mapOrderStatus(row.status),
     invoiceStatus: invoiceSummary.status,
     paymentStatus: invoiceSummary.paymentStatus,
-    totalAmount: formatMoney(invoiceSummary.totalAmount),
-    paidAmount: formatMoney(invoiceSummary.paidAmount),
-    remainingAmount: formatMoney(invoiceSummary.remainingAmount),
+    totalAmount: formatMoney(new Prisma.Decimal(settlementSummary.totalOrderValue)),
+    paidAmount: formatMoney(new Prisma.Decimal(settlementSummary.paidAmount)),
+    remainingAmount: formatMoney(new Prisma.Decimal(settlementSummary.outstandingAmount)),
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
   };
+}
+
+function getOrderSettlementInvoices(
+  row: OrderRow | OrderDetailRow
+): Array<{
+  invoiceType: InvoiceType;
+  totalAmount: Prisma.Decimal;
+  remainingAmount: Prisma.Decimal;
+}> {
+  if (
+    "financialCase" in row.booking &&
+    row.booking.financialCase?.invoices &&
+    row.booking.financialCase.invoices.length > 0
+  ) {
+    return row.booking.financialCase.invoices;
+  }
+
+  return row.invoices;
 }
 
 type CustomerOrderHistoryRow = Awaited<ReturnType<typeof fetchOrdersByCustomerId>>[number];
@@ -2832,6 +2891,7 @@ function mapCustomerOrderHistoryRow(
 }
 
 type InvoiceSummaryRow = Array<{
+  invoiceType: InvoiceType;
   totalAmount: Prisma.Decimal;
   paidAmount: Prisma.Decimal;
   remainingAmount: Prisma.Decimal;
@@ -2914,11 +2974,14 @@ function mapPaymentStatus(
   if (invoices.some((invoice) => invoice.status === InvoiceStatus.CLOSED && remainingAmount.gt(0))) {
     return "Overridden";
   }
-  if (invoices.length === 0 || paidAmount.lte(0)) {
+  if (invoices.length === 0) {
     return "Pending";
   }
   if (totalAmount.gt(0) && remainingAmount.lte(0)) {
     return "Paid";
+  }
+  if (paidAmount.lte(0)) {
+    return "Pending";
   }
   return "Partially paid";
 }
@@ -4853,6 +4916,7 @@ export async function getOrderFinancialSummary(
             select: {
               id: true,
               invoiceNumber: true,
+              invoiceType: true,
               totalAmount: true,
               paidAmount: true,
               remainingAmount: true,

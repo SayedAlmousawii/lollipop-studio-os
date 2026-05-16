@@ -33,6 +33,7 @@ export interface InvoiceListItem {
   referenceLabel: string;
   totalAmount: string;
   paidAmount: string;
+  settledAmount: string;
   remainingAmount: string;
   status: InvoiceStatusLabel;
   isLocked: boolean;

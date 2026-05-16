@@ -84,7 +84,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
 
         <div className="grid gap-4 md:grid-cols-4">
           <Metric label="Total" value={invoice.totalAmount} />
-          <Metric label="Paid" value={invoice.paidAmount} />
+          <Metric label="Settled" value={invoice.settledAmount} />
           <Metric label="Remaining" value={invoice.remainingAmount} />
           <Metric
             label={hasRefundCapacity ? "Refundable" : "Locked"}

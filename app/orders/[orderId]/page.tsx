@@ -15,6 +15,7 @@ import { ActivityTabContent } from "@/components/orders/activity-tab-content";
 import { DeliveryWorkflowForm } from "@/components/orders/delivery-workflow-form";
 import { EditingWorkflowForm } from "@/components/orders/editing-workflow-form";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
+import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import { ProductionWorkflowForm } from "@/components/orders/production-workflow-form";
 import { Button } from "@/components/ui/button";
@@ -115,11 +116,7 @@ export default async function OrderDetailPage(
               value={order.finalPackageName}
               detail={`Original: ${order.originalPackageName}`}
             />
-            <HeaderMetric
-              label="Financials"
-              value={order.remainingAmount}
-              detail={`Paid ${order.paidAmount} of ${order.totalAmount}`}
-            />
+            <OrderSettlementSummary summary={order.settlementSummary} />
             <HeaderMetric
               label="Next action"
               value={order.nextAction}
