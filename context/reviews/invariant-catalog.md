@@ -25,16 +25,16 @@
 | runtime-credit-note-is-locked-on-issuance | credit-note-is-locked-on-issuance | Phase F | invoice | Credit notes are closed and locked when issued. |
 | runtime-final-invoice-fully-paid-must-be-locked | final-invoice-fully-paid-must-be-locked | Sprint 1 (78a) | invoice | Fully paid final invoices must be closed and locked. |
 | runtime-classifier-reductions-have-matching-credit-note | classifier-reductions-have-matching-credit-note | Sprint 1 (75c) | order | Classifier reductions must have matching credit notes and source activity. |
-| INV-01 | INV-01 | Phase G | global | Every Payment must have exactly one PaymentAllocation |
-| INV-08 | INV-08 | Phase G | invoice | ADJUSTMENT invoices must not chain to ADJUSTMENT parents |
-| INV-09 | INV-09 | Phase G | global | CREDIT_NOTE document applications must target FINAL invoices or ADJUSTMENT lines |
-| INV-11 | INV-11 | Phase G | global | REFUND invoice payments must use OUT direction |
-| INV-15 | INV-15 | Phase G | invoice | DEPOSIT invoices must be closed and locked |
-| INV-16 | INV-16 | Phase G | global | PaymentAllocation rows must reference existing payments and invoices |
-| INV-17 | INV-17 | Phase G | global | DocumentApplication rows must reference existing source and target invoices |
-| INV-18 | INV-18 | Phase G | order | FinancialCase invoice totals must reconcile to current order totals |
-| INV-19 | INV-19 | Phase G | invoice | FINAL invoices must resolve to an order |
-| INV-24 | INV-24 | Phase G | invoice | Open invoice effective paid amount must not exceed total amount |
-| INV-25 | INV-25 | Phase G | invoice | Fully paid FINAL invoices must be closed and locked |
-| INV-PREFIX | INV-PREFIX | Phase G | invoice | Invoice number prefix must match invoice type |
-| INV-REV | INV-REV | Phase G | order | Completed-order inbound revenue must reconcile to expected invoice revenue for the business day |
+| INV-01 | payment-allocation-count | Phase G | global | Every Payment must have exactly one PaymentAllocation |
+| INV-08 | adjustment-parent-not-adjustment | Phase G | invoice | ADJUSTMENT invoices must not chain to ADJUSTMENT parents |
+| INV-09 | credit-note-application-target | Phase G | global | CREDIT_NOTE document applications must target FINAL invoices or ADJUSTMENT lines |
+| INV-11 | refund-payment-direction | Phase G | global | REFUND invoice payments must use OUT direction |
+| INV-15 | deposit-invoice-closed-locked | Phase G | invoice | DEPOSIT invoices must be closed and locked |
+| INV-16 | payment-allocation-references-exist | Phase G | global | PaymentAllocation rows must reference existing payments and invoices |
+| INV-17 | document-application-references-exist | Phase G | global | DocumentApplication rows must reference existing source and target invoices |
+| INV-18 | order-composition-equals-revenue-documents | Phase G | order | FinancialCase invoice totals must reconcile to current order totals |
+| INV-19 | final-invoice-resolves-to-order | Phase G | invoice | FINAL invoices must resolve to an order |
+| INV-24 | open-invoice-effective-paid-cap | Phase G | invoice | Open invoice effective paid amount must not exceed total amount |
+| INV-25 | fully-paid-final-invoice-closed-locked | Phase G | invoice | Fully paid FINAL invoices must be closed and locked |
+| INV-PREFIX | invoice-number-prefix-matches-type | Phase G | invoice | Invoice number prefix must match invoice type |
+| INV-REV | completed-order-revenue-reconciles | Phase G | order | Completed-order inbound revenue must reconcile to expected invoice revenue for the business day |

@@ -1042,4 +1042,4 @@ registerInvariant({
 });
 
 export const FINANCIAL_RUNTIME_INVARIANTS: readonly InvariantCheck[] =
-  invariantRegistry;
+  Object.freeze([...invariantRegistry]);

@@ -194,7 +194,6 @@ These are real gaps, but the cost of fixing them now outweighs the residual risk
 
 - **W1** Server-side "production ready" gating — not all order types require all production sections; formalizing the per-order-type required-section taxonomy is its own project. Revisit after voucher/commission expansion when order-type definitions are touched anyway.
 - **C4** Cross-booking reference generation race — self-healing path holds at current volume.
-- **A3** Multi-folder invariant verification surface — owner-facing index is nice-to-have; phase folders work.
 - **A6** Persisted `reconciliation_runs` table — Slack + stdout is sufficient given operator response time.
 - **O5** External no-report monitor — add when ops has bandwidth; alternative is to alert from CI on the nightly schedule.
 - **EC-32/EC-33** Commission persistence — not in scope until commissions expansion phase.

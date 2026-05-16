@@ -44,7 +44,7 @@ test("financial invariant catalog reports zero violations on a clean database", 
 
       const runtimeViolations: unknown[] = [];
       for (const invariant of INVARIANT_CATALOG) {
-        if (invariant.reconciliation) {
+        if (invariant.kind !== "runtime") {
           continue;
         }
 
@@ -62,7 +62,7 @@ test("financial invariant catalog reports zero violations on a clean database", 
         const reconciliationViolations: unknown[] = [];
 
         for (const invariant of INVARIANT_CATALOG) {
-          if (!invariant.reconciliation) {
+          if (invariant.kind !== "reconciliation") {
             continue;
           }
 

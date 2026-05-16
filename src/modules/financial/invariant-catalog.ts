@@ -10,24 +10,43 @@ import {
   type ReconciliationQueryRow,
   type ReconciliationRunContext,
   type ReconciliationTx,
-} from "@/modules/financial/reconciliation.service";
+} from "@/modules/financial/reconciliation-invariants";
 
 export type CatalogedInvariantScope = "global" | "order" | "invoice";
 
-export type CatalogedInvariant = {
+type BaseCatalogedInvariant = {
   id: string;
   name: string;
   phase: string;
   scope: CatalogedInvariantScope;
   description: string;
-  run: (...args: unknown[]) => Promise<InvariantViolation[] | ReconciliationQueryRow[]>;
-  reconciliation?: {
-    severity: ReconciliationInvariantDefinition["severity"];
-    affectedEntityType: string;
-    expected: string;
-    queryContext: string;
-  };
 };
+
+export type RuntimeCatalogedInvariant = BaseCatalogedInvariant & {
+  kind: "runtime";
+  run: (
+    context: InvariantContext,
+    scopeArgs?: { financialCaseId?: string }
+  ) => Promise<InvariantViolation[]>;
+};
+
+export type ReconciliationCatalogedInvariant = BaseCatalogedInvariant & {
+  kind: "reconciliation";
+  reconciliation: {
+    severity: ReconciliationInvariantDefinition["severity"];
+    affectedEntityType: ReconciliationInvariantDefinition["affectedEntityType"];
+    expected: ReconciliationInvariantDefinition["expected"];
+    queryContext: ReconciliationInvariantDefinition["queryContext"];
+  };
+  run: (
+    tx: ReconciliationTx,
+    context: ReconciliationRunContext
+  ) => Promise<ReconciliationQueryRow[]>;
+};
+
+export type CatalogedInvariant =
+  | RuntimeCatalogedInvariant
+  | ReconciliationCatalogedInvariant;
 
 type RuntimeInvariantMetadata = {
   id: string;
@@ -182,31 +201,27 @@ export const INVARIANT_CATALOG: readonly CatalogedInvariant[] = [
   ...reconciliationCatalog,
 ];
 
-function catalogRuntimeInvariant(invariant: InvariantCheck): CatalogedInvariant {
+function catalogRuntimeInvariant(invariant: InvariantCheck): RuntimeCatalogedInvariant {
   const metadata = RUNTIME_INVARIANT_METADATA[invariant.name];
 
   return {
+    kind: "runtime",
     id: metadata?.id ?? `runtime-${invariant.name}`,
     name: invariant.name,
     phase: metadata?.phase ?? "Runtime",
     scope: metadata?.scope ?? normalizeRuntimeScope(invariant.scope),
     description: metadata?.description ?? invariant.name,
-    run: async (...args) => {
-      const [context, scopeArgs] = args;
-      return invariant.run(
-        context as InvariantContext,
-        scopeArgs as { financialCaseId?: string } | undefined
-      );
-    },
+    run: (context, scopeArgs) => invariant.run(context, scopeArgs),
   };
 }
 
 function catalogReconciliationInvariant(
   invariant: ReconciliationInvariantDefinition
-): CatalogedInvariant {
+): ReconciliationCatalogedInvariant {
   return {
+    kind: "reconciliation",
     id: invariant.invariantId,
-    name: invariant.invariantId,
+    name: invariant.name,
     phase: "Phase G",
     scope: normalizeReconciliationScope(invariant.affectedEntityType),
     description: invariant.description,
@@ -216,10 +231,7 @@ function catalogReconciliationInvariant(
       expected: invariant.expected,
       queryContext: invariant.queryContext,
     },
-    run: async (...args) => {
-      const [tx, context] = args;
-      return invariant.run(tx as ReconciliationTx, context as ReconciliationRunContext);
-    },
+    run: (tx, context) => invariant.run(tx, context),
   };
 }
 
