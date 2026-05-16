@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 81d is complete: nightly reconciliation pings the external no-report monitor only after reconciliation runs and Slack delivery succeeds, with Healthchecks.io setup documented for on-call.
 - Feature 81e review cleanup is complete: reconciliation invariant definitions moved out of `reconciliation.service.ts`, the circular catalog/service import path is gone, catalog entries use typed runtime/reconciliation variants, exported runtime invariants are immutable, and A3 no longer appears as unresolved debt.
 - Feature 81e is complete: runtime and nightly reconciliation invariants are indexed through `INVARIANT_CATALOG`, reconciliation runs through the catalog, and `context/reviews/invariant-catalog.md` is generated from the registry.
 - Feature 81b is complete: the refund invoice primitive is private inside `refund.service.ts`, public callers use `issueRefundWithPayment`, and refund validation now names the composed refund-with-payment workflow.
@@ -64,12 +65,14 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - DB-level financial guardrails now reject PaymentAllocation totals above an invoice's `totalAmount` and reject ADJUSTMENT invoices parented to another ADJUSTMENT.
 - Refund issuance now acquires a source invoice row lock before checking true overpayment capacity; zero-capacity invoices have no refund UI path.
 - Phase G reconciliation runs inside a PostgreSQL `READ ONLY` transaction, reports only, and must use `FINANCIAL_RECON_DATABASE_URL` in production.
+- The nightly reconciliation no-report monitor is configured through `RECONCILIATION_PING_URL`; missing ping config disables monitor pinging without affecting local runs.
 - F6 classified the dev INV-18 mismatch as active: paid-ADJUSTMENT cause removal and manual CREDIT_NOTE issuance can diverge revenue documents from current order composition.
 - ADJUSTMENT cause linkage is live for classifier additions: line-targeted CREDIT_NOTE reversals apply to the originating ADJUSTMENT invoice line, while legacy/manual ADJUSTMENT lines remain null-linked.
 - Order completion requires: pickup recorded + production status `READY_FOR_PICKUP` or `COMPLETED` + settled payment or explicit admin override reason.
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 81d: added successful-report Healthchecks.io ping support to the reconciliation runner, passed `RECONCILIATION_PING_URL` through the scheduled workflow, and documented monitor setup/on-call response.
 - Feature 81e: added the financial invariant catalog, wired nightly reconciliation to iterate cataloged reconciliation entries, generated the owner-facing invariant Markdown index, and added catalog uniqueness/callability/clean-db coverage.
 - Feature 81b: moved `createRefundInvoice` out of invoice-service exports into a private refund-service helper, routed action/tests through `issueRefundWithPayment`, and renamed refund validation to the composed workflow.
 - Feature 81a: deleted the dual-read warning path and orphaned feature flag, removed `financial.rearch.dual_read.discrepancy` runtime emission, kept locked-edit classifier behavior canonical, and removed warning-only Phase D assertions.
@@ -103,7 +106,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ## Open Follow-Ups
 - Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: INV-18 revenue-composition drift, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
-- Configure production reconciliation secrets/env and monitoring: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, nightly 02:00 studio-local schedule, and a no-report-in-24h alert.
+- Configure production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, and the documented `RECONCILIATION_PING_URL` Healthchecks.io secret.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.
 - Consider adding explicit job categorization (`SESSION`, `VOUCHER`, `RETAIL`, `OTHER`) before future voucher or standalone sales invoice flows.

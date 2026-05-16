@@ -113,7 +113,7 @@ All removals must land with characterization tests flipped to failure-expecting 
 | O2 | **HIGH** | Order header shows "Paid 255 of 230" after refund/credit-note actions — no canonical settlement view | Phase E | One canonical financial summary component fed by invoice-service totals |
 | O3 | **COMPLETED** | POS no longer leaves a fully paid FINAL invoice in a misleading Draft/unlocked state after settlement | Closed by Feature 78a | Resolved by F1 |
 | O4 | **COMPLETED** | Locked-edit reductive path now opens a blocking manager-approval modal with reduction line items and credit-note amounts | Closed by Feature 79d | Shared credit-note approval form is composed inside the POS reductive modal; cancel leaves the order unchanged |
-| O5 | **MEDIUM** | Slack delivery has no external "no-report-in-24h" monitor | Phase G; Ops §D | Add external monitor (Healthchecks.io / cron-monitor) |
+| O5 | **COMPLETED** | Nightly reconciliation has an external no-report monitor integration point | Closed by Feature 81d | Runner pings `RECONCILIATION_PING_URL` only after Slack delivery succeeds; setup is documented in `context/ops/reconciliation-monitor.md` |
 | O6 | **LOW** | No first-class financial AuditLog view for accountants; activity feed only | Phase E; Arch §F | A1 has landed; accountant-facing read view remains deferred |
 
 ---
@@ -156,7 +156,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 11. A4 + D4 — Completed by Feature 81a: remove dual-read warning path
 12. A5 — Completed by Feature 81b: make `createRefundInvoice` private and keep `issueRefundWithPayment` as the public refund entry point
 13. O2 — Canonical order-header settlement summary
-14. O5 — External "no-report" monitor for nightly reconciliation
+14. O5 — Completed by Feature 81d: external "no-report" monitor for nightly reconciliation
 15. A3 — Invariant catalog/index
 16. F6 — Resolve active `INV-18` mismatch: fix paid-ADJUSTMENT cause removal/manual CREDIT_NOTE divergence, backfill dev row, and flip `tests/financial/inv-18-regression.test.ts` to pass
 17. S3 — Browser role-negative test suite
@@ -195,7 +195,7 @@ These are real gaps, but the cost of fixing them now outweighs the residual risk
 - **W1** Server-side "production ready" gating — not all order types require all production sections; formalizing the per-order-type required-section taxonomy is its own project. Revisit after voucher/commission expansion when order-type definitions are touched anyway.
 - **C4** Cross-booking reference generation race — self-healing path holds at current volume.
 - **A6** Persisted `reconciliation_runs` table — Slack + stdout is sufficient given operator response time.
-- **O5** External no-report monitor — add when ops has bandwidth; alternative is to alert from CI on the nightly schedule.
+- **O5** Completed by Feature 81d: runner pings an external monitor after successful Slack delivery; Healthchecks.io setup and on-call steps are documented.
 - **EC-32/EC-33** Commission persistence — not in scope until commissions expansion phase.
 - **EC-39** Voucher/GiftCardRedemption schema — not in scope until voucher expansion phase.
 - **S3** Browser role-negative tests — service-level coverage in Phase F is sufficient short-term; add before public-internet exposure expands.
