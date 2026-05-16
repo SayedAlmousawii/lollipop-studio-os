@@ -193,7 +193,8 @@ export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefiniti
     severity: "HIGH",
     affectedEntityType: "Order",
     description: "FinancialCase invoice totals must reconcile to current order totals",
-    expected: "FINAL + ADJUSTMENT - CREDIT_NOTE equals current order package/add-on total",
+    expected:
+      "FINAL + ADJUSTMENT - non-goodwill CREDIT_NOTE equals current order package/add-on total",
     queryContext: "orders joined through financial_cases, invoices, order_packages, add-ons, upgrades, and extra-photo pricing",
     run: (tx) =>
       tx.$queryRaw<ReconciliationQueryRow[]>`
@@ -257,11 +258,36 @@ export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefiniti
             SUM(
               CASE
                 WHEN i."invoiceType" IN ('FINAL', 'ADJUSTMENT') THEN i."totalAmount"
-                WHEN i."invoiceType" = 'CREDIT_NOTE' THEN -i."totalAmount"
+                WHEN i."invoiceType" = 'CREDIT_NOTE' THEN -(
+                  GREATEST(
+                    i."totalAmount" - COALESCE(goodwill_credit_applications.total, 0),
+                    0
+                  )
+                )
                 ELSE 0
               END
             ) AS actual_total
           FROM "invoices" i
+          LEFT JOIN (
+            -- Null-target CREDIT_NOTE applications are goodwill unless they came
+            -- from the classifier reduction path; those credits match real order
+            -- composition reductions and must stay visible to INV-18.
+            SELECT
+              da.source_invoice_id AS invoice_id,
+              SUM(da.amount_applied) AS total
+            FROM "document_applications" da
+            JOIN "invoices" source ON source.id = da.source_invoice_id
+            WHERE source."invoiceType" = 'CREDIT_NOTE'
+              AND da.target_invoice_line_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "order_activities" oa
+                WHERE oa.title = 'Classifier reduction credit note issued'
+                  AND oa.metadata->>'creditNoteInvoiceId' = source.id
+              )
+            GROUP BY da.source_invoice_id
+          ) goodwill_credit_applications
+            ON goodwill_credit_applications.invoice_id = i.id
           GROUP BY i."financialCaseId"
         )
         SELECT

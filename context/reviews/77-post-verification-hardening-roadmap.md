@@ -38,7 +38,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | F3 | **COMPLETED** | Locked invoice frozen fields are now protected by `InvoiceLockSnapshot` plus a DB-level trigger; direct Prisma can no longer mutate frozen fields while `isLocked=true` | Closed by Feature 80b | `invoice_lock_snapshots` stores the lock-time baseline, service lock paths write snapshots in-transaction, and `trg_reject_frozen_field_mutation_on_locked_invoice` blocks frozen-field UPDATEs |
 | F4 | **COMPLETED** | Paid ADJUSTMENT removal now triggers a CREDIT_NOTE targeting the causing ADJUSTMENT line (and a REFUND when the ADJUSTMENT was already paid) via the new cause ledger | Closed by Feature 79a | `InvoiceLineItem.causeOrderEntityKind/Id` + `DocumentApplication.targetInvoiceLineId`; classifier emits `adjustmentReversals`; `applyAdjustmentReversalsWithClient` materializes them |
 | F5 | **COMPLETED** | Order-layer balance display no longer subtracts Deposit paid amount from Final Invoice remaining; the legacy `calculateFinalBalanceDue`, POS remaining recomputation, and base-payment threshold helpers were removed by Feature 79b | Closed by Feature 79b | POS and editing readiness now consume canonical `Invoice.remainingAmount`; deposit settlement is read from the DEPOSIT invoice's own remaining balance |
-| F6 | **HIGH** | Reconciliation `INV-18` mismatch found in dev: order `cmp6tm9n30007n7t3ramturmp` total 230 KD vs revenue-documents total 225 KD | Phase G; [F6 finding](77-f6-investigation-finding.md) | Classified active: paid-ADJUSTMENT cause removal plus manual CREDIT_NOTE can diverge revenue documents from current order composition. Sprint 4 fixes the underlying paths and backfills |
+| F6 | **COMPLETED** | `INV-18` now distinguishes classifier/order-composition credits from manual goodwill credits, and the F6 backfill script causally links the historical paid adjustment plus credit-note split without editing invoice totals | Closed by Feature 81f | `tests/financial/inv-18-regression.test.ts` now passes; `scripts/f6-backfill-inv-18.ts` records audited, idempotent writes for the dev row |
 | F7 | **MEDIUM** | `Invoice.paidAmount` is a cached field; reconciliation derives from joins but service/UI paths can read stale cache | Risk §C; Phase G | Either remove cached field and compute, or guarantee write-side update under transaction; reconcile every write that touches payments/applications |
 
 ---
@@ -121,7 +121,7 @@ All removals must land with characterization tests flipped to failure-expecting 
 ## 9. Remaining Untested / Low-Confidence Areas
 
 - **INV-14 locked-field immutability** — now directly verified by Feature 80b's `InvoiceLockSnapshot` invariant and DB trigger.
-- **INV-18 full revenue composition** — runner reports; dev mismatch found (F6).
+- **INV-18 full revenue composition** — completed by Feature 81f; runner distinguishes manual goodwill credits from classifier/order-composition credits.
 - **Browser role-negative UX** — non-manager credit-note/refund attempts, photographer URL access (S3).
 - **Commission persistence at package upgrade** — EC-32/EC-33; no `Commission` model. Defer to commission expansion phase.
 - **Voucher/GiftCardRedemption schema** — EC-39; defer to voucher expansion phase.
@@ -139,7 +139,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 1. F1 — Completed in Feature 78a: auto-lock Final Invoice on full payment (settlement transaction)
 2. C1 — Completed in Feature 78a: row-level lock on invoice settlement (`SELECT … FOR UPDATE`)
 3. S1 + S2 — Completed in Feature 78b: required `actorRole` + role guard on `recordPayment()`
-4. F6 — **Investigation complete** for dev `INV-18` mismatch (order `cmp6tm9n30007n7t3ramturmp`, 230 vs 225 KD): active bug, root cause and repro test documented in [F6 finding](77-f6-investigation-finding.md). Fix lands in Sprint 4
+4. F6 — Completed by Feature 81f: `INV-18` mismatch resolved through goodwill-aware revenue comparison, audited backfill script, and flipped regression coverage
 
 **Sprint 2 — Fix money correctness**
 4. F2 + O1 — Completed in Feature 79c: real overpayment-capacity service; UI default/cap
@@ -158,7 +158,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 13. O2 — Completed by Feature 81c: canonical order-header settlement summary
 14. O5 — Completed by Feature 81d: external "no-report" monitor for nightly reconciliation
 15. A3 — Invariant catalog/index
-16. F6 — Resolve active `INV-18` mismatch: fix paid-ADJUSTMENT cause removal/manual CREDIT_NOTE divergence, backfill dev row, and flip `tests/financial/inv-18-regression.test.ts` to pass
+16. F6 — Completed by Feature 81f: resolve active `INV-18` mismatch, add audited backfill script, and flip `tests/financial/inv-18-regression.test.ts` to pass
 17. S3 — Browser role-negative test suite
 
 **Freeze the financial architecture** after Sprint 3 lands and Sprint 4 cleanup is at least underway. Re-run the full invariant + reconciliation suite against production-shape data before opening feature expansion.

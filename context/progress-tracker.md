@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 81f is complete: INV-18 now excludes only manual goodwill CREDIT_NOTE applications from revenue-composition comparison, preserves classifier/order-composition credits, and has a focused backfill script for the historical F6 row.
 - Feature 81c is complete: the order detail header, orders list, invoices list, and invoice detail summary now consume canonical settled/outstanding displays derived from invoice totals/remaining balances, credit notes, and refunds, so the legacy "Paid X of Y" overpayment shape is gone.
 - Feature 81d is complete: nightly reconciliation pings the external no-report monitor only after reconciliation runs and Slack delivery succeeds, with Healthchecks.io setup documented for on-call.
 - Feature 81e review cleanup is complete: reconciliation invariant definitions moved out of `reconciliation.service.ts`, the circular catalog/service import path is gone, catalog entries use typed runtime/reconciliation variants, exported runtime invariants are immutable, and A3 no longer appears as unresolved debt.
@@ -20,7 +21,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 79b is complete: legacy order-service deposit-deduction formulas are removed, POS invoice summaries use canonical `Invoice.remainingAmount`, and editing readiness verifies DEPOSIT settlement plus canonical outstanding balance.
 - Feature 78a is complete: `recordPayment()` now locks the invoice row before reading balances, fully paid FINAL invoices auto-close and lock even from `DRAFT`, and settlement regression coverage covers concurrent/full/overpay paths.
 - Feature 78b is complete: `ActorContext.actorRole` is required, permission checks throw on missing roles, and `recordPayment()` is guarded at the service boundary with regression coverage.
-- Feature 77 F6 investigation is complete: the dev INV-18 mismatch is classified as an active divergence, with finding/data docs and an intentionally failing repro test for Sprint 4.
+- Feature 77 F6 investigation is closed by Feature 81f: the dev INV-18 mismatch has flipped from failing repro to passing regression coverage, with audited causal backfill support for the historical row.
 - Feature 77 Phase G is complete for Layer 10 production reconciliation: read-only nightly runner, structured violation reports, severity classification, alert payload verification, monitoring recommendations, and review documentation are in place.
 - Feature 77 Phase F is complete: Layers 7-9 concurrency, permission/security, stale-state, hidden mutation path, and failure-recovery tests now run through `tests/financial-phase-f/` inside `npm run test:backend-invariants`.
 - Feature 77 Phase D is complete: Layer 5 regression coverage for Features 74/75/76 and multi-package workflows now runs through `tests/financial-phase-d/` inside `npm run test:backend-invariants`, with legacy deposit-deduction and duplicate balance-display findings documented.
@@ -68,12 +69,13 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Refund issuance now acquires a source invoice row lock before checking true overpayment capacity; zero-capacity invoices have no refund UI path.
 - Phase G reconciliation runs inside a PostgreSQL `READ ONLY` transaction, reports only, and must use `FINANCIAL_RECON_DATABASE_URL` in production.
 - The nightly reconciliation no-report monitor is configured through `RECONCILIATION_PING_URL`; missing ping config disables monitor pinging without affecting local runs.
-- F6 classified the dev INV-18 mismatch as active: paid-ADJUSTMENT cause removal and manual CREDIT_NOTE issuance can diverge revenue documents from current order composition.
+- INV-18 treats manual goodwill CREDIT_NOTE applications as outside order composition while keeping classifier/order-composition credits in revenue-document comparison; paid adjustment removals are covered by line-targeted reversal applications.
 - ADJUSTMENT cause linkage is live for classifier additions: line-targeted CREDIT_NOTE reversals apply to the originating ADJUSTMENT invoice line, while legacy/manual ADJUSTMENT lines remain null-linked.
 - Order completion requires: pickup recorded + production status `READY_FOR_PICKUP` or `COMPLETED` + settled payment or explicit admin override reason.
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 81f: updated INV-18 goodwill classification, added the audited idempotent F6 backfill script, flipped the regression test to pass, and marked roadmap F6 complete.
 - Feature 81c: added a pure canonical order settlement summary, serialized it through order detail/list hydration, replaced header/list/detail financial readouts, and covered refund/credit-note/negative-outstanding display regressions.
 - Feature 81d: added successful-report Healthchecks.io ping support to the reconciliation runner, passed `RECONCILIATION_PING_URL` through the scheduled workflow, and documented monitor setup/on-call response.
 - Feature 81e: added the financial invariant catalog, wired nightly reconciliation to iterate cataloged reconciliation entries, generated the owner-facing invariant Markdown index, and added catalog uniqueness/callability/clean-db coverage.
@@ -108,7 +110,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, enforced required true add-on product references.
 
 ## Open Follow-Ups
-- Fix Phase C/Phase F/F6 high-risk findings before production financial expansion: INV-18 revenue-composition drift, open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
+- Fix remaining Phase C/Phase F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
 - Configure production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, and the documented `RECONCILIATION_PING_URL` Healthchecks.io secret.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.
