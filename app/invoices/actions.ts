@@ -12,7 +12,7 @@ import {
 import {
   createAdjustmentInvoiceSchema,
   createCreditNoteSchema,
-  createRefundInvoiceSchema,
+  createRefundWithPaymentSchema,
 } from "@/modules/invoices/invoice.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import { recordPayment } from "@/modules/payments/payment.service";
@@ -147,7 +147,7 @@ export async function issueRefundAction(
   sourceInvoiceId: string,
   formData: FormData
 ): Promise<void> {
-  const parsed = createRefundInvoiceSchema.safeParse({
+  const parsed = createRefundWithPaymentSchema.safeParse({
     amount: formData.get("amount"),
     reason: formData.get("reason"),
     refundOfPaymentId: formData.get("refundOfPaymentId") || undefined,

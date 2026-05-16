@@ -85,7 +85,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | A2 | **COMPLETED** | Duplicate order-service balance formulas were removed by Feature 79b | Closed by Feature 79b | Order-level callers now sum canonical `Invoice.remainingAmount`; POS invoice summaries return each invoice's stored remaining amount |
 | A3 | **MEDIUM** | Invariant verification surface spans Phase A/B/C/D/F/G suites + runtime `src/modules/financial/invariants.ts`. Ownership is unclear | Arch §C; Phase G | Single owner-facing invariant catalog/index; keep phase folders but document which is canonical |
 | A4 | **COMPLETED** | The dual-read warning path has been removed, so valid locked-edit classifier workflows no longer emit comparison noise | Closed by Feature 81a | `syncOrderInvoiceForFinancialEdit()` now runs the canonical classifier path directly |
-| A5 | **MEDIUM** | `issueRefundWithPayment` is the only correct refund entry point; `createRefundInvoice` alone is a primitive and is treated as the workflow by some paths | Arch §B; Phase B INT-12 | Mark `createRefundInvoice` `@internal`; route public callers through `issueRefundWithPayment` only |
+| A5 | **COMPLETED** | `issueRefundWithPayment` is now the only exported refund workflow; the REFUND-invoice primitive is private inside the refund service | Closed by Feature 81b | Public callers and tests route through `issueRefundWithPayment`, and `createRefundInvoice` is no longer exported from invoice service |
 | A6 | **LOW** | Reconciliation alerting is Slack-only with no persisted run history | Phase G; Arch §F | Add `reconciliation_runs` table (deferred to post-stabilization) |
 
 ---
@@ -154,7 +154,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 
 **Sprint 4 — Cleanup & operability**
 11. A4 + D4 — Completed by Feature 81a: remove dual-read warning path
-12. A5 — `createRefundInvoice` marked internal
+12. A5 — Completed by Feature 81b: make `createRefundInvoice` private and keep `issueRefundWithPayment` as the public refund entry point
 13. O2 — Canonical order-header settlement summary
 14. O5 — External "no-report" monitor for nightly reconciliation
 15. A3 — Invariant catalog/index
