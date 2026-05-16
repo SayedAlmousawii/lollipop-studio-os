@@ -84,7 +84,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | A1 | **COMPLETED** | First-class structured audit log for booking, financial, and lock-scoped service actions now exists | Closed by Feature 80a | `AuditLog(actorUserId, entityType, entityId, action, before, after, context, occurredAt)` added with co-transactional service writes; Feature 80b now pairs lock audit rows with `InvoiceLockSnapshot` baselines |
 | A2 | **COMPLETED** | Duplicate order-service balance formulas were removed by Feature 79b | Closed by Feature 79b | Order-level callers now sum canonical `Invoice.remainingAmount`; POS invoice summaries return each invoice's stored remaining amount |
 | A3 | **MEDIUM** | Invariant verification surface spans Phase A/B/C/D/F/G suites + runtime `src/modules/financial/invariants.ts`. Ownership is unclear | Arch §C; Phase G | Single owner-facing invariant catalog/index; keep phase folders but document which is canonical |
-| A4 | **MEDIUM** | `financial.rearch.dual_read.discrepancy` fires during *valid* locked-edit workflows. Pollutes log-based gating | Phase B/D/E; Arch §D | Remove the dual-read path now that classifier is canonical; or scope the warning to actual divergences only |
+| A4 | **COMPLETED** | The dual-read warning path has been removed, so valid locked-edit classifier workflows no longer emit comparison noise | Closed by Feature 81a | `syncOrderInvoiceForFinancialEdit()` now runs the canonical classifier path directly |
 | A5 | **MEDIUM** | `issueRefundWithPayment` is the only correct refund entry point; `createRefundInvoice` alone is a primitive and is treated as the workflow by some paths | Arch §B; Phase B INT-12 | Mark `createRefundInvoice` `@internal`; route public callers through `issueRefundWithPayment` only |
 | A6 | **LOW** | Reconciliation alerting is Slack-only with no persisted run history | Phase G; Arch §F | Add `reconciliation_runs` table (deferred to post-stabilization) |
 
@@ -97,7 +97,7 @@ The recommendation is to **freeze new feature work until the CRITICAL list is cl
 | D1 | **COMPLETED** | `calculateFinalBalanceDue` (order.service.ts) | Closed by Feature 79b |
 | D2 | **COMPLETED** | Deposit subtraction in `mapPOSInvoiceSummary` | Closed by Feature 79b |
 | D3 | **COMPLETED** | `hasBasePayment` / `REQUIRED_BASE_PAYMENT_AMOUNT` editing-readiness helpers | Closed by Feature 79b |
-| D4 | **MEDIUM** | Dual-read locked-edit warning path (A4) | Phase D/E |
+| D4 | **COMPLETED** | Dual-read locked-edit warning path (A4) | Closed by Feature 81a |
 | D5 | **LOW** | Legacy backend smoke fixtures that pair default-`PENDING` bookings with `FinancialCase` rows | Phase A, Arch §D |
 | D6 | **LOW** | Old `Financial invariants: OK` reconciliation script output path — already removed in Phase G; verify no callers remain | Arch §D |
 
@@ -153,7 +153,7 @@ The order is chosen to (a) close the largest production hazards first, (b) avoid
 10. C3 — Completed by Feature 80c: DB-level ADJUSTMENT chain prevention
 
 **Sprint 4 — Cleanup & operability**
-11. A4 + D4 — Remove dual-read warning path
+11. A4 + D4 — Completed by Feature 81a: remove dual-read warning path
 12. A5 — `createRefundInvoice` marked internal
 13. O2 — Canonical order-header settlement summary
 14. O5 — External "no-report" monitor for nightly reconciliation
