@@ -85,7 +85,16 @@ export interface OrderDetail extends Order {
   workflowSteps: OrderWorkflowStep[];
   recentActivity: OrderActivityPreviewItem[];
   notes: string;
+  settlementSummary: OrderSettlementSummary;
 }
+
+export type OrderSettlementSummary = {
+  totalOrderValue: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  refundedAmount: number;
+  hasOverpayment: boolean;
+};
 
 export interface OrderPackageLineDisplay {
   id: string;

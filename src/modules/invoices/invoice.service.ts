@@ -713,6 +713,7 @@ export async function getInvoices({
       referenceLabel: formatInvoiceReference(row.booking?.publicId),
       totalAmount: formatMoney(row.totalAmount),
       paidAmount: formatMoney(row.paidAmount),
+      settledAmount: formatMoney(computeDisplaySettledAmount(row)),
       remainingAmount: formatMoney(row.remainingAmount),
       status: mapInvoiceStatus(row.status),
       isLocked: row.isLocked,
@@ -790,6 +791,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     referenceLabel: formatInvoiceReference(row.booking?.publicId),
     totalAmount: formatMoney(row.totalAmount),
     paidAmount: formatMoney(row.paidAmount),
+    settledAmount: formatMoney(computeDisplaySettledAmount(row)),
     remainingAmount: formatMoney(row.remainingAmount),
     depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
     depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
@@ -2625,6 +2627,13 @@ function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {
 
 function formatMoney(value: { toFixed(dp: number): string }): string {
   return `${value.toFixed(3)} KD`;
+}
+
+function computeDisplaySettledAmount(invoice: {
+  totalAmount: Prisma.Decimal;
+  remainingAmount: Prisma.Decimal;
+}): Prisma.Decimal {
+  return Prisma.Decimal.max(invoice.totalAmount.minus(invoice.remainingAmount), 0);
 }
 
 function formatDate(date: Date): string {
