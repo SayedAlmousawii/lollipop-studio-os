@@ -20,7 +20,6 @@ import {
   createAdjustmentInvoice,
   createCreditNote,
   createInvoiceForOrder,
-  createRefundInvoice,
   issueInvoice,
   snapshotInvoiceLineItems,
   syncOrderInvoiceForFinancialEdit,
@@ -516,11 +515,12 @@ async function runEc18RefundExceedsOverpaymentCharacterization(
 
   await expectRejectsWithoutPartialWrites(
     () =>
-      createRefundInvoice({
+      issueRefundWithPayment({
         sourceInvoiceId: workflow.finalInvoiceId,
         amount: 51,
         reason: "EC-18 rejects refunds above overpayment capacity",
         createdByUserId: fixtures.managerId,
+        method: PaymentMethod.CASH,
       }),
     () => invoiceTypeSnapshot(db, workflow.orderId),
     /exceeds overpayment capacity/

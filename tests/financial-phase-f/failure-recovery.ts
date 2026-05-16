@@ -12,8 +12,8 @@ import {
   createAdjustmentInvoice,
   createCreditNote,
   createInvoiceForOrderWithClient,
-  createRefundInvoice,
 } from "@/modules/invoices/invoice.service";
+import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import {
   PUBLIC_ID_KIND,
@@ -260,12 +260,13 @@ async function runRefundRollbackAfterRefundInvoice(
   await expectRejectsWithoutPartialWrites(
     () =>
       db.$transaction(async (tx) => {
-        await createRefundInvoice(
+        await issueRefundWithPayment(
           {
             sourceInvoiceId: workflow.finalInvoiceId,
             amount: 10,
             reason: "F-REC-06 refund rollback",
             createdByUserId: fixtures.managerId,
+            method: PaymentMethod.CASH,
           },
           tx
         );

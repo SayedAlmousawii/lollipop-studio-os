@@ -16,15 +16,15 @@ import { updateBookingStatus } from "@/modules/bookings/booking.service";
 import {
   createAdjustmentInvoice,
   createCreditNote,
-  createRefundInvoice,
 } from "@/modules/invoices/invoice.service";
+import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import {
   recordPOSPaymentForOrder,
   updateOrderDeliveryWorkflow,
   updateOrderEditingWorkflow,
 } from "@/modules/orders/order.service";
 import { createBookingSchema } from "@/modules/bookings/booking.schema";
-import { createRefundInvoiceSchema } from "@/modules/invoices/invoice.schema";
+import { createRefundWithPaymentSchema } from "@/modules/invoices/invoice.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import { recordPayment } from "@/modules/payments/payment.service";
 import { expectRejectsWithoutPartialWrites } from "../financial-phase-b/assertions";
@@ -117,11 +117,12 @@ async function runRefundPermissionMatrix(
 
   await expectRejectsWithoutPartialWrites(
     () =>
-      createRefundInvoice({
+      issueRefundWithPayment({
         sourceInvoiceId: workflow.finalInvoiceId,
         amount: 10,
         reason: "Phase F receptionist refund denial",
         createdByUserId: fixtures.receptionistId,
+        method: PaymentMethod.CASH,
       }),
     snapshot,
     /Manager permission is required/
@@ -129,11 +130,12 @@ async function runRefundPermissionMatrix(
 
   await expectRejectsWithoutPartialWrites(
     () =>
-      createRefundInvoice({
+      issueRefundWithPayment({
         sourceInvoiceId: workflow.finalInvoiceId,
         amount: 10,
         reason: "Phase F accountant refund denial",
         createdByUserId: fixtures.accountantId,
+        method: PaymentMethod.CASH,
       }),
     snapshot,
     /Manager permission is required/
@@ -341,7 +343,7 @@ async function runApiValidationBypassAttempts(
     "booking creation must require at least one package"
   );
   assert.equal(
-    createRefundInvoiceSchema.safeParse({
+    createRefundWithPaymentSchema.safeParse({
       amount: -1,
       reason: "Negative refund",
       method: PaymentMethod.CASH,
@@ -395,12 +397,13 @@ async function runApiValidationBypassAttempts(
   await assert.rejects(
     () =>
       db.$transaction(async (tx) => {
-        await createRefundInvoice(
+        await issueRefundWithPayment(
           {
             sourceInvoiceId: workflow.finalInvoiceId,
             amount: 10,
             reason: "Phase F refund capacity characterization",
             createdByUserId: fixtures.managerId,
+            method: PaymentMethod.CASH,
           },
           tx
         );

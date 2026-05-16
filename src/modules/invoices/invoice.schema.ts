@@ -24,7 +24,7 @@ export type CreateAdjustmentInvoiceInput = {
   createdByUserId?: string;
 };
 
-export const createRefundInvoiceSchema = z.object({
+export const createRefundWithPaymentSchema = z.object({
   amount: z.coerce.number().positive("Refund amount must be greater than 0"),
   reason: z.string().trim().min(1, "Refund reason is required").max(500),
   refundOfPaymentId: z.string().trim().optional(),
@@ -35,7 +35,7 @@ export const createRefundInvoiceSchema = z.object({
   paidAt: z.coerce.date().optional(),
 });
 
-export type CreateRefundInvoiceInput = {
+export type RefundInvoicePrimitiveInput = {
   sourceInvoiceId: string;
   amount: Prisma.Decimal | number | string;
   reason: string;
@@ -43,7 +43,7 @@ export type CreateRefundInvoiceInput = {
   notes?: string;
 };
 
-export type CreateRefundWithPaymentInput = CreateRefundInvoiceInput & {
+export type CreateRefundWithPaymentInput = RefundInvoicePrimitiveInput & {
   method: PaymentMethod;
   refundOfPaymentId?: string;
   reference?: string;

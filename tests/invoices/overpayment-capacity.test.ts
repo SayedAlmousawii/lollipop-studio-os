@@ -64,10 +64,11 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
           assert.equal(capacity.toFixed(3), "0.000");
         });
 
-        await t.test("paid above invoice total exposes only the excess", async () => {
+        await t.test("full payment plus credit note exposes only the excess", async () => {
           const source = await createSourceInvoice(db, fixture, "b", {
-            total: "230",
+            total: "250",
             paid: "250",
+            creditNote: "20",
           });
 
           const capacity = await invoices.computeOverpaymentCapacity(source.id, db);
@@ -99,8 +100,9 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
 
         await t.test("prior refunds reduce remaining capacity", async () => {
           const source = await createSourceInvoice(db, fixture, "d", {
-            total: "230",
+            total: "250",
             paid: "250",
+            creditNote: "20",
             priorRefund: "15",
           });
 
@@ -157,17 +159,19 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
 
         await t.test("refund creation rejects requests above capacity", async () => {
           const source = await createSourceInvoice(db, fixture, "e", {
-            total: "230",
+            total: "250",
             paid: "250",
+            creditNote: "20",
           });
 
           await assert.rejects(
             () =>
-              invoices.createRefundInvoice({
+              refunds.issueRefundWithPayment({
                 sourceInvoiceId: source.id,
                 amount: 50,
                 reason: "Over capacity",
                 createdByUserId: fixture.managerId,
+                method: PaymentMethod.CASH,
               }),
             /Refund amount 50\.000 KD exceeds overpayment capacity 20\.000 KD/
           );
@@ -189,8 +193,9 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
 
         await t.test("concurrent refunds cannot both consume the same capacity", async () => {
           const source = await createSourceInvoice(db, fixture, "g", {
-            total: "230",
+            total: "250",
             paid: "250",
+            creditNote: "20",
           });
 
           const results = await Promise.allSettled([
