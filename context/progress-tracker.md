@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 80c is complete: PostgreSQL triggers now reject PaymentAllocation over-collection and ADJUSTMENT-to-ADJUSTMENT invoice parent chains, with focused DB-constraint regression coverage.
 - Refund capacity hotfix is complete: overpayment capacity now uses canonical effective-paid allocation/application math, and regression coverage includes deposit-applied final invoices with credit notes plus refund-detail visibility.
 - Feature 80b is complete: locked invoices now get `InvoiceLockSnapshot` frozen-field baselines at lock time, and a PostgreSQL trigger rejects direct frozen-field mutations while allowing sanctioned unlock/status/payment-derived updates.
 - Feature 80a is complete: first-class `AuditLog` persistence now records co-transactional actor attribution and field snapshots for booking confirmation/no-show, payments, invoice locks, total mutations, adjustments, credit notes, refunds, and permitted locked-order mutations.
@@ -19,7 +20,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 77 Phase D is complete: Layer 5 regression coverage for Features 74/75/76 and multi-package workflows now runs through `tests/financial-phase-d/` inside `npm run test:backend-invariants`, with legacy deposit-deduction and duplicate balance-display findings documented.
 - Dashboard date windows use the studio timezone (`Asia/Kuwait`) for today/week metrics and schedule time display, so late-night local payments land in the correct business day.
 - Dashboard refund display and payment creation hotfixes are complete: revenue shows net inbound-minus-refund, outbound refunds derive `PaymentType.REFUND` before the Prisma write, and optional refund trace fields are omitted unless supplied.
-- Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution and locked-invoice DB immutability are live.
+- Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 
 ## Key State
 - Multi-package is now the only package model: `BookingPackage` and `OrderPackage` are the source of truth; the former singular booking/order package fields and `BookingSessionType` enum are gone.
@@ -55,6 +56,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Payment settlement now acquires an invoice row lock before balance reads, and fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
 - Structured `AuditLog` is append-only at the service layer and tied to a required `actorUserId`; audited writes happen inside the same transaction as the action they record.
 - Locked invoices are protected below the service layer: every service lock path writes an `InvoiceLockSnapshot`, and the DB trigger blocks frozen-field mutation of locked invoices. Booking check-in no longer stamps `jobId/jobNumber` onto already-locked deposit invoices.
+- DB-level financial guardrails now reject PaymentAllocation totals above an invoice's `totalAmount` and reject ADJUSTMENT invoices parented to another ADJUSTMENT.
 - Refund issuance now acquires a source invoice row lock before checking true overpayment capacity; zero-capacity invoices have no refund UI path.
 - Phase G reconciliation runs inside a PostgreSQL `READ ONLY` transaction, reports only, and must use `FINANCIAL_RECON_DATABASE_URL` in production.
 - F6 classified the dev INV-18 mismatch as active: paid-ADJUSTMENT cause removal and manual CREDIT_NOTE issuance can diverge revenue documents from current order composition.
@@ -63,6 +65,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 80c: added raw SQL triggers for PaymentAllocation over-collection and ADJUSTMENT-parent chaining, plus isolated-schema regression coverage for insert/update failures and service-level preflight errors.
 - Refund capacity hotfix: replaced the parallel inbound-only capacity formula with effective-paid math, preserved prior REFUND invoice consumption, and added deposit + CREDIT_NOTE regression/invariant coverage.
 - Feature 80b: added `InvoiceLockSnapshot`, wired lock snapshots across invoice lock paths, installed a DB trigger for locked-invoice frozen fields, registered the reconciliation invariant, and covered direct Prisma mutation/unlock behavior.
 - Feature 80a: added `AuditLog`, `AuditEntityType`, and `AuditAction`, introduced `recordAuditLog`, wired co-transactional audit writes through booking/payment/invoice/adjustment/credit-note/refund paths, and added focused rollback/actor/audit integration coverage.
