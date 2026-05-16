@@ -1,7 +1,7 @@
 # Studio OS — Financial Rearchitecture Master Plan
 
-**Date:** 2026-05-14
-**Status:** Discussion phase closed. Phase 0 + Phase 1 specs ready for implementation. Phases 2–5 specs to be written when their phase comes up.
+**Date:** 2026-05-14 (last refreshed 2026-05-16)
+**Status:** Phases 0–3 shipped. A large hardening layer (Features 77–81) was implemented on top to satisfy this plan's risk-management section (invariant catalog, audit log, locked-field DB triggers, nightly reconciliation, canonical settlement summary). **Phase 4 (gift vouchers) is the next real work** and needs spec renumbering plus closure of the Phase 4 start-gate decision before kickoff. Phase 5 (multi-allocation lift) remains deferred.
 
 This document is the single source of truth for the financial rearchitecture decided in the May 2026 review. It supersedes the recommendations in `financial_architecture_gap_analysis_and_recommendations_may_2026.md` where they conflict.
 
@@ -113,7 +113,7 @@ Invariants:
 
 ## Phased implementation plan
 
-### Phase 0 — Schema groundwork (no behavioral change)
+### Phase 0 — Schema groundwork (no behavioral change) ✅ SHIPPED
 **Goal:** Land all additive schema for the rearchitecture without changing any service behavior. Sets up Phase 1+ to be additive-only at the data layer.
 
 **Scope:**
@@ -133,7 +133,7 @@ Invariants:
 
 ---
 
-### Phase 1 — DocumentApplication + PaymentAllocation foundations
+### Phase 1 — DocumentApplication + PaymentAllocation foundations ✅ SHIPPED
 **Goal:** Replace the virtual deposit-credit logic with explicit application + allocation rows. Establishes the primitives every later phase depends on.
 
 **Scope:**
@@ -152,36 +152,45 @@ Invariants:
 
 ---
 
-### Phase 2 — Locked-invoice adjustment automation (additive)
+### Phase 2 — Locked-invoice adjustment automation (additive) ✅ SHIPPED
 **Goal:** Automate ADJUSTMENT invoice creation for additive order edits after Final lock.
 
-**Scope:**
-- Detect additive edits: new `OrderAddOn`, new `OrderPackageItemUpgrade`, new extra-photo line, package upgrade.
-- On detection, when the Final invoice is `isLocked = true`, automatically create a new `ADJUSTMENT` invoice scoped to the same `financialCaseId`, with line items for the new commercial values only.
-- Bind `ADJUSTMENT → FINAL` via `DocumentApplication` with `amountApplied = 0` initially (it's a *receivable*, not a *credit*, until paid — alternative: do not create DocumentApplication for ADJUSTMENT, leave it as a sibling invoice settled separately via PaymentAllocation).
-- POS settlement flow updated to surface unpaid ADJUSTMENT invoices alongside the Final.
-- Reductions remain blocked here — they route to Phase 3's explicit credit-note action.
-
-**Risk surface:**
-- The decision of whether ADJUSTMENT uses DocumentApplication or is purely a sibling-via-PaymentAllocation needs to be settled at the start of this phase. Recommendation: ADJUSTMENT is a sibling settled by allocation, not bound by DocumentApplication. Reserve DocumentApplication for *credit transfers* (DEPOSIT → FINAL, CREDIT_NOTE → FINAL).
-- Defining "additive edit" precisely matters — partial removals of an existing add-on count as a reduction, not an addition.
+**Resolved at implementation:**
+- ADJUSTMENT is a **sibling invoice settled by PaymentAllocation** — not bound by `DocumentApplication`. `DocumentApplication` is reserved for credit transfers (DEPOSIT → FINAL, CREDIT_NOTE → FINAL).
+- Edit classifier landed in Phase 2 with the E1–E12 rule table (see project memory `project_financial_review_2026_05.md`).
+- All ADJUSTMENTs are siblings of FINAL; chained ADJUSTMENT → ADJUSTMENT is now DB-enforced as forbidden (Feature 80c trigger).
+- POS surfacing of unpaid ADJUSTMENTs shipped in 75c.
+- Reductions route through Phase 3 CREDIT_NOTE with manager approval (Feature 79d).
 
 ---
 
-### Phase 3 — Refund + credit-note architecture
+### Phase 3 — Refund + credit-note architecture ✅ SHIPPED
 **Goal:** Model money-out and explicit invoice reductions.
 
-**Scope:**
-- `Payment.direction = OUT` enabled (was already added in Phase 0).
-- `REFUND` invoice creation flow: manager action, requires originating invoice reference, requires reason.
-- Outbound Payment recorded against REFUND invoice.
-- `CREDIT_NOTE` invoice creation flow: explicit "issue credit note" action against a locked invoice. Reduces the target invoice's effective receivable via DocumentApplication (`CREDIT_NOTE → FINAL`, `amountApplied = credit note total`).
-- Reductions on locked Final invoices route through CREDIT_NOTE.
-- Voucher cancellation (forfeit-on-cancel for v1) uses CREDIT_NOTE or VOID-deposit-invoice mechanics — settle at phase start.
+**Resolved at implementation:**
+- REFUND invoices + outbound `Payment.direction = OUT` + `Payment.refundOfPaymentId` traceability (76a).
+- CREDIT_NOTE invoices bound to FINAL via `DocumentApplication` (76b); reductions on locked invoices route through manager-approved CREDIT_NOTE (76c, 79d).
+- Refund capacity uses canonical true overpayment math under source-invoice row lock (79c) — replaced loose inbound-only capacity.
+- Chained ADJUSTMENT → ADJUSTMENT is forbidden at the DB level (Feature 80c trigger).
+- Voucher cancellation/forfeit deferred to Phase 4 mechanics (no CREDIT_NOTE) — see Phase 4 start-gate decisions.
 
-**Risk surface:**
-- Refund-to-original-payment traceability: should REFUND payments reference their originating Payment? Yes, via a nullable `Payment.refundOfPaymentId` field. Add in this phase.
-- Adjustment of an adjustment (chained ADJUSTMENT invoices): allowed conceptually, but the spec must define how `parentInvoiceId` chains form.
+---
+
+### Hardening layer — Features 77–81 ✅ SHIPPED (between Phase 3 and Phase 4)
+
+The plan's "Risk management and invariant discipline" section was implemented as a multi-feature program *before* Phase 4 starts. Phase 4 specs must assume this layer is in place rather than rebuilding it.
+
+- **Feature 77 (Phases A–G)** — Financial invariant CI: schema/integration/edge/regression/concurrency/security/recovery suites + read-only nightly reconciliation runner with severity classification and Slack alerting.
+- **Feature 78a/b** — Settlement row-locking (`SELECT ... FOR UPDATE`) before balance reads; auto-close + auto-lock of fully paid FINAL invoices; required `ActorContext.actorRole` enforced at the service boundary.
+- **Feature 79b/c/d** — Canonical `Invoice.remainingAmount` reads (legacy deposit-deduction formulas removed); true overpayment capacity under row lock; manager credit-note approval modal for POS reductive edits.
+- **Feature 80a/b/c** — Append-only `AuditLog` with co-transactional writes; `InvoiceLockSnapshot` + DB trigger blocking frozen-field mutations of locked invoices; DB triggers rejecting PaymentAllocation over-collection and ADJUSTMENT-to-ADJUSTMENT parent chains.
+- **Feature 81a–f** — Dual-read warning path and `financial.rearch.dual_read.*` flag removed; refund-invoice primitive made private behind `issueRefundWithPayment`; `INVARIANT_CATALOG` + generated owner-facing `context/reviews/invariant-catalog.md`; reconciliation Healthchecks.io ping (`RECONCILIATION_PING_URL`); canonical order settlement summary across header/list/detail; INV-18 goodwill CREDIT_NOTE classification + audited F6 backfill.
+
+Phase 4 (vouchers) must build on these primitives:
+- All voucher state transitions write `AuditLog` rows in the same transaction.
+- Voucher-driven invoice locks must go through the existing lock helper so `InvoiceLockSnapshot` is written and DB trigger is satisfied.
+- Voucher-specific invariants register through `INVARIANT_CATALOG` (both runtime and reconciliation variants).
+- Voucher state transitions use `SELECT ... FOR UPDATE` on the GiftCard row (master-plan rule preserved).
 
 ---
 
@@ -351,34 +360,33 @@ Project pattern (per `feature-specs/`) is to split work across letter-suffixed s
 Final spec list:
 
 ```
-73    Phase 0  Schema groundwork                                  (bundled — invoice/payment NOT NULLs, PaymentDirection, InvoiceType.SALE)
-73b   Phase 0  Financial discipline infrastructure                (framework: invariant registry, fixtures module, choke-point checker, dual-read helper, reconciliation harness, ADR dirs, type aliases)
-73c   Phase 0  OrderAddOn split                                   (3 steps: add table → migrate service code → backfill + drop column; depends on 73, must land before 75a)
+73    Phase 0  Schema groundwork                                  ✅ shipped
+73b   Phase 0  Financial discipline infrastructure                ✅ shipped
+73c   Phase 0  OrderAddOn split                                   ✅ shipped
 
-74a   Phase 1  DocumentApplication + PaymentAllocation tables (schema only)
-74b   Phase 1  Backfill DocApplication + PaymentAllocation rows
-74c   Phase 1  Migrate Payment creation to createPaymentWithAllocation
-74d   Phase 1  Refactor recalculateInvoiceStatus behind dual-read flag
-74e   Phase 1  Cutover + remove virtual deposit logic + reconciliation job
+74a–e Phase 1  DocumentApplication + PaymentAllocation            ✅ shipped (5 sub-specs)
+75a–c Phase 2  ADJUSTMENT invoice + classifier + POS surfacing    ✅ shipped (3 sub-specs)
+76a–c Phase 3  REFUND + CREDIT_NOTE                               ✅ shipped (3 sub-specs)
 
-75a   Phase 2  ADJUSTMENT invoice primitives + createAdjustmentInvoice
-75b   Phase 2  Edit-classifier + auto-ADJUSTMENT trigger
-75c   Phase 2  POS surfacing of unpaid adjustments
+— Hardening layer (between Phase 3 and Phase 4) —
+77 A–G        Financial invariant CI + nightly reconciliation     ✅ shipped
+78a/b         Settlement row-locking + actor permission guard     ✅ shipped
+79b/c/d       Canonical balance reads + overpayment cap + manager approval modal  ✅ shipped
+80a/b/c       AuditLog + InvoiceLockSnapshot + DB triggers        ✅ shipped
+81a–f         Dual-read cleanup + invariant catalog + canonical settlement summary  ✅ shipped
 
-76a   Phase 3  REFUND invoice + outbound Payment + refundOfPaymentId
-76b   Phase 3  CREDIT_NOTE invoice + DocumentApplication binding
-76c   Phase 3  Wire reductions on locked invoices to CREDIT_NOTE
+— Phase 4 (gift vouchers) — not yet numbered —
+  a  GiftCard + GiftCardRedemption schema + VoucherStatus
+  b  Voucher purchase flow (SALE invoice → GiftCard)
+  c  Voucher-backed booking + reservation + DEPOSIT redemption
+  d  POS voucher final settlement + forfeit on no-show/cancel
+  e  Manager actions (VOID, EXTEND, BALANCE ADJUSTMENT, TRANSFER)
 
-77a   Phase 4  GiftCard + GiftCardRedemption schema + VoucherStatus
-77b   Phase 4  Voucher purchase flow (SALE invoice → GiftCard)
-77c   Phase 4  Voucher-backed booking + reservation + DEPOSIT redemption
-77d   Phase 4  POS voucher final settlement + forfeit on no-show/cancel
-77e   Phase 4  Manager actions (VOID, EXTEND, BALANCE ADJUSTMENT, TRANSFER)
-
-78    Phase 5  Multi-allocation lift                              (bundled — small, atomic)
+— Phase 5 — not yet numbered —
+     Multi-allocation lift (bundled — small, atomic)
 ```
 
-Phase 0 stays bundled (single Prisma migration). Phase 5 stays bundled (small, single invariant lift).
+Phase 0 stays bundled (single Prisma migration). Phase 5 stays bundled (small, single invariant lift). **Numbering:** Phase 4/5 specs will be assigned numbers at the time they are written (the next free feature number), since interleaved unrelated work makes pre-assigned slots drift. Letter suffixes inside each phase are stable.
 
 ---
 
@@ -404,7 +412,7 @@ A future session writing a Phase N spec **must** close that phase's queued decis
 3. **Refund traceability field (Fork U):** Yes — nullable `Payment.refundOfPaymentId` FK.
 4. **Voucher-backed booking forfeit mechanism v1 (Fork V):** Lock deposit (NO_SHOW-equivalent state) + record `GiftCardRedemption` with kind=NO_SHOW_FORFEIT/CANCEL_FORFEIT. No CREDIT_NOTE. Phase 4 mechanics; Phase 3 does NOT need to model this.
 
-### Phase 4 — start-gate decisions
+### Phase 4 — start-gate decisions (must close before the first Phase 4 spec is written)
 
 5. **`GiftCardRedemption` field set for ledger-readiness.**
    Master plan says `amountRedeemed` is "what was deducted from the voucher, not what was credited to the invoice." This implies leftover can be inferred. Pin the exact field set so a future credit-ledger phase can introspect redemptions without schema rewrite.
