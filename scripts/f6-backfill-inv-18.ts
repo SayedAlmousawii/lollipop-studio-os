@@ -18,11 +18,15 @@ const DEFAULT_ORDER_ID = "cmp6tm9n30007n7t3ramturmp";
 const BACKFILL_REASON = "F6 backfill: pre-79a divergence";
 const CREDIT_NOTE_ANNOTATION =
   "Pre-79a manual CREDIT_NOTE; classified as goodwill by F6 backfill.";
+const REVERSAL_ANNOTATION = "F6 backfill adjustment reversal for ADJ-00003";
+// TODO: add a dedicated audit action for historical cause-ledger backfills.
+const CAUSE_LINK_AUDIT_ACTION = AuditAction.ADJUSTMENT_ISSUED;
 
 type BackfillArgs = {
   apply: boolean;
   orderId: string;
   actorUserId?: string;
+  confirmProduction: boolean;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -38,6 +42,7 @@ function parseArgs(): BackfillArgs {
     actorUserId:
       actorArg?.split("=")[1]?.trim() ||
       process.env.BACKFILL_ACTOR_USER_ID?.trim(),
+    confirmProduction: args.includes("--confirm-production"),
   };
 }
 
@@ -162,11 +167,12 @@ async function buildBackfillSnapshot(orderId: string) {
       metadata.price === "45.000"
     );
   });
-  const historicalAddOnId = asRecord(historicalAddOnActivity?.metadata ?? null)
+  const historicalAddOnIdValue = asRecord(historicalAddOnActivity?.metadata ?? null)
     .orderAddOnId;
-  if (typeof historicalAddOnId !== "string" || !historicalAddOnId.trim()) {
-    throw new Error("Historical Album 20x20 add-on id could not be recovered");
-  }
+  const historicalAddOnId =
+    typeof historicalAddOnIdValue === "string" && historicalAddOnIdValue.trim()
+      ? historicalAddOnIdValue
+      : null;
 
   return {
     order,
@@ -200,6 +206,9 @@ async function runDryRun(orderId: string): Promise<void> {
             after: {
               causeOrderEntityKind: OrderEntityKind.ADDON,
               causeOrderEntityId: snapshot.historicalAddOnId,
+              unrecoveredCauseOrderEntityIdReason: snapshot.historicalAddOnId
+                ? null
+                : "Historical Album 20x20 add-on id could not be recovered",
             },
           },
           creditNote: {
@@ -257,7 +266,7 @@ async function applyBackfill(
       await recordAuditLog(tx, actorContext, {
         entityType: AuditEntityType.INVOICE,
         entityId: snapshot.adjustment.id,
-        action: AuditAction.INVOICE_TOTAL_MUTATED,
+        action: CAUSE_LINK_AUDIT_ACTION,
         before: {
           affectedInvoiceLineId: currentAdjustmentLine.id,
           causeOrderEntityKind: currentAdjustmentLine.causeOrderEntityKind,
@@ -267,6 +276,9 @@ async function applyBackfill(
           affectedInvoiceLineId: currentAdjustmentLine.id,
           causeOrderEntityKind: OrderEntityKind.ADDON,
           causeOrderEntityId: snapshot.historicalAddOnId,
+          unrecoveredCauseOrderEntityIdReason: snapshot.historicalAddOnId
+            ? null
+            : "Historical Album 20x20 add-on id could not be recovered",
         },
         context: {
           reason: BACKFILL_REASON,
@@ -288,12 +300,53 @@ async function applyBackfill(
         notes: true,
       },
     });
-    const existingReversal = sourceApplications.find(
+    const targetPairReversal = sourceApplications.find(
       (application) =>
         application.targetInvoiceId === snapshot.adjustment.id &&
-        application.targetInvoiceLineId === snapshot.adjustmentLine.id &&
-        decimalEquals(application.amountApplied, reversalAmount)
+        application.targetInvoiceLineId === snapshot.adjustmentLine.id
     );
+    const existingReversal =
+      targetPairReversal &&
+      decimalEquals(targetPairReversal.amountApplied, reversalAmount)
+        ? targetPairReversal
+        : null;
+
+    if (targetPairReversal && !existingReversal) {
+      await tx.documentApplication.update({
+        where: { id: targetPairReversal.id },
+        data: {
+          amountApplied: reversalAmount,
+          notes: REVERSAL_ANNOTATION,
+          appliedByUserId: actorContext.actorUserId,
+        },
+      });
+      await recordAuditLog(tx, actorContext, {
+        entityType: AuditEntityType.CREDIT_NOTE,
+        entityId: snapshot.creditNote.id,
+        action: AuditAction.CREDIT_NOTE_ISSUED,
+        before: {
+          documentApplicationId: targetPairReversal.id,
+          targetInvoiceId: targetPairReversal.targetInvoiceId,
+          targetInvoiceLineId: targetPairReversal.targetInvoiceLineId,
+          amountApplied: targetPairReversal.amountApplied.toFixed(3),
+          notes: targetPairReversal.notes,
+        },
+        after: {
+          documentApplicationId: targetPairReversal.id,
+          targetInvoiceId: snapshot.adjustment.id,
+          targetInvoiceLineId: snapshot.adjustmentLine.id,
+          amountApplied: reversalAmount.toFixed(3),
+          notes: REVERSAL_ANNOTATION,
+        },
+        context: {
+          reason: BACKFILL_REASON,
+          orderId,
+          financialCaseId: snapshot.financialCaseId,
+        },
+      });
+      changedCount += 1;
+    }
+
     const existingGoodwill = sourceApplications.find(
       (application) =>
         application.targetInvoiceId === snapshot.finalInvoice.id &&
@@ -345,7 +398,7 @@ async function applyBackfill(
       changedCount += 1;
     }
 
-    if (!existingReversal) {
+    if (!targetPairReversal) {
       const createdApplication = await tx.documentApplication.create({
         data: {
           sourceInvoiceId: snapshot.creditNote.id,
@@ -353,7 +406,7 @@ async function applyBackfill(
           targetInvoiceLineId: snapshot.adjustmentLine.id,
           amountApplied: reversalAmount,
           appliedByUserId: actorContext.actorUserId,
-          notes: "F6 backfill adjustment reversal for ADJ-00003",
+          notes: REVERSAL_ANNOTATION,
         },
         select: { id: true },
       });
@@ -366,7 +419,7 @@ async function applyBackfill(
           targetInvoiceId: snapshot.adjustment.id,
           targetInvoiceLineId: snapshot.adjustmentLine.id,
           amountApplied: reversalAmount.toFixed(3),
-          notes: "F6 backfill adjustment reversal for ADJ-00003",
+          notes: REVERSAL_ANNOTATION,
         },
         context: {
           reason: BACKFILL_REASON,
@@ -401,6 +454,7 @@ async function applyBackfill(
     }
 
     if (changedCount > 0) {
+      // 80b frozen invoice fields exclude paidAmount, remainingAmount, and status.
       await recalculateInvoiceStatus(snapshot.finalInvoice.id, tx);
       await recalculateInvoiceStatus(snapshot.adjustment.id, tx);
     }
@@ -414,6 +468,12 @@ async function main() {
   if (!args.apply) {
     await runDryRun(args.orderId);
     return;
+  }
+
+  if (process.env.NODE_ENV === "production" && !args.confirmProduction) {
+    throw new Error(
+      "Refusing to apply F6 backfill in production without --confirm-production"
+    );
   }
 
   if (!args.actorUserId) {

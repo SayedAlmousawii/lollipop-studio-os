@@ -259,13 +259,19 @@ export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefiniti
               CASE
                 WHEN i."invoiceType" IN ('FINAL', 'ADJUSTMENT') THEN i."totalAmount"
                 WHEN i."invoiceType" = 'CREDIT_NOTE' THEN -(
-                  i."totalAmount" - COALESCE(goodwill_credit_applications.total, 0)
+                  GREATEST(
+                    i."totalAmount" - COALESCE(goodwill_credit_applications.total, 0),
+                    0
+                  )
                 )
                 ELSE 0
               END
             ) AS actual_total
           FROM "invoices" i
           LEFT JOIN (
+            -- Null-target CREDIT_NOTE applications are goodwill unless they came
+            -- from the classifier reduction path; those credits match real order
+            -- composition reductions and must stay visible to INV-18.
             SELECT
               da.source_invoice_id AS invoice_id,
               SUM(da.amount_applied) AS total
