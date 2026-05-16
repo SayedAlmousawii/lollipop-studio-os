@@ -40,6 +40,7 @@ type FinancialContext = Awaited<ReturnType<typeof createFinancialContext>>;
 test("financial DB constraints reject over-collection and adjustment chaining", async (t) => {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
     const previousDatabaseUrl = process.env.DATABASE_URL;
+    let testDb: { $disconnect: () => Promise<void> } | null = null;
     process.env.DATABASE_URL = databaseUrl;
 
     try {
@@ -48,6 +49,7 @@ test("financial DB constraints reject over-collection and adjustment chaining", 
         import("@/modules/invoices/invoice.service"),
         import("@/modules/payments/payment.service"),
       ]);
+      testDb = db;
 
       await t.test("C2 rejects a second allocation above invoice total", async () => {
         const context = await createFinancialContext(db, "c2-insert");
@@ -256,9 +258,11 @@ test("financial DB constraints reject over-collection and adjustment chaining", 
           /Adjustment invoices can only be created for final invoices/i
         );
       });
-
-      await db.$disconnect();
     } finally {
+      if (testDb && typeof testDb.$disconnect === "function") {
+        await testDb.$disconnect();
+      }
+
       if (previousDatabaseUrl === undefined) {
         delete process.env.DATABASE_URL;
       } else {

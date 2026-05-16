@@ -42,6 +42,12 @@ export async function runPhaseGFinancialReconciliation(
   );
   assertViolation(
     riskReport,
+    "INV-08",
+    "HIGH",
+    corruptFixture.chainedAdjustmentInvoiceId
+  );
+  assertViolation(
+    riskReport,
     "INV-09",
     "HIGH",
     corruptFixture.badCreditApplicationId
@@ -84,6 +90,7 @@ export async function runPhaseGFinancialReconciliation(
 async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
   unallocatedPaymentId: string;
   parentAdjustmentInvoiceId: string;
+  chainedAdjustmentInvoiceId: string;
   badCreditApplicationId: string;
   badPrefixAdjustmentInvoiceId: string;
 }> {
@@ -160,6 +167,13 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
     select: { id: true },
   });
 
+  const chainedAdjustmentInvoiceId = await createChainedAdjustmentBypassing80cTrigger(
+    db,
+    sourceInvoice,
+    parentAdjustment.id,
+    suffix
+  );
+
   const creditNote = await db.invoice.create({
     data: {
       publicId: `INV-RECON-CN-${suffix}`,
@@ -194,9 +208,83 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
   return {
     unallocatedPaymentId: unallocatedPayment.id,
     parentAdjustmentInvoiceId: parentAdjustment.id,
+    chainedAdjustmentInvoiceId,
     badCreditApplicationId: badCreditApplication.id,
     badPrefixAdjustmentInvoiceId: badPrefixAdjustment.id,
   };
+}
+
+async function createChainedAdjustmentBypassing80cTrigger(
+  db: PrismaClient,
+  sourceInvoice: {
+    financialCaseId: string;
+    jobId: string | null;
+    jobNumber: string | null;
+    orderId: string | null;
+    bookingId: string | null;
+    customerId: string;
+  },
+  parentAdjustmentInvoiceId: string,
+  suffix: string
+): Promise<string> {
+  const chainedAdjustmentInvoiceId = `recon-chain-${suffix}`;
+
+  await db.$transaction(async (tx) => {
+    // Feature 80c makes this state unreachable through normal writes. Reconciliation
+    // still covers it as a tampered-state detector, so the fixture bypasses only
+    // the C3 trigger and re-enables it inside the same transaction.
+    await tx.$executeRawUnsafe(
+      'ALTER TABLE "invoices" DISABLE TRIGGER "trg_reject_adjustment_invoice_chaining"'
+    );
+
+    try {
+      await tx.$executeRaw`
+        INSERT INTO "invoices" (
+          id,
+          "publicId",
+          "financialCaseId",
+          "invoiceType",
+          "jobId",
+          "jobNumber",
+          "orderId",
+          "bookingId",
+          "customerId",
+          "invoiceNumber",
+          "totalAmount",
+          "remainingAmount",
+          status,
+          "parentInvoiceId",
+          notes,
+          "createdAt",
+          "updatedAt"
+        ) VALUES (
+          ${chainedAdjustmentInvoiceId},
+          ${`INV-RECON-CHAIN-${suffix}`},
+          ${sourceInvoice.financialCaseId},
+          'ADJUSTMENT'::"InvoiceType",
+          ${sourceInvoice.jobId},
+          ${sourceInvoice.jobNumber},
+          ${sourceInvoice.orderId},
+          ${sourceInvoice.bookingId},
+          ${sourceInvoice.customerId},
+          ${`ADJ-RECON-CHAIN-${suffix}`},
+          ${new Prisma.Decimal("1.000")},
+          ${new Prisma.Decimal("1.000")},
+          'DRAFT'::"InvoiceStatus",
+          ${parentAdjustmentInvoiceId},
+          ${"Phase G fixture: deliberately chained adjustment via 80c trigger bypass"},
+          NOW(),
+          NOW()
+        )
+      `;
+    } finally {
+      await tx.$executeRawUnsafe(
+        'ALTER TABLE "invoices" ENABLE TRIGGER "trg_reject_adjustment_invoice_chaining"'
+      );
+    }
+  });
+
+  return chainedAdjustmentInvoiceId;
 }
 
 function assertViolation(

@@ -6,7 +6,8 @@ DECLARE
 BEGIN
   SELECT "totalAmount" INTO invoice_total
     FROM "invoices"
-    WHERE id = NEW."invoice_id";
+    WHERE id = NEW."invoice_id"
+    FOR UPDATE;
 
   IF invoice_total IS NULL THEN
     RAISE EXCEPTION 'PaymentAllocation references non-existent invoice %', NEW."invoice_id"

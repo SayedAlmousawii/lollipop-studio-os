@@ -41,7 +41,8 @@ DECLARE
   current_total NUMERIC(10, 3);
 BEGIN
   SELECT "totalAmount" INTO invoice_total
-    FROM "Invoice" WHERE id = NEW."invoiceId";
+    FROM "Invoice" WHERE id = NEW."invoiceId"
+    FOR UPDATE;
 
   IF invoice_total IS NULL THEN
     RAISE EXCEPTION 'PaymentAllocation references non-existent invoice %', NEW."invoiceId"
@@ -101,7 +102,9 @@ FOR EACH ROW
 EXECUTE FUNCTION reject_adjustment_invoice_chaining();
 ```
 
-Both triggers ship in one raw-SQL migration. Down migration drops both functions and triggers.
+The C3 trigger ships in its own raw-SQL migration. Its rollback drops only `trg_reject_adjustment_invoice_chaining` and `reject_adjustment_invoice_chaining()`.
+
+The C2 trigger ships in a second raw-SQL migration. Its rollback drops only `trg_reject_payment_allocation_overcollection` and `reject_payment_allocation_overcollection()`.
 
 **Regression tests**
 
@@ -120,13 +123,14 @@ Both triggers ship in one raw-SQL migration. Down migration drops both functions
 - 80a's `AuditLog` and 80b's `InvoiceLockSnapshot` — already shipped by the time this spec runs.
 - Refactoring the service-level checks. They remain in place for clean error UX.
 - Invariant catalog registration — neither C2 nor C3 needs a nightly invariant because the trigger blocks the violation at write time; reconciliation cannot find a violation that the DB rejected.
+- Removing existing reconciliation coverage — Phase G may still seed impossible/tampered states with an explicit trigger bypass to verify detectors such as `INV-08`.
 - Hardening other relational integrity rules (FK cascade semantics, etc.) — out of scope; existing FK declarations are sufficient.
 
 ---
 
 ## Implementation Direction
 
-**Risk:** Low-medium. Triggers are surgical and well-precedented after 80b. The risk is performance — the C2 trigger does a `SUM` aggregate on every allocation write. For our volume this is negligible; for hot-path concern, the `PaymentAllocation.invoiceId` index already exists.
+**Risk:** Low-medium. Triggers are surgical and well-precedented after 80b. The risk is performance — the C2 trigger locks the invoice row, then does a `SUM` aggregate on every allocation write. For our volume this is negligible; for hot-path concern, the `PaymentAllocation.invoiceId` index already exists.
 
 **Order of work:**
 
@@ -136,7 +140,7 @@ Both triggers ship in one raw-SQL migration. Down migration drops both functions
 
 **Why two triggers, not one migration:** they touch different tables and different concerns. Keeping them separate makes reverts targeted (revert C2 if it surfaces a perf issue; keep C3).
 
-**Rollback:** drop both triggers and functions. Service-level checks remain — system continues to function, just without DB defense.
+**Rollback:** revert the affected migration. Rolling back C2 drops only the PaymentAllocation over-collection trigger/function; rolling back C3 drops only the ADJUSTMENT-chain trigger/function. Service-level checks remain — system continues to function, just without that DB defense.
 
 ---
 
