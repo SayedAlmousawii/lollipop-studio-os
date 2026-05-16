@@ -1040,3 +1040,6 @@ registerInvariant({
     return violations;
   },
 });
+
+export const FINANCIAL_RUNTIME_INVARIANTS: readonly InvariantCheck[] =
+  invariantRegistry;

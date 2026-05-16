@@ -30,9 +30,9 @@ export interface ReconciliationAlertPayload {
   channel?: string;
 }
 
-type ReconciliationTx = Prisma.TransactionClient;
+export type ReconciliationTx = Prisma.TransactionClient;
 
-type ReconciliationQueryRow = {
+export type ReconciliationQueryRow = {
   entity_id: string;
   affected_entity_ids: string[];
   actual: string;
@@ -45,7 +45,7 @@ type ReconciliationCounts = {
   applicationsChecked: number;
 };
 
-type ReconciliationInvariantDefinition = {
+export type ReconciliationInvariantDefinition = {
   invariantId: string;
   severity: ReconciliationSeverity;
   affectedEntityType: string;
@@ -58,7 +58,7 @@ type ReconciliationInvariantDefinition = {
   ) => Promise<ReconciliationQueryRow[]>;
 };
 
-type ReconciliationRunContext = {
+export type ReconciliationRunContext = {
   runAt: Date;
   businessDateStart: Date;
   businessDateEnd: Date;
@@ -218,23 +218,30 @@ async function executeReconciliationInvariants(
   tx: ReconciliationTx,
   context: ReconciliationRunContext
 ): Promise<InvariantViolation[]> {
+  const { INVARIANT_CATALOG } = await import(
+    "@/modules/financial/invariant-catalog"
+  );
   const detectedAt = context.runAt;
   const violations: InvariantViolation[] = [];
 
-  for (const invariant of RECONCILIATION_INVARIANTS) {
-    const rows = await invariant.run(tx, context);
+  for (const invariant of INVARIANT_CATALOG) {
+    if (!invariant.reconciliation) {
+      continue;
+    }
+
+    const rows = (await invariant.run(tx, context)) as ReconciliationQueryRow[];
     for (const row of rows) {
       violations.push({
-        invariantId: invariant.invariantId,
-        severity: invariant.severity,
-        affectedEntityType: invariant.affectedEntityType,
+        invariantId: invariant.id,
+        severity: invariant.reconciliation.severity,
+        affectedEntityType: invariant.reconciliation.affectedEntityType,
         affectedEntityIds:
           row.affected_entity_ids.length > 0
             ? row.affected_entity_ids
             : [row.entity_id],
-        description: `${invariant.description}: expected ${invariant.expected}; actual ${row.actual}.`,
+        description: `${invariant.description}: expected ${invariant.reconciliation.expected}; actual ${row.actual}.`,
         detectedAt,
-        queryContext: invariant.queryContext,
+        queryContext: invariant.reconciliation.queryContext,
       });
     }
   }
@@ -242,7 +249,7 @@ async function executeReconciliationInvariants(
   return violations;
 }
 
-const RECONCILIATION_INVARIANTS: ReconciliationInvariantDefinition[] = [
+export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefinition[] = [
   {
     invariantId: "INV-01",
     severity: "CRITICAL",

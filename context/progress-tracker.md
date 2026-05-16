@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 81e is complete: runtime and nightly reconciliation invariants are indexed through `INVARIANT_CATALOG`, reconciliation runs through the catalog, and `context/reviews/invariant-catalog.md` is generated from the registry.
 - Feature 81b is complete: the refund invoice primitive is private inside `refund.service.ts`, public callers use `issueRefundWithPayment`, and refund validation now names the composed refund-with-payment workflow.
 - Feature 81a is complete: the locked-edit dual-read comparison module and orphaned feature flag are removed, `syncOrderInvoiceForFinancialEdit()` runs the canonical classifier path directly, and Phase D warning-only regression coverage was deleted.
 - Feature 80c is complete: PostgreSQL triggers now reject PaymentAllocation over-collection and ADJUSTMENT-to-ADJUSTMENT invoice parent chains, with focused DB-constraint regression coverage.
@@ -25,6 +26,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 
 ## Key State
+- `src/modules/financial/invariant-catalog.ts` is the canonical owner-facing index for registered financial invariants; `npm run docs:generate` refreshes `context/reviews/invariant-catalog.md`.
 - Multi-package is now the only package model: `BookingPackage` and `OrderPackage` are the source of truth; the former singular booking/order package fields and `BookingSessionType` enum are gone.
 - Package-item upgrades are no longer overloaded into `OrderAddOn`: true add-ons reference `Product`, while package-item upgrades reference `PackageItem` snapshots through `OrderPackageItemUpgrade`.
 - Extra selected photos are stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, and emitted as per-line/per-media Final Invoice lines.
@@ -67,6 +69,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 81e: added the financial invariant catalog, wired nightly reconciliation to iterate cataloged reconciliation entries, generated the owner-facing invariant Markdown index, and added catalog uniqueness/callability/clean-db coverage.
 - Feature 81b: moved `createRefundInvoice` out of invoice-service exports into a private refund-service helper, routed action/tests through `issueRefundWithPayment`, and renamed refund validation to the composed workflow.
 - Feature 81a: deleted the dual-read warning path and orphaned feature flag, removed `financial.rearch.dual_read.discrepancy` runtime emission, kept locked-edit classifier behavior canonical, and removed warning-only Phase D assertions.
 - Feature 80c: added raw SQL triggers for PaymentAllocation over-collection and ADJUSTMENT-parent chaining, plus isolated-schema regression coverage for insert/update failures and service-level preflight errors.
