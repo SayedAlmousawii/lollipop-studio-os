@@ -34,7 +34,8 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
               package: { select: { name: true, durationMinutes: true } },
               sessionType: {
                 select: {
-                  code: true,
+                  calendarLabel: true,
+                  calendarColor: true,
                   department: { select: { code: true } },
                 },
               },
@@ -50,11 +51,14 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
 
   return rows.map((row) => {
     const firstLineSessionType = row.packages[0]?.sessionType;
-    const sessionType = mapCalendarSessionType({
-      sessionTypeCode: firstLineSessionType?.code,
+    const sessionType = resolveCalendarSessionType({
+      calendarLabel: firstLineSessionType?.calendarLabel,
       departmentCode: firstLineSessionType?.department.code ?? row.department.code,
     });
-    const colors = SESSION_TYPE_COLORS[sessionType];
+    const colors = resolveCalendarColors({
+      calendarLabel: sessionType,
+      calendarColor: firstLineSessionType?.calendarColor,
+    });
     const packageLinesDuration = row.packages.reduce(
       (total, line) => total + line.package.durationMinutes * line.quantity,
       0
@@ -94,35 +98,42 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
   });
 }
 
-export function mapCalendarSessionType(input: {
-  sessionTypeCode?: string | null;
+export function resolveCalendarSessionType(input: {
+  calendarLabel?: string | null;
   departmentCode?: string | null;
 }): CalendarSessionType {
-  const sessionTypeCode = normalizeTaxonomyCode(input.sessionTypeCode);
-  if (sessionTypeCode) {
-    const sessionBucket = CALENDAR_SESSION_TYPE_BY_CODE[sessionTypeCode];
-    if (sessionBucket) return sessionBucket;
+  const calendarLabel = input.calendarLabel?.trim();
+  if (calendarLabel) {
+    return calendarLabel;
   }
 
   const departmentCode = normalizeTaxonomyCode(input.departmentCode);
   if (departmentCode) {
-    return CALENDAR_SESSION_TYPE_BY_DEPARTMENT_CODE[departmentCode] ?? "Other";
+    return departmentCode;
   }
 
   return "Other";
+}
+
+export function resolveCalendarColors(input: {
+  calendarLabel: CalendarSessionType;
+  calendarColor?: string | null;
+}) {
+  const defaultColors =
+    SESSION_TYPE_COLORS[input.calendarLabel] ?? SESSION_TYPE_COLORS.Other;
+  const calendarColor = input.calendarColor?.trim();
+  if (!calendarColor || calendarColor === defaultColors.backgroundColor) {
+    return defaultColors;
+  }
+
+  return {
+    backgroundColor: calendarColor,
+    textColor: "var(--color-text-primary)",
+    borderColor: calendarColor,
+  };
 }
 
 function normalizeTaxonomyCode(code: string | null | undefined): string | null {
   const normalized = code?.trim().toUpperCase();
   return normalized ? normalized : null;
 }
-
-const CALENDAR_SESSION_TYPE_BY_CODE: Record<string, CalendarSessionType> = {
-  NB_NEWBORN: "Newborn",
-  KD_FAMILY: "Family",
-};
-
-const CALENDAR_SESSION_TYPE_BY_DEPARTMENT_CODE: Record<string, CalendarSessionType> = {
-  NB: "Newborn",
-  KD: "Kids",
-};

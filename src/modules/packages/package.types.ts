@@ -40,6 +40,7 @@ export interface PackageOption {
 export interface PackageFilters {
   departmentId?: string;
   sessionTypeId?: string;
+  activeTaxonomyOnly?: boolean;
 }
 
 export interface PackageTaxonomyOptions {

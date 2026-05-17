@@ -522,12 +522,14 @@ export async function makeAutoAdjustedBookingFixture(
       name: "Financial Fixture Session",
       departmentId: base.departmentId,
       isActive: true,
+      calendarLabel: "Financial",
     },
     create: {
       code: AUTO_ADJUSTED_FIXTURE_KEYS.sessionTypeCode,
       name: "Financial Fixture Session",
       departmentId: base.departmentId,
       isActive: true,
+      calendarLabel: "Financial",
     },
   });
   const packageFamily = await prisma.packageFamily.upsert({
@@ -955,12 +957,14 @@ export async function makeMixedEditBookingFixture(
       name: "Financial Mixed Edit Session",
       departmentId: base.departmentId,
       isActive: true,
+      calendarLabel: "Financial",
     },
     create: {
       code: MIXED_EDIT_FIXTURE_KEYS.sessionTypeCode,
       name: "Financial Mixed Edit Session",
       departmentId: base.departmentId,
       isActive: true,
+      calendarLabel: "Financial",
     },
   });
   const packageFamily = await prisma.packageFamily.upsert({

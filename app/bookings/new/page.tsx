@@ -20,7 +20,7 @@ export default async function NewBookingPage(props: PageProps<"/bookings/new">) 
   const [initialCustomer, allPackages, photographers, departments] =
     await Promise.all([
       getInitialCustomerPhone(requestedCustomerId),
-      getPackages(),
+      getPackages({ activeTaxonomyOnly: true }),
       getAssignablePhotographers(),
       getActiveStudioDepartments(),
     ]);

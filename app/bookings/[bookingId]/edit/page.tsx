@@ -16,7 +16,7 @@ export default async function EditBookingPage(
   const { bookingId } = await props.params;
   const bookingPromise = getEditableBookingById(bookingId);
   const customersPromise = getCustomers();
-  const packagesPromise = getPackages();
+  const packagesPromise = getPackages({ activeTaxonomyOnly: true });
   const photographersPromise = getAssignablePhotographers();
   const departmentsPromise = getActiveStudioDepartments();
 

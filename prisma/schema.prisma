@@ -228,13 +228,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedBookings     Booking[]             @relation("AssignedPhotographer")
-  assignedJobs         Job[]                 @relation("JobAssignedPhotographer")
-  assignedEditingJobs  EditingJob[]          @relation("AssignedEditor")
-  orderActivities      OrderActivity[]
-  auditLogs            AuditLog[]
-  deliveryCompletions  Order[]               @relation("DeliveryCompletedBy")
-  documentApplications DocumentApplication[]
+  assignedBookings           Booking[]                  @relation("AssignedPhotographer")
+  assignedJobs               Job[]                      @relation("JobAssignedPhotographer")
+  assignedEditingJobs        EditingJob[]               @relation("AssignedEditor")
+  orderActivities            OrderActivity[]
+  auditLogs                  AuditLog[]
+  deliveryCompletions        Order[]                    @relation("DeliveryCompletedBy")
+  documentApplications       DocumentApplication[]
   openedAdjustmentWorkspaces AdjustmentWorkspace[]      @relation("AdjustmentWorkspaceOpenedBy")
   ownedAdjustmentWorkspaces  AdjustmentWorkspace[]      @relation("AdjustmentWorkspaceCurrentOwner")
   adjustmentWorkspaceEvents  AdjustmentWorkspaceEvent[]
@@ -399,14 +399,16 @@ model StudioDepartment {
 }
 
 model SessionType {
-  id           String   @id @default(cuid())
-  code         String   @unique
-  name         String
-  departmentId String
-  isActive     Boolean  @default(true)
-  sortOrder    Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(cuid())
+  code          String   @unique
+  name          String
+  departmentId  String
+  isActive      Boolean  @default(true)
+  calendarLabel String
+  calendarColor String?
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   department        StudioDepartment               @relation(fields: [departmentId], references: [id])
   packageFamilies   PackageFamily[]
@@ -552,7 +554,7 @@ model Order {
   orderAddOns             OrderAddOn[]
   packageItemUpgrades     OrderPackageItemUpgrade[]
   packages                OrderPackage[]
-  adjustmentWorkspaces     AdjustmentWorkspace[]
+  adjustmentWorkspaces    AdjustmentWorkspace[]
   refundPending           Boolean                   @default(false) @map("refund_pending")
 
   @@index([jobNumber])
@@ -745,20 +747,20 @@ model Invoice {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  financialCase                FinancialCase         @relation(fields: [financialCaseId], references: [id])
-  job                          Job?                  @relation(fields: [jobId], references: [id])
-  order                        Order?                @relation(fields: [orderId], references: [id])
-  booking                      Booking?              @relation(fields: [bookingId], references: [id])
-  customer                     Customer              @relation(fields: [customerId], references: [id])
-  parentInvoice                Invoice?              @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
-  adjustments                  Invoice[]             @relation("InvoiceAdjustments")
-  payments                     Payment[]
-  lineItems                    InvoiceLineItem[]
-  lockSnapshots                InvoiceLockSnapshot[]
-  documentApplicationsAsSource DocumentApplication[] @relation("DocumentApplicationSource")
-  documentApplicationsAsTarget DocumentApplication[] @relation("DocumentApplicationTarget")
-  paymentAllocations           PaymentAllocation[]
-  adjustmentWorkspaces         AdjustmentWorkspace[] @relation("AdjustmentWorkspaceParentInvoice")
+  financialCase                 FinancialCase         @relation(fields: [financialCaseId], references: [id])
+  job                           Job?                  @relation(fields: [jobId], references: [id])
+  order                         Order?                @relation(fields: [orderId], references: [id])
+  booking                       Booking?              @relation(fields: [bookingId], references: [id])
+  customer                      Customer              @relation(fields: [customerId], references: [id])
+  parentInvoice                 Invoice?              @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
+  adjustments                   Invoice[]             @relation("InvoiceAdjustments")
+  payments                      Payment[]
+  lineItems                     InvoiceLineItem[]
+  lockSnapshots                 InvoiceLockSnapshot[]
+  documentApplicationsAsSource  DocumentApplication[] @relation("DocumentApplicationSource")
+  documentApplicationsAsTarget  DocumentApplication[] @relation("DocumentApplicationTarget")
+  paymentAllocations            PaymentAllocation[]
+  adjustmentWorkspaces          AdjustmentWorkspace[] @relation("AdjustmentWorkspaceParentInvoice")
   finalizedAdjustmentWorkspaces AdjustmentWorkspace[] @relation("AdjustmentWorkspaceFinalizedInvoice")
 
   @@unique([id, financialCaseId])
@@ -769,27 +771,27 @@ model Invoice {
 }
 
 model AdjustmentWorkspace {
-  id                            String                    @id @default(cuid())
-  invoiceId                     String                    @map("invoice_id")
-  orderId                       String                    @map("order_id")
-  status                        AdjustmentWorkspaceStatus @default(OPEN)
-  openedByUserId                String                    @map("opened_by_user_id")
-  openedAt                      DateTime                  @default(now()) @map("opened_at")
-  lastActivityAt                DateTime                  @default(now()) @map("last_activity_at")
-  currentOwnerUserId            String?                   @map("current_owner_user_id")
-  version                       Int                       @default(0)
-  baseSnapshotJson              Json                      @map("base_snapshot_json")
-  pendingChangesJson            Json                      @default("{\"edits\":[]}") @map("pending_changes_json")
-  finalizedAdjustmentInvoiceId  String?                   @map("finalized_adjustment_invoice_id")
-  cancelledReason               String?                   @map("cancelled_reason")
-  createdAt                     DateTime                  @default(now()) @map("created_at")
-  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+  id                           String                    @id @default(cuid())
+  invoiceId                    String                    @map("invoice_id")
+  orderId                      String                    @map("order_id")
+  status                       AdjustmentWorkspaceStatus @default(OPEN)
+  openedByUserId               String                    @map("opened_by_user_id")
+  openedAt                     DateTime                  @default(now()) @map("opened_at")
+  lastActivityAt               DateTime                  @default(now()) @map("last_activity_at")
+  currentOwnerUserId           String?                   @map("current_owner_user_id")
+  version                      Int                       @default(0)
+  baseSnapshotJson             Json                      @map("base_snapshot_json")
+  pendingChangesJson           Json                      @default("{\"edits\":[]}") @map("pending_changes_json")
+  finalizedAdjustmentInvoiceId String?                   @map("finalized_adjustment_invoice_id")
+  cancelledReason              String?                   @map("cancelled_reason")
+  createdAt                    DateTime                  @default(now()) @map("created_at")
+  updatedAt                    DateTime                  @updatedAt @map("updated_at")
 
-  invoice                    Invoice  @relation("AdjustmentWorkspaceParentInvoice", fields: [invoiceId], references: [id], onDelete: Cascade)
-  order                      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  openedByUser               User     @relation("AdjustmentWorkspaceOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
-  currentOwnerUser           User?    @relation("AdjustmentWorkspaceCurrentOwner", fields: [currentOwnerUserId], references: [id], onDelete: SetNull)
-  finalizedAdjustmentInvoice Invoice? @relation("AdjustmentWorkspaceFinalizedInvoice", fields: [finalizedAdjustmentInvoiceId], references: [id], onDelete: SetNull)
+  invoice                    Invoice                    @relation("AdjustmentWorkspaceParentInvoice", fields: [invoiceId], references: [id], onDelete: Cascade)
+  order                      Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  openedByUser               User                       @relation("AdjustmentWorkspaceOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  currentOwnerUser           User?                      @relation("AdjustmentWorkspaceCurrentOwner", fields: [currentOwnerUserId], references: [id], onDelete: SetNull)
+  finalizedAdjustmentInvoice Invoice?                   @relation("AdjustmentWorkspaceFinalizedInvoice", fields: [finalizedAdjustmentInvoiceId], references: [id], onDelete: SetNull)
   events                     AdjustmentWorkspaceEvent[]
 
   @@index([invoiceId, status])

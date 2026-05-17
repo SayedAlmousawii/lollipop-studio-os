@@ -22,6 +22,7 @@ export async function runPackageOptionsSmokeTest(): Promise<void> {
         code: `BT_REGULAR_${fixtureId}`,
         name: "Backend Test Session",
         departmentId: department.id,
+        calendarLabel: "Backend Test",
         isActive: true,
         sortOrder: 1,
       },

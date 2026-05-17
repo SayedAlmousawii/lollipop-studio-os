@@ -69,6 +69,7 @@ async function createSelectedPhotoFixture(
       code: `SPA_SESSION_${fixtureId}`,
       name: "Selected Photo Session",
       departmentId: department.id,
+      calendarLabel: "Selected Photo",
       isActive: true,
       sortOrder: 1,
     },

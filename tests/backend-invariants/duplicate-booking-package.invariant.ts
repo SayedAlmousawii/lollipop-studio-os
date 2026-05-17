@@ -54,9 +54,15 @@ async function createDuplicateBookingPackageFixture(
     [departmentId, `DBP_${fixtureId}`, "Duplicate Booking Package Test"]
   );
   await client.query(
-    `INSERT INTO ${schema}."session_types" ("id", "code", "name", "departmentId", "isActive", "sortOrder", "updatedAt")
-     VALUES ($1, $2, $3, $4, true, 1, now())`,
-    [sessionTypeId, `DBP_SESSION_${fixtureId}`, "Duplicate Booking Package Session", departmentId]
+    `INSERT INTO ${schema}."session_types" ("id", "code", "name", "departmentId", "calendarLabel", "isActive", "sortOrder", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, true, 1, now())`,
+    [
+      sessionTypeId,
+      `DBP_SESSION_${fixtureId}`,
+      "Duplicate Booking Package Session",
+      departmentId,
+      "Duplicate Booking Package Session",
+    ]
   );
   await client.query(
     `INSERT INTO ${schema}."package_families" ("id", "code", "name", "sessionTypeId", "isActive", "sortOrder", "updatedAt")

@@ -1,4 +1,4 @@
-import { mapCalendarSessionType } from "@/modules/calendar/calendar.service";
+import { resolveCalendarSessionType } from "@/modules/calendar/calendar.service";
 
 function assertEqual(actual: unknown, expected: unknown, message: string) {
   if (actual !== expected) {
@@ -8,8 +8,8 @@ function assertEqual(actual: unknown, expected: unknown, message: string) {
 
 export async function runCalendarSessionTypeDisplayInvariantTest() {
   assertEqual(
-    mapCalendarSessionType({
-      sessionTypeCode: "NB_NEWBORN",
+    resolveCalendarSessionType({
+      calendarLabel: "Newborn",
       departmentCode: "NB",
     }),
     "Newborn",
@@ -17,8 +17,8 @@ export async function runCalendarSessionTypeDisplayInvariantTest() {
   );
 
   assertEqual(
-    mapCalendarSessionType({
-      sessionTypeCode: "KD_FAMILY",
+    resolveCalendarSessionType({
+      calendarLabel: "Family",
       departmentCode: "KD",
     }),
     "Family",
@@ -26,8 +26,8 @@ export async function runCalendarSessionTypeDisplayInvariantTest() {
   );
 
   assertEqual(
-    mapCalendarSessionType({
-      sessionTypeCode: "KD_SCHOOL",
+    resolveCalendarSessionType({
+      calendarLabel: "Kids",
       departmentCode: "KD",
     }),
     "Kids",
@@ -35,17 +35,17 @@ export async function runCalendarSessionTypeDisplayInvariantTest() {
   );
 
   assertEqual(
-    mapCalendarSessionType({
-      sessionTypeCode: "UNMAPPED",
-      departmentCode: "NB",
+    resolveCalendarSessionType({
+      calendarLabel: null,
+      departmentCode: "LEGACY",
     }),
-    "Newborn",
-    "New Newborn department session type codes should bucket as Newborn"
+    "LEGACY",
+    "Missing calendar label should fall back to department code"
   );
 
   assertEqual(
-    mapCalendarSessionType({
-      sessionTypeCode: null,
+    resolveCalendarSessionType({
+      calendarLabel: null,
       departmentCode: null,
     }),
     "Other",

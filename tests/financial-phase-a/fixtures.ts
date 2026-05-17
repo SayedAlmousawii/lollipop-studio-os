@@ -92,6 +92,7 @@ export async function seedPhaseAFinancialFixtures(
       code: "PHASE_A_SESSION",
       name: "Phase A Session",
       departmentId: department.id,
+      calendarLabel: "Phase A",
     },
   });
 

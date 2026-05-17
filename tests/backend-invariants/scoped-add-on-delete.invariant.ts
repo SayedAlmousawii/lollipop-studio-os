@@ -77,9 +77,15 @@ async function createScopedAddOnFixture(
     [departmentId, `SAD_${fixtureId}`, "Scoped Add-On Delete Test"]
   );
   await client.query(
-    `INSERT INTO ${schema}."session_types" ("id", "code", "name", "departmentId", "isActive", "sortOrder", "updatedAt")
-     VALUES ($1, $2, $3, $4, true, 1, now())`,
-    [sessionTypeId, `SAD_SESSION_${fixtureId}`, "Scoped Add-On Session", departmentId]
+    `INSERT INTO ${schema}."session_types" ("id", "code", "name", "departmentId", "calendarLabel", "isActive", "sortOrder", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, true, 1, now())`,
+    [
+      sessionTypeId,
+      `SAD_SESSION_${fixtureId}`,
+      "Scoped Add-On Session",
+      departmentId,
+      "Scoped Add-On Session",
+    ]
   );
   await client.query(
     `INSERT INTO ${schema}."package_families" ("id", "code", "name", "sessionTypeId", "isActive", "sortOrder", "updatedAt")

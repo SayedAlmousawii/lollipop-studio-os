@@ -147,6 +147,7 @@ async function createOrderFixture(
       code: `INV_SESSION_${fixtureId}`,
       name: `Invoice Test Session ${input.label}`,
       departmentId: department.id,
+      calendarLabel: "Invoice Test",
       isActive: true,
       sortOrder: 1,
     },
