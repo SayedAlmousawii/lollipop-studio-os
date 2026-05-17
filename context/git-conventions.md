@@ -46,28 +46,9 @@ docs: update auth review to reflect resolved permission gaps
 
 ---
 
-## PR Title Format
+## Commit & Push Flow
 
-PR titles follow the same `<type>: <summary>` format as commit headlines.
-
-- **Never use a branch name as the PR title** (e.g. `51b-auth-hardening` is wrong)
-- **Never use vague titles** (`updated docs`, `fixes`)
-- Group commits by feature, not by arbitrary batches — avoid spanning more than 2-3 related features per PR
-
-### Examples
-```
-feat: add permission and audit actor foundation (Feature 51)
-fix: normalize seeded Clerk test emails
-perf: skip Clerk API call on every page load for linked users
-```
-
----
-
-## Branch → PR → Merge Flow
-
-- AI commits, pushes, and opens the PR with a proper title and description
-- User reviews and merges manually on GitHub — AI never merges
-- PRs target `development`
+- AI commits and pushes directly to the `development` branch — no feature branches, no PRs
 - User periodically merges `development` → `main` on GitHub to mark stable milestones
 - AI never pushes directly to `main`
 
