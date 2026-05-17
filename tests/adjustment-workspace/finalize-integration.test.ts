@@ -185,6 +185,107 @@ test("finalizeWorkspace emits ADJ lines for each new 83a edit op", async () => {
           causeOrderEntityKind: OrderEntityKind.EXTRA_PHOTO,
         },
       ]);
+
+      const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+        db,
+        fixtures,
+        "83c-derived-pos"
+      );
+      const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+      const packageItemId = await firstPackageItemId(db, fixtures.basePackageId);
+      const workspace = await services.openWorkspace(
+        workflow.finalInvoiceId,
+        fixtures.adminActor
+      );
+      let version = 0;
+      for (const edit of [
+        {
+          id: "83c-tier",
+          op: "change_package_tier",
+          orderPackageId,
+          toPackageRefId: fixtures.upgradePackageId,
+        },
+        {
+          id: "83c-photos",
+          op: "change_selected_photo_count",
+          orderPackageId,
+          selectedPhotoCount: 17,
+          extraDigitalCount: 2,
+          extraPrintCount: 0,
+        },
+        {
+          id: "83c-addon",
+          op: "add_line",
+          kind: "addon",
+          refId: fixtures.addOnProductId,
+          quantity: 1,
+        },
+      ] satisfies AdjustmentWorkspaceEdit[]) {
+        const view = await services.applyEdit(
+          workspace.id,
+          { version, edit },
+          fixtures.adminActor
+        );
+        version = view.version;
+      }
+
+      const derived = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+        workspace.id
+      );
+      assert.ok(derived);
+      assert.equal(derived.invoice?.isLocked, true);
+      assert.equal(
+        derived.packageLines[0]?.currentPackage.id,
+        fixtures.upgradePackageId
+      );
+      assert.equal(derived.packageLines[0]?.selectedPhotoCount, 17);
+      assert.equal(derived.packageLines[0]?.extraDigitalCount, 2);
+      assert.equal(
+        derived.addOns.some((addOn) => addOn.productId === fixtures.addOnProductId),
+        true
+      );
+
+      const upgradeWorkspace = await services.openWorkspace(
+        (
+          await buildLockedFinalInvoiceWorkflowFixture(
+            db,
+            fixtures,
+            "83c-derived-item"
+          )
+        ).finalInvoiceId,
+        fixtures.adminActor
+      );
+      await services.applyEdit(
+        upgradeWorkspace.id,
+        {
+          version: 0,
+          edit: {
+            id: "83c-upgrade-item",
+            op: "upgrade_package_item",
+            orderPackageId: await firstOrderPackageId(
+              db,
+              (
+                await db.adjustmentWorkspace.findUniqueOrThrow({
+                  where: { id: upgradeWorkspace.id },
+                  select: { orderId: true },
+                })
+              ).orderId
+            ),
+            packageItemId,
+            toProductId: upgradeProductId,
+            quantity: 1,
+          },
+        },
+        fixtures.adminActor
+      );
+      const upgradedDerived =
+        await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+          upgradeWorkspace.id
+        );
+      assert.equal(
+        upgradedDerived?.packageLines[0]?.packageItems[0]?.productId,
+        upgradeProductId
+      );
     } finally {
       process.env.DATABASE_URL = previousDatabaseUrl;
     }

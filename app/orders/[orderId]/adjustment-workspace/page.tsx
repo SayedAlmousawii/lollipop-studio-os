@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, CheckCircle2, CircleAlert, Minus, Plus, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleAlert, RotateCcw, X } from "lucide-react";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreditNoteApprovalForm } from "@/components/orders/credit-note-approval-fields";
+import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import {
-  getAdjustmentWorkspaceCatalog,
+  POSPackageComposition,
+  POSPhotoCountCard,
+} from "@/components/orders/pos-package-composition";
+import {
+  derivePOSWorkspaceFromAdjustmentWorkspace,
   getAdjustmentWorkspaceView,
   getOpenWorkspaceForOrder,
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
@@ -15,14 +20,20 @@ import type {
   AdjustmentCompositionLine,
   AdjustmentWorkspaceView,
 } from "@/modules/adjustment-workspace/adjustment-workspace.types";
+import type {
+  POSAddOnHandlers,
+  POSCompositionHandlers,
+} from "@/modules/orders/pos-handlers.types";
 import {
-  addWorkspaceLineAction,
   cancelAdjustmentWorkspaceAction,
   finalizeAdjustmentWorkspaceAction,
-  modifyWorkspaceLineQuantityAction,
   removeWorkspaceEditAction,
-  removeWorkspaceLineAction,
-  swapWorkspacePackageAction,
+  stageMarketplaceAddOnAction,
+  stageMarketplaceAddOnQuantityAction,
+  stageMarketplaceAddOnRemovalAction,
+  stagePackageItemUpgradeAction,
+  stagePackageTierChangeAction,
+  stageSelectedPhotoCountChangeAction,
   takeOverAdjustmentWorkspaceAction,
 } from "./actions";
 
@@ -36,15 +47,25 @@ export default async function AdjustmentWorkspacePage(
   ]);
   if (!openWorkspace) redirect(`/orders/${orderId}/sales`);
 
-  const [workspace, catalog] = await Promise.all([
+  const [workspace, derivedPOSWorkspace] = await Promise.all([
     getAdjustmentWorkspaceView(openWorkspace.id),
-    getAdjustmentWorkspaceCatalog(),
+    derivePOSWorkspaceFromAdjustmentWorkspace(openWorkspace.id),
   ]);
-  if (!workspace) notFound();
+  if (!workspace || !derivedPOSWorkspace) notFound();
 
   const isManager = appUser.role === "ADMIN" || appUser.role === "MANAGER";
   const isOwner = workspace.currentOwnerUserId === appUser.id;
   const canEdit = isOwner || isManager;
+  const compositionHandlers = createWorkspaceCompositionHandlers(
+    orderId,
+    workspace.id,
+    workspace.version
+  );
+  const addOnHandlers = createWorkspaceAddOnHandlers(
+    orderId,
+    workspace.id,
+    workspace.version
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -109,32 +130,20 @@ export default async function AdjustmentWorkspacePage(
             lines={workspace.baseSnapshot.lines}
             subdued
           />
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Working Composition</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <CompositionRows
-                workspace={workspace}
-                lines={workspace.proposal.proposed.lines}
-                canEdit={canEdit}
-              />
-              <div className="border-t border-border pt-4">
-                <AddLineForm
-                  workspace={workspace}
-                  products={catalog.products}
-                  disabled={!canEdit}
-                />
-              </div>
-              <div className="border-t border-border pt-4">
-                <SwapPackageForm
-                  workspace={workspace}
-                  packages={catalog.packages}
-                  disabled={!canEdit}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          <section className="space-y-5">
+            <POSPackageComposition
+              workspace={derivedPOSWorkspace}
+              handlers={compositionHandlers}
+            />
+            <POSPhotoCountCard
+              workspace={derivedPOSWorkspace}
+              handlers={compositionHandlers}
+            />
+            <POSAddOnMarketplace
+              workspace={derivedPOSWorkspace}
+              handlers={addOnHandlers}
+            />
+          </section>
         </div>
 
         <Card>
@@ -203,6 +212,99 @@ export default async function AdjustmentWorkspacePage(
   );
 }
 
+function createWorkspaceCompositionHandlers(
+  orderId: string,
+  workspaceId: string,
+  version: number
+): POSCompositionHandlers {
+  async function changePackageTier(input: {
+    orderPackageId: string;
+    toPackageRefId: string;
+  }) {
+    "use server";
+
+    return stagePackageTierChangeAction(orderId, workspaceId, {
+      version,
+      ...input,
+    });
+  }
+
+  async function upgradePackageItem(input: {
+    orderPackageId: string;
+    packageItemId: string;
+    toProductId: string;
+    quantity: number;
+  }) {
+    "use server";
+
+    return stagePackageItemUpgradeAction(orderId, workspaceId, {
+      version,
+      ...input,
+    });
+  }
+
+  async function changeSelectedPhotoCount(input: {
+    orderPackageId: string;
+    selectedPhotoCount: number;
+    extraDigitalCount: number;
+    extraPrintCount: number;
+  }) {
+    "use server";
+
+    return stageSelectedPhotoCountChangeAction(orderId, workspaceId, {
+      version,
+      ...input,
+    });
+  }
+
+  return {
+    changePackageTier,
+    upgradePackageItem,
+    changeSelectedPhotoCount,
+    shouldPromptInlineApproval: false,
+  };
+}
+
+function createWorkspaceAddOnHandlers(
+  orderId: string,
+  workspaceId: string,
+  version: number
+): POSAddOnHandlers {
+  async function addAddOn(input: { productId: string; quantity: number }) {
+    "use server";
+
+    return stageMarketplaceAddOnAction(orderId, workspaceId, {
+      version,
+      ...input,
+    });
+  }
+
+  async function removeAddOn(input: { addOnId: string }) {
+    "use server";
+
+    return stageMarketplaceAddOnRemovalAction(orderId, workspaceId, {
+      version,
+      ...input,
+    });
+  }
+
+  async function changeAddOnQuantity(input: { addOnId: string; quantity: number }) {
+    "use server";
+
+    return stageMarketplaceAddOnQuantityAction(orderId, workspaceId, {
+      version,
+      ...input,
+    });
+  }
+
+  return {
+    addAddOn,
+    removeAddOn,
+    changeAddOnQuantity,
+    shouldPromptInlineApproval: false,
+  };
+}
+
 function CompositionPanel({
   title,
   lines,
@@ -228,72 +330,6 @@ function CompositionPanel({
   );
 }
 
-function CompositionRows({
-  workspace,
-  lines,
-  canEdit,
-}: {
-  workspace: AdjustmentWorkspaceView;
-  lines: AdjustmentCompositionLine[];
-  canEdit: boolean;
-}) {
-  return (
-    <div className="space-y-2">
-      {lines.map((line) => (
-        <div
-          key={line.lineId}
-          className="grid gap-3 rounded-md border border-border bg-surface-soft p-3 md:grid-cols-[1fr_auto_auto]"
-        >
-          <LineReadout line={line} />
-          {canEdit ? (
-            <form
-              action={modifyWorkspaceLineQuantityAction.bind(
-                null,
-                workspace.orderId,
-                workspace.id
-              )}
-              className="flex items-center gap-2"
-            >
-              <input type="hidden" name="version" value={workspace.version} />
-              <input type="hidden" name="targetLineId" value={line.lineId} />
-              <label className="sr-only" htmlFor={`qty-${line.lineId}`}>
-                Quantity
-              </label>
-              <input
-                id={`qty-${line.lineId}`}
-                name="newQuantity"
-                type="number"
-                min="0"
-                defaultValue={line.quantity}
-                className="h-9 w-20 rounded-md border border-border bg-surface px-3 text-sm"
-              />
-              <Button type="submit" size="sm" variant="outline">
-                Update
-              </Button>
-            </form>
-          ) : null}
-          {canEdit ? (
-            <form
-              action={removeWorkspaceLineAction.bind(
-                null,
-                workspace.orderId,
-                workspace.id
-              )}
-            >
-              <input type="hidden" name="version" value={workspace.version} />
-              <input type="hidden" name="targetLineId" value={line.lineId} />
-              <Button type="submit" size="sm" variant="outline">
-                <Minus className="h-4 w-4" />
-                <span className="sr-only">Remove line</span>
-              </Button>
-            </form>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function LineReadout({ line }: { line: AdjustmentCompositionLine }) {
   return (
     <div className="min-w-0">
@@ -307,126 +343,6 @@ function LineReadout({ line }: { line: AdjustmentCompositionLine }) {
         {line.quantity} × {line.unitPrice} KD · {line.lineTotalNet} KD
       </p>
     </div>
-  );
-}
-
-function AddLineForm({
-  workspace,
-  products,
-  disabled,
-}: {
-  workspace: AdjustmentWorkspaceView;
-  products: Array<{
-    id: string;
-    name: string;
-    priceLabel: string;
-    isAddOn: boolean;
-  }>;
-  disabled: boolean;
-}) {
-  return (
-    <form
-      action={addWorkspaceLineAction.bind(null, workspace.orderId, workspace.id)}
-      className="flex flex-wrap items-end gap-3"
-    >
-      <input type="hidden" name="version" value={workspace.version} />
-      <div className="space-y-1">
-        <label className="text-xs text-text-muted" htmlFor="workspace-line-kind">
-          Type
-        </label>
-        <select
-          id="workspace-line-kind"
-          name="kind"
-          className="h-10 rounded-md border border-border bg-surface px-3 text-sm"
-          disabled={disabled}
-          defaultValue="addon"
-        >
-          <option value="addon">Add-on</option>
-          <option value="item">Item</option>
-        </select>
-      </div>
-      <div className="min-w-64 flex-1 space-y-1">
-        <label className="text-xs text-text-muted" htmlFor="workspace-ref-id">
-          Catalog item
-        </label>
-        <select
-          id="workspace-ref-id"
-          name="refId"
-          className="h-10 w-full rounded-md border border-border bg-surface px-3 text-sm"
-          disabled={disabled}
-        >
-          {products.map((product) => (
-            <option key={product.id} value={product.id}>
-              {product.name} · {product.priceLabel}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="space-y-1">
-        <label className="text-xs text-text-muted" htmlFor="workspace-quantity">
-          Qty
-        </label>
-        <input
-          id="workspace-quantity"
-          name="quantity"
-          type="number"
-          min="1"
-          defaultValue="1"
-          className="h-10 w-20 rounded-md border border-border bg-surface px-3 text-sm"
-          disabled={disabled}
-        />
-      </div>
-      <Button type="submit" disabled={disabled || products.length === 0}>
-        <Plus className="mr-2 h-4 w-4" />
-        Add
-      </Button>
-    </form>
-  );
-}
-
-function SwapPackageForm({
-  workspace,
-  packages,
-  disabled,
-}: {
-  workspace: AdjustmentWorkspaceView;
-  packages: Array<{ id: string; name: string; priceLabel: string }>;
-  disabled: boolean;
-}) {
-  const packageLine = workspace.proposal.proposed.lines.find(
-    (line) => line.kind === "package"
-  );
-  if (!packageLine) return null;
-
-  return (
-    <form
-      action={swapWorkspacePackageAction.bind(null, workspace.orderId, workspace.id)}
-      className="flex flex-wrap items-end gap-3"
-    >
-      <input type="hidden" name="version" value={workspace.version} />
-      <input type="hidden" name="fromPackageRefId" value={packageLine.refId} />
-      <div className="min-w-64 flex-1 space-y-1">
-        <label className="text-xs text-text-muted" htmlFor="workspace-package-swap">
-          Swap package
-        </label>
-        <select
-          id="workspace-package-swap"
-          name="toPackageRefId"
-          className="h-10 w-full rounded-md border border-border bg-surface px-3 text-sm"
-          disabled={disabled}
-          defaultValue={packageLine.refId}
-        >
-          {packages.map((packageRow) => (
-            <option key={packageRow.id} value={packageRow.id}>
-              {packageRow.name} · {packageRow.priceLabel}
-            </option>
-          ))}
-        </select>
-      </div>
-      <Button type="submit" variant="outline" disabled={disabled || packages.length === 0}>
-        Swap
-      </Button>
-    </form>
   );
 }
 

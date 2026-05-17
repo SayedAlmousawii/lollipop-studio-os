@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 83c is complete: AdjustmentWorkspace derives a POS-shaped staged read model, mounts the shared POS composition/photo/add-on modules, routes module handlers to staged edits with inline approval disabled, and records per-op staged counters.
 - Feature 83b is complete with review cleanup: POS package composition, selected-photo counts, and add-on marketplace use typed handler props, sales adapters reject quantity drift where needed, and handler exceptions surface as inline form errors.
 - Backend invariant alignment for Feature 82 is complete: locked direct POS edits are asserted as rejected, Phase B/C/F invariant scenarios now stage post-lock edits through AdjustmentWorkspace, and negative ADJUSTMENT invoices are permitted for finalized net-reduction workspaces.
 - Feature 83a is complete with review cleanup: AdjustmentWorkspace pending edits accept package-tier changes, package item upgrades, and selected-photo count changes, with stage-to-finalize ADJ coverage and diff-against-base normalization preserved.
@@ -33,7 +34,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 
 ## Key State
-- Shared POS components that may mount in multiple persistence contexts use handler props from `src/modules/orders/pos-handlers.types.ts`; sales passes commit-through server-action adapters with inline reductive approval enabled, while staged surfaces can provide non-committing handlers later.
+- Shared POS components that may mount in multiple persistence contexts use handler props from `src/modules/orders/pos-handlers.types.ts`; sales passes commit-through server-action adapters with inline reductive approval enabled, while AdjustmentWorkspace passes staged-edit adapters with inline approval disabled and finalize-time approval preserved.
+- `derivePOSWorkspaceFromAdjustmentWorkspace()` is the canonical bridge for rendering staged post-lock edits through POS modules without mutating the locked invoice or reusing the sales commit-through orchestrator.
 - `src/modules/financial/invariant-catalog.ts` is the canonical owner-facing index for registered financial invariants; reconciliation definitions live in `src/modules/financial/reconciliation-invariants.ts`, and `npm run docs:generate` refreshes `context/reviews/invariant-catalog.md`.
 - Multi-package is now the only package model: `BookingPackage` and `OrderPackage` are the source of truth; the former singular booking/order package fields and `BookingSessionType` enum are gone.
 - Package-item upgrades are no longer overloaded into `OrderAddOn`: true add-ons reference `Product`, while package-item upgrades reference `PackageItem` snapshots through `OrderPackageItemUpgrade`.
@@ -79,6 +81,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 83c: mounted shared POS package composition, selected-photo, and add-on marketplace modules inside AdjustmentWorkspace, added staged handler adapters/new stage actions, added a POS-shaped derived workspace read model, emitted per-op staged metrics, and updated workspace architecture/UI docs.
 - Feature 83b: refactored POS package composition, selected-photo, and add-on marketplace controls behind typed handler contracts, kept sales page behavior on existing server actions, preserved inline reductive approval, and added handler-prop render/import regression coverage.
 - Feature 83a: extended the AdjustmentWorkspace edit DSL/parser/service for `change_package_tier`, `upgrade_package_item`, and `change_selected_photo_count`, captured extra-photo composition lines, mapped new deltas to ADJ line semantics, and added focused parser/compute/finalize regression coverage.
 - Feature 82: added AdjustmentWorkspace schema/events and refund-pending flag, staged post-lock edit services with optimistic versioning/takeover/cancel/finalize, effective composition folding, consolidated ADJUSTMENT emission with finalize-time approval, read-only locked sales gate plus dedicated workspace route, order-list workspace chip/filter, and net-delta regression tests.

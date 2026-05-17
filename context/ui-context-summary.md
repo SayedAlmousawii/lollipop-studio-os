@@ -90,7 +90,7 @@ Button, Input, Select, Textarea, DatePicker, Modal/Dialog, Card, Table, Badge, T
 - Calendar → day/week/month; color-coded by session type
 - Customer Profile → tabs: Overview, Children, Sessions, Invoices, Notes, History
 - Order Detail → sections: Customer, Booking, Package, Invoice, Selection, Editing, Production, Pickup, Audit Log
-- Locked Sales View → read-only effective composition with Open/Resume Adjustment Workspace CTA; workspace screen uses original vs working composition columns, pending diff, advisory chip, and finalize/cancel controls
+- Locked Sales View → read-only effective composition with Open/Resume Adjustment Workspace CTA; workspace screen keeps original-vs-working composition, pending diff, advisory chip, and finalize/cancel controls, while the working side mounts the shared POS package composition, selected-photo, and add-on marketplace modules
 - Queue pages → filterable tables (Editing, Production, Waiting Approval, Ready for Pickup)
 
 ---
