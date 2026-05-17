@@ -40,6 +40,8 @@ import {
 } from "@/modules/invoices/invoice.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { RecordPaymentInput } from "@/modules/payments/payment.schema";
+import { priceSelections } from "@/modules/session-configurations/session-configuration-pricing";
+import { pricedSessionConfigurationSelectionSelect } from "@/modules/session-configurations/session-configuration-resolver";
 import {
   computeOrderSettlementSummary,
   deriveSettlementPaidAmount,
@@ -372,6 +374,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                       },
                     },
                   },
+                  sessionConfigurationSelections: {
+                    select: pricedSessionConfigurationSelectionSelect,
+                  },
                 },
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
               },
@@ -502,6 +507,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
       0
     )
   );
+  const sessionConfigurationTotal = priceSelections(
+    order.packages.flatMap((line) => line.sessionConfigurationSelections)
+  ).totalDelta;
 
   const finalInvoice = order.invoices[0]
     ? mapPOSInvoiceSummary({
@@ -547,6 +555,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     extraPhotoTotal: extraPhotoTotalDecimal.toNumber(),
     addOns,
     addOnTotal: addOnTotal.toNumber(),
+    sessionConfigurationTotal: sessionConfigurationTotal.toNumber(),
     productOptions: productRows.map(mapPOSProductOption),
     addOnCatalog: addOnCatalogRows.map(mapPOSAddOnCatalogItem),
     invoice: finalInvoice,

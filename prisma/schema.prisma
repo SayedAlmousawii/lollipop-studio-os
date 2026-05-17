@@ -106,6 +106,7 @@ enum InvoiceLineType {
   EXTRA_PHOTOS
   MANUAL_DISCOUNT
   MANUAL_SURCHARGE
+  SESSION_CONFIGURATION
 }
 
 enum OrderEntityKind {
@@ -113,6 +114,7 @@ enum OrderEntityKind {
   UPGRADE
   EXTRA_PHOTO
   PACKAGE_TIER_UPGRADE
+  SESSION_CONFIGURATION_SELECTION
 }
 
 enum PaymentMethod {
