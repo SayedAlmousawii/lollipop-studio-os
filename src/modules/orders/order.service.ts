@@ -119,6 +119,7 @@ import type {
 export type { OrderSettlementSummary } from "./order.types";
 export {
   computeOrderSettlementSummary,
+  deriveLockedFinancialSidebarSummary,
   derivePaymentSummary,
   deriveSettlementPaidAmount,
 } from "./order-settlement";
@@ -562,11 +563,30 @@ export async function getLinkedFinancialDocumentsForOrder(
   orderId: string
 ): Promise<LinkedFinancialDocument[]> {
   const invoices = await withRetry(
-    () =>
-      db.invoice.findMany({
+    async () => {
+      const order = await db.order.findUnique({
+        where: { id: orderId },
+        select: {
+          bookingId: true,
+          booking: {
+            select: {
+              financialCase: { select: { id: true } },
+            },
+          },
+        },
+      });
+      if (!order) return [];
+
+      const financialCaseId = order.booking.financialCase?.id ?? null;
+
+      return db.invoice.findMany({
         where: {
-          orderId,
           invoiceType: { in: [...SALES_LINKED_FINANCIAL_DOCUMENT_TYPES] },
+          OR: [
+            { orderId },
+            { bookingId: order.bookingId },
+            ...(financialCaseId ? [{ financialCaseId }] : []),
+          ],
         },
         select: {
           id: true,
@@ -580,7 +600,8 @@ export async function getLinkedFinancialDocumentsForOrder(
           createdAt: true,
         },
         orderBy: [{ issuedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-      }),
+      });
+    },
     "Failed to fetch linked financial documents"
   );
 

@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Locked financial sidebar cleanup is complete: `order-settlement` now prepares the locked sidebar financial summary, deposit is a subtle included-payment note, Total Source explains only final invoice plus adjustments into customer total, and linked documents load booking/financial-case invoices so DEP documents appear with FINAL/ADJ docs.
 - Feature 84c is complete: the adjustment workspace now leads with Stage Edits, previews the proposed composition through CurrentCompositionCard, renders human-readable Pending Changes and Pending Adjustment Summary, and uses FinancialSidebarAdjustment for pending financial preview plus Finalize/Issue.
 - Feature 84b is complete: locked sales now shows CurrentCompositionCard on the left and a FinancialSidebarLocked payment/document/action workspace on the right, with pre-lock sales preserved through FinancialSidebarDraft.
 - Feature 84a is complete: core CompositionView normalizer and presentational current-composition card were implemented; consumer wiring migrated in subsequent features (84b/84c).

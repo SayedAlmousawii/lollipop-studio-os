@@ -22,7 +22,7 @@ import {
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { buildCompositionView } from "@/modules/composition-view/composition-view.model";
 import {
-  derivePaymentSummary,
+  deriveLockedFinancialSidebarSummary,
   getLinkedFinancialDocumentsForOrder,
   getPOSWorkspace,
 } from "@/modules/orders/order.service";
@@ -50,21 +50,23 @@ export default async function SalesPage(
       getOpenWorkspaceForInvoice(workspace.invoice.invoiceId),
       getLinkedFinancialDocumentsForOrder(workspace.orderId),
     ]);
-    const paymentSummary = derivePaymentSummary({
-      invoice: {
+    const finalizedAdjustments = linkedDocuments
+      .filter(
+        (document) =>
+          document.invoiceType === "ADJUSTMENT" &&
+          document.invoiceStatus !== "DRAFT"
+      )
+      .map((document) => ({
+        totalAmount: document.invoiceTotal,
+        remainingAmount: document.remainingAmount,
+      }));
+    const financialSummary = deriveLockedFinancialSidebarSummary({
+      finalInvoice: {
         totalAmount: workspace.invoice.invoiceTotal,
         remainingAmount: workspace.invoice.remainingAmount,
+        depositPaidAmount: workspace.invoice.depositPaidAmount,
       },
-      finalizedAdjustments: linkedDocuments
-        .filter(
-          (document) =>
-            document.invoiceType === "ADJUSTMENT" &&
-            document.invoiceStatus !== "DRAFT"
-        )
-        .map((document) => ({
-          totalAmount: document.invoiceTotal,
-          remainingAmount: document.remainingAmount,
-        })),
+      finalizedAdjustments,
       orderId: workspace.orderId,
     });
     console.info(
@@ -85,7 +87,7 @@ export default async function SalesPage(
         <FinancialSidebarLocked
           workspace={workspace}
           linkedDocuments={linkedDocuments}
-          paymentSummary={paymentSummary}
+          financialSummary={financialSummary}
           openWorkspace={openWorkspace}
           currentUserId={appUser.id}
           isManager={appUser.role === "ADMIN" || appUser.role === "MANAGER"}

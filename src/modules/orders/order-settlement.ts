@@ -95,6 +95,47 @@ export function derivePaymentSummary(input: {
   };
 }
 
+export function deriveLockedFinancialSidebarSummary(input: {
+  finalInvoice: {
+    totalAmount: Prisma.Decimal.Value;
+    remainingAmount: Prisma.Decimal.Value;
+    depositPaidAmount: Prisma.Decimal.Value;
+  };
+  finalizedAdjustments: Array<{
+    totalAmount: Prisma.Decimal.Value;
+    remainingAmount: Prisma.Decimal.Value;
+  }>;
+  orderId?: string;
+}): {
+  customerTotal: number;
+  paidSoFar: number;
+  includesDeposit: number;
+  remaining: number;
+  finalInvoiceTotal: number;
+  totalAdjustments: number;
+  finalTotal: number;
+} {
+  const paymentSummary = derivePaymentSummary({
+    invoice: input.finalInvoice,
+    finalizedAdjustments: input.finalizedAdjustments,
+    orderId: input.orderId,
+  });
+  const totalAdjustments = input.finalizedAdjustments.reduce(
+    (sum, adjustment) => sum.plus(adjustment.totalAmount),
+    zeroMoney()
+  );
+
+  return {
+    customerTotal: paymentSummary.effectiveTotal,
+    paidSoFar: paymentSummary.paid,
+    includesDeposit: new Prisma.Decimal(input.finalInvoice.depositPaidAmount).toNumber(),
+    remaining: paymentSummary.remaining,
+    finalInvoiceTotal: new Prisma.Decimal(input.finalInvoice.totalAmount).toNumber(),
+    totalAdjustments: totalAdjustments.toNumber(),
+    finalTotal: paymentSummary.effectiveTotal,
+  };
+}
+
 function isSettlementChargeInvoice(invoice: { invoiceType: InvoiceType }): boolean {
   return (
     invoice.invoiceType === InvoiceType.FINAL ||
