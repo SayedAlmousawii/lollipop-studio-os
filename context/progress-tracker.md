@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Backend invariant alignment for Feature 82 is complete: locked direct POS edits are asserted as rejected, Phase B/C/F invariant scenarios now stage post-lock edits through AdjustmentWorkspace, and negative ADJUSTMENT invoices are permitted for finalized net-reduction workspaces.
 - Feature 83a is complete with review cleanup: AdjustmentWorkspace pending edits accept package-tier changes, package item upgrades, and selected-photo count changes, with stage-to-finalize ADJ coverage and diff-against-base normalization preserved.
 - Feature 81f is complete: INV-18 now excludes only manual goodwill CREDIT_NOTE applications from revenue-composition comparison, preserves classifier/order-composition credits, and has a focused backfill script for the historical F6 row.
 - Feature 81c is complete: the order detail header, orders list, invoices list, and invoice detail summary now consume canonical settled/outstanding displays derived from invoice totals/remaining balances, credit notes, and refunds, so the legacy "Paid X of Y" overpayment shape is gone.

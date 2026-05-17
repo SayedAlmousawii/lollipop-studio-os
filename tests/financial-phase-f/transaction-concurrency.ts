@@ -11,9 +11,13 @@ import {
 } from "@prisma/client";
 import { computeEffectivePaidFromAllocations } from "@/modules/invoices/invoice.calculation";
 import {
-  addOrderProductAddOn,
   removeOrderAddOn,
 } from "@/modules/orders/order.service";
+import {
+  applyEdit,
+  finalizeWorkspace,
+  openWorkspace,
+} from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { recordPayment } from "@/modules/payments/payment.service";
 import { recordBookingDeposit } from "@/modules/bookings/booking.service";
 import { assertMoney } from "../financial-phase-b/assertions";
@@ -164,36 +168,57 @@ async function runConcurrentLockedPosAdditions(
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "con03");
 
-  await Promise.all([
-    addOrderProductAddOn(
-      workflow.orderId,
-      { productId: fixtures.addOnProductId },
-      fixtures.adminActor
-    ),
-    addOrderProductAddOn(
-      workflow.orderId,
-      { productId: fixtures.secondAddOnProductId },
-      fixtures.managerActor
-    ),
+  const openResults = await Promise.allSettled([
+    openWorkspace(workflow.finalInvoiceId, fixtures.adminActor),
+    openWorkspace(workflow.finalInvoiceId, fixtures.managerActor),
   ]);
+  assert.equal(countFulfilled(openResults), 2, "concurrent opens should converge");
+  const workspaceIds = openResults.map((result) =>
+    result.status === "fulfilled" ? result.value.id : ""
+  );
+  assert.equal(new Set(workspaceIds).size, 1, "only one open workspace is valid");
+
+  const workspaceId = workspaceIds[0] ?? assert.fail("missing workspace id");
+  let view = await applyEdit(
+    workspaceId,
+    {
+      version: 0,
+      edit: {
+        id: "con03-addon-a",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 1,
+      },
+    },
+    fixtures.adminActor
+  );
+  view = await applyEdit(
+    workspaceId,
+    {
+      version: view.version,
+      edit: {
+        id: "con03-addon-b",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.secondAddOnProductId,
+        quantity: 1,
+      },
+    },
+    fixtures.managerActor
+  );
+  await finalizeWorkspace(workspaceId, { version: view.version }, fixtures.adminActor);
 
   const adjustments = await db.invoice.findMany({
     where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT },
-    orderBy: { totalAmount: "asc" },
-    select: { parentInvoiceId: true, totalAmount: true, status: true },
+    include: { lineItems: true },
   });
 
-  assert.equal(adjustments.length, 2, "parallel locked-POS additions create two siblings");
-  assert.deepEqual(
-    adjustments.map((invoice) => invoice.parentInvoiceId),
-    [workflow.finalInvoiceId, workflow.finalInvoiceId]
-  );
-  assert.deepEqual(
-    adjustments.map((invoice) => invoice.status),
-    [InvoiceStatus.ISSUED, InvoiceStatus.ISSUED]
-  );
-  assertMoney(adjustments[0]?.totalAmount ?? new Prisma.Decimal(0), "30", "second add-on");
-  assertMoney(adjustments[1]?.totalAmount ?? new Prisma.Decimal(0), "50", "first add-on");
+  assert.equal(adjustments.length, 1, "workspace finalize creates one consolidated ADJ");
+  assert.equal(adjustments[0]?.parentInvoiceId, workflow.finalInvoiceId);
+  assert.equal(adjustments[0]?.status, InvoiceStatus.ISSUED);
+  assert.equal(adjustments[0]?.lineItems.length, 2);
+  assertMoney(adjustments[0]?.totalAmount ?? new Prisma.Decimal(0), "80", "combined add-ons");
 }
 
 async function runStaleCreditNoteApprovalRevalidatesAddOn(
@@ -215,14 +240,18 @@ async function runStaleCreditNoteApprovalRevalidatesAddOn(
     select: { id: true },
   });
 
-  await removeOrderAddOn(
-    workflow.orderId,
-    {
-      addOnId: staleAddOn.id,
-      managerApprovedReductionByUserId: fixtures.managerId,
-      managerApprovedReason: "Phase F first removal",
-    },
-    fixtures.managerActor
+  await assert.rejects(
+    () =>
+      removeOrderAddOn(
+        workflow.orderId,
+        {
+          addOnId: staleAddOn.id,
+          managerApprovedReductionByUserId: fixtures.managerId,
+          managerApprovedReason: "Phase F first removal",
+        },
+        fixtures.managerActor
+      ),
+    /Adjustment Workspace|Failed to remove order add-on/
   );
   const creditNotesBeforeStaleSubmit = await db.invoice.count({
     where: { orderId: workflow.orderId, invoiceType: InvoiceType.CREDIT_NOTE },
