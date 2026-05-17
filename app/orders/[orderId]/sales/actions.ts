@@ -27,15 +27,12 @@ import {
   upgradeOrderPackageItem,
 } from "@/modules/orders/order.service";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
+import type {
+  POSApprovalPayload,
+  POSMutationActionState,
+} from "@/modules/orders/pos-handlers.types";
 
-export type PendingCreditNoteApprovalPayload = {
-  reductions: Array<{ lineName: string; amount: string; reason: string }>;
-  adjustmentLines: Array<{
-    description: string;
-    quantity: number;
-    unitPrice: string;
-  }>;
-};
+export type PendingCreditNoteApprovalPayload = POSApprovalPayload;
 
 export type ReductiveEditAction =
   | "update-package"
@@ -43,11 +40,7 @@ export type ReductiveEditAction =
   | "remove-add-on"
   | "update-selected-photo-count";
 
-export type POSCompositionActionState = {
-  kind?: "approval-required" | "success" | "error";
-  errors?: Partial<Record<string, string[]>>;
-  payload?: PendingCreditNoteApprovalPayload;
-};
+export type POSCompositionActionState = POSMutationActionState;
 
 export type POSRecordPaymentActionState = {
   errors?: Partial<Record<string, string[]>>;

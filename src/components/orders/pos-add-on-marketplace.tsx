@@ -4,11 +4,6 @@ import { useMemo, useState } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { Lock, PackagePlus, Plus, Trash2 } from "lucide-react";
-import {
-  addOrderProductAddOnAction,
-  removeOrderAddOnAction,
-  type POSCompositionActionState,
-} from "@/app/orders/[orderId]/sales/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +31,11 @@ import type {
   POSProductOption,
   POSWorkspace,
 } from "@/modules/orders/order.types";
+import type {
+  HandlerResult,
+  POSAddOnHandlers,
+  POSMutationActionState,
+} from "@/modules/orders/pos-handlers.types";
 
 const QUICK_ACTIONS: Array<{ label: string; category: string }> = [
   { label: "Add Album", category: "ALBUM" },
@@ -46,9 +46,13 @@ const QUICK_ACTIONS: Array<{ label: string; category: string }> = [
 
 interface POSAddOnMarketplaceProps {
   workspace: POSWorkspace;
+  handlers: POSAddOnHandlers;
 }
 
-export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
+export function POSAddOnMarketplace({
+  workspace,
+  handlers,
+}: POSAddOnMarketplaceProps) {
   const locked = workspace.invoice?.isLocked ?? false;
   const addedProductIds = new Set(
     workspace.addOns.flatMap((addOn) => (addOn.productId ? [addOn.productId] : []))
@@ -77,10 +81,10 @@ export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
             {QUICK_ACTIONS.map((action) => (
               <QuickAddDialog
                 key={action.category}
-                orderId={workspace.orderId}
                 label={action.label}
                 category={action.category}
                 options={workspace.productOptions}
+                handlers={handlers}
               />
             ))}
           </div>
@@ -106,6 +110,7 @@ export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
                   addOn={workspace.addOns.find((current) => current.productId === item.id)}
                   added={addedProductIds.has(item.id)}
                   count={addOnCountsByProductId.get(item.id) ?? 0}
+                  handlers={handlers}
                 />
               ))}
             </div>
@@ -118,6 +123,7 @@ export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
           <CurrentAddOns
             orderId={workspace.orderId}
             addOns={workspace.addOns}
+            handlers={handlers}
           />
         </CardContent>
       </Card>
@@ -126,24 +132,27 @@ export function POSAddOnMarketplace({ workspace }: POSAddOnMarketplaceProps) {
 }
 
 function QuickAddDialog({
-  orderId,
   label,
   category,
   options,
+  handlers,
 }: {
-  orderId: string;
   label: string;
   category: string;
   options: POSProductOption[];
+  handlers: POSAddOnHandlers;
 }) {
   const categoryOptions = useMemo(
     () => options.filter((option) => option.category === category),
     [category, options]
   );
   const [selectedProductId, setSelectedProductId] = useState(categoryOptions[0]?.id ?? "");
-  const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
-    addOrderProductAddOnAction.bind(null, orderId),
-    {}
+  const [state, formAction] = useHandlerAction(
+    handlers.addAddOn,
+    (formData) => ({
+      productId: formDataString(formData, "productId"),
+      quantity: 1,
+    })
   );
   const disabled = categoryOptions.length === 0;
 
@@ -196,20 +205,27 @@ function CatalogCard({
   addOn,
   added,
   count,
+  handlers,
 }: {
   orderId: string;
   item: POSAddOnCatalogItem;
   addOn?: POSAddOn;
   added: boolean;
   count: number;
+  handlers: POSAddOnHandlers;
 }) {
-  const [addState, addAction] = useActionState<POSCompositionActionState, FormData>(
-    addOrderProductAddOnAction.bind(null, orderId),
-    {}
+  const [addState, addAction] = useHandlerAction(
+    handlers.addAddOn,
+    (formData) => ({
+      productId: formDataString(formData, "productId"),
+      quantity: 1,
+    })
   );
-  const [removeState, removeAction] = useActionState<POSCompositionActionState, FormData>(
-    removeOrderAddOnAction.bind(null, orderId),
-    {}
+  const [removeState, removeAction] = useHandlerAction(
+    handlers.removeAddOn,
+    (formData) => ({
+      addOnId: formDataString(formData, "addOnId"),
+    })
   );
 
   return (
@@ -239,12 +255,14 @@ function CatalogCard({
               <SubmitButton label="Remove One" variant="ghost" icon="trash" />
               <GlobalError messages={removeState.errors?._global} />
             </form>
-            <ReductiveEditApprovalModal
-              orderId={orderId}
-              action="remove-add-on"
-              approval={removeState.payload}
-              hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
-            />
+            {handlers.shouldPromptInlineApproval ? (
+              <ReductiveEditApprovalModal
+                orderId={orderId}
+                action="remove-add-on"
+                approval={removeState.payload}
+                hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
+              />
+            ) : null}
           </>
         ) : null}
       </div>
@@ -255,9 +273,11 @@ function CatalogCard({
 function CurrentAddOns({
   orderId,
   addOns,
+  handlers,
 }: {
   orderId: string;
   addOns: POSAddOn[];
+  handlers: POSAddOnHandlers;
 }) {
   return (
     <div className="space-y-3 border-t border-border pt-4">
@@ -269,6 +289,7 @@ function CurrentAddOns({
               key={addOn.id}
               orderId={orderId}
               addOn={addOn}
+              handlers={handlers}
             />
           ))}
         </div>
@@ -284,13 +305,17 @@ function CurrentAddOns({
 function CurrentAddOnRow({
   orderId,
   addOn,
+  handlers,
 }: {
   orderId: string;
   addOn: POSAddOn;
+  handlers: POSAddOnHandlers;
 }) {
-  const [state, formAction] = useActionState<POSCompositionActionState, FormData>(
-    removeOrderAddOnAction.bind(null, orderId),
-    {}
+  const [state, formAction] = useHandlerAction(
+    handlers.removeAddOn,
+    (formData) => ({
+      addOnId: formDataString(formData, "addOnId"),
+    })
   );
 
   return (
@@ -305,15 +330,64 @@ function CurrentAddOnRow({
           <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
           <SubmitIconButton />
         </form>
-        <ReductiveEditApprovalModal
-          orderId={orderId}
-          action="remove-add-on"
-          approval={state.payload}
-          hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
-        />
+        {handlers.shouldPromptInlineApproval ? (
+          <ReductiveEditApprovalModal
+            orderId={orderId}
+            action="remove-add-on"
+            approval={state.payload}
+            hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
+          />
+        ) : null}
       </div>
     </div>
   );
+}
+
+function useHandlerAction<TInput>(
+  handler: (input: TInput) => Promise<HandlerResult>,
+  readInput: (formData: FormData) => TInput
+) {
+  return useActionState<POSMutationActionState, FormData>(
+    async (_previousState, formData) => {
+      try {
+        return actionStateFromHandlerResult(await handler(readInput(formData)));
+      } catch (error) {
+        return actionStateFromHandlerResult(handlerErrorResult(error));
+      }
+    },
+    {}
+  );
+}
+
+function actionStateFromHandlerResult(
+  result: HandlerResult
+): POSMutationActionState {
+  if (result.ok) {
+    return { kind: "success" };
+  }
+
+  if (result.approval) {
+    return {
+      kind: "approval-required",
+      errors: result.errors,
+      payload: result.approval,
+    };
+  }
+
+  return { kind: "error", errors: result.errors };
+}
+
+function handlerErrorResult(error: unknown): HandlerResult {
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message
+      : "Unable to save POS changes";
+  return { ok: false, errors: { _global: [message] } };
+}
+
+function formDataString(formData: FormData, field: string): string {
+  const value = formData.get(field);
+  return typeof value === "string" ? value : "";
 }
 
 function LockedNotice({ locked }: { locked: boolean }) {
