@@ -24,42 +24,44 @@ test("calendar seeded session labels and colors match the previous hardcoded buc
     return originalModuleLoad.call(this, request, parent, isMain);
   };
 
-  const {
-    resolveCalendarColors,
-    resolveCalendarSessionType,
-  } = await import("@/modules/calendar/calendar.service");
+  try {
+    const {
+      resolveCalendarColors,
+      resolveCalendarSessionType,
+    } = await import("@/modules/calendar/calendar.service");
 
-  const newborn = resolveCalendarSessionType({
-    calendarLabel: "Newborn",
-    departmentCode: "NB",
-  });
-  const kids = resolveCalendarSessionType({
-    calendarLabel: "Kids",
-    departmentCode: "KD",
-  });
-  const family = resolveCalendarSessionType({
-    calendarLabel: "Family",
-    departmentCode: "KD",
-  });
+    const newborn = resolveCalendarSessionType({
+      calendarLabel: "Newborn",
+      departmentCode: "NB",
+    });
+    const kids = resolveCalendarSessionType({
+      calendarLabel: "Kids",
+      departmentCode: "KD",
+    });
+    const family = resolveCalendarSessionType({
+      calendarLabel: "Family",
+      departmentCode: "KD",
+    });
 
-  assert.equal(newborn, "Newborn");
-  assert.equal(kids, "Kids");
-  assert.equal(family, "Family");
-  assert.deepEqual(resolveCalendarColors({ calendarLabel: newborn }), {
-    backgroundColor: "var(--color-accent-soft)",
-    textColor: "var(--color-accent)",
-    borderColor: "var(--color-accent-soft)",
-  });
-  assert.deepEqual(resolveCalendarColors({ calendarLabel: kids }), {
-    backgroundColor: "var(--color-info-soft)",
-    textColor: "var(--color-info)",
-    borderColor: "var(--color-info-soft)",
-  });
-  assert.deepEqual(resolveCalendarColors({ calendarLabel: family }), {
-    backgroundColor: "var(--color-success-soft)",
-    textColor: "var(--color-success)",
-    borderColor: "var(--color-success-soft)",
-  });
-
-  moduleWithLoader._load = originalModuleLoad;
+    assert.equal(newborn, "Newborn");
+    assert.equal(kids, "Kids");
+    assert.equal(family, "Family");
+    assert.deepEqual(resolveCalendarColors({ calendarLabel: newborn }), {
+      backgroundColor: "var(--color-accent-soft)",
+      textColor: "var(--color-accent)",
+      borderColor: "var(--color-accent-soft)",
+    });
+    assert.deepEqual(resolveCalendarColors({ calendarLabel: kids }), {
+      backgroundColor: "var(--color-info-soft)",
+      textColor: "var(--color-info)",
+      borderColor: "var(--color-info-soft)",
+    });
+    assert.deepEqual(resolveCalendarColors({ calendarLabel: family }), {
+      backgroundColor: "var(--color-success-soft)",
+      textColor: "var(--color-success)",
+      borderColor: "var(--color-success-soft)",
+    });
+  } finally {
+    moduleWithLoader._load = originalModuleLoad;
+  }
 });

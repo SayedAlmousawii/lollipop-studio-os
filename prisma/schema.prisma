@@ -416,7 +416,6 @@ model SessionType {
   bookingPackages   BookingPackage[]
   orderPackages     OrderPackage[]
 
-  @@unique([departmentId, name])
   @@index([departmentId, isActive, sortOrder])
   @@map("session_types")
 }

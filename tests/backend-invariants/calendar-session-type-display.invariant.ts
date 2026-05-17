@@ -36,11 +36,11 @@ export async function runCalendarSessionTypeDisplayInvariantTest() {
 
   assertEqual(
     resolveCalendarSessionType({
-      calendarLabel: "Newborn",
-      departmentCode: "NB",
+      calendarLabel: null,
+      departmentCode: "LEGACY",
     }),
-    "Newborn",
-    "New Newborn department session type codes should bucket as Newborn"
+    "LEGACY",
+    "Missing calendar label should fall back to department code"
   );
 
   assertEqual(

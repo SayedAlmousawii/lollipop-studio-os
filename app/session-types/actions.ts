@@ -177,6 +177,7 @@ function revalidateSessionTypePaths(): void {
   revalidatePath("/session-types");
   revalidatePath("/packages");
   revalidatePath("/bookings/new");
+  revalidatePath("/bookings/[bookingId]/edit", "page");
   revalidatePath("/calendar");
 }
 

@@ -1,3 +1,5 @@
+import type { MediaType } from "@prisma/client";
+
 export type SessionTypeStatus = "Active" | "Archived";
 
 export interface SessionTypeDepartmentOption {
@@ -19,5 +21,5 @@ export interface SessionTypeRow {
   status: SessionTypeStatus;
   sortOrder: number;
   pricingConfigured: boolean;
-  zeroPriceMediaTypes: string[];
+  zeroPriceMediaTypes: MediaType[];
 }

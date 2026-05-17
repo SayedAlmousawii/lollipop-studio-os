@@ -1,10 +1,13 @@
 import { z } from "zod";
 
 const optionalCalendarColorSchema = z.preprocess(
-  (value) => (value === "" ? undefined : value),
+  (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed === "" ? undefined : trimmed;
+  },
   z
     .string()
-    .trim()
     .max(120, "Calendar color must be 120 characters or fewer")
     .optional()
 );

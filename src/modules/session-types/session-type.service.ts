@@ -130,6 +130,11 @@ export async function createSessionType(
         },
       },
       select: { id: true },
+    }).catch((error: unknown) => {
+      if (isUniqueConstraintError(error)) {
+        throw new SessionTypeNameConflictError();
+      }
+      throw error;
     });
 
     await tx.packageFamily.create({
@@ -282,4 +287,8 @@ async function nextSessionTypeSortOrder(
 
 function isRecordNotFoundError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }

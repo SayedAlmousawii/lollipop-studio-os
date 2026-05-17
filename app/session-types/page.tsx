@@ -53,15 +53,17 @@ export default async function SessionTypesPage(
                 {includeArchived ? "Hide Archived" : "Include Archived"}
               </Link>
             </Button>
-            <SessionTypeCreateDialog
-              departments={departments}
-              trigger={
-                <Button type="button">
-                  <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
-                  New Session Type
-                </Button>
-              }
-            />
+            {!fetchError && departments.length > 0 ? (
+              <SessionTypeCreateDialog
+                departments={departments}
+                trigger={
+                  <Button type="button">
+                    <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+                    New Session Type
+                  </Button>
+                }
+              />
+            ) : null}
           </div>
         </div>
 
