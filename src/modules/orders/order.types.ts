@@ -285,44 +285,6 @@ export interface PackageItemDisplay {
   lineTotal: string;
 }
 
-export interface OrderPaymentStage {
-  id: string;
-  publicId: string;
-  amount: string;
-  method: string;
-  paymentType: string;
-  paidAt: string;
-  reference: string;
-  notes: string;
-}
-
-export interface OrderFinancialLineItem {
-  id: string;
-  lineType: string;
-  description: string;
-  quantity: number;
-  unitPrice: string;
-  lineTotal: string;
-}
-
-export interface OrderFinancialSummary {
-  invoiceId: string | null;
-  invoiceNumber: string | null;
-  invoiceStatus: InvoiceStatusLabel;
-  paymentStatus: OrderPaymentStatusLabel;
-  basePackageName: string;
-  basePackagePrice: string;
-  upgradePackageName: string | null;
-  upgradeAmount: string | null;
-  addOnTotal: string;
-  extraPhotoTotal: string;
-  invoiceTotal: string;
-  paidAmount: string;
-  balanceDue: string;
-  lineItems: OrderFinancialLineItem[];
-  payments: OrderPaymentStage[];
-}
-
 export interface POSWorkspace {
   orderId: string;
   jobNumber: string;

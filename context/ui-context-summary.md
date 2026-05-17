@@ -91,8 +91,9 @@ Button, Input, Select, Textarea, DatePicker, Modal/Dialog, Card, Table, Badge, T
 - Session Types → permission-gated admin table grouped by department, with create/edit dialogs, archive/unarchive actions, calendar label/color controls, and zero-priced extra-photo indicators
 - Pricing → permission-gated extra-photo pricing table grouped by department, one row per active session type, with digital/print unit prices edited together in a dialog and non-retroactive invoice banner copy
 - Customer Profile → tabs: Overview, Children, Sessions, Invoices, Notes, History
-- Order Detail → sections: Customer, Booking, Package, Invoice, Selection, Editing, Production, Pickup, Audit Log
+- Order Detail → sections: Customer, Booking, Package, Invoice, Selection, Editing, Production, Pickup, Audit Log; the Financials tab uses the shared read-only `src/components/financial/` surfaces against the POS workspace/FinancialCase linked documents, then shows Price Breakdown from the final invoice locked snapshot.
 - Locked Sales View → left column renders the shared normalized CurrentCompositionCard in locked mode; right column uses FinancialSidebarLocked with Payment Summary, Total Source, Linked Financial Documents, and the Open/Resume/Take Over Adjustment Workspace actions; pre-lock sales uses FinancialSidebarDraft and keeps the original computed/snapshot invoice sidebar behavior
+- Shared Financial UI → `src/components/financial/` owns read-only Payment Summary, Total Source, Linked Financial Documents, and formatting helpers for FinancialCase-aware displays. POS injects action affordances through component slots; Order Details passes none and stays read-only.
 - Adjustment Workspace → main column renders Stage Edits POS mounts, Preview Composition through CurrentCompositionCard in adjustment mode, Pending Changes, then Pending Adjustment Summary with Cancel/Discard; right column uses FinancialSidebarAdjustment with pending-only financial preview and Finalize/Issue action. The three order financial sidebar orchestrators are Draft, Locked, and Adjustment.
 - Queue pages → filterable tables (Editing, Production, Waiting Approval, Ready for Pickup)
 

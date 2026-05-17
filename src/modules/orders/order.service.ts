@@ -93,10 +93,7 @@ import type {
   OrderEditingWorkflow,
   OrderEditorOption,
   OrderFilters,
-  OrderFinancialSummary,
-  OrderFinancialLineItem,
   OrderPaymentStatusLabel,
-  OrderPaymentStage,
   POSAddOn,
   POSAddOnCatalogItem,
   POSInvoiceSummary,
@@ -3842,24 +3839,6 @@ function mapPackageItemDisplays(
   }));
 }
 
-function mapOrderFinancialLineItem(row: {
-  id: string;
-  lineType: string;
-  description: string;
-  quantity: number;
-  unitPrice: Prisma.Decimal;
-  lineTotal: Prisma.Decimal;
-}): OrderFinancialLineItem {
-  return {
-    id: row.id,
-    lineType: formatEnum(row.lineType),
-    description: row.description,
-    quantity: row.quantity,
-    unitPrice: formatMoney(row.unitPrice),
-    lineTotal: formatMoney(row.lineTotal),
-  };
-}
-
 function formatSignedMoney(value: Prisma.Decimal): string {
   return `${value.greaterThan(0) ? "+" : ""}${formatMoney(value)}`;
 }
@@ -5008,147 +4987,6 @@ async function recordWorkflowActivities(
       });
     }
   }
-}
-
-export async function getOrderFinancialSummary(
-  orderId: string
-): Promise<OrderFinancialSummary | null> {
-  const order = await withRetry(
-    () =>
-      db.order.findUnique({
-        where: { id: orderId },
-        include: {
-          packages: {
-            include: {
-              package: { select: { name: true, price: true } },
-            },
-            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-          },
-          invoices: {
-            where: FINAL_PARENT_INVOICE_WHERE,
-            select: {
-              id: true,
-              invoiceNumber: true,
-              invoiceType: true,
-              totalAmount: true,
-              paidAmount: true,
-              remainingAmount: true,
-              status: true,
-              lineItems: {
-                select: {
-                  id: true,
-                  lineType: true,
-                  description: true,
-                  quantity: true,
-                  unitPrice: true,
-                  lineTotal: true,
-                  sortOrder: true,
-                  createdAt: true,
-                },
-                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-              },
-              payments: {
-                orderBy: { paidAt: "desc" },
-                select: {
-                  id: true,
-                  publicId: true,
-                  amount: true,
-                  method: true,
-                  paymentType: true,
-                  paidAt: true,
-                  reference: true,
-                  notes: true,
-                },
-              },
-            },
-            orderBy: { createdAt: "asc" },
-            take: 1,
-          },
-          orderAddOns: {
-            select: {
-              productId: true,
-              nameSnapshot: true,
-              priceSnapshot: true,
-              quantity: true,
-            },
-            orderBy: { createdAt: "asc" },
-          },
-          packageItemUpgrades: {
-            select: packageItemUpgradeSelect,
-            orderBy: { createdAt: "asc" },
-          },
-        },
-      }),
-    "Failed to fetch order financial summary"
-  );
-
-  if (!order) return null;
-
-  const invoice = order.invoices[0] ?? null;
-  const firstLine = order.packages[0] ?? null;
-  const packageName = formatOrderPackageNames(order.packages);
-  const addOns = mapStructuredAddOns(
-    combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
-  );
-  const addOnTotal = sumAddOnsDecimal(addOns);
-
-  const originalPrice = order.packages.reduce(
-    (sum, line) =>
-      sum.plus(line.originalPackagePriceSnapshot ?? line.package.price),
-    zeroMoney()
-  );
-  const finalPrice = order.packages.reduce(
-    (sum, line) =>
-      sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
-    zeroMoney()
-  );
-  const upgradeAmount = finalPrice.minus(originalPrice);
-  const hasUpgrade = upgradeAmount.greaterThan(0);
-
-  const invoiceTotal = invoice ? invoice.totalAmount : finalPrice.plus(addOnTotal);
-  const extraPhotoTotal = invoice
-    ? invoiceTotal.minus(finalPrice).minus(addOnTotal)
-    : zeroMoney();
-  const extraPhotoTotalClamped = Prisma.Decimal.max(extraPhotoTotal, 0);
-
-  const invoiceSummary = invoice
-    ? summarizeInvoices([invoice])
-    : {
-        status: "No Invoice" as InvoiceStatusLabel,
-        paymentStatus: "Pending" as OrderPaymentStatusLabel,
-        totalAmount: finalPrice.plus(addOnTotal),
-        paidAmount: zeroMoney(),
-        remainingAmount: finalPrice.plus(addOnTotal),
-      };
-
-  const payments: OrderPaymentStage[] = (invoice?.payments ?? []).map((p) => ({
-    id: p.id,
-    publicId: p.publicId,
-    amount: formatMoney(p.amount),
-    method: formatEnum(p.method),
-    paymentType: formatEnum(p.paymentType),
-    paidAt: formatDate(p.paidAt),
-    reference: p.reference ?? "—",
-    notes: p.notes ?? "—",
-  }));
-
-  return {
-    invoiceId: invoice?.id ?? null,
-    invoiceNumber: invoice?.invoiceNumber ?? null,
-    invoiceStatus: invoiceSummary.status,
-    paymentStatus: invoiceSummary.paymentStatus,
-    basePackageName: packageName,
-    basePackagePrice: formatMoney(originalPrice),
-    upgradePackageName: hasUpgrade ? (firstLine?.package.name ?? packageName) : null,
-    upgradeAmount: hasUpgrade ? formatMoney(upgradeAmount) : null,
-    addOnTotal: formatMoney(addOnTotal),
-    extraPhotoTotal: formatMoney(extraPhotoTotalClamped),
-    invoiceTotal: formatMoney(invoiceSummary.totalAmount),
-    paidAmount: formatMoney(invoiceSummary.paidAmount),
-    balanceDue: formatMoney(invoiceSummary.remainingAmount),
-    lineItems: (invoice?.lineItems ?? []).map(mapOrderFinancialLineItem),
-    payments,
-  };
 }
 
 async function fetchEditingQueue() {
