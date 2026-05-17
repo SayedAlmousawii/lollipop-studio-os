@@ -14,6 +14,7 @@ test("session configuration schema enforces cross-field invariants", () => {
       pricingMode: SessionConfigurationPricingMode.FIXED,
       fixedPriceDelta: undefined,
     },
+    "fixedPriceDelta",
     /Fixed price delta/
   );
   assertInvalid(
@@ -22,6 +23,7 @@ test("session configuration schema enforces cross-field invariants", () => {
       linkedProductId: "",
       linkProductDisplay: undefined,
     },
+    "linkedProductId",
     /Linked product/
   );
   assertInvalid(
@@ -32,6 +34,7 @@ test("session configuration schema enforces cross-field invariants", () => {
       counterPricingMode: SessionConfigurationCounterPricingMode.PER_UNIT,
       counterUnitPrice: undefined,
     },
+    "counterUnitPrice",
     /Counter unit price/
   );
   assertInvalid(
@@ -40,6 +43,7 @@ test("session configuration schema enforces cross-field invariants", () => {
       pricingMode: SessionConfigurationPricingMode.NONE,
       options: [],
     },
+    "options",
     /Select configurations/
   );
   assertInvalid(
@@ -47,12 +51,14 @@ test("session configuration schema enforces cross-field invariants", () => {
       inputType: SessionConfigurationInputType.TEXT,
       pricingMode: SessionConfigurationPricingMode.TIERED,
     },
+    "pricingMode",
     /Tiered pricing/
   );
 });
 
 function assertInvalid(
   patch: Partial<Parameters<typeof createSessionConfigurationSchema.safeParse>[0]>,
+  field: string,
   message: RegExp
 ) {
   const parsed = createSessionConfigurationSchema.safeParse({
@@ -74,6 +80,10 @@ function assertInvalid(
 
   assert.equal(parsed.success, false);
   if (!parsed.success) {
-    assert.match(parsed.error.message, message);
+    assert.ok(
+      parsed.error.issues.some(
+        (issue) => issue.path.join(".") === field && message.test(issue.message)
+      )
+    );
   }
 }

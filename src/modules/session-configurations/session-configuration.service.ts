@@ -75,7 +75,10 @@ export async function listSessionConfigurations({
   includeArchived = false,
 }: {
   includeArchived?: boolean;
-} = {}): Promise<SessionConfigurationRow[]> {
+} = {},
+actor?: SessionConfigurationActor): Promise<SessionConfigurationRow[]> {
+  await assertCanManageSessionConfigurations(actor);
+
   const rows = await withRetry(
     () =>
       db.sessionConfiguration.findMany({
@@ -100,8 +103,11 @@ export async function listSessionConfigurations({
 }
 
 export async function getSessionConfigurationDetail(
-  id: string
+  id: string,
+  actor?: SessionConfigurationActor
 ): Promise<SessionConfigurationDetail> {
+  await assertCanManageSessionConfigurations(actor);
+
   const row = await withRetry(
     () =>
       db.sessionConfiguration.findUnique({
@@ -131,52 +137,58 @@ export async function createSessionConfiguration(
   await assertCanManageSessionConfigurations(actor);
   const data = parseCreateInput(input);
 
-  return db.$transaction(async (tx) => {
-    const sessionType = await tx.sessionType.findFirst({
-      where: { id: data.sessionTypeId, isActive: true },
-      select: { id: true, code: true },
-    });
-    if (!sessionType) {
-      throw new SessionConfigurationSessionTypeNotFoundError();
-    }
-
-    await assertLinkedProductAvailable(tx, data);
-
-    const code = generateSessionConfigurationCode(sessionType.code, data.name);
-
-    const created = await tx.sessionConfiguration
-      .create({
-        data: {
-          code,
-          name: data.name,
-          sessionTypeId: data.sessionTypeId,
-          inputType: data.inputType,
-          pricingMode: data.pricingMode,
-          financialBehavior: data.financialBehavior,
-          required: data.required,
-          sortOrder: data.sortOrder,
-          ...pricingData(data),
-          options: {
-            create: data.options.map((option) => ({
-              label: option.label,
-              value: option.value,
-              priceDelta: decimal(option.priceDelta ?? 0),
-              sortOrder: option.sortOrder,
-              isActive: option.isActive,
-            })),
-          },
-        },
-        select: { id: true },
-      })
-      .catch((error: unknown) => {
-        if (isUniqueConstraintError(error)) {
-          throw new SessionConfigurationCodeConflictError();
+  return withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const sessionType = await tx.sessionType.findFirst({
+          where: { id: data.sessionTypeId, isActive: true },
+          select: { id: true, code: true },
+        });
+        if (!sessionType) {
+          throw new SessionConfigurationSessionTypeNotFoundError();
         }
-        throw error;
-      });
 
-    return created;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        await assertLinkedProductAvailable(tx, data);
+
+        const code = generateSessionConfigurationCode(sessionType.code, data.name);
+
+        const created = await tx.sessionConfiguration
+          .create({
+            data: {
+              code,
+              name: data.name,
+              sessionTypeId: data.sessionTypeId,
+              inputType: data.inputType,
+              pricingMode: data.pricingMode,
+              financialBehavior: data.financialBehavior,
+              required: data.required,
+              sortOrder: data.sortOrder,
+              ...pricingData(data),
+              options: {
+                create: data.options.map((option) => ({
+                  label: option.label,
+                  value: option.value,
+                  priceDelta: decimal(option.priceDelta ?? 0),
+                  sortOrder: option.sortOrder,
+                  isActive: option.isActive,
+                })),
+              },
+            },
+            select: { id: true },
+          })
+          .catch((error: unknown) => {
+            if (isUniqueConstraintError(error)) {
+              throw new SessionConfigurationCodeConflictError();
+            }
+            throw error;
+          });
+
+        return created;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }),
+    "Failed to create session configuration",
+    3,
+    isSerializableWriteConflict
+  );
 }
 
 export async function updateSessionConfiguration(
@@ -187,35 +199,41 @@ export async function updateSessionConfiguration(
   await assertCanManageSessionConfigurations(actor);
   const data = parseUpdateInput(input);
 
-  return db.$transaction(async (tx) => {
-    const existing = await tx.sessionConfiguration.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-    if (!existing) {
-      throw new SessionConfigurationNotFoundError();
-    }
+  return withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        const existing = await tx.sessionConfiguration.findUnique({
+          where: { id },
+          select: { id: true },
+        });
+        if (!existing) {
+          throw new SessionConfigurationNotFoundError();
+        }
 
-    await assertLinkedProductAvailable(tx, data);
-    await assertOptionIdsBelongToConfiguration(tx, id, data.options);
+        await assertLinkedProductAvailable(tx, data);
+        await assertOptionIdsBelongToConfiguration(tx, id, data.options);
 
-    const updated = await tx.sessionConfiguration.update({
-      where: { id },
-      data: {
-        name: data.name,
-        inputType: data.inputType,
-        pricingMode: data.pricingMode,
-        financialBehavior: data.financialBehavior,
-        required: data.required,
-        sortOrder: data.sortOrder,
-        ...pricingData(data),
-      },
-      select: { id: true },
-    });
+        const updated = await tx.sessionConfiguration.update({
+          where: { id },
+          data: {
+            name: data.name,
+            inputType: data.inputType,
+            pricingMode: data.pricingMode,
+            financialBehavior: data.financialBehavior,
+            required: data.required,
+            sortOrder: data.sortOrder,
+            ...pricingData(data),
+          },
+          select: { id: true },
+        });
 
-    await syncOptions(tx, id, data.options);
-    return updated;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        await syncOptions(tx, id, data.options);
+        return updated;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }),
+    "Failed to update session configuration",
+    3,
+    isSerializableWriteConflict
+  );
 }
 
 export async function archiveSessionConfiguration(
@@ -491,4 +509,11 @@ function isRecordNotFoundError(error: unknown): boolean {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+function isSerializableWriteConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  );
 }

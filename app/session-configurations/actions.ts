@@ -51,7 +51,11 @@ export async function createSessionConfigurationAction(
   _prev: SessionConfigurationActionState,
   formData: FormData
 ): Promise<SessionConfigurationActionState> {
-  const values = sessionConfigurationFormValues(formData);
+  const valuesResult = safeSessionConfigurationFormValues(formData);
+  if (!valuesResult.success) {
+    return { errors: { options: [valuesResult.message] } };
+  }
+  const values = valuesResult.values;
   const parsed = createSessionConfigurationSchema.safeParse({
     sessionTypeId: values.sessionTypeId,
     ...sessionConfigurationPayload(values),
@@ -80,7 +84,11 @@ export async function updateSessionConfigurationAction(
   _prev: SessionConfigurationActionState,
   formData: FormData
 ): Promise<SessionConfigurationActionState> {
-  const values = sessionConfigurationFormValues(formData);
+  const valuesResult = safeSessionConfigurationFormValues(formData);
+  if (!valuesResult.success) {
+    return { errors: { options: [valuesResult.message] } };
+  }
+  const values = valuesResult.values;
   const parsed = updateSessionConfigurationSchema.safeParse({
     ...sessionConfigurationPayload(values),
   });
@@ -168,8 +176,29 @@ function parseOptions(value: string): unknown[] {
   try {
     const parsed = JSON.parse(value) as unknown;
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new SyntaxError(`Invalid options JSON: ${value}`);
+    }
+    throw error;
+  }
+}
+
+function safeSessionConfigurationFormValues(
+  formData: FormData
+):
+  | { success: true; values: SessionConfigurationFormValues }
+  | { success: false; message: string } {
+  try {
+    return { success: true, values: sessionConfigurationFormValues(formData) };
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Invalid options JSON.",
+    };
   }
 }
 

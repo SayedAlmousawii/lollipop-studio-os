@@ -192,7 +192,23 @@ test("session configuration service creates, updates, archives, and preserves op
           ?.isActive,
         false
       );
-      assert.ok(updated.options.find((option) => option.value === "61_75"));
+      assert.equal(
+        updated.options.find((option) => option.id === createdOptions[2]?.id)
+          ?.isActive,
+        false
+      );
+      assert.equal(
+        updated.options.find((option) => option.value === "31_45")?.isActive,
+        false
+      );
+      assert.equal(
+        updated.options.find((option) => option.value === "46_60")?.isActive,
+        false
+      );
+      assert.equal(
+        updated.options.find((option) => option.value === "61_75")?.isActive,
+        true
+      );
 
       await archiveSessionConfiguration(select.id, managerActor);
       const optionsAfterArchive = await db.sessionConfigurationOption.findMany({

@@ -121,6 +121,23 @@ test("session configuration create action parses nested options and revalidates 
         ],
       }
     );
+
+    const invalidOptionsResult = await createSessionConfigurationAction(
+      {},
+      formData({
+        sessionTypeId: "session-type-1",
+        name: "Age Range",
+        inputType: "SELECT",
+        pricingMode: "TIERED",
+        financialBehavior: "FINANCIAL",
+        sortOrder: "10",
+        options: "[not-json",
+      })
+    );
+    assert.match(
+      invalidOptionsResult.errors?.options?.[0] ?? "",
+      /Invalid options JSON/
+    );
   } finally {
     moduleWithLoader._load = originalModuleLoad;
   }
