@@ -90,7 +90,7 @@ Button, Input, Select, Textarea, DatePicker, Modal/Dialog, Card, Table, Badge, T
 - Calendar → day/week/month; color-coded by session type
 - Customer Profile → tabs: Overview, Children, Sessions, Invoices, Notes, History
 - Order Detail → sections: Customer, Booking, Package, Invoice, Selection, Editing, Production, Pickup, Audit Log
-- Locked Sales View → read-only effective composition with Open/Resume Adjustment Workspace CTA; post-lock composition display uses a shared normalized CompositionView model/card to hide zero-delta self-swaps and raw adjustment math, while the workspace screen keeps original-vs-working composition, pending diff, advisory chip, and finalize/cancel controls, and the working side mounts the shared POS package composition, selected-photo, and add-on marketplace modules
+- Locked Sales View → left column renders the shared normalized CurrentCompositionCard in locked mode; right column uses FinancialSidebarLocked with Payment Summary, Total Source, Linked Financial Documents, and the Open/Resume/Take Over Adjustment Workspace actions; pre-lock sales uses FinancialSidebarDraft and keeps the original computed/snapshot invoice sidebar behavior
 - Queue pages → filterable tables (Editing, Production, Waiting Approval, Ready for Pickup)
 
 ---

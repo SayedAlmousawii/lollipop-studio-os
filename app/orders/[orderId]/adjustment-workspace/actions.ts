@@ -104,6 +104,14 @@ export async function openAdjustmentWorkspaceAction(
     actorUserId: appUser.id,
     actorRole: appUser.role,
   });
+  console.info(
+    JSON.stringify({
+      metric: "sales_page.locked.adjustment_action.opened",
+      orderId,
+      invoiceId,
+      actorUserId: appUser.id,
+    })
+  );
   revalidateWorkspacePaths(orderId);
   redirect(`/orders/${orderId}/adjustment-workspace`);
 }

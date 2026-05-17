@@ -40,7 +40,10 @@ import {
 } from "@/modules/invoices/invoice.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { RecordPaymentInput } from "@/modules/payments/payment.schema";
-import { computeOrderSettlementSummary } from "./order-settlement";
+import {
+  computeOrderSettlementSummary,
+  deriveSettlementPaidAmount,
+} from "./order-settlement";
 import {
   ORDER_DELIVERY_STATUS_LABELS,
   ORDER_EDITING_STATUS_LABELS,
@@ -79,6 +82,7 @@ import type {
   EditingQueueItem,
   InvoiceStatusFilter,
   InvoiceStatusLabel,
+  LinkedFinancialDocument,
   Order,
   OrderAddOn,
   OrderAddOnDisplay,
@@ -113,7 +117,11 @@ import type {
   OrderWorkflowStep,
 } from "./order.types";
 export type { OrderSettlementSummary } from "./order.types";
-export { computeOrderSettlementSummary } from "./order-settlement";
+export {
+  computeOrderSettlementSummary,
+  derivePaymentSummary,
+  deriveSettlementPaidAmount,
+} from "./order-settlement";
 
 const ORDER_STATUS_FILTERS = new Set<OrderStatusFilter>([
   "ACTIVE",
@@ -138,6 +146,13 @@ const FINAL_PARENT_INVOICE_WHERE = {
   parentInvoiceId: null,
   invoiceType: InvoiceType.FINAL,
 } satisfies Prisma.InvoiceWhereInput;
+const SALES_LINKED_FINANCIAL_DOCUMENT_TYPES = [
+  InvoiceType.DEPOSIT,
+  InvoiceType.FINAL,
+  InvoiceType.ADJUSTMENT,
+  InvoiceType.REFUND,
+  InvoiceType.CREDIT_NOTE,
+] as const;
 const LOCKED_INVOICE_WORKSPACE_REQUIRED =
   "Locked invoices can only be changed through an Adjustment Workspace.";
 
@@ -542,6 +557,45 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     aggregateOutstanding,
   };
 });
+
+export async function getLinkedFinancialDocumentsForOrder(
+  orderId: string
+): Promise<LinkedFinancialDocument[]> {
+  const invoices = await withRetry(
+    () =>
+      db.invoice.findMany({
+        where: {
+          orderId,
+          invoiceType: { in: [...SALES_LINKED_FINANCIAL_DOCUMENT_TYPES] },
+        },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          invoiceType: true,
+          status: true,
+          totalAmount: true,
+          paidAmount: true,
+          remainingAmount: true,
+          issuedAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ issuedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      }),
+    "Failed to fetch linked financial documents"
+  );
+
+  return invoices.map((invoice) => ({
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    invoiceType: invoice.invoiceType as LinkedFinancialDocument["invoiceType"],
+    invoiceStatus: invoice.status,
+    invoiceTotal: invoice.totalAmount.toNumber(),
+    paidAmount: deriveSettlementPaidAmount(invoice).toNumber(),
+    remainingAmount: invoice.remainingAmount.toNumber(),
+    issuedAt: invoice.issuedAt,
+    createdAt: invoice.createdAt,
+  }));
+}
 
 export async function recordPOSPaymentForOrder(
   orderId: string,
