@@ -19,10 +19,14 @@ type ModuleLoader = (
 type FinancialSidebarLockedComponent = ComponentType<{
   workspace: POSWorkspace;
   linkedDocuments: LinkedFinancialDocument[];
-  paymentSummary: {
-    effectiveTotal: number;
-    paid: number;
+  financialSummary: {
+    customerTotal: number;
+    paidSoFar: number;
+    includesDeposit: number;
     remaining: number;
+    finalInvoiceTotal: number;
+    totalAdjustments: number;
+    finalTotal: number;
   };
   openWorkspace: {
     id: string;
@@ -43,10 +47,14 @@ test("FinancialSidebarLocked renders the locked sidebar sections and sanitized l
     createElement(FinancialSidebarLocked, {
       workspace: workspaceFixture(),
       linkedDocuments: linkedDocumentsFixture(),
-      paymentSummary: {
-        effectiveTotal: 270,
-        paid: 270,
+      financialSummary: {
+        customerTotal: 270,
+        paidSoFar: 270,
+        includesDeposit: 20,
         remaining: 0,
+        finalInvoiceTotal: 230,
+        totalAdjustments: 40,
+        finalTotal: 270,
       },
       openWorkspace: {
         id: "workspace-1",
@@ -67,13 +75,17 @@ test("FinancialSidebarLocked renders the locked sidebar sections and sanitized l
     "Adjustment Workspace",
   ]);
   assert.match(markup, /Customer Total/);
-  assert.match(markup, /Paid/);
+  assert.match(markup, /Paid So Far/);
+  assert.match(markup, /Includes Deposit/);
   assert.match(markup, /Remaining/);
+  assert.match(markup, /Final Total \/ Customer Total/);
   assert.doesNotMatch(markup, /Effective Total/);
+  assert.doesNotMatch(markup, /Deposit Applied/);
   assert.doesNotMatch(markup, /SNAPSHOT LINE ITEMS/i);
   assert.doesNotMatch(markup, /Album 30×30 to Album 30×30/);
   assert.doesNotMatch(markup, /Album 30×30 to Album 20×20/);
   assert.match(markup, /Resume Workspace/);
+  assert.match(markup, /INV-DEP/);
   assert.match(markup, /INV-FINAL/);
   assert.match(markup, /INV-ADJ/);
   assert.match(markup, /INV-REFUND/);
@@ -197,6 +209,7 @@ function workspaceFixture(): POSWorkspace {
 
 function linkedDocumentsFixture(): LinkedFinancialDocument[] {
   return [
+    document("invoice-dep", "INV-DEP", InvoiceType.DEPOSIT, 20),
     document("invoice-final", "INV-FINAL", InvoiceType.FINAL, 230),
     document("invoice-adj", "INV-ADJ", InvoiceType.ADJUSTMENT, 40),
     document("invoice-refund", "INV-REFUND", InvoiceType.REFUND, 10),

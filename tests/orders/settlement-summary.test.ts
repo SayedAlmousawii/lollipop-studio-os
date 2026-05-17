@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
 import {
   computeOrderSettlementSummary,
+  deriveLockedFinancialSidebarSummary,
   derivePaymentSummary,
 } from "@/modules/orders/order-settlement";
 
@@ -187,6 +188,28 @@ test("derivePaymentSummary aggregates final and finalized adjustment settlement 
       }
     );
   });
+});
+
+test("deriveLockedFinancialSidebarSummary prepares locked sidebar display totals", () => {
+  assert.deepEqual(
+    deriveLockedFinancialSidebarSummary({
+      finalInvoice: {
+        totalAmount: 201,
+        remainingAmount: 0,
+        depositPaidAmount: 20,
+      },
+      finalizedAdjustments: [amounts(45, 0), amounts(65, 65)],
+    }),
+    {
+      customerTotal: 311,
+      paidSoFar: 246,
+      includesDeposit: 20,
+      remaining: 65,
+      finalInvoiceTotal: 201,
+      totalAdjustments: 110,
+      finalTotal: 311,
+    }
+  );
 });
 
 function invoice(

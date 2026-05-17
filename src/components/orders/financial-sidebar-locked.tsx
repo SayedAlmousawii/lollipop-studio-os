@@ -13,7 +13,7 @@ import type {
   POSInvoiceSummary,
   POSWorkspace,
 } from "@/modules/orders/order.types";
-import type { derivePaymentSummary } from "@/modules/orders/order-settlement";
+import type { deriveLockedFinancialSidebarSummary } from "@/modules/orders/order-settlement";
 import {
   MoneyRow,
   formatKD,
@@ -27,12 +27,14 @@ type OpenWorkspace = {
   openedByUser: { name: string };
 } | null;
 
-type PaymentSummary = ReturnType<typeof derivePaymentSummary>;
+type LockedFinancialSidebarSummary = ReturnType<
+  typeof deriveLockedFinancialSidebarSummary
+>;
 
 export function FinancialSidebarLocked({
   workspace,
   linkedDocuments,
-  paymentSummary,
+  financialSummary,
   openWorkspace,
   currentUserId,
   isManager,
@@ -40,7 +42,7 @@ export function FinancialSidebarLocked({
 }: {
   workspace: POSWorkspace;
   linkedDocuments: LinkedFinancialDocument[];
-  paymentSummary: PaymentSummary;
+  financialSummary: LockedFinancialSidebarSummary;
   openWorkspace: OpenWorkspace;
   currentUserId: string;
   isManager: boolean;
@@ -49,15 +51,6 @@ export function FinancialSidebarLocked({
   const invoice = workspace.invoice;
   if (!invoice) return null;
 
-  const finalizedAdjustments = linkedDocuments.filter(
-    (document) =>
-      document.invoiceType === "ADJUSTMENT" && document.invoiceStatus !== "DRAFT"
-  );
-  const totalAdjustments = finalizedAdjustments.reduce(
-    (sum, document) => sum + document.invoiceTotal,
-    0
-  );
-  const depositApplied = invoice.depositPaidAmount;
   const paymentInvoices = [
     invoice,
     ...workspace.adjustmentInvoices,
@@ -85,22 +78,33 @@ export function FinancialSidebarLocked({
                 Payment Summary
               </p>
               <Badge
-                variant={paymentSummary.remaining <= 0 ? "secondary" : "outline"}
+                variant={financialSummary.remaining <= 0 ? "secondary" : "outline"}
                 className="rounded-md"
               >
-                {paymentSummary.remaining <= 0 ? "Fully Paid" : "Outstanding"}
+                {financialSummary.remaining <= 0 ? "Fully Paid" : "Outstanding"}
               </Badge>
             </div>
             <div className="space-y-2">
               <MoneyRow
                 label="Customer Total"
-                value={formatKD(paymentSummary.effectiveTotal)}
+                value={formatKD(financialSummary.customerTotal)}
                 strong
               />
-              <MoneyRow label="Paid" value={formatKD(paymentSummary.paid)} />
+              <MoneyRow
+                label="Paid So Far"
+                value={formatKD(financialSummary.paidSoFar)}
+              />
+              {financialSummary.includesDeposit > 0 ? (
+                <div className="flex items-center justify-between gap-3 pl-4 text-xs text-text-muted">
+                  <span>Includes Deposit</span>
+                  <span className="tabular-nums">
+                    {formatKD(financialSummary.includesDeposit)}
+                  </span>
+                </div>
+              ) : null}
               <MoneyRow
                 label="Remaining"
-                value={formatKD(paymentSummary.remaining)}
+                value={formatKD(financialSummary.remaining)}
                 strong
               />
             </div>
@@ -110,22 +114,21 @@ export function FinancialSidebarLocked({
             <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
               Total Source
             </p>
-            {depositApplied > 0 ? (
+            <MoneyRow
+              label="Final Invoice Total"
+              value={formatKD(financialSummary.finalInvoiceTotal)}
+            />
+            {financialSummary.totalAdjustments !== 0 ? (
               <MoneyRow
-                label="Deposit Applied"
-                value={formatKD(-depositApplied)}
+                label="Total Adjustments"
+                value={formatSignedKD(financialSummary.totalAdjustments)}
               />
             ) : null}
             <MoneyRow
-              label="Final Invoice Total"
-              value={formatKD(invoice.invoiceTotal)}
+              label="Final Total / Customer Total"
+              value={formatKD(financialSummary.finalTotal)}
+              strong
             />
-            {totalAdjustments !== 0 ? (
-              <MoneyRow
-                label="Total Adjustments"
-                value={formatSignedKD(totalAdjustments)}
-              />
-            ) : null}
           </section>
 
           <section className="space-y-3 border-t border-border pt-4">
