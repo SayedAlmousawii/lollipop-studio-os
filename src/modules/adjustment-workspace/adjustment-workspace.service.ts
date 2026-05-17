@@ -24,6 +24,7 @@ import { recordInvoiceLockSnapshot } from "@/modules/invoices/invoice-lock.servi
 import { generateInvoiceNumber } from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
+import { derivePaymentSummary } from "@/modules/orders/order-settlement";
 import type {
   POSAddOn,
   POSPackage,
@@ -39,6 +40,7 @@ import type {
   AdjustmentCompositionTotals,
   AdjustmentLineKind,
   AdjustmentPendingChanges,
+  PendingAdjustmentPreview,
   AdjustmentWorkspaceEdit,
   AdjustmentWorkspaceProposal,
   AdjustmentWorkspaceView,
@@ -259,6 +261,70 @@ export async function derivePOSWorkspaceFromAdjustmentWorkspace(
         (sum, invoice) => sum + invoice.remainingAmount,
         0
       ),
+  };
+}
+
+export async function derivePendingAdjustmentPreview(
+  workspaceId: string
+): Promise<PendingAdjustmentPreview | null> {
+  const workspace = await db.adjustmentWorkspace.findUnique({
+    where: { id: workspaceId },
+    select: {
+      id: true,
+      invoiceId: true,
+      baseSnapshotJson: true,
+      pendingChangesJson: true,
+      invoice: {
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          totalAmount: true,
+          remainingAmount: true,
+        },
+      },
+    },
+  });
+  if (!workspace) return null;
+
+  const finalizedAdjustments = await db.invoice.findMany({
+    where: {
+      parentInvoiceId: workspace.invoiceId,
+      invoiceType: InvoiceType.ADJUSTMENT,
+      status: { not: InvoiceStatus.DRAFT },
+    },
+    select: {
+      totalAmount: true,
+      remainingAmount: true,
+    },
+    orderBy: [{ issuedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+  });
+  const proposal = await buildProposalForWorkspace(workspace, db);
+  const pendingAdditions = proposal.deltas
+    .map((line) => new Prisma.Decimal(line.lineTotalNet))
+    .filter((amount) => amount.greaterThan(0))
+    .reduce((sum, amount) => sum.plus(amount), moneyZero)
+    .toNumber();
+  const pendingReductions = proposal.deltas
+    .map((line) => new Prisma.Decimal(line.lineTotalNet))
+    .filter((amount) => amount.lessThan(0))
+    .reduce((sum, amount) => sum.plus(amount), moneyZero)
+    .toNumber();
+
+  return {
+    baseLockedTotal: derivePaymentSummary({
+      invoice: workspace.invoice,
+      finalizedAdjustments,
+    }).effectiveTotal,
+    pendingAdditions,
+    pendingReductions,
+    pendingNet: new Prisma.Decimal(proposal.netPayableDelta).toNumber(),
+    approvalRequired: proposal.requiresManagerApproval,
+    parentInvoice: {
+      id: workspace.invoice.id,
+      number: workspace.invoice.invoiceNumber,
+      status: workspace.invoice.status,
+    },
   };
 }
 

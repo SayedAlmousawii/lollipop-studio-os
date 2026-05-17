@@ -1,28 +1,29 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, CheckCircle2, CircleAlert, RotateCcw, X } from "lucide-react";
+import { ArrowLeft, RotateCcw, X } from "lucide-react";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreditNoteApprovalForm } from "@/components/orders/credit-note-approval-fields";
+import { ConfirmSubmitButton } from "@/components/orders/confirm-submit-button";
+import { CurrentCompositionCard } from "@/components/orders/current-composition-card";
+import { FinancialSidebarAdjustment } from "@/components/orders/financial-sidebar-adjustment";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
+import { buildCompositionView } from "@/modules/composition-view/composition-view.model";
 import {
+  derivePendingAdjustmentPreview,
   derivePOSWorkspaceFromAdjustmentWorkspace,
   getAdjustmentWorkspaceView,
   getOpenWorkspaceForOrder,
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
-import type {
-  AdjustmentCompositionLine,
-  AdjustmentWorkspaceView,
-} from "@/modules/adjustment-workspace/adjustment-workspace.types";
+import { buildPendingChangesView } from "@/modules/adjustment-workspace/pending-changes-view";
+import type { PendingChangeRow } from "@/modules/adjustment-workspace/pending-changes-view";
 import {
   cancelAdjustmentWorkspaceAction,
-  finalizeAdjustmentWorkspaceAction,
   removeWorkspaceEditAction,
   takeOverAdjustmentWorkspaceAction,
 } from "./actions";
@@ -41,11 +42,12 @@ export default async function AdjustmentWorkspacePage(
   ]);
   if (!openWorkspace) redirect(`/orders/${orderId}/sales`);
 
-  const [workspace, derivedPOSWorkspace] = await Promise.all([
+  const [workspace, derivedPOSWorkspace, financialPreview] = await Promise.all([
     getAdjustmentWorkspaceView(openWorkspace.id),
     derivePOSWorkspaceFromAdjustmentWorkspace(openWorkspace.id),
+    derivePendingAdjustmentPreview(openWorkspace.id),
   ]);
-  if (!workspace || !derivedPOSWorkspace) notFound();
+  if (!workspace || !derivedPOSWorkspace || !financialPreview) notFound();
 
   const isManager = appUser.role === "ADMIN" || appUser.role === "MANAGER";
   const isOwner = workspace.currentOwnerUserId === appUser.id;
@@ -58,6 +60,16 @@ export default async function AdjustmentWorkspacePage(
     orderId,
     workspace.id
   );
+  const previewComposition = buildCompositionView({
+    lines: workspace.proposal.proposed.lines,
+    totals: workspace.proposal.proposed.totals,
+    mode: "adjustment",
+  });
+  const pendingChanges = buildPendingChangesView(workspace.pendingChanges.edits, {
+    base: workspace.baseSnapshot,
+    proposed: workspace.proposal.proposed,
+    deltas: workspace.proposal.deltas,
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -116,240 +128,216 @@ export default async function AdjustmentWorkspacePage(
           </div>
         ) : null}
 
-        <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-          <CompositionPanel
-            title="Original Composition"
-            lines={workspace.baseSnapshot.lines}
-            subdued
-          />
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
           <section className="space-y-5">
-            <POSPackageComposition
-              workspace={derivedPOSWorkspace}
-              handlers={compositionHandlers}
-            />
-            <POSPhotoCountCard
-              workspace={derivedPOSWorkspace}
-              handlers={compositionHandlers}
-            />
-            <POSAddOnMarketplace
-              workspace={derivedPOSWorkspace}
-              handlers={addOnHandlers}
-            />
-          </section>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Pending Diff</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {workspace.pendingChanges.edits.length > 0 ? (
-              <div className="grid gap-2">
-                {workspace.pendingChanges.edits.map((edit) => (
-                  <div
-                    key={edit.id}
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft p-3 text-sm"
-                  >
-                    <span className="text-text-primary">
-                      {formatEdit(edit, workspace.proposal.proposed.lines)}
-                    </span>
-                    {canEdit ? (
-                      <form
-                        action={removeWorkspaceEditAction.bind(
-                          null,
-                          orderId,
-                          workspace.id
-                        )}
-                      >
-                        <input type="hidden" name="version" value={workspace.version} />
-                        <input type="hidden" name="editId" value={edit.id} />
-                        <Button type="submit" size="sm" variant="ghost">
-                          <X className="h-4 w-4" />
-                          <span className="sr-only">Remove edit</span>
-                        </Button>
-                      </form>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
-                No staged edits yet.
-              </p>
-            )}
-
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <section className="space-y-4">
               <div>
-                <p className="text-sm text-text-secondary">Live net delta</p>
-                <p
-                  className={`text-xl font-semibold ${
-                    Number(workspace.proposal.netPayableDelta) < 0
-                      ? "text-danger"
-                      : Number(workspace.proposal.netPayableDelta) > 0
-                        ? "text-success"
-                        : "text-text-primary"
-                  }`}
-                >
-                  {formatSignedKD(workspace.proposal.netPayableDelta)}
+                <h2 className="text-xl font-semibold text-text-primary">
+                  Stage Edits
+                </h2>
+                <p className="mt-1 text-sm text-text-secondary">
+                  Use the POS tools to stage package, photo, and add-on changes.
                 </p>
               </div>
-              <FinalizeControls
-                workspace={workspace}
-                orderId={orderId}
-                canEdit={canEdit}
+              <POSPackageComposition
+                workspace={derivedPOSWorkspace}
+                handlers={compositionHandlers}
               />
-            </div>
-          </CardContent>
-        </Card>
+              <POSPhotoCountCard
+                workspace={derivedPOSWorkspace}
+                handlers={compositionHandlers}
+              />
+              <POSAddOnMarketplace
+                workspace={derivedPOSWorkspace}
+                handlers={addOnHandlers}
+              />
+            </section>
+
+            <CurrentCompositionCard view={previewComposition} />
+
+            <PendingChangesBlock
+              rows={pendingChanges}
+              workspaceId={workspace.id}
+              orderId={orderId}
+              version={workspace.version}
+              canEdit={canEdit}
+            />
+
+            <PendingAdjustmentSummary
+              workspaceId={workspace.id}
+              orderId={orderId}
+              version={workspace.version}
+              canEdit={canEdit}
+              additions={financialPreview.pendingAdditions}
+              reductions={financialPreview.pendingReductions}
+              net={financialPreview.pendingNet}
+              approvalRequired={financialPreview.approvalRequired}
+            />
+          </section>
+
+          <FinancialSidebarAdjustment
+            orderId={orderId}
+            workspace={workspace}
+            preview={financialPreview}
+            canEdit={canEdit}
+            className="lg:sticky lg:top-6"
+          />
+        </div>
       </main>
     </div>
   );
 }
 
-function CompositionPanel({
-  title,
-  lines,
-  subdued,
+function PendingChangesBlock({
+  rows,
+  workspaceId,
+  orderId,
+  version,
+  canEdit,
 }: {
-  title: string;
-  lines: AdjustmentCompositionLine[];
-  subdued?: boolean;
+  rows: PendingChangeRow[];
+  workspaceId: string;
+  orderId: string;
+  version: number;
+  canEdit: boolean;
 }) {
   return (
-    <Card className={subdued ? "bg-surface-soft" : undefined}>
+    <Card>
       <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle className="text-base">Pending Changes</CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          {lines.map((line) => (
-            <LineReadout key={line.lineId} line={line} />
-          ))}
-        </div>
+      <CardContent className="space-y-3">
+        {rows.length > 0 ? (
+          <div className="grid gap-2">
+            {rows.map((row) => (
+              <div
+                key={row.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft p-3 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-text-primary">{row.label}</p>
+                  <p className="mt-1 text-text-secondary">
+                    {row.description}
+                    {row.amount !== 0 ? ` (${formatSignedKD(row.amount)})` : ""}
+                  </p>
+                </div>
+                {canEdit ? (
+                  <form
+                    action={removeWorkspaceEditAction.bind(
+                      null,
+                      orderId,
+                      workspaceId
+                    )}
+                  >
+                    <input type="hidden" name="version" value={version} />
+                    <input type="hidden" name="editId" value={row.id} />
+                    <Button type="submit" size="sm" variant="ghost">
+                      <X className="h-4 w-4" />
+                      <span className="sr-only">Remove edit</span>
+                    </Button>
+                  </form>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
+            No staged edits yet.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function LineReadout({ line }: { line: AdjustmentCompositionLine }) {
+function PendingAdjustmentSummary({
+  workspaceId,
+  orderId,
+  version,
+  canEdit,
+  additions,
+  reductions,
+  net,
+  approvalRequired,
+}: {
+  workspaceId: string;
+  orderId: string;
+  version: number;
+  canEdit: boolean;
+  additions: number;
+  reductions: number;
+  net: number;
+  approvalRequired: boolean;
+}) {
   return (
-    <div className="min-w-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="font-medium text-text-primary">{line.label}</p>
-        <Badge variant="outline" className="rounded-md capitalize">
-          {line.kind}
-        </Badge>
-      </div>
-      <p className="mt-1 text-sm text-text-secondary">
-        {line.quantity} × {line.unitPrice} KD · {line.lineTotalNet} KD
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Pending Adjustment Summary</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-4">
+          <SummaryAmount label="Total Additions" value={additions} />
+          <SummaryAmount label="Total Reductions" value={reductions} />
+          <SummaryAmount label="Net Adjustment" value={net} strong />
+          <div className="rounded-md border border-border bg-surface-soft p-3">
+            <p className="text-xs uppercase tracking-[0.14em] text-text-muted">
+              Approval
+            </p>
+            <p className="mt-2 text-sm font-semibold text-text-primary">
+              {approvalRequired ? "Required" : "Not required"}
+            </p>
+          </div>
+        </div>
+        <form
+          action={cancelAdjustmentWorkspaceAction.bind(null, orderId, workspaceId)}
+          className="border-t border-border pt-4"
+        >
+          <input type="hidden" name="version" value={version} />
+          <ConfirmSubmitButton
+            variant="outline"
+            disabled={!canEdit}
+            confirmMessage="Discard all staged changes and close this workspace?"
+          >
+            Cancel / Discard staged changes
+          </ConfirmSubmitButton>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function SummaryAmount({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-surface-soft p-3">
+      <p className="text-xs uppercase tracking-[0.14em] text-text-muted">{label}</p>
+      <p
+        className={`mt-2 text-sm font-semibold tabular-nums ${
+          strong
+            ? Number(value) < 0
+              ? "text-danger"
+              : Number(value) > 0
+                ? "text-success"
+                : "text-text-primary"
+            : "text-text-primary"
+        }`}
+      >
+        {formatSignedKD(value)}
       </p>
     </div>
   );
 }
 
-function FinalizeControls({
-  workspace,
-  orderId,
-  canEdit,
-}: {
-  workspace: AdjustmentWorkspaceView;
-  orderId: string;
-  canEdit: boolean;
-}) {
-  const approvalPayload = {
-    reductions:
-      workspace.proposal.requiresManagerApproval
-        ? [
-            {
-              lineName: "Finalized workspace net decrease",
-              amount: String(Math.abs(Number(workspace.proposal.netPayableDelta)).toFixed(3)),
-              reason: "WORKSPACE_NET_DECREASE",
-            },
-          ]
-        : [],
-    adjustmentLines: workspace.proposal.deltas.map((line) => ({
-      description: line.label,
-      quantity: Math.abs(line.quantity),
-      unitPrice: line.unitPrice,
-    })),
-  };
-
-  return (
-    <div className="flex flex-wrap items-start justify-end gap-3">
-      <form
-        action={cancelAdjustmentWorkspaceAction.bind(null, orderId, workspace.id)}
-      >
-        <input type="hidden" name="version" value={workspace.version} />
-        <Button type="submit" variant="outline" disabled={!canEdit}>
-          Cancel
-        </Button>
-      </form>
-      <form
-        action={finalizeAdjustmentWorkspaceAction.bind(null, orderId, workspace.id)}
-        className="min-w-80 space-y-3"
-      >
-        <input type="hidden" name="version" value={workspace.version} />
-        {workspace.proposal.requiresManagerApproval ? (
-          <div className="rounded-md border border-warning/30 bg-warning-soft p-3">
-            <div className="mb-2 flex items-center gap-2 text-sm font-medium text-warning">
-              <CircleAlert className="h-4 w-4" />
-              Approval required
-            </div>
-            <CreditNoteApprovalForm approval={approvalPayload} />
-          </div>
-        ) : null}
-        <Button
-          type="submit"
-          disabled={!canEdit || !workspace.proposal.hasEdits}
-          className="w-full"
-        >
-          <CheckCircle2 className="mr-2 h-4 w-4" />
-          Finalize
-        </Button>
-      </form>
-    </div>
-  );
-}
-
-function formatEdit(
-  edit: AdjustmentWorkspaceView["pendingChanges"]["edits"][number],
-  proposedLines: AdjustmentCompositionLine[]
-) {
-  if (edit.op === "add_line") {
-    const line = proposedLines.find(
-      (proposedLine) => proposedLine.lineId === `edit:${edit.id}`
-    );
-    return `Add ${edit.quantity} ${line?.label ?? edit.kind}`;
-  }
-  if (edit.op === "remove_line") return `Remove line ${edit.targetLineId}`;
-  if (edit.op === "modify_quantity") {
-    return `Change ${edit.targetLineId} quantity to ${edit.newQuantity}`;
-  }
-  if (edit.op === "swap_package") {
-    return `Swap package ${edit.fromPackageRefId} → ${edit.toPackageRefId}`;
-  }
-  if (edit.op === "upgrade_package_item") {
-    const line = proposedLines.find(
-      (proposedLine) =>
-        proposedLine.lineId === `item:${edit.orderPackageId}:${edit.packageItemId}`
-    );
-    return `Upgrade ${line?.label ?? "package item"}`;
-  }
-  if (edit.op === "change_selected_photo_count") {
-    return `Change selected photos to ${edit.selectedPhotoCount}`;
-  }
-  if (edit.op === "change_package_tier") {
-    const line = proposedLines.find(
-      (proposedLine) => proposedLine.lineId === `package:${edit.orderPackageId}`
-    );
-    return `Change package tier to ${line?.label ?? edit.toPackageRefId}`;
-  }
-  return `Swap add-on ${edit.targetLineId}`;
-}
-
-function formatSignedKD(value: string) {
-  const numeric = Number(value);
-  if (numeric > 0) return `+${value} KD`;
-  if (numeric < 0) return `${value} KD`;
+function formatSignedKD(value: number) {
+  const formatted = `${Math.abs(value).toFixed(3)} KD`;
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `-${formatted}`;
   return "0.000 KD";
 }

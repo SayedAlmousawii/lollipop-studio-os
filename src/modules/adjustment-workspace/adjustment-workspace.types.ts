@@ -1,3 +1,5 @@
+import type { InvoiceStatus } from "@prisma/client";
+
 export type AdjustmentLineKind = "package" | "item" | "addon";
 
 export type AdjustmentMoney = string;
@@ -106,4 +108,17 @@ export interface AdjustmentWorkspaceView {
   baseSnapshot: AdjustmentBaseSnapshot;
   pendingChanges: AdjustmentPendingChanges;
   proposal: AdjustmentWorkspaceProposal;
+}
+
+export interface PendingAdjustmentPreview {
+  baseLockedTotal: number;
+  pendingAdditions: number;
+  pendingReductions: number;
+  pendingNet: number;
+  approvalRequired: boolean;
+  parentInvoice: {
+    id: string;
+    number: string;
+    status: InvoiceStatus;
+  };
 }
