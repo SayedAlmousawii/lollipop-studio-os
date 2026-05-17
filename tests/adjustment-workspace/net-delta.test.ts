@@ -145,3 +145,124 @@ test("zero-net swaps keep paired signed entries and finalize as zero-net", async
   assert.equal(proposal.deltas[0].quantity, -1);
   assert.equal(proposal.deltas[1].quantity, 1);
 });
+
+test("add then remove of the same staged line normalizes to a true no-op", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    baseSnapshot,
+    {
+      edits: [
+        {
+          id: "add-large-album",
+          op: "add_line",
+          kind: "addon",
+          refId: "album-large",
+          quantity: 1,
+        },
+        {
+          id: "remove-large-album",
+          op: "remove_line",
+          targetLineId: "edit:add-large-album",
+        },
+      ],
+    },
+    {
+      products: new Map([
+        [
+          "album-large",
+          {
+            id: "album-large",
+            name: "Large Album",
+            price: new Prisma.Decimal("35.000"),
+          },
+        ],
+      ]),
+      packages: new Map(),
+    }
+  );
+
+  assert.equal(proposal.netPayableDelta, "0.000");
+  assert.equal(proposal.hasEdits, false);
+  assert.equal(proposal.adjustmentKind, "none");
+  assert.deepEqual(proposal.deltas, []);
+});
+
+test("swap away then back to the base package normalizes to a true no-op", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    baseSnapshot,
+    {
+      edits: [
+        {
+          id: "swap-to-alt",
+          op: "swap_package",
+          fromPackageRefId: "pkg-basic",
+          toPackageRefId: "pkg-basic-alt",
+        },
+        {
+          id: "swap-back",
+          op: "swap_package",
+          fromPackageRefId: "pkg-basic-alt",
+          toPackageRefId: "pkg-basic",
+        },
+      ],
+    },
+    {
+      products: new Map(),
+      packages: new Map([
+        [
+          "pkg-basic",
+          {
+            id: "pkg-basic",
+            name: "Basic",
+            price: new Prisma.Decimal("100.000"),
+          },
+        ],
+        [
+          "pkg-basic-alt",
+          {
+            id: "pkg-basic-alt",
+            name: "Basic Alt",
+            price: new Prisma.Decimal("100.000"),
+          },
+        ],
+      ]),
+    }
+  );
+
+  assert.equal(proposal.netPayableDelta, "0.000");
+  assert.equal(proposal.hasEdits, false);
+  assert.equal(proposal.adjustmentKind, "none");
+  assert.deepEqual(proposal.deltas, []);
+});
+
+test("orphaned pending line edits do not crash proposal rendering", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    baseSnapshot,
+    {
+      edits: [
+        {
+          id: "remove-already-removed-staged-line",
+          op: "remove_line",
+          targetLineId: "edit:add-large-album",
+        },
+      ],
+    },
+    {
+      products: new Map(),
+      packages: new Map(),
+    }
+  );
+
+  assert.equal(proposal.netPayableDelta, "0.000");
+  assert.equal(proposal.hasEdits, false);
+  assert.equal(proposal.adjustmentKind, "none");
+  assert.deepEqual(proposal.deltas, []);
+});

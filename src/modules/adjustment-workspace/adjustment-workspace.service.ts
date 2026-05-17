@@ -339,7 +339,7 @@ export async function removeEdit(
         assertWorkspaceOwnerOrManager(workspace.currentOwnerUserId, actorContext);
 
         const pending = parsePendingChanges(workspace.pendingChangesJson);
-        const nextEdits = pending.edits.filter((edit) => edit.id !== input.editId);
+        const nextEdits = removeEditAndDependents(pending.edits, input.editId);
         await tx.adjustmentWorkspace.update({
           where: { id: workspaceId },
           data: {
@@ -570,7 +570,6 @@ export async function computeWorkspaceProposal(
   catalog: CatalogLookup
 ): Promise<AdjustmentWorkspaceProposal> {
   const proposed = cloneSnapshot(base);
-  const signedEntries: AdjustmentCompositionLine[] = [];
 
   for (const edit of pending.edits) {
     if (edit.op === "add_line") {
@@ -585,31 +584,25 @@ export async function computeWorkspaceProposal(
         unitPrice: product.price,
       });
       upsertWorkingLine(proposed.lines, line);
-      signedEntries.push(line);
       continue;
     }
 
     if (edit.op === "remove_line") {
       const existing = proposed.lines.find((line) => line.lineId === edit.targetLineId);
-      if (!existing) throw new Error("Selected line is not in the workspace");
+      if (!existing) continue;
       proposed.lines = proposed.lines.filter((line) => line.lineId !== edit.targetLineId);
-      signedEntries.push(negateLine(existing));
       continue;
     }
 
     if (edit.op === "modify_quantity") {
       const existing = proposed.lines.find((line) => line.lineId === edit.targetLineId);
-      if (!existing) throw new Error("Selected line is not in the workspace");
-      const deltaQuantity = edit.newQuantity - existing.quantity;
+      if (!existing) continue;
       if (edit.newQuantity <= 0) {
         proposed.lines = proposed.lines.filter((line) => line.lineId !== edit.targetLineId);
       } else {
         existing.quantity = edit.newQuantity;
         existing.lineTotalGross = multiplyMoney(existing.unitPrice, edit.newQuantity);
         existing.lineTotalNet = existing.lineTotalGross;
-      }
-      if (deltaQuantity !== 0) {
-        signedEntries.push({ ...existing, quantity: deltaQuantity, lineTotalGross: multiplyMoney(existing.unitPrice, deltaQuantity), lineTotalNet: multiplyMoney(existing.unitPrice, deltaQuantity) });
       }
       continue;
     }
@@ -619,7 +612,8 @@ export async function computeWorkspaceProposal(
         (line) => line.kind === "package" && line.refId === edit.fromPackageRefId
       );
       const packageRow = catalog.packages.get(edit.toPackageRefId);
-      if (!existing || !packageRow) throw new Error("Package swap is not available");
+      if (!packageRow) throw new Error("Package swap is not available");
+      if (!existing) continue;
       const replacement = makeLine({
         lineId: existing.lineId,
         kind: "package",
@@ -631,13 +625,13 @@ export async function computeWorkspaceProposal(
       proposed.lines = proposed.lines.map((line) =>
         line.lineId === existing.lineId ? replacement : line
       );
-      signedEntries.push(negateLine(existing), replacement);
       continue;
     }
 
     const existing = proposed.lines.find((line) => line.lineId === edit.targetLineId);
     const product = catalog.products.get(edit.toAddonRefId);
-    if (!existing || !product) throw new Error("Add-on swap is not available");
+    if (!product) throw new Error("Add-on swap is not available");
+    if (!existing) continue;
     const replacement = makeLine({
       lineId: existing.lineId,
       kind: "addon",
@@ -649,15 +643,15 @@ export async function computeWorkspaceProposal(
     proposed.lines = proposed.lines.map((line) =>
       line.lineId === existing.lineId ? replacement : line
     );
-    signedEntries.push(negateLine(existing), replacement);
   }
 
   proposed.totals = computeTotals(proposed.lines);
+  const deltas = diffCompositionLines(base.lines, proposed.lines);
   const grossDelta = decimal(proposed.totals.gross).minus(base.totals.gross);
   const discountDelta = decimal(proposed.totals.discount).minus(base.totals.discount);
   const taxDelta = decimal(proposed.totals.tax).minus(base.totals.tax);
   const netPayableDelta = decimal(proposed.totals.netPayable).minus(base.totals.netPayable);
-  const hasEdits = pending.edits.length > 0;
+  const hasEdits = deltas.length > 0;
   const adjustmentKind = !hasEdits
     ? "none"
     : netPayableDelta.greaterThan(0)
@@ -670,7 +664,7 @@ export async function computeWorkspaceProposal(
     base,
     proposed,
     edits: pending.edits,
-    deltas: signedEntries,
+    deltas,
     grossDelta: grossDelta.toFixed(3),
     discountDelta: discountDelta.toFixed(3),
     taxDelta: taxDelta.toFixed(3),
@@ -852,13 +846,17 @@ function applySignedInvoiceLines(
   }>
 ) {
   for (const invoiceLine of invoiceLines) {
+    const signedQuantity =
+      invoiceLine.unitPrice.lessThan(0) || invoiceLine.lineTotal.lessThan(0)
+        ? -invoiceLine.quantity
+        : invoiceLine.quantity;
     const line = makeLine({
       lineId: `adj:${invoiceLine.id}`,
       kind: kindFromInvoiceLine(invoiceLine.lineType, invoiceLine.causeOrderEntityKind),
       refId: invoiceLine.causeOrderEntityId ?? invoiceLine.description,
       label: invoiceLine.description,
-      quantity: invoiceLine.quantity,
-      unitPrice: invoiceLine.unitPrice,
+      quantity: signedQuantity,
+      unitPrice: invoiceLine.unitPrice.abs(),
     });
     upsertWorkingLine(lines, line);
   }
@@ -1011,6 +1009,48 @@ function parsePendingChanges(value: Prisma.JsonValue): AdjustmentPendingChanges 
   return parsed.data;
 }
 
+function removeEditAndDependents(
+  edits: AdjustmentWorkspaceEdit[],
+  removedEditId: string
+): AdjustmentWorkspaceEdit[] {
+  const removedEditIds = new Set([removedEditId]);
+  const removedLineIds = new Set<string>();
+  const removedPackageRefs = new Set<string>();
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    for (const edit of edits) {
+      if (!removedEditIds.has(edit.id)) continue;
+      if (edit.op === "add_line") {
+        const lineId = `edit:${edit.id}`;
+        if (!removedLineIds.has(lineId)) {
+          removedLineIds.add(lineId);
+          changed = true;
+        }
+      }
+      if (edit.op === "swap_package" && !removedPackageRefs.has(edit.toPackageRefId)) {
+        removedPackageRefs.add(edit.toPackageRefId);
+        changed = true;
+      }
+    }
+
+    for (const edit of edits) {
+      if (removedEditIds.has(edit.id)) continue;
+      if (
+        (("targetLineId" in edit) && removedLineIds.has(edit.targetLineId)) ||
+        (edit.op === "swap_package" && removedPackageRefs.has(edit.fromPackageRefId))
+      ) {
+        removedEditIds.add(edit.id);
+        changed = true;
+      }
+    }
+  }
+
+  return edits.filter((edit) => !removedEditIds.has(edit.id));
+}
+
 function cloneSnapshot(snapshot: AdjustmentBaseSnapshot): AdjustmentBaseSnapshot {
   return {
     capturedAt: snapshot.capturedAt,
@@ -1054,6 +1094,79 @@ function negateLine(line: AdjustmentCompositionLine): AdjustmentCompositionLine 
       amount: decimal(tax.amount).neg().toFixed(3),
     })),
   };
+}
+
+function diffCompositionLines(
+  baseLines: AdjustmentCompositionLine[],
+  proposedLines: AdjustmentCompositionLine[]
+): AdjustmentCompositionLine[] {
+  const baseGroups = groupCompositionLines(baseLines);
+  const proposedGroups = groupCompositionLines(proposedLines);
+  const keys = [
+    ...baseGroups.keys(),
+    ...[...proposedGroups.keys()].filter((key) => !baseGroups.has(key)),
+  ];
+  const deltas: AdjustmentCompositionLine[] = [];
+
+  for (const key of keys) {
+    const base = baseGroups.get(key);
+    const proposed = proposedGroups.get(key);
+    if (base && proposed && base.quantity === proposed.quantity) {
+      const netDelta = decimal(proposed.lineTotalNet).minus(base.lineTotalNet);
+      const grossDelta = decimal(proposed.lineTotalGross).minus(base.lineTotalGross);
+      if (netDelta.equals(0) && grossDelta.equals(0)) continue;
+
+      deltas.push(negateLine(base), proposed);
+      continue;
+    }
+
+    const quantityDelta = (proposed?.quantity ?? 0) - (base?.quantity ?? 0);
+    if (quantityDelta === 0) continue;
+
+    const netDelta = decimal(proposed?.lineTotalNet ?? 0).minus(base?.lineTotalNet ?? 0);
+    const grossDelta = decimal(proposed?.lineTotalGross ?? 0).minus(
+      base?.lineTotalGross ?? 0
+    );
+    const source = quantityDelta > 0 ? proposed : base;
+    if (!source) continue;
+
+    deltas.push({
+      ...source,
+      lineId: `delta:${source.kind}:${source.refId}`,
+      quantity: quantityDelta,
+      unitPrice: netDelta.div(quantityDelta).abs().toFixed(3),
+      lineTotalGross: grossDelta.toFixed(3),
+      lineTotalNet: netDelta.toFixed(3),
+      taxBreakdown: [],
+    });
+  }
+
+  return deltas;
+}
+
+function groupCompositionLines(lines: AdjustmentCompositionLine[]) {
+  const grouped = new Map<string, AdjustmentCompositionLine>();
+  for (const line of lines) {
+    const key = compositionKey(line);
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, { ...line, taxBreakdown: line.taxBreakdown.map((tax) => ({ ...tax })) });
+      continue;
+    }
+
+    existing.quantity += line.quantity;
+    existing.lineTotalGross = decimal(existing.lineTotalGross)
+      .plus(line.lineTotalGross)
+      .toFixed(3);
+    existing.lineTotalNet = decimal(existing.lineTotalNet)
+      .plus(line.lineTotalNet)
+      .toFixed(3);
+  }
+  return grouped;
+}
+
+function compositionKey(line: Pick<AdjustmentCompositionLine, "kind" | "refId">) {
+  return `${line.kind}:${line.refId}`;
 }
 
 function upsertWorkingLine(
