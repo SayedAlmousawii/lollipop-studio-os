@@ -33,6 +33,37 @@ export const adjustmentWorkspaceEditSchema = z.discriminatedUnion("op", [
     targetLineId: z.string().trim().min(1, "Line is required"),
     toAddonRefId: z.string().trim().min(1, "Replacement add-on is required"),
   }),
+  z.object({
+    id: editId,
+    op: z.literal("upgrade_package_item"),
+    orderPackageId: z.string().trim().min(1, "Package line is required"),
+    packageItemId: z.string().trim().min(1, "Package item is required"),
+    toProductId: z.string().trim().min(1, "Replacement product is required"),
+    quantity: z.coerce.number().int().positive("Quantity must be at least 1"),
+  }),
+  z.object({
+    id: editId,
+    op: z.literal("change_selected_photo_count"),
+    orderPackageId: z.string().trim().min(1, "Package line is required"),
+    selectedPhotoCount: z.coerce
+      .number()
+      .int()
+      .min(0, "Selected photos cannot be negative"),
+    extraDigitalCount: z.coerce
+      .number()
+      .int()
+      .min(0, "Digital extras cannot be negative"),
+    extraPrintCount: z.coerce
+      .number()
+      .int()
+      .min(0, "Print extras cannot be negative"),
+  }),
+  z.object({
+    id: editId,
+    op: z.literal("change_package_tier"),
+    orderPackageId: z.string().trim().min(1, "Package line is required"),
+    toPackageRefId: z.string().trim().min(1, "Replacement package is required"),
+  }),
 ]);
 
 export const adjustmentPendingChangesSchema = z.object({
