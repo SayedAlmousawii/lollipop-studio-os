@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 87 is complete: Order Details Financials now reads POS workspace + FinancialCase linked documents, renders the shared read-only Payment Summary/Total Source/Linked Documents components before snapshot Price Breakdown, and the retired `getOrderFinancialSummary` loader/type path is removed.
 - Feature 86 is complete: extra-photo pricing is manager/admin editable at `/pricing`, active session types show one digital/print price pair per row, edits update both media prices transactionally, and invoice generation continues to use current pricing for future invoices only.
 - Feature 85 is complete: session types are manager/admin editable at `/session-types`, create/edit/archive uses a new service/action/UI flow, calendar labels/colors now live on `SessionType`, and new session types get zero-priced DIGITAL/PRINT pricing rows.
 - Locked financial sidebar cleanup is complete: `order-settlement` now prepares the locked sidebar financial summary, deposit is a subtle included-payment note, Total Source explains only final invoice plus adjustments into customer total, and linked documents load booking/financial-case invoices so DEP documents appear with FINAL/ADJ docs.
@@ -92,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 87: extracted shared read-only financial components, rewired locked POS to compose them with the existing payment/action affordances, rewired Order Details Financials to canonical FinancialCase documents and final-invoice snapshot lines, added read-only/ledger/number/header parity coverage, and removed the stale order financial summary loader.
 - Feature 86: added Extra Photo Pricing CRUD with active-only collapsed pricing rows, paired digital/print dialog edits, transactional validation, action permission coverage, and invoice-current-price regression coverage.
 - Feature 85: added Session Type admin CRUD, row-level calendar display fields, case-insensitive per-department name uniqueness, default zero-priced extra-photo pricing rows on create, archived taxonomy filtering, and calendar lookup removal.
 - Feature 84c: reorganized AdjustmentWorkspace into the Stage Edits → Preview Composition → Pending Changes → Pending Adjustment Summary flow, added `buildPendingChangesView()` and `derivePendingAdjustmentPreview()`, moved Finalize/Issue into FinancialSidebarAdjustment, and moved Cancel/Discard into the summary block with confirmation.

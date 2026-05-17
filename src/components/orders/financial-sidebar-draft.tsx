@@ -4,13 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
+import { MoneyRow, formatKD } from "@/components/financial";
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import { AdjustmentInvoiceBlock } from "./financial-sidebar-adjustment-blocks";
 import {
-  AdjustmentInvoiceBlock,
   AdjustmentInvoiceSummary,
   InvoiceLineRow,
-  MoneyRow,
-  formatKD,
 } from "./financial-sidebar-primitives";
 
 export function FinancialSidebarDraft({

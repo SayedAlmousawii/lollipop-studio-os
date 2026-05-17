@@ -8,16 +8,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
+import {
+  FinancialLinkedDocuments,
+  FinancialPaymentSummary,
+  FinancialTotalSource,
+  type LockedFinancialSidebarSummary,
+} from "@/components/financial";
 import type {
   LinkedFinancialDocument,
   POSInvoiceSummary,
   POSWorkspace,
 } from "@/modules/orders/order.types";
-import type { deriveLockedFinancialSidebarSummary } from "@/modules/orders/order-settlement";
-import {
-  MoneyRow,
-  formatKD,
-} from "./financial-sidebar-primitives";
 
 type OpenWorkspace = {
   id: string;
@@ -26,10 +27,6 @@ type OpenWorkspace = {
   currentOwnerUser: { name: string } | null;
   openedByUser: { name: string };
 } | null;
-
-type LockedFinancialSidebarSummary = ReturnType<
-  typeof deriveLockedFinancialSidebarSummary
->;
 
 export function FinancialSidebarLocked({
   workspace,
@@ -72,88 +69,22 @@ export function FinancialSidebarLocked({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-          <section className="space-y-3 rounded-md border border-border bg-surface-soft p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
-                Payment Summary
-              </p>
-              <Badge
-                variant={financialSummary.remaining <= 0 ? "secondary" : "outline"}
-                className="rounded-md"
-              >
-                {financialSummary.remaining <= 0 ? "Fully Paid" : "Outstanding"}
-              </Badge>
-            </div>
-            <div className="space-y-2">
-              <MoneyRow
-                label="Customer Total"
-                value={formatKD(financialSummary.customerTotal)}
-                strong
-              />
-              <MoneyRow
-                label="Paid So Far"
-                value={formatKD(financialSummary.paidSoFar)}
-              />
-              {financialSummary.includesDeposit > 0 ? (
-                <div className="flex items-center justify-between gap-3 pl-4 text-xs text-text-muted">
-                  <span>Includes Deposit</span>
-                  <span className="tabular-nums">
-                    {formatKD(financialSummary.includesDeposit)}
-                  </span>
-                </div>
-              ) : null}
-              <MoneyRow
-                label="Remaining"
-                value={formatKD(financialSummary.remaining)}
-                strong
-              />
-            </div>
-          </section>
-
-          <section className="space-y-2 border-t border-border pt-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
-              Total Source
-            </p>
-            <MoneyRow
-              label="Final Invoice Total"
-              value={formatKD(financialSummary.finalInvoiceTotal)}
-            />
-            {financialSummary.totalAdjustments !== 0 ? (
-              <MoneyRow
-                label="Total Adjustments"
-                value={formatSignedKD(financialSummary.totalAdjustments)}
-              />
-            ) : null}
-            <MoneyRow
-              label="Final Total / Customer Total"
-              value={formatKD(financialSummary.finalTotal)}
-              strong
-            />
-          </section>
-
-          <section className="space-y-3 border-t border-border pt-4">
-            <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
-              Linked Financial Documents
-            </p>
-            {linkedDocuments.length > 0 ? (
-              <div className="space-y-2">
-                {linkedDocuments.map((document) => (
-                  <LinkedFinancialDocumentRow
-                    key={document.invoiceId}
-                    document={document}
-                    paymentInvoice={paymentInvoices.find(
-                      (candidate) => candidate.invoiceId === document.invoiceId
-                    )}
-                    workspace={workspace}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="rounded-md border border-border bg-surface-soft p-3 text-sm text-text-secondary">
-                No linked financial documents found.
-              </p>
-            )}
-          </section>
+          <FinancialPaymentSummary summary={financialSummary} />
+          <FinancialTotalSource summary={financialSummary} />
+          <FinancialLinkedDocuments
+            documents={linkedDocuments}
+            renderRowExtras={(document) => {
+              const paymentInvoice = paymentInvoices.find(
+                (candidate) => candidate.invoiceId === document.invoiceId
+              );
+              return (
+                <RecordPaymentRowAction
+                  paymentInvoice={paymentInvoice}
+                  workspace={workspace}
+                />
+              );
+            }}
+          />
 
           <AdjustmentWorkspaceAction
             workspace={workspace}
@@ -167,52 +98,24 @@ export function FinancialSidebarLocked({
   );
 }
 
-function LinkedFinancialDocumentRow({
-  document,
+function RecordPaymentRowAction({
   paymentInvoice,
   workspace,
 }: {
-  document: LinkedFinancialDocument;
   paymentInvoice: POSInvoiceSummary | undefined;
   workspace: POSWorkspace;
 }) {
-  const canRecordPayment =
-    paymentInvoice !== undefined && paymentInvoice.remainingAmount > 0;
+  if (!paymentInvoice || paymentInvoice.remainingAmount <= 0) return null;
 
   return (
-    <div className="rounded-md border border-border bg-surface-soft p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={`/invoices/${document.invoiceId}`}
-          className="min-w-0 text-sm font-medium text-text-primary hover:text-accent-dark"
-        >
-          {document.invoiceNumber}
-        </Link>
-        <span className="text-sm font-semibold tabular-nums text-text-primary">
-          {formatSignedDocumentAmount(document)}
-        </span>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="outline" className="rounded-md">
-            {formatEnumLabel(document.invoiceType)}
-          </Badge>
-          <Badge variant="secondary" className="rounded-md">
-            {formatEnumLabel(document.invoiceStatus)}
-          </Badge>
-        </div>
-        {canRecordPayment ? (
-          <POSRecordPaymentDialog
-            orderId={workspace.orderId}
-            invoice={paymentInvoice}
-            orderStatus={workspace.orderStatusRaw}
-            customerName={workspace.customerName}
-            jobNumber={workspace.jobNumber}
-            trigger={<Button size="sm">Record Payment</Button>}
-          />
-        ) : null}
-      </div>
-    </div>
+    <POSRecordPaymentDialog
+      orderId={workspace.orderId}
+      invoice={paymentInvoice}
+      orderStatus={workspace.orderStatusRaw}
+      customerName={workspace.customerName}
+      jobNumber={workspace.jobNumber}
+      trigger={<Button size="sm">Record Payment</Button>}
+    />
   );
 }
 
@@ -286,26 +189,4 @@ function AdjustmentWorkspaceAction({
       )}
     </section>
   );
-}
-
-function formatSignedDocumentAmount(document: LinkedFinancialDocument): string {
-  const amount =
-    document.invoiceType === "REFUND" || document.invoiceType === "CREDIT_NOTE"
-      ? -document.invoiceTotal
-      : document.invoiceTotal;
-  return formatSignedKD(amount);
-}
-
-function formatSignedKD(value: number): string {
-  if (value > 0) return `+${formatKD(value)}`;
-  if (value < 0) return `-${formatKD(Math.abs(value))}`;
-  return formatKD(value);
-}
-
-function formatEnumLabel(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
