@@ -1,4 +1,5 @@
 import type {
+  HandlerResult,
   POSAddOnHandlers,
   POSCompositionHandlers,
 } from "@/modules/orders/pos-handlers.types";
@@ -15,13 +16,23 @@ export function createWorkspaceCompositionHandlers(
   orderId: string,
   workspaceId: string
 ): POSCompositionHandlers {
+  assertWorkspaceHandlerIds(
+    "createWorkspaceCompositionHandlers",
+    orderId,
+    workspaceId
+  );
+
   async function changePackageTier(input: {
     orderPackageId: string;
     toPackageRefId: string;
-  }) {
+  }): Promise<HandlerResult> {
     "use server";
 
-    return stagePackageTierChangeAction(orderId, workspaceId, input);
+    try {
+      return await stagePackageTierChangeAction(orderId, workspaceId, input);
+    } catch (error) {
+      return workspaceHandlerError("changePackageTier", error);
+    }
   }
 
   async function upgradePackageItem(input: {
@@ -29,10 +40,14 @@ export function createWorkspaceCompositionHandlers(
     packageItemId: string;
     toProductId: string;
     quantity: number;
-  }) {
+  }): Promise<HandlerResult> {
     "use server";
 
-    return stagePackageItemUpgradeAction(orderId, workspaceId, input);
+    try {
+      return await stagePackageItemUpgradeAction(orderId, workspaceId, input);
+    } catch (error) {
+      return workspaceHandlerError("upgradePackageItem", error);
+    }
   }
 
   async function changeSelectedPhotoCount(input: {
@@ -40,10 +55,14 @@ export function createWorkspaceCompositionHandlers(
     selectedPhotoCount: number;
     extraDigitalCount: number;
     extraPrintCount: number;
-  }) {
+  }): Promise<HandlerResult> {
     "use server";
 
-    return stageSelectedPhotoCountChangeAction(orderId, workspaceId, input);
+    try {
+      return await stageSelectedPhotoCountChangeAction(orderId, workspaceId, input);
+    } catch (error) {
+      return workspaceHandlerError("changeSelectedPhotoCount", error);
+    }
   }
 
   return {
@@ -58,6 +77,8 @@ export function createWorkspaceAddOnHandlers(
   orderId: string,
   workspaceId: string
 ): POSAddOnHandlers {
+  assertWorkspaceHandlerIds("createWorkspaceAddOnHandlers", orderId, workspaceId);
+
   async function addAddOn(input: { productId: string; quantity: number }) {
     "use server";
 
@@ -81,5 +102,29 @@ export function createWorkspaceAddOnHandlers(
     removeAddOn,
     changeAddOnQuantity,
     shouldPromptInlineApproval: false,
+  };
+}
+
+function assertWorkspaceHandlerIds(
+  factoryName: string,
+  orderId: string,
+  workspaceId: string
+): void {
+  if (typeof orderId !== "string" || orderId.trim().length === 0) {
+    throw new Error(`${factoryName}: invalid orderId`);
+  }
+  if (typeof workspaceId !== "string" || workspaceId.trim().length === 0) {
+    throw new Error(`${factoryName}: invalid workspaceId`);
+  }
+}
+
+function workspaceHandlerError(handlerName: string, error: unknown): HandlerResult {
+  console.error("Adjustment workspace POS handler failed", {
+    handlerName,
+    error,
+  });
+  return {
+    ok: false,
+    errors: { _global: ["Unable to stage workspace edit"] },
   };
 }

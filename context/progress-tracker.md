@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 83c review follow-up is complete: workspace POS staged handlers no longer rely on a closed-over page render version, and derived selected-photo counts reflect reductions back to baseline.
+- Feature 83c review follow-up is complete: workspace POS staged handlers resolve current versions without closed-over page state, staged add-on resizing reuses the already-loaded edit, handler factories fail fast on invalid IDs, composition handlers normalize thrown errors, and derived selected-photo counts reflect reductions back to baseline.
 - Feature 83c review cleanup is complete: missing no-op finalize regressions and inline-approval handler assertions were added as separate integration tests, and the marketplace quantity stage action now uses narrowed edit branches without a cast.
 - Feature 83c is complete: AdjustmentWorkspace derives a POS-shaped staged read model, mounts the shared POS composition/photo/add-on modules, routes module handlers to staged edits with inline approval disabled, and records per-op staged counters.
 - Feature 83b is complete with review cleanup: POS package composition, selected-photo counts, and add-on marketplace use typed handler props, sales adapters reject quantity drift where needed, and handler exceptions surface as inline form errors.
@@ -83,7 +83,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
-- Feature 83c review follow-up: refreshed workspace POS staged edits against the current workspace version and allowed derived selected-photo counts to decrease back to baseline.
+- Feature 83c review follow-up: refreshed workspace POS staged edits against the current workspace version, removed the extra staged add-on resize lookup, normalized composition handler exceptions, added handler factory guards, and allowed derived selected-photo counts to decrease back to baseline.
 - Feature 83c review cleanup: added selected-photo revert and add-on add/remove no-ADJ regressions, asserted staged POS handlers disable inline reductive approval, and removed the marketplace quantity edit cast.
 - Feature 83c: mounted shared POS package composition, selected-photo, and add-on marketplace modules inside AdjustmentWorkspace, added staged handler adapters/new stage actions, added a POS-shaped derived workspace read model, emitted per-op staged metrics, and updated workspace architecture/UI docs.
 - Feature 83b: refactored POS package composition, selected-photo, and add-on marketplace controls behind typed handler contracts, kept sales page behavior on existing server actions, preserved inline reductive approval, and added handler-prop render/import regression coverage.

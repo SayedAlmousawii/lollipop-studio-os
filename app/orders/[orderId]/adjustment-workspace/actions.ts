@@ -17,7 +17,10 @@ import {
   takeOverWorkspace,
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { adjustmentWorkspaceVersionSchema } from "@/modules/adjustment-workspace/adjustment-workspace.schema";
-import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
+import type {
+  AdjustmentWorkspaceEdit,
+  AdjustmentWorkspaceView,
+} from "@/modules/adjustment-workspace/adjustment-workspace.types";
 import type { HandlerResult } from "@/modules/orders/pos-handlers.types";
 
 const addLineFormSchema = adjustmentWorkspaceVersionSchema.extend({
@@ -335,18 +338,25 @@ export async function stageMarketplaceAddOnRemovalAction(
       (candidate) => candidate.lineId === parsed.data.addOnId
     );
     if (!line) throw new Error("Selected add-on is not in the workspace");
+    const stageVersion = parsed.data.version ?? workspace.version;
     if (line.lineId.startsWith("edit:")) {
-      return decrementStagedAddLine(orderId, workspaceId, parsed.data.version, line);
+      return decrementStagedAddLine(
+        orderId,
+        workspaceId,
+        stageVersion,
+        line,
+        stagedAddLineEdit(workspace, line.lineId)
+      );
     }
     if (line.quantity > 1) {
-      return stageWorkspaceEdit(orderId, workspaceId, parsed.data.version, {
+      return stageWorkspaceEdit(orderId, workspaceId, stageVersion, {
         id: `qty:${line.lineId}`,
         op: "modify_quantity",
         targetLineId: line.lineId,
         newQuantity: line.quantity - 1,
       });
     }
-    return stageWorkspaceEdit(orderId, workspaceId, parsed.data.version, {
+    return stageWorkspaceEdit(orderId, workspaceId, stageVersion, {
       id: `remove:${line.lineId}`,
       op: "remove_line",
       targetLineId: line.lineId,
@@ -371,24 +381,26 @@ export async function stageMarketplaceAddOnQuantityAction(
       (candidate) => candidate.lineId === parsed.data.addOnId
     );
     if (!line) throw new Error("Selected add-on is not in the workspace");
+    const stageVersion = parsed.data.version ?? workspace.version;
     if (line.lineId.startsWith("edit:")) {
       return resizeStagedAddLine(
         orderId,
         workspaceId,
-        parsed.data.version,
+        stageVersion,
         line,
+        stagedAddLineEdit(workspace, line.lineId),
         parsed.data.quantity
       );
     }
     if (parsed.data.quantity === 0) {
-      return stageWorkspaceEdit(orderId, workspaceId, parsed.data.version, {
+      return stageWorkspaceEdit(orderId, workspaceId, stageVersion, {
         id: `remove:${line.lineId}`,
         op: "remove_line",
         targetLineId: line.lineId,
       });
     }
 
-    return stageWorkspaceEdit(orderId, workspaceId, parsed.data.version, {
+    return stageWorkspaceEdit(orderId, workspaceId, stageVersion, {
       id: `qty:${line.lineId}`,
       op: "modify_quantity",
       targetLineId: line.lineId,
@@ -507,9 +519,17 @@ async function decrementStagedAddLine(
   orderId: string,
   workspaceId: string,
   version: number | undefined,
-  line: { lineId: string; quantity: number }
+  line: { lineId: string; quantity: number },
+  edit: AdjustmentWorkspaceEdit
 ): Promise<HandlerResult> {
-  return resizeStagedAddLine(orderId, workspaceId, version, line, line.quantity - 1);
+  return resizeStagedAddLine(
+    orderId,
+    workspaceId,
+    version,
+    line,
+    edit,
+    line.quantity - 1
+  );
 }
 
 async function resizeStagedAddLine(
@@ -517,6 +537,7 @@ async function resizeStagedAddLine(
   workspaceId: string,
   version: number | undefined,
   line: { lineId: string; quantity: number },
+  edit: AdjustmentWorkspaceEdit,
   quantity: number
 ): Promise<HandlerResult> {
   const editId = line.lineId.slice("edit:".length);
@@ -524,19 +545,15 @@ async function resizeStagedAddLine(
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
+    if (edit.id !== editId || edit.op !== "add_line") {
+      throw new Error("Staged add-on edit was not found");
+    }
     if (quantity <= 0) {
       await removeWorkspaceEdit(workspaceId, version, editId, {
         actorUserId: appUser.id,
         actorRole: appUser.role,
       });
     } else {
-      const workspace = await getAdjustmentWorkspaceView(workspaceId);
-      const edit = workspace?.pendingChanges.edits.find(
-        (candidate) => candidate.id === editId && candidate.op === "add_line"
-      );
-      if (!edit || edit.op !== "add_line") {
-        throw new Error("Staged add-on edit was not found");
-      }
       await applyWorkspaceEdit(workspaceId, version, { ...edit, quantity }, {
         actorUserId: appUser.id,
         actorRole: appUser.role,
@@ -547,6 +564,20 @@ async function resizeStagedAddLine(
   } catch (error) {
     return handlerError(error);
   }
+}
+
+function stagedAddLineEdit(
+  workspace: AdjustmentWorkspaceView,
+  lineId: string
+): AdjustmentWorkspaceEdit {
+  const editId = lineId.slice("edit:".length);
+  const edit = workspace.pendingChanges.edits.find(
+    (candidate) => candidate.id === editId
+  );
+  if (!edit || edit.op !== "add_line") {
+    throw new Error("Staged add-on edit was not found");
+  }
+  return edit;
 }
 
 async function applyWorkspaceEdit(
