@@ -549,6 +549,7 @@ const SAFE_POS_ERROR_MESSAGES = new Set([
   "Invoice is locked. Use the adjustment flow before changing add-ons.",
   "Invoice is locked. Use the adjustment flow before changing package composition.",
   "Invoice is locked. Use the adjustment flow before changing selected photos.",
+  "Locked invoices can only be changed through an Adjustment Workspace.",
   "Invoice does not belong to this order",
   "Manager permission is required to issue a credit note",
   "Manager permission is required to issue an adjustment invoice",

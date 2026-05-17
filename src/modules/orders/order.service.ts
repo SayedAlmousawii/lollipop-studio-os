@@ -1,6 +1,7 @@
 import {
   AuditAction,
   AuditEntityType,
+  AdjustmentWorkspaceStatus,
   InvoiceType,
   InvoiceStatus,
   OrderActivityType,
@@ -137,10 +138,20 @@ const FINAL_PARENT_INVOICE_WHERE = {
   parentInvoiceId: null,
   invoiceType: InvoiceType.FINAL,
 } satisfies Prisma.InvoiceWhereInput;
+const LOCKED_INVOICE_WORKSPACE_REQUIRED =
+  "Locked invoices can only be changed through an Adjustment Workspace.";
 
 function assertFinancialActorContext(actorContext: ActorContext): void {
   if (!actorContext.actorUserId || !actorContext.actorRole) {
     throw new Error("Missing actor context");
+  }
+}
+
+function assertDirectPOSMutationAllowed(
+  invoice: { isLocked: boolean } | null | undefined
+): void {
+  if (invoice?.isLocked) {
+    throw new Error(LOCKED_INVOICE_WORKSPACE_REQUIRED);
   }
 }
 
@@ -185,6 +196,7 @@ export function parseOrderFilters(filters: {
   sessionDateFrom?: string | string[];
   sessionDateTo?: string | string[];
   editorId?: string | string[];
+  hasOpenWorkspace?: string | string[];
 }): OrderFilters {
   const search = singleValue(filters.search)?.trim();
   const orderStatus = singleValue(filters.orderStatus);
@@ -192,6 +204,7 @@ export function parseOrderFilters(filters: {
   const sessionDateFrom = parseDateInput(singleValue(filters.sessionDateFrom));
   const sessionDateTo = parseDateInput(singleValue(filters.sessionDateTo));
   const editorId = singleValue(filters.editorId)?.trim();
+  const hasOpenWorkspace = singleValue(filters.hasOpenWorkspace);
 
   return {
     search: search ? search : undefined,
@@ -206,6 +219,7 @@ export function parseOrderFilters(filters: {
     sessionDateFrom,
     sessionDateTo,
     editorId: editorId ? editorId : undefined,
+    hasOpenWorkspace: hasOpenWorkspace === "true" ? true : undefined,
   };
 }
 
@@ -1029,6 +1043,7 @@ export async function updateOrderPackage(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        assertDirectPOSMutationAllowed(order.invoices[0]);
         if (!selectedPackage || !selectedPackage.isActive) {
           throw new Error("Selected package is not available");
         }
@@ -1178,6 +1193,7 @@ export async function upgradeOrderPackageItem(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        assertDirectPOSMutationAllowed(order.invoices[0]);
 
         const orderPackage = order.packages[0] ?? null;
         if (!orderPackage) throw new Error("Package line not found on this order");
@@ -1374,6 +1390,7 @@ export async function addOrderProductAddOn(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        assertDirectPOSMutationAllowed(order.invoices[0]);
         if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
           throw new Error("Selected add-on product is not available");
         }
@@ -1490,6 +1507,7 @@ export async function removeOrderAddOn(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        assertDirectPOSMutationAllowed(order.invoices[0]);
 
         const previousAddOns = mapStructuredAddOns(
           combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
@@ -1627,6 +1645,7 @@ export async function updateOrderSelectedPhotoCount(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        assertDirectPOSMutationAllowed(order.invoices[0]);
 
         const orderPackage = order.packages[0] ?? null;
         if (!orderPackage) throw new Error("Package line not found on this order");
@@ -2659,6 +2678,13 @@ async function fetchOrders(filters: OrderFilters) {
     ...(filters.editorId
       ? { editingJob: { assignedEditorId: filters.editorId } }
       : {}),
+    ...(filters.hasOpenWorkspace
+      ? {
+          adjustmentWorkspaces: {
+            some: { status: AdjustmentWorkspaceStatus.OPEN },
+          },
+        }
+      : {}),
   };
 
   return db.order.findMany({
@@ -2702,6 +2728,11 @@ async function fetchOrders(filters: OrderFilters) {
         },
         orderBy: { createdAt: "desc" },
       },
+      adjustmentWorkspaces: {
+        where: { status: AdjustmentWorkspaceStatus.OPEN },
+        select: { id: true },
+        take: 1,
+      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -2730,6 +2761,11 @@ function fetchOrdersByCustomerId(customerId: string, limit: number) {
           createdAt: true,
         },
         orderBy: { createdAt: "desc" },
+      },
+      adjustmentWorkspaces: {
+        where: { status: AdjustmentWorkspaceStatus.OPEN },
+        select: { id: true },
+        take: 1,
       },
     },
     orderBy: { createdAt: "desc" },
@@ -2844,6 +2880,8 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
+    hasOpenAdjustmentWorkspace:
+      "adjustmentWorkspaces" in row && row.adjustmentWorkspaces.length > 0,
   };
 }
 
