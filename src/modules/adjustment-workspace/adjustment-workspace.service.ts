@@ -86,6 +86,7 @@ type WorkspaceRow = {
 };
 
 const moneyZero = new Prisma.Decimal(0);
+const EXTRA_PHOTO_REF_PREFIX = "Extra photos - ";
 
 export class AdjustmentWorkspaceConflictError extends Error {
   constructor() {
@@ -1295,7 +1296,11 @@ function extraPhotoLineId(orderPackageId: string, mediaType: MediaType): string 
 }
 
 function extraPhotoRef(packageName: string, mediaType: MediaType): string {
-  return `Extra photos - ${formatEnum(mediaType)} (${packageName})`;
+  return `${EXTRA_PHOTO_REF_PREFIX}${formatEnum(mediaType)} (${packageName})`;
+}
+
+function isExtraPhotoRef(refId: string): boolean {
+  return refId.startsWith(EXTRA_PHOTO_REF_PREFIX);
 }
 
 function extraPhotoPriceKey(sessionTypeId: string, mediaType: MediaType): string {
@@ -1395,7 +1400,8 @@ function applySelectedPhotoCountChange(
 }
 
 function isExtraPhotoLine(line: AdjustmentCompositionLine): boolean {
-  return line.lineId.startsWith("extra-photo:") || line.refId.startsWith("Extra photos - ");
+  // The refId fallback covers existing extraPhotoRef-generated ADJ lines.
+  return line.lineId.startsWith("extra-photo:") || isExtraPhotoRef(line.refId);
 }
 
 function negateLine(line: AdjustmentCompositionLine): AdjustmentCompositionLine {
