@@ -35,7 +35,7 @@ const receptionistActor = {
   role: UserRole.RECEPTIONIST,
 };
 
-test("extra-photo pricing service validates prices, filters archived session types, and updates both media rows", async () => {
+test("extra-photo pricing service", async (t) => {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
     const previousDatabaseUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = databaseUrl;
@@ -53,173 +53,212 @@ test("extra-photo pricing service validates prices, filters archived session typ
         snapshotInvoiceLineItemsWithClient,
       } = await import("@/modules/invoices/invoice.service");
 
-      const { activeSessionTypeId, archivedSessionTypeId } =
-        await createPricingFixture(db);
+      await t.test("lists active session types only", async () => {
+        const { activeSessionTypeId, archivedSessionTypeId } =
+          await createPricingFixture(db, "LIST");
 
-      const rows = await listExtraPhotoPricing();
-      assert.deepEqual(
-        rows.map((row) => row.sessionTypeId),
-        [activeSessionTypeId]
-      );
-      assert.equal(
-        rows.some((row) => row.sessionTypeId === archivedSessionTypeId),
-        false
-      );
+        const rows = await listExtraPhotoPricing();
+        assert.equal(
+          rows.some((row) => row.sessionTypeId === activeSessionTypeId),
+          true
+        );
+        assert.equal(
+          rows.some((row) => row.sessionTypeId === archivedSessionTypeId),
+          false
+        );
+      });
 
-      await assert.rejects(
-        () =>
-          updateExtraPhotoPricing(
-            activeSessionTypeId,
-            {
-              digitalUnitPrice: "-1.000",
-              printUnitPrice: "1.000",
-            } as never,
-            managerActor
-          ),
-        /Use a valid non-negative price/
-      );
-      await assert.rejects(
-        () =>
-          updateExtraPhotoPricing(
-            activeSessionTypeId,
-            {
-              digitalUnitPrice: "1.0000",
-              printUnitPrice: "1.000",
-            } as never,
-            managerActor
-          ),
-        /up to 3 decimals/
-      );
-      await assert.rejects(
-        () =>
-          updateExtraPhotoPricing(
-            activeSessionTypeId,
-            {
-              digitalUnitPrice: "1.000",
-              printUnitPrice: "not-a-price",
-            } as never,
-            managerActor
-          ),
-        /valid non-negative price/
-      );
-      await assert.rejects(
-        () =>
-          updateExtraPhotoPricing(
-            activeSessionTypeId,
-            {
-              digitalUnitPrice: "1.000",
-              printUnitPrice: "1.000",
-            } as never,
-            receptionistActor
-          ),
-        /unauthorized|experimental|NEXT/
-      );
+      await t.test("rejects invalid update prices", async () => {
+        const { activeSessionTypeId } = await createPricingFixture(db, "VALID");
 
-      await updateExtraPhotoPricing(
-        activeSessionTypeId,
-        {
-          digitalUnitPrice: "0",
-          printUnitPrice: "9999999.999",
-        } as never,
-        managerActor
-      );
-      assert.deepEqual(
-        await readPricing(db, activeSessionTypeId),
-        {
+        await assert.rejects(
+          () =>
+            updateExtraPhotoPricing(
+              activeSessionTypeId,
+              {
+                digitalUnitPrice: "-1.000",
+                printUnitPrice: "1.000",
+              } as never,
+              managerActor
+            ),
+          /Use a valid non-negative price/
+        );
+        await assert.rejects(
+          () =>
+            updateExtraPhotoPricing(
+              activeSessionTypeId,
+              {
+                digitalUnitPrice: "1.0000",
+                printUnitPrice: "1.000",
+              } as never,
+              managerActor
+            ),
+          /up to 3 decimals/
+        );
+        await assert.rejects(
+          () =>
+            updateExtraPhotoPricing(
+              activeSessionTypeId,
+              {
+                digitalUnitPrice: "1.000",
+                printUnitPrice: "not-a-price",
+              } as never,
+              managerActor
+            ),
+          /valid non-negative price/
+        );
+      });
+
+      await t.test("rejects unauthorized actors", async () => {
+        const { activeSessionTypeId } = await createPricingFixture(db, "AUTH");
+
+        await assert.rejects(
+          () =>
+            updateExtraPhotoPricing(
+              activeSessionTypeId,
+              {
+                digitalUnitPrice: "1.000",
+                printUnitPrice: "1.000",
+              } as never,
+              receptionistActor
+            ),
+          assertUnauthorizedError
+        );
+      });
+
+      await t.test("persists valid paired prices", async () => {
+        const { activeSessionTypeId } = await createPricingFixture(db, "SAVE");
+
+        await updateExtraPhotoPricing(
+          activeSessionTypeId,
+          {
+            digitalUnitPrice: "0",
+            printUnitPrice: "9999999.999",
+          } as never,
+          managerActor
+        );
+        assert.deepEqual(await readPricing(db, activeSessionTypeId), {
           DIGITAL: "0.000",
           PRINT: "9999999.999",
-        }
-      );
-
-      const fixture = await createInvoicePricingFixture(db);
-      const firstOrderId = await createOrderFixture(db, fixture, "first");
-      const firstInvoice = await db.$transaction((tx) =>
-        createInvoiceForOrderWithClient(tx, firstOrderId, {
-          actorUserId: fixture.managerUserId,
-          actorRole: UserRole.MANAGER,
-        })
-      );
-      await db.$transaction((tx) =>
-        snapshotInvoiceLineItemsWithClient(tx, firstInvoice.id, firstOrderId)
-      );
-
-      await updateExtraPhotoPricing(
-        fixture.sessionTypeId,
-        {
-          digitalUnitPrice: "6.000",
-          printUnitPrice: "8.000",
-        } as never,
-        managerActor
-      );
-
-      const storedFirstInvoice = await getInvoiceWithLineItems(firstInvoice.id);
-      assert.equal(storedFirstInvoice?.totalAmount, "77.000 KD");
-      assert.deepEqual(
-        storedFirstInvoice?.lineItems
-          .filter((line) => line.lineType === InvoiceLineType.EXTRA_PHOTOS)
-          .map((line) => line.lineTotal),
-        ["10.000 KD", "7.000 KD"]
-      );
-
-      const secondOrderId = await createOrderFixture(db, fixture, "second");
-      const secondInvoice = await db.$transaction((tx) =>
-        createInvoiceForOrderWithClient(tx, secondOrderId, {
-          actorUserId: fixture.managerUserId,
-          actorRole: UserRole.MANAGER,
-        })
-      );
-      const storedSecondInvoice = await getInvoiceWithLineItems(secondInvoice.id);
-      assert.equal(storedSecondInvoice?.totalAmount, "80.000 KD");
-      assert.deepEqual(
-        storedSecondInvoice?.lineItems
-          .filter((line) => line.lineType === InvoiceLineType.EXTRA_PHOTOS)
-          .map((line) => line.lineTotal),
-        ["12.000 KD", "8.000 KD"]
-      );
-
-      await db.sessionTypeExtraPhotoPricing.delete({
-        where: {
-          sessionTypeId_mediaType: {
-            sessionTypeId: activeSessionTypeId,
-            mediaType: MediaType.PRINT,
-          },
-        },
+        });
       });
-      await assert.rejects(
-        () =>
-          updateExtraPhotoPricing(
-            activeSessionTypeId,
-            {
-              digitalUnitPrice: "2.000",
-              printUnitPrice: "3.000",
-            } as never,
-            managerActor
-          ),
-        ExtraPhotoPricingNotFoundError
-      );
-      assert.equal(
-        (await readPricing(db, activeSessionTypeId)).DIGITAL,
-        "0.000"
-      );
+
+      await t.test("uses updated prices for later invoices only", async () => {
+        const fixture = await createInvoicePricingFixture(db, "INV");
+        const firstOrderId = await createOrderFixture(db, fixture, "first");
+        const firstInvoice = await db.$transaction((tx) =>
+          createInvoiceForOrderWithClient(tx, firstOrderId, {
+            actorUserId: fixture.managerUserId,
+            actorRole: UserRole.MANAGER,
+          })
+        );
+        await db.$transaction((tx) =>
+          snapshotInvoiceLineItemsWithClient(tx, firstInvoice.id, firstOrderId)
+        );
+
+        await updateExtraPhotoPricing(
+          fixture.sessionTypeId,
+          {
+            digitalUnitPrice: "6.000",
+            printUnitPrice: "8.000",
+          } as never,
+          managerActor
+        );
+
+        const storedFirstInvoice = await getInvoiceWithLineItems(firstInvoice.id);
+        assert.equal(storedFirstInvoice?.totalAmount, "77.000 KD");
+        assert.deepEqual(
+          storedFirstInvoice?.lineItems
+            .filter((line) => line.lineType === InvoiceLineType.EXTRA_PHOTOS)
+            .map((line) => line.lineTotal),
+          ["10.000 KD", "7.000 KD"]
+        );
+
+        const secondOrderId = await createOrderFixture(db, fixture, "second");
+        const secondInvoice = await db.$transaction((tx) =>
+          createInvoiceForOrderWithClient(tx, secondOrderId, {
+            actorUserId: fixture.managerUserId,
+            actorRole: UserRole.MANAGER,
+          })
+        );
+        const storedSecondInvoice =
+          await getInvoiceWithLineItems(secondInvoice.id);
+        assert.equal(storedSecondInvoice?.totalAmount, "80.000 KD");
+        assert.deepEqual(
+          storedSecondInvoice?.lineItems
+            .filter((line) => line.lineType === InvoiceLineType.EXTRA_PHOTOS)
+            .map((line) => line.lineTotal),
+          ["12.000 KD", "8.000 KD"]
+        );
+      });
+
+      await t.test("rejects missing pricing rows without partial updates", async () => {
+        const { activeSessionTypeId } = await createPricingFixture(db, "MISS");
+        await updateExtraPhotoPricing(
+          activeSessionTypeId,
+          {
+            digitalUnitPrice: "0",
+            printUnitPrice: "9999999.999",
+          } as never,
+          managerActor
+        );
+        await db.sessionTypeExtraPhotoPricing.delete({
+          where: {
+            sessionTypeId_mediaType: {
+              sessionTypeId: activeSessionTypeId,
+              mediaType: MediaType.PRINT,
+            },
+          },
+        });
+
+        await assert.rejects(
+          () =>
+            updateExtraPhotoPricing(
+              activeSessionTypeId,
+              {
+                digitalUnitPrice: "2.000",
+                printUnitPrice: "3.000",
+              } as never,
+              managerActor
+            ),
+          ExtraPhotoPricingNotFoundError
+        );
+        assert.equal(
+          (await readPricing(db, activeSessionTypeId)).DIGITAL,
+          "0.000"
+        );
+      });
     } finally {
       process.env.DATABASE_URL = previousDatabaseUrl;
     }
   });
 });
 
-async function createPricingFixture(db: typeof import("@/lib/db")["db"]) {
+function assertUnauthorizedError(error: unknown): boolean {
+  assert.ok(error instanceof Error);
+  assert.equal(
+    error.message,
+    "`unauthorized()` is experimental and only allowed to be used when `experimental.authInterrupts` is enabled."
+  );
+  return true;
+}
+
+async function createPricingFixture(
+  db: typeof import("@/lib/db")["db"],
+  suffix: string
+) {
   const department = await db.studioDepartment.create({
     data: {
-      code: "PR",
-      name: "Pricing",
+      code: `PR_${suffix}`,
+      name: `Pricing ${suffix}`,
       isActive: true,
       sortOrder: 10,
     },
   });
   const activeSessionType = await db.sessionType.create({
     data: {
-      code: "PR_ACTIVE",
-      name: "Active Pricing",
+      code: `PR_ACTIVE_${suffix}`,
+      name: `Active Pricing ${suffix}`,
       departmentId: department.id,
       calendarLabel: "Pricing",
       isActive: true,
@@ -234,8 +273,8 @@ async function createPricingFixture(db: typeof import("@/lib/db")["db"]) {
   });
   const archivedSessionType = await db.sessionType.create({
     data: {
-      code: "PR_ARCHIVED",
-      name: "Archived Pricing",
+      code: `PR_ARCHIVED_${suffix}`,
+      name: `Archived Pricing ${suffix}`,
       departmentId: department.id,
       calendarLabel: "Pricing",
       isActive: false,
@@ -269,27 +308,28 @@ async function readPricing(
 }
 
 async function createInvoicePricingFixture(
-  db: typeof import("@/lib/db")["db"]
+  db: typeof import("@/lib/db")["db"],
+  suffix: string
 ) {
   const manager = await db.user.create({
     data: {
-      name: "Pricing Manager",
-      email: "pricing-manager@example.com",
+      name: `Pricing Manager ${suffix}`,
+      email: `pricing-manager-${suffix.toLowerCase()}@example.com`,
       role: UserRole.MANAGER,
     },
   });
   const department = await db.studioDepartment.create({
     data: {
-      code: "IP",
-      name: "Invoice Pricing",
+      code: `IP_${suffix}`,
+      name: `Invoice Pricing ${suffix}`,
       isActive: true,
       sortOrder: 10,
     },
   });
   const sessionType = await db.sessionType.create({
     data: {
-      code: "IP_SESSION",
-      name: "Invoice Pricing Session",
+      code: `IP_SESSION_${suffix}`,
+      name: `Invoice Pricing Session ${suffix}`,
       departmentId: department.id,
       calendarLabel: "Invoice Pricing",
       isActive: true,
@@ -304,8 +344,8 @@ async function createInvoicePricingFixture(
   });
   const packageFamily = await db.packageFamily.create({
     data: {
-      code: "IP_FAMILY",
-      name: "Invoice Pricing Packages",
+      code: `IP_FAMILY_${suffix}`,
+      name: `Invoice Pricing Packages ${suffix}`,
       sessionTypeId: sessionType.id,
       isActive: true,
       sortOrder: 10,

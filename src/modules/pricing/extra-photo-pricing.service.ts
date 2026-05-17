@@ -24,11 +24,30 @@ export const MEDIA_TYPE_LABELS: Record<MediaType, string> = {
 };
 
 export class ExtraPhotoPricingNotFoundError extends Error {
+  readonly sessionTypeId: string;
+  readonly mediaType: MediaType;
+
   constructor(sessionTypeId: string, mediaType: MediaType) {
     super(
       `Extra-photo unit price is missing for session type "${sessionTypeId}" and media type "${mediaType}".`
     );
     this.name = "ExtraPhotoPricingNotFoundError";
+    this.sessionTypeId = sessionTypeId;
+    this.mediaType = mediaType;
+  }
+}
+
+export class ExtraPhotoPricingDataError extends Error {
+  readonly sessionTypeId: string;
+  readonly mediaType: MediaType;
+
+  constructor(sessionTypeId: string, mediaType: MediaType) {
+    super(
+      `Extra-photo unit price has duplicate rows for session type "${sessionTypeId}" and media type "${mediaType}".`
+    );
+    this.name = "ExtraPhotoPricingDataError";
+    this.sessionTypeId = sessionTypeId;
+    this.mediaType = mediaType;
   }
 }
 
@@ -178,7 +197,7 @@ function priceMapForSessionType(
   const prices = new Map<MediaType, Prisma.Decimal>();
   for (const row of rows) {
     if (prices.has(row.mediaType)) {
-      throw new ExtraPhotoPricingNotFoundError(sessionTypeId, row.mediaType);
+      throw new ExtraPhotoPricingDataError(sessionTypeId, row.mediaType);
     }
     prices.set(row.mediaType, row.unitPrice);
   }

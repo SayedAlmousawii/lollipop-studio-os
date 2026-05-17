@@ -6,6 +6,7 @@ import {
   requireCurrentAppUserPermission,
 } from "@/lib/permissions";
 import {
+  ExtraPhotoPricingDataError,
   ExtraPhotoPricingNotFoundError,
   updateExtraPhotoPricing as updateExtraPhotoPricingRecord,
 } from "@/modules/pricing/extra-photo-pricing.service";
@@ -53,6 +54,8 @@ export async function updateExtraPhotoPricingAction(
         _global: [
           error instanceof ExtraPhotoPricingNotFoundError
             ? "Extra-photo pricing rows are missing for this session type."
+            : error instanceof ExtraPhotoPricingDataError
+              ? "Extra-photo pricing data is inconsistent for this session type."
             : EXTRA_PHOTO_PRICING_ACTION_GENERIC_ERROR,
         ],
       },
