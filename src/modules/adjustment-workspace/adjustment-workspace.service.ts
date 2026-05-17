@@ -764,7 +764,12 @@ export async function computeWorkspaceProposal(
       const product = catalog.products.get(edit.toProductId);
       if (!currentItem) throw new Error("Package item is not available");
       if (!orderPackage) throw new Error("Package line is not available");
-      if (currentItem.packageId !== orderPackage.packageId) {
+      const effectivePackageId = resolveEffectivePackageId(
+        pending.edits,
+        edit.orderPackageId,
+        orderPackage.packageId
+      );
+      if (currentItem.packageId !== effectivePackageId) {
         throw new Error("Package item does not belong to the specified order package");
       }
       if (!product) throw new Error("Replacement product is not available");
@@ -1633,6 +1638,20 @@ function findPackageItemUpgradeLine(
   return lines.find(
     (line) => line.kind === "item" && line.lineId === packageItemUpgradeLineId(orderPackageId, packageItemId)
   );
+}
+
+function resolveEffectivePackageId(
+  edits: AdjustmentWorkspaceEdit[],
+  orderPackageId: string,
+  fallbackPackageId: string
+): string {
+  let effectivePackageId = fallbackPackageId;
+  for (const edit of edits) {
+    if (edit.op === "change_package_tier" && edit.orderPackageId === orderPackageId) {
+      effectivePackageId = edit.toPackageRefId;
+    }
+  }
+  return effectivePackageId;
 }
 
 function applySelectedPhotoCountChange(
