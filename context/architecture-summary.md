@@ -59,7 +59,7 @@ src/
 | Orders | original package, final package, selected photos, deliverables, add-ons, order state, price snapshots | — |
 | FinancialCase | financial grouping hub — owns all Invoices and Payments for a workflow thread; bridges Booking → Job | does not own operational workflow state |
 | Invoices/Payments | invoice total, deposit invoice, final invoice, upgrade payment, add-on payment, method, status | — |
-| AdjustmentWorkspace | post-lock operational edit staging, package-tier/package-item/add-on/photo-count pending changes, owner/takeover lifecycle, event stream, POS-shaped derived read model for staged UI | accounting/revenue reporting; payment posting |
+| AdjustmentWorkspace | post-lock operational edit staging, package-tier/package-item/add-on/photo-count pending changes, owner/takeover lifecycle, event stream, POS-shaped derived read model for staged UI, pending-change display normalization, pending financial preview derivation | accounting/revenue reporting; payment posting |
 | Editing | assigned editor, edit status, revision loop, approval status | — |
 | Production | print job, album design, vendor album, pickup status | — |
 | Commissions | upgrade tracking, commission calc, commission status, reports | — |
@@ -109,6 +109,8 @@ src/
 13. Package template edits must not retroactively change old invoices/orders
 14. Locked final invoices are edited operationally only through `AdjustmentWorkspace`; the workspace is not an accounting document, and finalization diffs proposed composition against the base snapshot to emit at most one consolidated ADJUSTMENT record.
 15. `derivePOSWorkspaceFromAdjustmentWorkspace()` is the read-only bridge from staged workspace state to shared POS UI modules: handlers stage edits into `pending_changes_json`, while the unlocked sales page handlers still commit directly.
+16. `derivePendingAdjustmentPreview()` is the service-layer source for Adjustment Workspace sidebar preview totals. Base Locked Total is read live from the parent final invoice plus finalized ADJs through settlement math, while pending additions/reductions/net come from `computeWorkspaceProposal()`.
+17. `buildPendingChangesView()` is the pure display normalizer for staged edits. It renders business-facing pending change rows from the edit DSL and optional base/proposed/delta context; it is not a financial calculation source.
 
 ---
 

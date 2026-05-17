@@ -5,6 +5,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 84c is complete: the adjustment workspace now leads with Stage Edits, previews the proposed composition through CurrentCompositionCard, renders human-readable Pending Changes and Pending Adjustment Summary, and uses FinancialSidebarAdjustment for pending financial preview plus Finalize/Issue.
+- Feature 84b is complete: locked sales now shows CurrentCompositionCard on the left and a FinancialSidebarLocked payment/document/action workspace on the right, with pre-lock sales preserved through FinancialSidebarDraft.
+- Feature 84a is complete: core CompositionView normalizer and presentational current-composition card were implemented; consumer wiring migrated in subsequent features (84b/84c).
 - AdjustmentWorkspace pending diff labels now resolve staged add-on, package tier, and package-item upgrade names from proposal lines instead of exposing raw internal ids.
 - AdjustmentWorkspace package-item upgrade validation now resolves the staged package tier before checking package item ownership, so rebuilding proposals with tier-change plus new-tier item-upgrade edits no longer rejects valid staged work.
 - Feature 83c review follow-up is complete: workspace POS staged handlers resolve current versions without closed-over page state, staged add-on resizing reuses the already-loaded edit, handler factories fail fast on invalid IDs, POS handlers normalize thrown errors, add-on handlers retry once on thrown stage failures, and derived selected-photo counts reflect reductions back to baseline.
@@ -85,6 +88,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 84c: reorganized AdjustmentWorkspace into the Stage Edits → Preview Composition → Pending Changes → Pending Adjustment Summary flow, added `buildPendingChangesView()` and `derivePendingAdjustmentPreview()`, moved Finalize/Issue into FinancialSidebarAdjustment, and moved Cancel/Discard into the summary block with confirmation.
+- Feature 84b: split the sales financial sidebar into draft/locked orchestrators, rewired locked composition to the shared CurrentCompositionCard, added linked financial document rows plus adjustment workspace actions in the locked sidebar, and covered payment-summary math and locked-sidebar rendering.
+- Feature 84a: added the shared post-lock CompositionView model/card with zero self-swap filtering, swap grouping, upgrade relabeling, upstream-total display, and focused model/component tests.
 - Feature 83c review follow-up: refreshed workspace POS staged edits against the current workspace version, removed the extra staged add-on resize lookup, normalized POS handler exceptions with add-on retry, added handler factory guards, and allowed derived selected-photo counts to decrease back to baseline.
 - Feature 83c review cleanup: added selected-photo revert and add-on add/remove no-ADJ regressions, asserted staged POS handlers disable inline reductive approval, and removed the marketplace quantity edit cast.
 - Feature 83c: mounted shared POS package composition, selected-photo, and add-on marketplace modules inside AdjustmentWorkspace, added staged handler adapters/new stage actions, added a POS-shaped derived workspace read model, emitted per-op staged metrics, and updated workspace architecture/UI docs.

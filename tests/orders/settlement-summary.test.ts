@@ -4,7 +4,10 @@ import { InvoiceType, Prisma } from "@prisma/client";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
-import { computeOrderSettlementSummary } from "@/modules/orders/order-settlement";
+import {
+  computeOrderSettlementSummary,
+  derivePaymentSummary,
+} from "@/modules/orders/order-settlement";
 
 test("computeOrderSettlementSummary uses canonical remaining balances", async (t) => {
   await t.test("FINAL 230 with 130 remaining displays paid 100", () => {
@@ -128,6 +131,64 @@ test("OrderSettlementSummary renders labels and formatted amounts", () => {
   assert.match(markup, /Refunded 50\.000 KD/);
 });
 
+test("derivePaymentSummary aggregates final and finalized adjustment settlement amounts", async (t) => {
+  await t.test("deposit plus final only, fully paid", () => {
+    assert.deepEqual(
+      derivePaymentSummary({
+        invoice: amounts(230, 0),
+        finalizedAdjustments: [],
+      }),
+      {
+        effectiveTotal: 230,
+        paid: 230,
+        remaining: 0,
+      }
+    );
+  });
+
+  await t.test("deposit plus finalized adjustment unpaid", () => {
+    assert.deepEqual(
+      derivePaymentSummary({
+        invoice: amounts(230, 0),
+        finalizedAdjustments: [amounts(40, 40)],
+      }),
+      {
+        effectiveTotal: 270,
+        paid: 230,
+        remaining: 40,
+      }
+    );
+  });
+
+  await t.test("deposit plus finalized adjustment fully paid", () => {
+    assert.deepEqual(
+      derivePaymentSummary({
+        invoice: amounts(230, 0),
+        finalizedAdjustments: [amounts(40, 0)],
+      }),
+      {
+        effectiveTotal: 270,
+        paid: 270,
+        remaining: 0,
+      }
+    );
+  });
+
+  await t.test("multiple finalized adjustments with partial payments", () => {
+    assert.deepEqual(
+      derivePaymentSummary({
+        invoice: amounts(230, 0),
+        finalizedAdjustments: [amounts(40, 10), amounts(30, 15)],
+      }),
+      {
+        effectiveTotal: 300,
+        paid: 275,
+        remaining: 25,
+      }
+    );
+  });
+});
+
 function invoice(
   invoiceType: InvoiceType,
   amounts: { totalAmount: number; remainingAmount: number }
@@ -136,5 +197,12 @@ function invoice(
     invoiceType,
     totalAmount: new Prisma.Decimal(amounts.totalAmount),
     remainingAmount: new Prisma.Decimal(amounts.remainingAmount),
+  };
+}
+
+function amounts(totalAmount: number, remainingAmount: number) {
+  return {
+    totalAmount: new Prisma.Decimal(totalAmount),
+    remainingAmount: new Prisma.Decimal(remainingAmount),
   };
 }
