@@ -79,6 +79,11 @@ export function Sidebar({ showProductionLink, showProductsLink }: SidebarProps) 
         items: [
           ...section.items.slice(0, packageIndex + 1),
           { label: "Session Types", href: "/session-types", icon: Camera },
+          {
+            label: "Session Configs",
+            href: "/session-configurations",
+            icon: Settings,
+          },
           { label: "Products", href: "/products", icon: Image },
           { label: "Pricing", href: "/pricing", icon: Tags },
           ...section.items.slice(packageIndex + 1),

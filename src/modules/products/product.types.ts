@@ -27,6 +27,11 @@ export interface ProductOption {
   canonicalPriceLabel: string;
 }
 
+export interface ActiveProductOption {
+  id: string;
+  name: string;
+}
+
 export interface GroupedProductOptions {
   category: ProductCategory;
   categoryLabel: string;

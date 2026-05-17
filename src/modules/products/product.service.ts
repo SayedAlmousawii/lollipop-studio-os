@@ -9,6 +9,7 @@ import type {
 } from "./product.schema";
 import type {
   GroupedProductOptions,
+  ActiveProductOption,
   Product,
   ProductOption,
 } from "./product.types";
@@ -104,6 +105,18 @@ export async function getActiveProductOptions(): Promise<GroupedProductOptions[]
     categoryLabel: PRODUCT_CATEGORY_LABELS[category],
     options: optionsByCategory.get(category) ?? [],
   })).filter((group) => group.options.length > 0);
+}
+
+export async function listActiveProducts(): Promise<ActiveProductOption[]> {
+  return withRetry(
+    () =>
+      db.product.findMany({
+        where: { isActive: true },
+        select: { id: true, name: true },
+        orderBy: [{ name: "asc" }],
+      }),
+    "Failed to fetch active products"
+  );
 }
 
 export async function createProduct(input: CreateProductInput) {
