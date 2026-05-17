@@ -79,22 +79,34 @@ export function createWorkspaceAddOnHandlers(
 ): POSAddOnHandlers {
   assertWorkspaceHandlerIds("createWorkspaceAddOnHandlers", orderId, workspaceId);
 
-  async function addAddOn(input: { productId: string; quantity: number }) {
+  async function addAddOn(input: {
+    productId: string;
+    quantity: number;
+  }): Promise<HandlerResult> {
     "use server";
 
-    return stageMarketplaceAddOnAction(orderId, workspaceId, input);
+    return retryWorkspaceHandler("addAddOn", () =>
+      stageMarketplaceAddOnAction(orderId, workspaceId, input)
+    );
   }
 
-  async function removeAddOn(input: { addOnId: string }) {
+  async function removeAddOn(input: { addOnId: string }): Promise<HandlerResult> {
     "use server";
 
-    return stageMarketplaceAddOnRemovalAction(orderId, workspaceId, input);
+    return retryWorkspaceHandler("removeAddOn", () =>
+      stageMarketplaceAddOnRemovalAction(orderId, workspaceId, input)
+    );
   }
 
-  async function changeAddOnQuantity(input: { addOnId: string; quantity: number }) {
+  async function changeAddOnQuantity(input: {
+    addOnId: string;
+    quantity: number;
+  }): Promise<HandlerResult> {
     "use server";
 
-    return stageMarketplaceAddOnQuantityAction(orderId, workspaceId, input);
+    return retryWorkspaceHandler("changeAddOnQuantity", () =>
+      stageMarketplaceAddOnQuantityAction(orderId, workspaceId, input)
+    );
   }
 
   return {
@@ -123,8 +135,31 @@ function workspaceHandlerError(handlerName: string, error: unknown): HandlerResu
     handlerName,
     error,
   });
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message
+      : "Unable to stage workspace edit";
   return {
     ok: false,
-    errors: { _global: ["Unable to stage workspace edit"] },
+    errors: { _global: [message] },
   };
+}
+
+async function retryWorkspaceHandler(
+  handlerName: string,
+  action: () => Promise<HandlerResult>
+): Promise<HandlerResult> {
+  try {
+    return await action();
+  } catch (error) {
+    console.error("Adjustment workspace POS handler attempt failed", {
+      handlerName,
+      error,
+    });
+    try {
+      return await action();
+    } catch (retryError) {
+      return workspaceHandlerError(handlerName, retryError);
+    }
+  }
 }
