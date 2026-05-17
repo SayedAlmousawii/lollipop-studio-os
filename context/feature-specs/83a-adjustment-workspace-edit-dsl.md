@@ -2,7 +2,7 @@
 
 ## Goal
 
-Extend the Adjustment Workspace backend with the staged-edit operations needed to reach POS parity: deliverable upgrade/replace, selected-photo-count change (with extra-photo billing implications), and a renamed/aligned package-tier change op. Backend only — no UI in this phase. Shippable in isolation: the workspace page will not yet expose the new ops; the only observable effect is that `applyEdit` accepts the new shapes and the service can compute proposals and emit ADJ line items for them.
+Extend the Adjustment Workspace backend with the staged-edit operations needed to reach POS parity: deliverable upgrade/replace, selected-photo-count change (with extra-photo billing implications), and a renamed/aligned package-tier change op. This is backend/service work plus the minimal workspace edit formatter needed to render staged new-op labels safely; no new UI controls are exposed in this phase. Shippable in isolation: the workspace page will not yet emit the new ops from controls; the observable effect is that `applyEdit` accepts the new shapes, the formatter can label them, and the service can compute proposals and emit ADJ line items for them.
 
 ## Read First
 
@@ -29,7 +29,7 @@ Extend the Adjustment Workspace backend with the staged-edit operations needed t
   - `change_selected_photo_count` — change `selectedPhotoCount` / `extraDigitalCount` / `extraPrintCount` for an order package, producing/replacing extra-photo billing lines in the proposed composition.
   - `change_package_tier` — promote/demote the package itself, keyed by `orderPackageId` (replaces the older `swap_package` for new code; old shape still parsed).
 - Zod schema updates in `adjustment-workspace.schema.ts`.
-- `applyEdit` acceptance of the new shapes (no UI surface change — call sites will arrive in 83c).
+- `applyEdit` acceptance of the new shapes and minimal workspace edit-label formatting for them (new call sites will arrive in 83c).
 - `computeWorkspaceProposal` cases for each new op producing correct `proposed.lines`.
 - Signed-delta emission for each new op, consistent with the existing diff-against-base normalization.
 - `createWorkspaceAdjustmentInvoice` mapping for each op onto the appropriate `InvoiceLineType` (`PACKAGE_UPGRADE`, `BUNDLE_ADJUSTMENT`, `ADD_ON`, plus extra-photo billing where applicable).
@@ -38,7 +38,7 @@ Extend the Adjustment Workspace backend with the staged-edit operations needed t
 
 ### Out of Scope
 
-- All UI changes — POS component refactor, workspace page rewire, new stage actions. Those are 83b / 83c.
+- UI controls, POS component refactor, workspace page rewire, and new stage actions. Those are 83b / 83c.
 - Schema changes to `adjustment_workspaces` or `adjustment_workspace_events` tables (op payloads are JSON; no column changes needed).
 - Changes to `POSWorkspace` or order data model.
 - Payment posting.

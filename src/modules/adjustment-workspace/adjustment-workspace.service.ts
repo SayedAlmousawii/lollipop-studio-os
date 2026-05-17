@@ -659,8 +659,13 @@ export async function computeWorkspaceProposal(
 
     if (edit.op === "upgrade_package_item") {
       const currentItem = packageItems.get(edit.packageItemId);
+      const orderPackage = orderPackages.get(edit.orderPackageId);
       const product = catalog.products.get(edit.toProductId);
       if (!currentItem) throw new Error("Package item is not available");
+      if (!orderPackage) throw new Error("Package line is not available");
+      if (currentItem.packageId !== orderPackage.packageId) {
+        throw new Error("Package item does not belong to the specified order package");
+      }
       if (!product) throw new Error("Replacement product is not available");
 
       const existing = findPackageItemUpgradeLine(
@@ -982,7 +987,7 @@ async function captureCurrentOrderComposition(
         orderPackage.sessionTypeId,
         mediaType
       ));
-      if (!unitPrice) throw new Error("Extra-photo pricing is required for this package line");
+      if (!unitPrice) continue;
       lines.push(
         makeLine({
           lineId: extraPhotoLineId(orderPackage.id, mediaType),
@@ -1104,7 +1109,7 @@ async function createWorkspaceAdjustmentInvoice(
             description: line.label,
             quantity: Math.abs(line.quantity),
             unitPrice:
-              line.quantity < 0
+              new Prisma.Decimal(line.lineTotalNet).lessThan(0)
                 ? new Prisma.Decimal(line.unitPrice).neg()
                 : new Prisma.Decimal(line.unitPrice),
             lineTotal: new Prisma.Decimal(line.lineTotalNet),
@@ -1325,11 +1330,8 @@ function findPackageItemUpgradeLine(
   orderPackageId: string,
   packageItemId: string
 ): AdjustmentCompositionLine | undefined {
-  const currentLineId = packageItemUpgradeLineId(orderPackageId, packageItemId);
   return lines.find(
-    (line) =>
-      line.kind === "item" &&
-      (line.lineId === currentLineId || line.refId === packageItemId)
+    (line) => line.kind === "item" && line.lineId === packageItemUpgradeLineId(orderPackageId, packageItemId)
   );
 }
 
@@ -1353,6 +1355,7 @@ function applySelectedPhotoCountChange(
   }
 
   const derivedExtraCount = Math.max(edit.selectedPhotoCount - includedPhotoCount, 0);
+  // Mirrors updateOrderSelectedPhotoCount: explicit digital/print allocations must total derived extras.
   if (edit.extraDigitalCount + edit.extraPrintCount !== derivedExtraCount) {
     throw new Error(
       "Digital and print extra allocations must equal the derived extra-photo count."

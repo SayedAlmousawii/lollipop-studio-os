@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 83a is complete: AdjustmentWorkspace pending edits now accept package-tier changes, package item upgrades, and selected-photo count changes while preserving old edit payloads and diff-against-base ADJ normalization.
+- Feature 83a is complete with review cleanup: AdjustmentWorkspace pending edits accept package-tier changes, package item upgrades, and selected-photo count changes, with stage-to-finalize ADJ coverage and diff-against-base normalization preserved.
 - Feature 81f is complete: INV-18 now excludes only manual goodwill CREDIT_NOTE applications from revenue-composition comparison, preserves classifier/order-composition credits, and has a focused backfill script for the historical F6 row.
 - Feature 81c is complete: the order detail header, orders list, invoices list, and invoice detail summary now consume canonical settled/outstanding displays derived from invoice totals/remaining balances, credit notes, and refunds, so the legacy "Paid X of Y" overpayment shape is gone.
 - Feature 81d is complete: nightly reconciliation pings the external no-report monitor only after reconciliation runs and Slack delivery succeeds, with Healthchecks.io setup documented for on-call.
@@ -76,7 +76,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
-- Feature 83a: extended the AdjustmentWorkspace edit DSL/parser/service for `change_package_tier`, `upgrade_package_item`, and `change_selected_photo_count`, captured extra-photo composition lines, mapped new deltas to ADJ line semantics, and added focused parser/compute/mapping regression coverage.
+- Feature 83a: extended the AdjustmentWorkspace edit DSL/parser/service for `change_package_tier`, `upgrade_package_item`, and `change_selected_photo_count`, captured extra-photo composition lines, mapped new deltas to ADJ line semantics, and added focused parser/compute/finalize regression coverage.
 - Feature 82: added AdjustmentWorkspace schema/events and refund-pending flag, staged post-lock edit services with optimistic versioning/takeover/cancel/finalize, effective composition folding, consolidated ADJUSTMENT emission with finalize-time approval, read-only locked sales gate plus dedicated workspace route, order-list workspace chip/filter, and net-delta regression tests.
 - Feature 81f: updated INV-18 goodwill classification, added the audited idempotent F6 backfill script, flipped the regression test to pass, and marked roadmap F6 complete.
 - Feature 81c: added a pure canonical order settlement summary, serialized it through order detail/list hydration, replaced header/list/detail financial readouts, and covered refund/credit-note/negative-outstanding display regressions.
