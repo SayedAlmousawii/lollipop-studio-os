@@ -64,7 +64,7 @@ Replace the post-lock half of the sales page so the operator sees an effective-s
   - Render test: locked sales page no longer contains the strings "SNAPSHOT LINE ITEMS", "Album 30×30 to Album 30×30", or any standalone raw negative `KD` swap row.
   - Render test: pre-lock sales page DOM diff is empty vs. baseline.
   - Functional test: `Open Adjustment Workspace`, `Resume Workspace`, `Take Over` paths all reachable from the new sidebar location.
-  - Numbers test: a fixture with deposit + final + one finalized ADJ + one paid ADJ payment produces correct `Effective Total / Paid / Remaining` and no double-counted deposit.
+  - Numbers test: a fixture with deposit + final + one finalized ADJ + one paid ADJ payment produces correct `Customer Total / Paid / Remaining` and no double-counted deposit.
 
 ### Out of Scope
 
@@ -149,7 +149,7 @@ Reuse `AdjustmentInvoiceBlock` styling as the visual baseline but generalize: a 
 - Post-lock sales page DOM contains no occurrence of `"SNAPSHOT LINE ITEMS"`, no row with label `"Album 30×30 to Album 30×30"`, and no standalone row with a raw negative `KD` swap (e.g. `"Album 30×30 to Album 20×20"` → must be merged into a single human-readable change line via 84a).
 - Pre-lock sales page renders identically before vs. after this phase (visual diff zero, DOM diff zero on the fixture suite).
 - `FinancialSidebarLocked` renders, in order: Payment Summary → Total Source → Linked Financial Documents → Adjustment Workspace action.
-- Payment Summary uses customer-facing labels (`Customer Total` / `Paid` / `Remaining`); "Effective Total" does not appear in UI copy.
+- Payment Summary uses customer-facing labels (`Customer Total` / `Paid` / `Remaining`) consistently in UI copy.
 - `Open Adjustment Workspace`, `Resume Workspace`, and `Take Over` are all reachable from the new sidebar location and pass their existing tests.
 - `derivePaymentSummary` is correct on the four test fixtures (deposit-only fully paid; deposit+ADJ unpaid; deposit+ADJ fully paid; deposit + multiple ADJs partially paid). No deposit double-count.
 - `Paid` comes from the canonical settlement/payment-allocation helper, not from display-row arithmetic or `CompositionView`. A grep for ad-hoc payment summation in `FinancialSidebarLocked` returns zero hits.

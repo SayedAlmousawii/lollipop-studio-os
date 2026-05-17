@@ -107,9 +107,6 @@ export async function openAdjustmentWorkspaceAction(
   console.info(
     JSON.stringify({
       metric: "sales_page.locked.adjustment_action.opened",
-      orderId,
-      invoiceId,
-      actorUserId: appUser.id,
     })
   );
   revalidateWorkspacePaths(orderId);

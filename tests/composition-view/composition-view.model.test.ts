@@ -148,12 +148,12 @@ test("uses upstream totals instead of recomputing the view total", () => {
         lineTotalNet: "250.000",
       }),
     ],
-    totals: totals("250.000"),
+    totals: totals("300.000"),
   });
 
-  assert.equal(view.total, 250);
+  assert.equal(view.total, 300);
   assert.equal(sumRows(view.rows), 250);
-  assertEmittedRowsMatchTotal(view.rows, view.total);
+  assert.notEqual(sumRows(view.rows), view.total);
 });
 
 test("normalizes the album screenshot regression fixture", () => {

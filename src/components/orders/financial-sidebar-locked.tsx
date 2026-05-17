@@ -111,7 +111,10 @@ export function FinancialSidebarLocked({
               Total Source
             </p>
             {depositApplied > 0 ? (
-              <MoneyRow label="Deposit Applied" value={formatKD(depositApplied)} />
+              <MoneyRow
+                label="Deposit Applied"
+                value={formatKD(-depositApplied)}
+              />
             ) : null}
             <MoneyRow
               label="Final Invoice Total"

@@ -130,28 +130,30 @@ export default async function AdjustmentWorkspacePage(
 
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
           <section className="space-y-5">
-            <section className="space-y-4">
-              <div>
-                <h2 className="text-xl font-semibold text-text-primary">
-                  Stage Edits
-                </h2>
-                <p className="mt-1 text-sm text-text-secondary">
-                  Use the POS tools to stage package, photo, and add-on changes.
-                </p>
-              </div>
-              <POSPackageComposition
-                workspace={derivedPOSWorkspace}
-                handlers={compositionHandlers}
-              />
-              <POSPhotoCountCard
-                workspace={derivedPOSWorkspace}
-                handlers={compositionHandlers}
-              />
-              <POSAddOnMarketplace
-                workspace={derivedPOSWorkspace}
-                handlers={addOnHandlers}
-              />
-            </section>
+            {canEdit ? (
+              <section className="space-y-4">
+                <div>
+                  <h2 className="text-xl font-semibold text-text-primary">
+                    Stage Edits
+                  </h2>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    Use the POS tools to stage package, photo, and add-on changes.
+                  </p>
+                </div>
+                <POSPackageComposition
+                  workspace={derivedPOSWorkspace}
+                  handlers={compositionHandlers}
+                />
+                <POSPhotoCountCard
+                  workspace={derivedPOSWorkspace}
+                  handlers={compositionHandlers}
+                />
+                <POSAddOnMarketplace
+                  workspace={derivedPOSWorkspace}
+                  handlers={addOnHandlers}
+                />
+              </section>
+            ) : null}
 
             <CurrentCompositionCard view={previewComposition} />
 
