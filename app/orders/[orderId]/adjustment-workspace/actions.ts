@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import type { ActorContext } from "@/lib/auth";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import {
   AdjustmentWorkspaceApprovalRequiredError,
+  AdjustmentWorkspaceConflictError,
   applyEdit,
   cancelWorkspace,
   finalizeWorkspace,
@@ -38,19 +40,23 @@ const swapPackageFormSchema = adjustmentWorkspaceVersionSchema.extend({
   toPackageRefId: z.string().trim().min(1, "Replacement package is required"),
 });
 
-const stagePackageTierChangeSchema = adjustmentWorkspaceVersionSchema.extend({
+const workspaceStageVersionSchema = z.object({
+  version: z.coerce.number().int().min(0).optional(),
+});
+
+const stagePackageTierChangeSchema = workspaceStageVersionSchema.extend({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   toPackageRefId: z.string().trim().min(1, "Replacement package is required"),
 });
 
-const stagePackageItemUpgradeSchema = adjustmentWorkspaceVersionSchema.extend({
+const stagePackageItemUpgradeSchema = workspaceStageVersionSchema.extend({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   packageItemId: z.string().trim().min(1, "Package item is required"),
   toProductId: z.string().trim().min(1, "Replacement product is required"),
   quantity: z.coerce.number().int().positive("Quantity must be at least 1"),
 });
 
-const stageSelectedPhotoCountSchema = adjustmentWorkspaceVersionSchema.extend({
+const stageSelectedPhotoCountSchema = workspaceStageVersionSchema.extend({
   orderPackageId: z.string().trim().min(1, "Package line is required"),
   selectedPhotoCount: z.coerce
     .number()
@@ -66,12 +72,12 @@ const stageSelectedPhotoCountSchema = adjustmentWorkspaceVersionSchema.extend({
     .min(0, "Print extras cannot be negative"),
 });
 
-const stageMarketplaceAddOnSchema = adjustmentWorkspaceVersionSchema.extend({
+const stageMarketplaceAddOnSchema = workspaceStageVersionSchema.extend({
   productId: z.string().trim().min(1, "Add-on is required"),
   quantity: z.coerce.number().int().positive("Quantity must be at least 1"),
 });
 
-const stageMarketplaceAddOnRemovalSchema = adjustmentWorkspaceVersionSchema.extend({
+const stageMarketplaceAddOnRemovalSchema = workspaceStageVersionSchema.extend({
   addOnId: z.string().trim().min(1, "Add-on is required"),
 });
 
@@ -233,7 +239,7 @@ export async function stagePackageTierChangeAction(
   orderId: string,
   workspaceId: string,
   input: {
-    version: number;
+    version?: number;
     orderPackageId: string;
     toPackageRefId: string;
   }
@@ -253,7 +259,7 @@ export async function stagePackageItemUpgradeAction(
   orderId: string,
   workspaceId: string,
   input: {
-    version: number;
+    version?: number;
     orderPackageId: string;
     packageItemId: string;
     toProductId: string;
@@ -277,7 +283,7 @@ export async function stageSelectedPhotoCountChangeAction(
   orderId: string,
   workspaceId: string,
   input: {
-    version: number;
+    version?: number;
     orderPackageId: string;
     selectedPhotoCount: number;
     extraDigitalCount: number;
@@ -300,7 +306,7 @@ export async function stageSelectedPhotoCountChangeAction(
 export async function stageMarketplaceAddOnAction(
   orderId: string,
   workspaceId: string,
-  input: { version: number; productId: string; quantity: number }
+  input: { version?: number; productId: string; quantity: number }
 ): Promise<HandlerResult> {
   const parsed = stageMarketplaceAddOnSchema.safeParse(input);
   if (!parsed.success) return zodHandlerError(parsed.error);
@@ -317,7 +323,7 @@ export async function stageMarketplaceAddOnAction(
 export async function stageMarketplaceAddOnRemovalAction(
   orderId: string,
   workspaceId: string,
-  input: { version: number; addOnId: string }
+  input: { version?: number; addOnId: string }
 ): Promise<HandlerResult> {
   const parsed = stageMarketplaceAddOnRemovalSchema.safeParse(input);
   if (!parsed.success) return zodHandlerError(parsed.error);
@@ -353,7 +359,7 @@ export async function stageMarketplaceAddOnRemovalAction(
 export async function stageMarketplaceAddOnQuantityAction(
   orderId: string,
   workspaceId: string,
-  input: { version: number; addOnId: string; quantity: number }
+  input: { version?: number; addOnId: string; quantity: number }
 ): Promise<HandlerResult> {
   const parsed = stageMarketplaceAddOnQuantitySchema.safeParse(input);
   if (!parsed.success) return zodHandlerError(parsed.error);
@@ -479,18 +485,17 @@ function revalidateWorkspacePaths(orderId: string): void {
 async function stageWorkspaceEdit(
   orderId: string,
   workspaceId: string,
-  version: number,
+  version: number | undefined,
   edit: AdjustmentWorkspaceEdit
 ): Promise<HandlerResult> {
   try {
     const appUser = await requireCurrentAppUserPermission(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
-    await applyEdit(
-      workspaceId,
-      { version, edit },
-      { actorUserId: appUser.id, actorRole: appUser.role }
-    );
+    await applyWorkspaceEdit(workspaceId, version, edit, {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    });
     revalidateWorkspacePaths(orderId);
     return { ok: true };
   } catch (error) {
@@ -501,7 +506,7 @@ async function stageWorkspaceEdit(
 async function decrementStagedAddLine(
   orderId: string,
   workspaceId: string,
-  version: number,
+  version: number | undefined,
   line: { lineId: string; quantity: number }
 ): Promise<HandlerResult> {
   return resizeStagedAddLine(orderId, workspaceId, version, line, line.quantity - 1);
@@ -510,7 +515,7 @@ async function decrementStagedAddLine(
 async function resizeStagedAddLine(
   orderId: string,
   workspaceId: string,
-  version: number,
+  version: number | undefined,
   line: { lineId: string; quantity: number },
   quantity: number
 ): Promise<HandlerResult> {
@@ -520,11 +525,10 @@ async function resizeStagedAddLine(
       PERMISSIONS.ORDER_FINANCIAL_UPDATE
     );
     if (quantity <= 0) {
-      await removeEdit(
-        workspaceId,
-        { version, editId },
-        { actorUserId: appUser.id, actorRole: appUser.role }
-      );
+      await removeWorkspaceEdit(workspaceId, version, editId, {
+        actorUserId: appUser.id,
+        actorRole: appUser.role,
+      });
     } else {
       const workspace = await getAdjustmentWorkspaceView(workspaceId);
       const edit = workspace?.pendingChanges.edits.find(
@@ -533,17 +537,72 @@ async function resizeStagedAddLine(
       if (!edit || edit.op !== "add_line") {
         throw new Error("Staged add-on edit was not found");
       }
-      await applyEdit(
-        workspaceId,
-        { version, edit: { ...edit, quantity } },
-        { actorUserId: appUser.id, actorRole: appUser.role }
-      );
+      await applyWorkspaceEdit(workspaceId, version, { ...edit, quantity }, {
+        actorUserId: appUser.id,
+        actorRole: appUser.role,
+      });
     }
     revalidateWorkspacePaths(orderId);
     return { ok: true };
   } catch (error) {
     return handlerError(error);
   }
+}
+
+async function applyWorkspaceEdit(
+  workspaceId: string,
+  version: number | undefined,
+  edit: AdjustmentWorkspaceEdit,
+  actorContext: ActorContext
+) {
+  const resolvedVersion = await resolveWorkspaceVersion(workspaceId, version);
+  try {
+    return await applyEdit(
+      workspaceId,
+      { version: resolvedVersion, edit },
+      actorContext
+    );
+  } catch (error) {
+    if (version !== undefined || !(error instanceof AdjustmentWorkspaceConflictError)) {
+      throw error;
+    }
+    const latestVersion = await resolveWorkspaceVersion(workspaceId, undefined);
+    if (latestVersion === resolvedVersion) throw error;
+    return applyEdit(workspaceId, { version: latestVersion, edit }, actorContext);
+  }
+}
+
+async function removeWorkspaceEdit(
+  workspaceId: string,
+  version: number | undefined,
+  editId: string,
+  actorContext: ActorContext
+) {
+  const resolvedVersion = await resolveWorkspaceVersion(workspaceId, version);
+  try {
+    return await removeEdit(
+      workspaceId,
+      { version: resolvedVersion, editId },
+      actorContext
+    );
+  } catch (error) {
+    if (version !== undefined || !(error instanceof AdjustmentWorkspaceConflictError)) {
+      throw error;
+    }
+    const latestVersion = await resolveWorkspaceVersion(workspaceId, undefined);
+    if (latestVersion === resolvedVersion) throw error;
+    return removeEdit(workspaceId, { version: latestVersion, editId }, actorContext);
+  }
+}
+
+async function resolveWorkspaceVersion(
+  workspaceId: string,
+  version: number | undefined
+) {
+  if (version !== undefined) return version;
+  const workspace = await getAdjustmentWorkspaceView(workspaceId);
+  if (!workspace) throw new Error("Workspace not found");
+  return workspace.version;
 }
 
 function zodHandlerError(error: z.ZodError): HandlerResult {

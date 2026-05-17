@@ -13,8 +13,7 @@ import {
 
 export function createWorkspaceCompositionHandlers(
   orderId: string,
-  workspaceId: string,
-  version: number
+  workspaceId: string
 ): POSCompositionHandlers {
   async function changePackageTier(input: {
     orderPackageId: string;
@@ -22,10 +21,7 @@ export function createWorkspaceCompositionHandlers(
   }) {
     "use server";
 
-    return stagePackageTierChangeAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
+    return stagePackageTierChangeAction(orderId, workspaceId, input);
   }
 
   async function upgradePackageItem(input: {
@@ -36,10 +32,7 @@ export function createWorkspaceCompositionHandlers(
   }) {
     "use server";
 
-    return stagePackageItemUpgradeAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
+    return stagePackageItemUpgradeAction(orderId, workspaceId, input);
   }
 
   async function changeSelectedPhotoCount(input: {
@@ -50,10 +43,7 @@ export function createWorkspaceCompositionHandlers(
   }) {
     "use server";
 
-    return stageSelectedPhotoCountChangeAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
+    return stageSelectedPhotoCountChangeAction(orderId, workspaceId, input);
   }
 
   return {
@@ -66,34 +56,24 @@ export function createWorkspaceCompositionHandlers(
 
 export function createWorkspaceAddOnHandlers(
   orderId: string,
-  workspaceId: string,
-  version: number
+  workspaceId: string
 ): POSAddOnHandlers {
   async function addAddOn(input: { productId: string; quantity: number }) {
     "use server";
 
-    return stageMarketplaceAddOnAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
+    return stageMarketplaceAddOnAction(orderId, workspaceId, input);
   }
 
   async function removeAddOn(input: { addOnId: string }) {
     "use server";
 
-    return stageMarketplaceAddOnRemovalAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
+    return stageMarketplaceAddOnRemovalAction(orderId, workspaceId, input);
   }
 
   async function changeAddOnQuantity(input: { addOnId: string; quantity: number }) {
     "use server";
 
-    return stageMarketplaceAddOnQuantityAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
+    return stageMarketplaceAddOnQuantityAction(orderId, workspaceId, input);
   }
 
   return {

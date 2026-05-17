@@ -52,13 +52,11 @@ export default async function AdjustmentWorkspacePage(
   const canEdit = isOwner || isManager;
   const compositionHandlers = createWorkspaceCompositionHandlers(
     orderId,
-    workspace.id,
-    workspace.version
+    workspace.id
   );
   const addOnHandlers = createWorkspaceAddOnHandlers(
     orderId,
-    workspace.id,
-    workspace.version
+    workspace.id
   );
 
   return (

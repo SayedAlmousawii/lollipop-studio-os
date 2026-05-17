@@ -386,6 +386,13 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
       },
     ]
   );
+  const derived = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    workspaceId
+  );
+  assert.equal(
+    derived?.packageLines[0]?.selectedPhotoCount,
+    orderPackage.package.photoCount
+  );
 
   const result = await services.finalizeWorkspace(
     workspaceId,
@@ -478,13 +485,11 @@ test("workspace POS handlers disable inline reductive approval for staged edits"
 
   const compositionHandlers = createWorkspaceCompositionHandlers(
     workflow.orderId,
-    workspace.id,
-    view.version
+    workspace.id
   );
   const addOnHandlers = createWorkspaceAddOnHandlers(
     workflow.orderId,
-    workspace.id,
-    view.version
+    workspace.id
   );
 
   assert.equal(view.proposal.requiresManagerApproval, true);

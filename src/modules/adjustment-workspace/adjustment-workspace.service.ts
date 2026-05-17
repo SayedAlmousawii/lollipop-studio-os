@@ -1366,10 +1366,7 @@ function derivePOSPackageLine(
   const extraPhotoTotal =
     extraDigitalCount * line.extraDigitalUnitPrice +
     extraPrintCount * line.extraPrintUnitPrice;
-  const selectedPhotoCount = Math.max(
-    line.selectedPhotoCount,
-    includedPhotoCount + extraPhotoCount
-  );
+  const selectedPhotoCount = includedPhotoCount + extraPhotoCount;
   const packageItems = (packageRow
     ? packageRow.items.map(mapDerivedPOSPackageItem)
     : line.packageItems
