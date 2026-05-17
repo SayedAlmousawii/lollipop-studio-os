@@ -15,11 +15,11 @@ export function OrderDetailsFinancialsTab({
   linkedDocuments,
   summary,
 }: {
-  workspace: POSWorkspace;
+  workspace: POSWorkspace | null;
   linkedDocuments: LinkedFinancialDocument[];
   summary: LockedFinancialSidebarSummary | null;
 }) {
-  if (!workspace.invoice || !summary) {
+  if (!workspace?.invoice || !summary) {
     return (
       <Card>
         <CardContent className="p-5">

@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { formatKD } from "@/components/financial";
 import { OrderDetailsFinancialsTab } from "@/components/financial/order-details-financials-tab";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
 import {
@@ -19,6 +20,14 @@ import type {
   LinkedFinancialDocument,
   POSWorkspace,
 } from "@/modules/orders/order.types";
+
+const FIXTURE_INVOICE_DATA = [
+  { invoiceType: InvoiceType.DEPOSIT, invoiceTotal: 20, remainingAmount: 0 },
+  { invoiceType: InvoiceType.FINAL, invoiceTotal: 230, remainingAmount: 0 },
+  { invoiceType: InvoiceType.ADJUSTMENT, invoiceTotal: 40, remainingAmount: 20 },
+  { invoiceType: InvoiceType.REFUND, invoiceTotal: 10, remainingAmount: 0 },
+  { invoiceType: InvoiceType.CREDIT_NOTE, invoiceTotal: 5, remainingAmount: 0 },
+] as const;
 
 test("OrderDetailsFinancialsTab renders all linked documents in canonical order", () => {
   const summary = financialSummaryFixture();
@@ -75,13 +84,9 @@ test("OrderDetailsFinancialsTab is read-only", () => {
 test("Order settlement header outstanding matches Financials tab remaining on fixture", () => {
   const summary = financialSummaryFixture();
   const settlementSummary = computeOrderSettlementSummary({
-    invoices: [
-      invoice(InvoiceType.DEPOSIT, 20, 0),
-      invoice(InvoiceType.FINAL, 230, 0),
-      invoice(InvoiceType.ADJUSTMENT, 40, 20),
-      invoice(InvoiceType.REFUND, 10, 0),
-      invoice(InvoiceType.CREDIT_NOTE, 5, 0),
-    ],
+    invoices: FIXTURE_INVOICE_DATA.map((fixture) =>
+      invoice(fixture.invoiceType, fixture.invoiceTotal, fixture.remainingAmount)
+    ),
   });
   const markup = renderToStaticMarkup(
     createElement(OrderSettlementSummary, { summary: settlementSummary })
@@ -92,13 +97,22 @@ test("Order settlement header outstanding matches Financials tab remaining on fi
 });
 
 function financialSummaryFixture() {
+  const finalInvoice = fixtureInvoice(InvoiceType.FINAL);
+  const depositInvoice = fixtureInvoice(InvoiceType.DEPOSIT);
+  const finalizedAdjustments = FIXTURE_INVOICE_DATA.filter(
+    (fixture) => fixture.invoiceType === InvoiceType.ADJUSTMENT
+  ).map((fixture) => ({
+    totalAmount: fixture.invoiceTotal,
+    remainingAmount: fixture.remainingAmount,
+  }));
+
   return deriveLockedFinancialSidebarSummary({
     finalInvoice: {
-      totalAmount: 230,
-      remainingAmount: 0,
-      depositPaidAmount: 20,
+      totalAmount: finalInvoice.invoiceTotal,
+      remainingAmount: finalInvoice.remainingAmount,
+      depositPaidAmount: depositInvoice.invoiceTotal,
     },
-    finalizedAdjustments: [{ totalAmount: 40, remainingAmount: 20 }],
+    finalizedAdjustments,
     orderId: "order-1",
   });
 }
@@ -180,30 +194,32 @@ function workspaceFixture(): POSWorkspace {
 
 function linkedDocumentsFixture(): LinkedFinancialDocument[] {
   return [
-    document("invoice-dep", "INV-DEP", InvoiceType.DEPOSIT, 20, 0),
-    document("invoice-final", "INV-FINAL", InvoiceType.FINAL, 230, 0),
-    document("invoice-adj", "INV-ADJ", InvoiceType.ADJUSTMENT, 40, 20),
-    document("invoice-refund", "INV-REFUND", InvoiceType.REFUND, 10, 0),
-    document("invoice-credit", "INV-CREDIT", InvoiceType.CREDIT_NOTE, 5, 0),
+    document("invoice-dep", "INV-DEP", fixtureInvoice(InvoiceType.DEPOSIT)),
+    document("invoice-final", "INV-FINAL", fixtureInvoice(InvoiceType.FINAL)),
+    document("invoice-adj", "INV-ADJ", fixtureInvoice(InvoiceType.ADJUSTMENT)),
+    document("invoice-refund", "INV-REFUND", fixtureInvoice(InvoiceType.REFUND)),
+    document(
+      "invoice-credit",
+      "INV-CREDIT",
+      fixtureInvoice(InvoiceType.CREDIT_NOTE)
+    ),
   ];
 }
 
 function document(
   invoiceId: string,
   invoiceNumber: string,
-  invoiceType: LinkedFinancialDocument["invoiceType"],
-  invoiceTotal: number,
-  remainingAmount: number
+  fixture: (typeof FIXTURE_INVOICE_DATA)[number]
 ): LinkedFinancialDocument {
   return {
     invoiceId,
     invoiceNumber,
-    invoiceType,
+    invoiceType: fixture.invoiceType,
     invoiceStatus:
-      remainingAmount > 0 ? InvoiceStatus.PARTIAL : InvoiceStatus.CLOSED,
-    invoiceTotal,
-    paidAmount: invoiceTotal - remainingAmount,
-    remainingAmount,
+      fixture.remainingAmount > 0 ? InvoiceStatus.PARTIAL : InvoiceStatus.CLOSED,
+    invoiceTotal: fixture.invoiceTotal,
+    paidAmount: fixture.invoiceTotal - fixture.remainingAmount,
+    remainingAmount: fixture.remainingAmount,
     issuedAt: new Date("2026-05-17T10:00:00.000Z"),
     createdAt: new Date("2026-05-17T10:00:00.000Z"),
   };
@@ -230,6 +246,10 @@ function assertInOrder(markup: string, labels: string[]) {
   }
 }
 
-function formatKD(value: number): string {
-  return `${value.toFixed(3)} KD`;
+function fixtureInvoice(invoiceType: InvoiceType) {
+  const fixture = FIXTURE_INVOICE_DATA.find(
+    (candidate) => candidate.invoiceType === invoiceType
+  );
+  assert.ok(fixture, `Missing fixture invoice for ${invoiceType}`);
+  return fixture;
 }

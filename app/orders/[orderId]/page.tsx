@@ -65,10 +65,10 @@ const TAB_ITEMS = [
 ] as const;
 
 function deriveOrderDetailsFinancialSummary(
-  workspace: POSWorkspace,
+  workspace: POSWorkspace | null,
   linkedDocuments: LinkedFinancialDocument[]
 ): LockedFinancialSidebarSummary | null {
-  if (!workspace.invoice) return null;
+  if (!workspace?.invoice) return null;
 
   const finalizedAdjustments = linkedDocuments
     .filter(
@@ -120,7 +120,6 @@ export default async function OrderDetailPage(
   if (!editing) notFound();
   if (!production) notFound();
   if (!delivery) notFound();
-  if (!workspace) notFound();
 
   const financialSummary = deriveOrderDetailsFinancialSummary(
     workspace,
@@ -131,7 +130,7 @@ export default async function OrderDetailPage(
       JSON.stringify({
         metric: "order_details.financials_tab.rendered",
         orderId,
-        invoiceId: workspace.invoice?.invoiceId ?? null,
+        invoiceId: workspace?.invoice?.invoiceId ?? null,
       })
     );
     if (
@@ -548,7 +547,7 @@ function FinancialsTab({
   linkedDocuments,
   financialSummary,
 }: {
-  workspace: POSWorkspace;
+  workspace: POSWorkspace | null;
   linkedDocuments: LinkedFinancialDocument[];
   financialSummary: LockedFinancialSidebarSummary | null;
 }) {

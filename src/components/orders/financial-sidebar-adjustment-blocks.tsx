@@ -26,14 +26,16 @@ export function AdjustmentInvoiceBlock({
             {invoice.invoiceStatus}
           </Badge>
         </div>
-        <POSRecordPaymentDialog
-          orderId={workspace.orderId}
-          invoice={invoice}
-          orderStatus={workspace.orderStatusRaw}
-          customerName={workspace.customerName}
-          jobNumber={workspace.jobNumber}
-          trigger={<Button size="sm">Record Payment</Button>}
-        />
+        {invoice.remainingAmount > 0 ? (
+          <POSRecordPaymentDialog
+            orderId={workspace.orderId}
+            invoice={invoice}
+            orderStatus={workspace.orderStatusRaw}
+            customerName={workspace.customerName}
+            jobNumber={workspace.jobNumber}
+            trigger={<Button size="sm">Record Payment</Button>}
+          />
+        ) : null}
       </div>
       <div className="space-y-2">
         {invoice.lineItems.map((item) => (
