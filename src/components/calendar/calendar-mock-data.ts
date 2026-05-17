@@ -1,4 +1,4 @@
-export type CalendarSessionType = "Newborn" | "Kids" | "Family" | "Other";
+export type CalendarSessionType = string;
 
 export type CalendarBooking = {
   id: string;
@@ -18,7 +18,11 @@ export type CalendarBooking = {
   };
 };
 
-export const SESSION_TYPE_COLORS = {
+export const SESSION_TYPE_COLORS: Record<string, {
+  backgroundColor: string;
+  textColor: string;
+  borderColor: string;
+}> = {
   Newborn: {
     backgroundColor: "var(--color-accent-soft)",
     textColor: "var(--color-accent)",

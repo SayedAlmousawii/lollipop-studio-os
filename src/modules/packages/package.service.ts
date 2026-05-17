@@ -113,7 +113,13 @@ export async function getActivePackageOptions(): Promise<PackageOption[]> {
   const rows = await withRetry(
     () =>
       db.package.findMany({
-        where: { isActive: true },
+        where: {
+          isActive: true,
+          packageFamily: {
+            isActive: true,
+            sessionType: { isActive: true, department: { isActive: true } },
+          },
+        },
         select: {
           id: true,
           name: true,
@@ -436,7 +442,11 @@ async function assertActivePackageFamily(
   packageFamilyId: string
 ): Promise<void> {
   const family = await client.packageFamily.findFirst({
-    where: { id: packageFamilyId, isActive: true },
+    where: {
+      id: packageFamilyId,
+      isActive: true,
+      sessionType: { isActive: true, department: { isActive: true } },
+    },
     select: { id: true },
   });
 
@@ -446,12 +456,25 @@ async function assertActivePackageFamily(
 }
 
 function packageWhere(filters: PackageFilters): Prisma.PackageWhereInput {
+  const sessionTypeWhere: Prisma.SessionTypeWhereInput = {
+    ...(filters.activeTaxonomyOnly
+      ? { isActive: true, department: { isActive: true } }
+      : {}),
+    ...(filters.departmentId ? { departmentId: filters.departmentId } : {}),
+  };
+
   return {
     packageFamily: {
+      ...(filters.activeTaxonomyOnly ? { isActive: true } : {}),
       ...(filters.sessionTypeId
-        ? { sessionTypeId: filters.sessionTypeId }
+        ? {
+            sessionTypeId: filters.sessionTypeId,
+            ...(filters.activeTaxonomyOnly ? { sessionType: sessionTypeWhere } : {}),
+          }
         : filters.departmentId
-          ? { sessionType: { departmentId: filters.departmentId } }
+          ? { sessionType: sessionTypeWhere }
+          : filters.activeTaxonomyOnly
+            ? { sessionType: sessionTypeWhere }
           : {}),
     },
   };

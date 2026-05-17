@@ -133,6 +133,7 @@ export async function seedPhaseCFixtures(db: PrismaClient): Promise<PhaseCFixtur
         code: "PHASE_C_SESSION",
         name: "Phase C Session",
         departmentId: department.id,
+        calendarLabel: "Phase C",
       },
     }),
     db.sessionType.create({
@@ -141,6 +142,7 @@ export async function seedPhaseCFixtures(db: PrismaClient): Promise<PhaseCFixtur
         code: "PHASE_C_OTHER_SESSION",
         name: "Phase C Other Session",
         departmentId: department.id,
+        calendarLabel: "Phase C",
       },
     }),
   ]);

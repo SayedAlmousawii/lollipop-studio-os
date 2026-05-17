@@ -119,6 +119,7 @@ export async function seedPhaseFFixtures(db: PrismaClient): Promise<PhaseFFixtur
       code: "PHASE_F_SESSION",
       name: "Phase F Session",
       departmentId: department.id,
+      calendarLabel: "Phase F",
     },
   });
 
