@@ -92,6 +92,9 @@ CREATE INDEX "session_configuration_options_configurationId_isActive_sort_idx" O
 CREATE UNIQUE INDEX "session_configuration_options_configurationId_value_key" ON "session_configuration_options"("configurationId", "value");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "session_configuration_options_id_configurationId_key" ON "session_configuration_options"("id", "configurationId");
+
+-- CreateIndex
 CREATE INDEX "order_package_session_configuration_selections_orderPackage_idx" ON "order_package_session_configuration_selections"("orderPackageId");
 
 -- CreateIndex
@@ -119,4 +122,4 @@ ALTER TABLE "order_package_session_configuration_selections" ADD CONSTRAINT "ord
 ALTER TABLE "order_package_session_configuration_selections" ADD CONSTRAINT "order_package_session_configuration_selections_configurati_fkey" FOREIGN KEY ("configurationId") REFERENCES "session_configurations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "order_package_session_configuration_selections" ADD CONSTRAINT "order_package_session_configuration_selections_optionId_fkey" FOREIGN KEY ("optionId") REFERENCES "session_configuration_options"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "order_package_session_configuration_selections" ADD CONSTRAINT "order_package_session_configuration_selections_optionId_configurationId_fkey" FOREIGN KEY ("optionId", "configurationId") REFERENCES "session_configuration_options"("id", "configurationId") ON DELETE RESTRICT ON UPDATE CASCADE;

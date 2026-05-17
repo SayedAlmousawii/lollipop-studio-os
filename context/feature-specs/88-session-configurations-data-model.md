@@ -27,7 +27,7 @@ This spec **only** lays the schema, enums, and migration scaffolding. No CRUD UI
 - **Decimal precision matches existing money columns:** `Decimal @db.Decimal(10, 3)` for KD amounts. No floats.
 - **No foreign-key cascade on delete from `session_configurations` or `session_configuration_options` to selection rows.** Selections are independent records once snapshotted. Use `onDelete: Restrict` so an admin can never delete a config that still has selections — they must deactivate.
 - **One selection row per (order_package_id, configuration_id).** Re-selecting overwrites the same row (updated snapshot fields, new `updatedAt`). Enforced by `@@unique`.
-- **The migration is greenfield.** No data backfill, no rename of existing tables. Down-migration drops the three new tables and removes the new enum values cleanly.
+- **The migration is greenfield.** No data backfill, no rename of existing tables. A rollback of `20260518020000_session_configurations_data_model` can drop the three new tables and the five new Session Configuration enum types, but the added `AuditEntityType` value cannot be cleanly removed in Postgres without rebuilding the enum.
 - **Migration naming:** `20260518020000_session_configurations_data_model` (next slot after today's existing `20260518010000_*`).
 
 ## Scope
@@ -120,6 +120,7 @@ model SessionConfigurationOption {
   selections    OrderPackageSessionConfigurationSelection[]
 
   @@unique([configurationId, value])
+  @@unique([id, configurationId])
   @@index([configurationId, isActive, sortOrder])
   @@map("session_configuration_options")
 }
@@ -146,7 +147,7 @@ model OrderPackageSessionConfigurationSelection {
 
   orderPackage  OrderPackage                @relation(fields: [orderPackageId], references: [id], onDelete: Cascade)
   configuration SessionConfiguration        @relation(fields: [configurationId], references: [id], onDelete: Restrict)
-  option        SessionConfigurationOption? @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  option        SessionConfigurationOption? @relation(fields: [optionId, configurationId], references: [id, configurationId], onDelete: Restrict)
 
   @@unique([orderPackageId, configurationId])
   @@index([orderPackageId])
@@ -196,7 +197,7 @@ Append to `context/architecture-summary.md` a short subsection ("Session Configu
 
 ### Rollback Plan
 
-- Down-migration: drop the three tables, then `DROP TYPE` the five new enums. The added `AuditEntityType` value cannot be cleanly removed in Postgres without rebuilding the enum; the down-migration leaves the new value present and unused, which is harmless (no rows ever wrote it).
+- Rollback for `20260518020000_session_configurations_data_model`: drop the three tables, then `DROP TYPE` the five new Session Configuration enums. The added `AuditEntityType` value cannot be cleanly removed in Postgres without rebuilding the enum; rollback leaves the new value present and unused, which is harmless if no rows wrote it.
 - No flag (no runtime code path uses the tables yet).
 - Non-recoverable data: none — greenfield tables with zero rows on rollback.
 

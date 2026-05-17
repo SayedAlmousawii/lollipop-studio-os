@@ -497,6 +497,7 @@ model SessionConfigurationOption {
   selections    OrderPackageSessionConfigurationSelection[]
 
   @@unique([configurationId, value])
+  @@unique([id, configurationId])
   @@index([configurationId, isActive, sortOrder])
   @@map("session_configuration_options")
 }
@@ -689,7 +690,7 @@ model OrderPackageSessionConfigurationSelection {
 
   orderPackage  OrderPackage                @relation(fields: [orderPackageId], references: [id], onDelete: Cascade)
   configuration SessionConfiguration        @relation(fields: [configurationId], references: [id], onDelete: Restrict)
-  option        SessionConfigurationOption? @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  option        SessionConfigurationOption? @relation(fields: [optionId, configurationId], references: [id, configurationId], onDelete: Restrict)
 
   @@unique([orderPackageId, configurationId])
   @@index([orderPackageId])
