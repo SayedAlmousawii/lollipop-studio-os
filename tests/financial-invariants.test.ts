@@ -186,73 +186,46 @@ test("financial invariants all pass against seeded fixtures", async () => {
         assert.equal(adjustmentLine.causeOrderEntityKind, "ADDON");
         assert.equal(adjustmentLine.causeOrderEntityId, adjustedAddOn.id);
 
-        await removeOrderAddOn(
-          autoAdjustmentOrderId,
-          {
-            addOnId: adjustedAddOn.id,
-            managerApprovedReductionByUserId: manager.id,
-            managerApprovedReason: "Regression reversal test",
-          },
-          makeManagerActor({ actorUserId: manager.id })
+        await assert.rejects(
+          () =>
+            removeOrderAddOn(
+              autoAdjustmentOrderId,
+              {
+                addOnId: adjustedAddOn.id,
+                managerApprovedReductionByUserId: manager.id,
+                managerApprovedReason: "Regression reversal test",
+              },
+              makeManagerActor({ actorUserId: manager.id })
+            ),
+          /Adjustment Workspace|Failed to remove order add-on/
         );
 
-        const adjustmentReversalApplication =
-          await db.documentApplication.findFirstOrThrow({
+        assert.equal(
+          await db.documentApplication.count({
             where: {
               targetInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
               targetInvoiceLineId: adjustmentLine.id,
             },
-            include: { sourceInvoice: { include: { lineItems: true } } },
-          });
-        assert.equal(
-          adjustmentReversalApplication.amountApplied.toFixed(3),
-          adjustmentLine.lineTotal.toFixed(3)
+          }),
+          0
         );
         assert.equal(
-          adjustmentReversalApplication.sourceInvoice.invoiceType,
-          InvoiceType.CREDIT_NOTE
-        );
-        assert.equal(
-          adjustmentReversalApplication.sourceInvoice.parentInvoiceId,
-          autoAdjustedFixture.adjustmentInvoiceId
-        );
-        assert.equal(
-          adjustmentReversalApplication.sourceInvoice.lineItems[0]
-            ?.causeOrderEntityId,
-          adjustedAddOn.id
-        );
-
-        const adjustmentRefund = await db.invoice.findFirstOrThrow({
-          where: {
-            invoiceType: InvoiceType.REFUND,
-            parentInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
-          },
-          include: {
-            payments: {
-              select: {
-                direction: true,
-                paymentType: true,
-                amount: true,
-                refundOfPaymentId: true,
-                allocations: { select: { invoiceId: true, amount: true } },
-              },
+          await db.invoice.count({
+            where: {
+              invoiceType: InvoiceType.CREDIT_NOTE,
+              parentInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
             },
-          },
-        });
-        assert.equal(adjustmentRefund.totalAmount.toFixed(3), "15.000");
-        assert.equal(adjustmentRefund.payments[0]?.direction, "OUT");
-        assert.equal(adjustmentRefund.payments[0]?.paymentType, PaymentType.REFUND);
-        assert.equal(
-          adjustmentRefund.payments[0]?.amount.toFixed(3),
-          "15.000"
+          }),
+          0
         );
         assert.equal(
-          adjustmentRefund.payments[0]?.refundOfPaymentId,
-          paidAdjustmentInvoice.payments[0]?.id
-        );
-        assert.equal(
-          adjustmentRefund.payments[0]?.allocations[0]?.invoiceId,
-          adjustmentRefund.id
+          await db.invoice.count({
+            where: {
+              invoiceType: InvoiceType.REFUND,
+              parentInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
+            },
+          }),
+          0
         );
 
         const finalAfterAdjustmentReversal = await db.invoice.findUniqueOrThrow({

@@ -14,6 +14,13 @@ import { deletePendingBooking, recordBookingDeposit } from "@/modules/bookings/b
 import { classifyEditDelta } from "@/modules/financial/edit-classifier";
 import { runAllInvariants } from "@/modules/financial/invariants";
 import {
+  applyEdit,
+  finalizeWorkspace,
+  getAdjustmentWorkspaceView,
+  openWorkspace,
+} from "@/modules/adjustment-workspace/adjustment-workspace.service";
+import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
+import {
   applyDepositToFinalIfPresent,
   closeInvoice,
   computeOverpaymentCapacity,
@@ -42,6 +49,7 @@ import {
   buildLockedFinalInvoiceWorkflowFixture,
   buildPendingBookingFixture,
   seedPhaseCFixtures,
+  type FinalInvoiceWorkflow,
   type PhaseCFixtures,
 } from "./fixtures";
 
@@ -261,7 +269,10 @@ async function runE8AdjustmentOfAdjustmentBlocked(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "e8");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "e8-addon",
+  });
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
 
   await assert.rejects(
@@ -287,7 +298,10 @@ async function runE9AdjustmentLineReductionTargetsFinal(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "e9");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "e9-addon",
+  });
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
@@ -328,54 +342,53 @@ async function runE11PaidAdjustmentCauseRemovalCharacterization(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "e11");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "e11-addon",
+  });
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   await recordPayment(
     adjustment.id,
     { amount: 50, method: PaymentMethod.CASH, paymentType: PaymentType.ADJUSTMENT },
     fixtures.adminActor
   );
-  const addOn = await db.orderAddOn.findFirstOrThrow({
-    where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
-  });
-  const adjustmentLine = await db.invoiceLineItem.findFirstOrThrow({
-    where: { invoiceId: adjustment.id },
-  });
-
-  await removeOrderAddOn(
-    workflow.orderId,
-    {
-      addOnId: addOn.id,
-      managerApprovedReductionByUserId: fixtures.managerId,
-      managerApprovedReason: "E11 remove paid adjustment cause",
-    },
-    fixtures.adminActor
+  const negativeAdjustmentId = await finalizeWorkspaceLineRemoval(
+    fixtures,
+    workflow,
+    fixtures.addOnProductId,
+    "e11-remove-paid-adjustment-line"
   );
 
-  const [creditNotes, refunds, paidAdjustment, reversalApplication] = await Promise.all([
-    db.invoice.count({ where: { orderId: workflow.orderId, invoiceType: InvoiceType.CREDIT_NOTE } }),
-    db.invoice.count({ where: { orderId: workflow.orderId, invoiceType: InvoiceType.REFUND } }),
+  const [
+    creditNotes,
+    refunds,
+    adjustments,
+    paidAdjustment,
+    negativeAdjustment,
+    order,
+  ] = await Promise.all([
+    db.invoice.count({
+      where: { orderId: workflow.orderId, invoiceType: InvoiceType.CREDIT_NOTE },
+    }),
+    db.invoice.count({
+      where: { orderId: workflow.orderId, invoiceType: InvoiceType.REFUND },
+    }),
+    db.invoice.count({
+      where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT },
+    }),
     db.invoice.findUniqueOrThrow({ where: { id: adjustment.id } }),
-    db.documentApplication.findFirst({
-      where: {
-        targetInvoiceId: adjustment.id,
-        targetInvoiceLineId: { not: null },
-        sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
-      },
+    db.invoice.findUniqueOrThrow({ where: { id: negativeAdjustmentId } }),
+    db.order.findUniqueOrThrow({
+      where: { id: workflow.orderId },
+      select: { refundPending: true },
     }),
   ]);
-  assert.equal(creditNotes, 1, "E11 now reverses paid adjustment cause removal with a credit note");
-  assert.equal(refunds, 1, "E11 now creates a refund invoice for paid adjustment reversal");
-  assert.equal(
-    reversalApplication?.targetInvoiceLineId,
-    adjustmentLine.id,
-    "E11 reversal targets the exact adjustment line"
-  );
-  assert.equal(
-    reversalApplication?.amountApplied.toFixed(3),
-    adjustmentLine.lineTotal.toFixed(3),
-    "E11 reversal amount matches the adjustment line"
-  );
+  assert.equal(adjustments, 2, "workspace removal emits one consolidated negative ADJ");
+  assert.equal(creditNotes, 0, "workspace removal no longer uses direct credit-note reversal");
+  assert.equal(refunds, 0, "workspace removal marks refund pending instead of issuing a refund");
+  assertMoney(negativeAdjustment.totalAmount, "-50", "negative workspace adjustment amount");
+  assert.equal(negativeAdjustment.isLocked, true);
+  assert.equal(order.refundPending, true);
   assert.equal(paidAdjustment.status, InvoiceStatus.CLOSED);
 }
 
@@ -533,7 +546,10 @@ async function runEc19RefundAfterAdjustmentWithoutCreditCharacterization(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec19");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "ec19-addon",
+  });
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   await recordPayment(
     adjustment.id,
@@ -550,14 +566,20 @@ async function runEc20SecondAdjustmentIsSibling(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec20");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "ec20-addon-a",
+  });
   const firstAdjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   await recordPayment(
     firstAdjustment.id,
     { amount: 50, method: PaymentMethod.CASH, paymentType: PaymentType.ADJUSTMENT },
     fixtures.adminActor
   );
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.secondAddOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.secondAddOnProductId,
+    editId: "ec20-addon-b",
+  });
 
   const adjustments = await db.invoice.findMany({
     where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT },
@@ -575,8 +597,14 @@ async function runEc21CreditNoteAfterMultipleAdjustments(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec21");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.secondAddOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "ec21-addon-a",
+  });
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.secondAddOnProductId,
+    editId: "ec21-addon-b",
+  });
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
     lines: [{ description: "Reduction from first adjustment", quantity: 1, unitPrice: 50 }],
@@ -665,17 +693,33 @@ async function runEc25EqualPricePackageSwap(
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec25");
   const orderPackage = await firstOrderPackage(db, workflow.orderId);
   const beforeFinancial = await invoiceTypeSnapshot(db, workflow.orderId);
-  await updateOrderPackage(
-    workflow.orderId,
-    { orderPackageId: orderPackage.id, packageId: fixtures.equalPackageId },
-    fixtures.adminActor
+  await expectRejectsWithoutPartialWrites(
+    () =>
+      updateOrderPackage(
+        workflow.orderId,
+        { orderPackageId: orderPackage.id, packageId: fixtures.equalPackageId },
+        fixtures.adminActor
+      ),
+    () => invoiceTypeSnapshot(db, workflow.orderId),
+    /Adjustment Workspace|Failed to update order package/
   );
-  const afterFinancial = await invoiceTypeSnapshot(db, workflow.orderId);
-  const activityCount = await db.orderActivity.count({
+  await finalizePackageTierWorkspaceAdjustment(fixtures, workflow, {
+    orderPackageId: orderPackage.id,
+    packageId: fixtures.equalPackageId,
+    editId: "ec25-equal-package-swap",
+  });
+  const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
+  const directActivityCount = await db.orderActivity.count({
     where: { orderId: workflow.orderId, title: "Package line changed" },
   });
-  assert.deepEqual(afterFinancial, beforeFinancial);
-  assert.equal(activityCount, 1);
+  const workspaceActivityCount = await db.orderActivity.count({
+    where: { orderId: workflow.orderId, title: "Adjustment workspace finalized" },
+  });
+  const afterFinancial = await invoiceTypeSnapshot(db, workflow.orderId);
+  assert.equal(afterFinancial.length, beforeFinancial.length + 1);
+  assertMoney(adjustment.totalAmount, "0", "zero-net package swap emits composition ADJ");
+  assert.equal(directActivityCount, 0);
+  assert.equal(workspaceActivityCount, 1);
 }
 
 async function runEc26ConfirmedBookingHardDeleteBlocked(
@@ -712,7 +756,10 @@ async function runEc28OpenAdjustmentAfterCancellationCharacterization(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec28");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "ec28-addon",
+  });
   await db.order.update({ where: { id: workflow.orderId }, data: { status: OrderStatus.CANCELLED } });
 
   const openAdjustments = await db.invoice.count({
@@ -821,11 +868,11 @@ async function runEc32CommissionUpgradeHookGap(
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec32");
   const orderPackage = await firstOrderPackage(db, workflow.orderId);
-  await updateOrderPackage(
-    workflow.orderId,
-    { orderPackageId: orderPackage.id, packageId: fixtures.upgradePackageId },
-    fixtures.adminActor
-  );
+  await finalizePackageTierWorkspaceAdjustment(fixtures, workflow, {
+    orderPackageId: orderPackage.id,
+    packageId: fixtures.upgradePackageId,
+    editId: "ec32-upgrade-package",
+  });
 
   const maybeCommissionClient = db as PrismaClient & { commission?: unknown };
   assert.equal(maybeCommissionClient.commission, undefined, "EC-32 documents missing commission persistence model");
@@ -858,7 +905,10 @@ async function runEc35StaleRecalculationAfterAdjustmentPaid(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec35");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "ec35-addon",
+  });
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   await recordPayment(
     adjustment.id,
@@ -866,11 +916,15 @@ async function runEc35StaleRecalculationAfterAdjustmentPaid(
     fixtures.adminActor
   );
   const before = await paymentSnapshot(db, adjustment.id);
-  await syncOrderInvoiceForFinancialEdit(db, {
-    orderId: workflow.orderId,
-    actorContext: fixtures.adminActor,
-    previousAddOns: [],
-  });
+  await assert.rejects(
+    () =>
+      syncOrderInvoiceForFinancialEdit(db, {
+        orderId: workflow.orderId,
+        actorContext: fixtures.adminActor,
+        previousAddOns: [],
+      }),
+    /Manager confirmation is required|Adjustment Workspace/
+  );
   const after = await paymentSnapshot(db, adjustment.id);
   const finalInvoice = await db.invoice.findUniqueOrThrow({ where: { id: workflow.finalInvoiceId } });
 
@@ -996,7 +1050,10 @@ async function runEc41InvoiceNumberPrefixes(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec41");
-  await addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor);
+  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
+    productId: fixtures.addOnProductId,
+    editId: "ec41-addon",
+  });
   const finalPayment = await firstPayment(db, workflow.finalInvoiceId, PaymentType.FINAL);
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
@@ -1151,4 +1208,97 @@ async function invoiceTypeSnapshot(db: PrismaClient, orderId: string) {
     },
     orderBy: [{ invoiceType: "asc" }, { createdAt: "asc" }],
   });
+}
+
+async function finalizeAddOnWorkspaceAdjustment(
+  db: PrismaClient,
+  fixtures: PhaseCFixtures,
+  workflow: FinalInvoiceWorkflow,
+  input: { productId: string; editId: string }
+) {
+  await finalizeWorkspaceAdjustment(fixtures, workflow, [
+    {
+      id: input.editId,
+      op: "add_line",
+      kind: "addon",
+      refId: input.productId,
+      quantity: 1,
+    },
+  ]);
+
+  return firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
+}
+
+async function finalizePackageTierWorkspaceAdjustment(
+  fixtures: PhaseCFixtures,
+  workflow: FinalInvoiceWorkflow,
+  input: { orderPackageId: string; packageId: string; editId: string }
+): Promise<void> {
+  await finalizeWorkspaceAdjustment(fixtures, workflow, [
+    {
+      id: input.editId,
+      op: "change_package_tier",
+      orderPackageId: input.orderPackageId,
+      toPackageRefId: input.packageId,
+    },
+  ]);
+}
+
+async function finalizeWorkspaceAdjustment(
+  fixtures: PhaseCFixtures,
+  workflow: FinalInvoiceWorkflow,
+  edits: AdjustmentWorkspaceEdit[]
+): Promise<void> {
+  const workspace = await openWorkspace(workflow.finalInvoiceId, fixtures.adminActor);
+  let version = 0;
+  for (const edit of edits) {
+    const view = await applyEdit(
+      workspace.id,
+      { version, edit },
+      fixtures.adminActor
+    );
+    version = view.version;
+  }
+  const result = await finalizeWorkspace(
+    workspace.id,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId, "workspace finalize must emit an ADJ");
+}
+
+async function finalizeWorkspaceLineRemoval(
+  fixtures: PhaseCFixtures,
+  workflow: FinalInvoiceWorkflow,
+  refId: string,
+  editId: string
+): Promise<string> {
+  const workspace = await openWorkspace(workflow.finalInvoiceId, fixtures.adminActor);
+  const initialView = await getAdjustmentWorkspaceView(workspace.id);
+  assert.ok(initialView, "expected workspace view");
+  const targetLine = initialView.baseSnapshot.lines.find((line) => line.refId === refId);
+  assert.ok(targetLine, "expected effective composition line to remove");
+  const view = await applyEdit(
+    workspace.id,
+    {
+      version: initialView.version,
+      edit: {
+        id: editId,
+        op: "remove_line",
+        targetLineId: targetLine.lineId,
+      },
+    },
+    fixtures.adminActor
+  );
+  const result = await finalizeWorkspace(
+    workspace.id,
+    {
+      version: view.version,
+      managerApprovedReductionByUserId: fixtures.managerId,
+      managerApprovedReason: "Workspace removal regression",
+    },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId, "workspace line removal must emit an ADJ");
+  return result.adjustmentInvoiceId;
 }
