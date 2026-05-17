@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 86 is complete: extra-photo pricing is manager/admin editable at `/pricing`, active session types show one digital/print price pair per row, edits update both media prices transactionally, and invoice generation continues to use current pricing for future invoices only.
 - Feature 85 is complete: session types are manager/admin editable at `/session-types`, create/edit/archive uses a new service/action/UI flow, calendar labels/colors now live on `SessionType`, and new session types get zero-priced DIGITAL/PRINT pricing rows.
 - Locked financial sidebar cleanup is complete: `order-settlement` now prepares the locked sidebar financial summary, deposit is a subtle included-payment note, Total Source explains only final invoice plus adjustments into customer total, and linked documents load booking/financial-case invoices so DEP documents appear with FINAL/ADJ docs.
 - Feature 84c is complete: the adjustment workspace now leads with Stage Edits, previews the proposed composition through CurrentCompositionCard, renders human-readable Pending Changes and Pending Adjustment Summary, and uses FinancialSidebarAdjustment for pending financial preview plus Finalize/Issue.
@@ -51,7 +52,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Package-item upgrades are no longer overloaded into `OrderAddOn`: true add-ons reference `Product`, while package-item upgrades reference `PackageItem` snapshots through `OrderPackageItemUpgrade`.
 - Extra selected photos are stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, and emitted as per-line/per-media Final Invoice lines.
 - Deposit invoice totals are no longer hardcoded to 20 KD; the dialog defaults to 20.000 KD, validates a 20.000 KD minimum, and stores the entered amount immutably on the locked Deposit Invoice.
-- Extra-photo pricing is data-backed by `SessionTypeExtraPhotoPricing`: each session type has independent `DIGITAL` and `PRINT` unit prices; newly-created session types get zero-priced rows until pricing is configured.
+- Extra-photo pricing is data-backed by `SessionTypeExtraPhotoPricing`: each active session type has editable `DIGITAL` and `PRINT` unit prices managed as one admin-facing pair; newly-created session types get zero-priced rows until pricing is configured.
 - Packages are classified through `Package.packageFamilyId`; department and session type are derived live through `PackageFamily -> SessionType -> StudioDepartment`; package duration is stored per package.
 - Booking creation accepts customer phone instead of customer id; existing customer names are display-only and not overwritten from the new booking form.
 - Development workflow reset must delete `FinancialCase` rows before `Booking` rows — financial cases use a restrictive FK on the booking lifecycle.
@@ -91,6 +92,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 86: added Extra Photo Pricing CRUD with active-only collapsed pricing rows, paired digital/print dialog edits, transactional validation, action permission coverage, and invoice-current-price regression coverage.
 - Feature 85: added Session Type admin CRUD, row-level calendar display fields, case-insensitive per-department name uniqueness, default zero-priced extra-photo pricing rows on create, archived taxonomy filtering, and calendar lookup removal.
 - Feature 84c: reorganized AdjustmentWorkspace into the Stage Edits → Preview Composition → Pending Changes → Pending Adjustment Summary flow, added `buildPendingChangesView()` and `derivePendingAdjustmentPreview()`, moved Finalize/Issue into FinancialSidebarAdjustment, and moved Cancel/Discard into the summary block with confirmation.
 - Feature 84b: split the sales financial sidebar into draft/locked orchestrators, rewired locked composition to the shared CurrentCompositionCard, added linked financial document rows plus adjustment workspace actions in the locked sidebar, and covered payment-summary math and locked-sidebar rendering.
@@ -136,7 +138,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Feature 73c: Order add-on split — added `OrderPackageItemUpgrade`, migrated package-item upgrade writes/reads out of `OrderAddOn`, backfilled legacy upgrade rows, dropped `OrderAddOn.packageItemId`, enforced required true add-on product references.
 
 ## Open Follow-Ups
-- Feature 86: implement Extra Photo Pricing CRUD so managers can replace the zero-priced rows created by new session types.
+- Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition can be insulated from later price edits.
 - Fix remaining Phase C/Phase F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, and voucher redemption schema.
 - Configure production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, and the documented `RECONCILIATION_PING_URL` Healthchecks.io secret.
 - Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database to confirm schema tightening remains behavior-neutral in real flows.
