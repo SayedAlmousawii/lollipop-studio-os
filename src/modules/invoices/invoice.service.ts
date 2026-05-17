@@ -216,28 +216,8 @@ export async function createInvoiceForOrderWithClient(
   });
   if (existingInvoice) return existingInvoice;
 
-  const resolvedSessionConfigurations = await resolveOrderSessionConfigurations(
-    client,
-    order.id
-  );
-  const missingRequiredSelections = resolvedSessionConfigurations
-    .filter((config) => config.missingRequiredConfigurationCodes.length > 0)
-    .map((config) => ({
-      orderPackageId: config.orderPackageId,
-      missingConfigurationCodes: config.missingRequiredConfigurationCodes,
-    }));
-  if (missingRequiredSelections.length > 0) {
-    recordInvoiceCounter("invoice.session_configuration_required_block", {
-      orderId: order.id,
-      count: missingRequiredSelections.length,
-    });
-    throw new SessionConfigurationRequiredSelectionMissingError(
-      missingRequiredSelections
-    );
-  }
-  const sessionConfigurationPrice = priceSelections(
-    resolvedSessionConfigurations.flatMap((config) => config.selections)
-  );
+  const sessionConfigurationPrice =
+    await priceRequiredSessionConfigurationsForOrder(client, order.id);
 
   if (order.packages.length === 0) throw new Error("Order has no package lines");
   const packageAmount = order.packages.reduce(
@@ -375,12 +355,16 @@ export async function syncOrderInvoiceForFinancialEdit(
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
   const nextExtraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
+  const sessionConfigurationPrice =
+    await priceRequiredSessionConfigurationsForOrder(client, order.id);
   const previousExtraPhotoCharge =
     input.previousExtraPhotoCharge ??
     nextExtraPhotoCharge;
   const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
   const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
-  const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
+  const targetTotalAmount = packagePrice
+    .plus(nextSelectionAddOnTotal)
+    .plus(sessionConfigurationPrice.totalDelta);
   const packageAdjustmentBaseline = order.packages.reduce(
     (sum, line) =>
       sum.plus(line.originalPackagePriceSnapshot ?? line.package.price),
@@ -1529,6 +1513,35 @@ function recordInvoiceCounter(
   fields: Record<string, string | number | null>
 ): void {
   console.info(JSON.stringify({ metric, ...fields }));
+}
+
+async function priceRequiredSessionConfigurationsForOrder(
+  client: DbClient,
+  orderId: string
+): Promise<ReturnType<typeof priceSelections>> {
+  const resolvedSessionConfigurations = await resolveOrderSessionConfigurations(
+    client,
+    orderId
+  );
+  const missingRequiredSelections = resolvedSessionConfigurations
+    .filter((config) => config.missingRequiredConfigurationCodes.length > 0)
+    .map((config) => ({
+      orderPackageId: config.orderPackageId,
+      missingConfigurationCodes: config.missingRequiredConfigurationCodes,
+    }));
+  if (missingRequiredSelections.length > 0) {
+    recordInvoiceCounter("invoice.session_configuration_required_block", {
+      orderId,
+      count: missingRequiredSelections.length,
+    });
+    throw new SessionConfigurationRequiredSelectionMissingError(
+      missingRequiredSelections
+    );
+  }
+
+  return priceSelections(
+    resolvedSessionConfigurations.flatMap((config) => config.selections)
+  );
 }
 
 async function buildOpenAdjustmentLineMap(

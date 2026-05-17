@@ -45,6 +45,7 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
       const {
         createInvoiceForOrderWithClient,
         closeInvoice,
+        syncOrderInvoiceForFinancialEdit,
       } = await import("@/modules/invoices/invoice.service");
       const { getPOSWorkspace } = await import("@/modules/orders/order.service");
       const {
@@ -175,6 +176,31 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
           where: { id: invoice.id },
         });
         assert.equal(createdInvoice.totalAmount.toFixed(3), "94.000");
+
+        const syncedInvoice = await db.$transaction((tx) =>
+          syncOrderInvoiceForFinancialEdit(tx, {
+            orderId: fixture.orderId,
+            previousAddOns: [
+              { productId: fixture.addOnProductId, name: "Cake INVOICE", price: 5 },
+              { productId: fixture.addOnProductId, name: "Cake INVOICE", price: 5 },
+            ],
+            previousExtraPhotoCharge: new Prisma.Decimal(5),
+            actorContext: {
+              actorUserId: fixture.managerUserId,
+              actorRole: UserRole.MANAGER,
+            },
+          })
+        );
+        assert.equal(syncedInvoice.totalAmount, "94.000 KD");
+        assert.equal(
+          (
+            await db.invoice.findUniqueOrThrow({
+              where: { id: invoice.id },
+              select: { totalAmount: true },
+            })
+          ).totalAmount.toFixed(3),
+          "94.000"
+        );
 
         const workspace = await getPOSWorkspace(fixture.orderId);
         assert.equal(workspace?.sessionConfigurationTotal, 19);
