@@ -503,6 +503,15 @@ function formatEdit(edit: AdjustmentWorkspaceView["pendingChanges"]["edits"][num
   if (edit.op === "swap_package") {
     return `Swap package ${edit.fromPackageRefId} → ${edit.toPackageRefId}`;
   }
+  if (edit.op === "upgrade_package_item") {
+    return `Upgrade package item ${edit.packageItemId}`;
+  }
+  if (edit.op === "change_selected_photo_count") {
+    return `Change selected photos to ${edit.selectedPhotoCount}`;
+  }
+  if (edit.op === "change_package_tier") {
+    return `Change package tier to ${edit.toPackageRefId}`;
+  }
   return `Swap add-on ${edit.targetLineId}`;
 }
 

@@ -6,6 +6,7 @@ import {
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
+  MediaType,
   OrderActivityType,
   OrderEntityKind,
   Prisma,
@@ -38,7 +39,33 @@ type DbClient = typeof db | Prisma.TransactionClient;
 
 type CatalogLookup = {
   products: Map<string, { id: string; name: string; price: Prisma.Decimal }>;
-  packages: Map<string, { id: string; name: string; price: Prisma.Decimal }>;
+  packages: Map<
+    string,
+    { id: string; name: string; price: Prisma.Decimal; photoCount?: number }
+  >;
+  packageItems?: Map<
+    string,
+    {
+      id: string;
+      packageId: string;
+      productId: string;
+      productName: string;
+      price: Prisma.Decimal;
+      quantity: number;
+    }
+  >;
+  orderPackages?: Map<
+    string,
+    {
+      id: string;
+      packageId: string;
+      packageName: string;
+      includedPhotoCount: number;
+      sessionTypeId: string;
+      extraDigitalUnitPrice: Prisma.Decimal;
+      extraPrintUnitPrice: Prisma.Decimal;
+    }
+  >;
 };
 
 type WorkspaceRow = {
@@ -59,6 +86,7 @@ type WorkspaceRow = {
 };
 
 const moneyZero = new Prisma.Decimal(0);
+const EXTRA_PHOTO_REF_PREFIX = "Extra photos - ";
 
 export class AdjustmentWorkspaceConflictError extends Error {
   constructor() {
@@ -570,6 +598,8 @@ export async function computeWorkspaceProposal(
   catalog: CatalogLookup
 ): Promise<AdjustmentWorkspaceProposal> {
   const proposed = cloneSnapshot(base);
+  const packageItems = catalog.packageItems ?? new Map();
+  const orderPackages = catalog.orderPackages ?? new Map();
 
   for (const edit of pending.edits) {
     if (edit.op === "add_line") {
@@ -613,6 +643,67 @@ export async function computeWorkspaceProposal(
       );
       const packageRow = catalog.packages.get(edit.toPackageRefId);
       if (!packageRow) throw new Error("Package swap is not available");
+      if (!existing) continue;
+      const replacement = makeLine({
+        lineId: existing.lineId,
+        kind: "package",
+        refId: packageRow.id,
+        label: packageRow.name,
+        quantity: existing.quantity,
+        unitPrice: packageRow.price,
+      });
+      proposed.lines = proposed.lines.map((line) =>
+        line.lineId === existing.lineId ? replacement : line
+      );
+      continue;
+    }
+
+    if (edit.op === "upgrade_package_item") {
+      const currentItem = packageItems.get(edit.packageItemId);
+      const orderPackage = orderPackages.get(edit.orderPackageId);
+      const product = catalog.products.get(edit.toProductId);
+      if (!currentItem) throw new Error("Package item is not available");
+      if (!orderPackage) throw new Error("Package line is not available");
+      if (currentItem.packageId !== orderPackage.packageId) {
+        throw new Error("Package item does not belong to the specified order package");
+      }
+      if (!product) throw new Error("Replacement product is not available");
+
+      const existing = findPackageItemUpgradeLine(
+        proposed.lines,
+        edit.orderPackageId,
+        edit.packageItemId
+      );
+      const replacement = makeLine({
+        lineId: packageItemUpgradeLineId(edit.orderPackageId, edit.packageItemId),
+        kind: "item",
+        refId: product.id,
+        label: `${currentItem.productName} to ${product.name}`,
+        quantity: edit.quantity,
+        unitPrice: product.price.minus(currentItem.price),
+      });
+
+      if (existing) {
+        proposed.lines = proposed.lines.map((line) =>
+          line.lineId === existing.lineId ? replacement : line
+        );
+      } else {
+        upsertWorkingLine(proposed.lines, replacement);
+      }
+      continue;
+    }
+
+    if (edit.op === "change_selected_photo_count") {
+      applySelectedPhotoCountChange(proposed.lines, edit, catalog, orderPackages);
+      continue;
+    }
+
+    if (edit.op === "change_package_tier") {
+      const existing = proposed.lines.find(
+        (line) => line.kind === "package" && line.lineId === `package:${edit.orderPackageId}`
+      );
+      const packageRow = catalog.packages.get(edit.toPackageRefId);
+      if (!packageRow) throw new Error("Package tier change is not available");
       if (!existing) continue;
       const replacement = makeLine({
         lineId: existing.lineId,
@@ -724,16 +815,61 @@ async function buildProposal(
   pendingChanges: AdjustmentPendingChanges,
   client: DbClient = db
 ) {
-  const [products, packages] = await Promise.all([
+  const orderPackageIds = collectOrderPackageIds(pendingChanges.edits);
+  const hasPhotoCountEdits = pendingChanges.edits.some(
+    (edit) => edit.op === "change_selected_photo_count"
+  );
+  const [products, packages, packageItems, orderPackages] = await Promise.all([
     client.product.findMany({
       where: { id: { in: collectProductIds(pendingChanges.edits) } },
       select: { id: true, name: true, canonicalPrice: true },
     }),
     client.package.findMany({
-      where: { id: { in: collectPackageIds(pendingChanges.edits) } },
-      select: { id: true, name: true, price: true },
+      where: {
+        id: {
+          in: [
+            ...collectPackageIds(pendingChanges.edits),
+            ...collectBasePackageRefs(baseSnapshot, orderPackageIds),
+          ],
+        },
+      },
+      select: { id: true, name: true, price: true, photoCount: true },
+    }),
+    client.packageItem.findMany({
+      where: { id: { in: collectPackageItemIds(pendingChanges.edits) } },
+      select: {
+        id: true,
+        packageId: true,
+        productId: true,
+        quantity: true,
+        priceSnapshot: true,
+        product: { select: { name: true } },
+      },
+    }),
+    client.orderPackage.findMany({
+      where: { id: { in: orderPackageIds } },
+      select: {
+        id: true,
+        packageId: true,
+        sessionTypeId: true,
+        package: { select: { name: true, photoCount: true } },
+      },
     }),
   ]);
+  const extraPhotoPrices = await getExtraPhotoPriceMap(
+    client,
+    orderPackages.map((orderPackage) => orderPackage.sessionTypeId)
+  );
+  if (hasPhotoCountEdits) {
+    for (const orderPackage of orderPackages) {
+      if (
+        !extraPhotoPrices.has(extraPhotoPriceKey(orderPackage.sessionTypeId, MediaType.DIGITAL)) ||
+        !extraPhotoPrices.has(extraPhotoPriceKey(orderPackage.sessionTypeId, MediaType.PRINT))
+      ) {
+        throw new Error("Extra-photo pricing is required for this package line");
+      }
+    }
+  }
   return computeWorkspaceProposal(baseSnapshot, pendingChanges, {
     products: new Map(
       products.map((product) => [
@@ -744,7 +880,45 @@ async function buildProposal(
     packages: new Map(
       packages.map((packageRow) => [
         packageRow.id,
-        { id: packageRow.id, name: packageRow.name, price: packageRow.price },
+        {
+          id: packageRow.id,
+          name: packageRow.name,
+          price: packageRow.price,
+          photoCount: packageRow.photoCount,
+        },
+      ])
+    ),
+    packageItems: new Map(
+      packageItems.map((packageItem) => [
+        packageItem.id,
+        {
+          id: packageItem.id,
+          packageId: packageItem.packageId,
+          productId: packageItem.productId,
+          productName: packageItem.product.name,
+          price: packageItem.priceSnapshot,
+          quantity: packageItem.quantity,
+        },
+      ])
+    ),
+    orderPackages: new Map(
+      orderPackages.map((orderPackage) => [
+        orderPackage.id,
+        {
+          id: orderPackage.id,
+          packageId: orderPackage.packageId,
+          packageName: orderPackage.package.name,
+          includedPhotoCount: orderPackage.package.photoCount,
+          sessionTypeId: orderPackage.sessionTypeId,
+          extraDigitalUnitPrice: extraPhotoPrices.get(extraPhotoPriceKey(
+            orderPackage.sessionTypeId,
+            MediaType.DIGITAL
+          )) ?? moneyZero,
+          extraPrintUnitPrice: extraPhotoPrices.get(extraPhotoPriceKey(
+            orderPackage.sessionTypeId,
+            MediaType.PRINT
+          )) ?? moneyZero,
+        },
       ])
     ),
   });
@@ -759,7 +933,7 @@ async function captureCurrentOrderComposition(
     include: {
       packages: {
         include: {
-          package: { select: { id: true, name: true, price: true } },
+          package: { select: { id: true, name: true, price: true, photoCount: true } },
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
@@ -776,6 +950,7 @@ async function captureCurrentOrderComposition(
       packageItemUpgrades: {
         select: {
           id: true,
+          orderPackageId: true,
           packageItemId: true,
           nameSnapshot: true,
           priceSnapshot: true,
@@ -788,6 +963,10 @@ async function captureCurrentOrderComposition(
   if (!order) throw new Error("Order not found");
 
   const lines: AdjustmentCompositionLine[] = [];
+  const extraPhotoPrices = await getExtraPhotoPriceMap(
+    client,
+    order.packages.map((orderPackage) => orderPackage.sessionTypeId)
+  );
   for (const orderPackage of order.packages) {
     lines.push(
       makeLine({
@@ -799,6 +978,28 @@ async function captureCurrentOrderComposition(
         unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.package.price,
       })
     );
+    for (const mediaType of [MediaType.DIGITAL, MediaType.PRINT] as const) {
+      const quantity =
+        mediaType === MediaType.DIGITAL
+          ? orderPackage.extraDigitalCount
+          : orderPackage.extraPrintCount;
+      if (quantity <= 0) continue;
+      const unitPrice = extraPhotoPrices.get(extraPhotoPriceKey(
+        orderPackage.sessionTypeId,
+        mediaType
+      ));
+      if (!unitPrice) continue;
+      lines.push(
+        makeLine({
+          lineId: extraPhotoLineId(orderPackage.id, mediaType),
+          kind: "item",
+          refId: extraPhotoRef(orderPackage.package.name, mediaType),
+          label: extraPhotoRef(orderPackage.package.name, mediaType),
+          quantity,
+          unitPrice,
+        })
+      );
+    }
   }
   for (const addOn of order.orderAddOns) {
     lines.push(
@@ -815,7 +1016,7 @@ async function captureCurrentOrderComposition(
   for (const upgrade of order.packageItemUpgrades) {
     lines.push(
       makeLine({
-        lineId: `item:${upgrade.id}`,
+        lineId: packageItemUpgradeLineId(upgrade.orderPackageId, upgrade.packageItemId),
         kind: "item",
         refId: upgrade.packageItemId,
         label: upgrade.nameSnapshot,
@@ -902,19 +1103,22 @@ async function createWorkspaceAdjustmentInvoice(
       issuedAt: now,
       closedAt: totalAmount.lessThanOrEqualTo(0) ? now : null,
       lineItems: {
-        create: input.proposal.deltas.map((line, index) => ({
-          lineType: invoiceLineTypeForKind(line.kind),
-          description: line.label,
-          quantity: Math.abs(line.quantity),
-          unitPrice:
-            line.quantity < 0
-              ? new Prisma.Decimal(line.unitPrice).neg()
-              : new Prisma.Decimal(line.unitPrice),
-          lineTotal: new Prisma.Decimal(line.lineTotalNet),
-          sortOrder: index,
-          causeOrderEntityKind: orderEntityKindForLine(line),
-          causeOrderEntityId: line.refId,
-        })),
+        create: input.proposal.deltas.map((line, index) => {
+          const semantics = resolveAdjustmentInvoiceLineSemantics(line);
+          return {
+            lineType: semantics.lineType,
+            description: line.label,
+            quantity: Math.abs(line.quantity),
+            unitPrice:
+              new Prisma.Decimal(line.lineTotalNet).lessThan(0)
+                ? new Prisma.Decimal(line.unitPrice).neg()
+                : new Prisma.Decimal(line.unitPrice),
+            lineTotal: new Prisma.Decimal(line.lineTotalNet),
+            sortOrder: index,
+            causeOrderEntityKind: semantics.causeOrderEntityKind,
+            causeOrderEntityId: line.refId,
+          };
+        }),
       },
     },
   });
@@ -1083,6 +1287,123 @@ function makeLine(input: {
   };
 }
 
+function packageItemUpgradeLineId(orderPackageId: string, packageItemId: string): string {
+  return `item:${orderPackageId}:${packageItemId}`;
+}
+
+function extraPhotoLineId(orderPackageId: string, mediaType: MediaType): string {
+  return `extra-photo:${orderPackageId}:${mediaType.toLowerCase()}`;
+}
+
+function extraPhotoRef(packageName: string, mediaType: MediaType): string {
+  return `${EXTRA_PHOTO_REF_PREFIX}${formatEnum(mediaType)} (${packageName})`;
+}
+
+function isExtraPhotoRef(refId: string): boolean {
+  return refId.startsWith(EXTRA_PHOTO_REF_PREFIX);
+}
+
+function extraPhotoPriceKey(sessionTypeId: string, mediaType: MediaType): string {
+  return `${sessionTypeId}:${mediaType}`;
+}
+
+async function getExtraPhotoPriceMap(
+  client: DbClient,
+  sessionTypeIds: string[]
+): Promise<Map<string, Prisma.Decimal>> {
+  const uniqueSessionTypeIds = [...new Set(sessionTypeIds)];
+  if (uniqueSessionTypeIds.length === 0) return new Map();
+
+  const rows = await client.sessionTypeExtraPhotoPricing.findMany({
+    where: {
+      sessionTypeId: { in: uniqueSessionTypeIds },
+      mediaType: { in: [MediaType.DIGITAL, MediaType.PRINT] },
+    },
+    select: { sessionTypeId: true, mediaType: true, unitPrice: true },
+  });
+
+  return new Map(
+    rows.map((row) => [
+      extraPhotoPriceKey(row.sessionTypeId, row.mediaType),
+      row.unitPrice,
+    ])
+  );
+}
+
+function findPackageItemUpgradeLine(
+  lines: AdjustmentCompositionLine[],
+  orderPackageId: string,
+  packageItemId: string
+): AdjustmentCompositionLine | undefined {
+  return lines.find(
+    (line) => line.kind === "item" && line.lineId === packageItemUpgradeLineId(orderPackageId, packageItemId)
+  );
+}
+
+function applySelectedPhotoCountChange(
+  lines: AdjustmentCompositionLine[],
+  edit: Extract<AdjustmentWorkspaceEdit, { op: "change_selected_photo_count" }>,
+  catalog: CatalogLookup,
+  orderPackages: NonNullable<CatalogLookup["orderPackages"]>
+) {
+  const context = orderPackages.get(edit.orderPackageId);
+  if (!context) throw new Error("Package line is not available");
+
+  const packageLine = lines.find(
+    (line) => line.kind === "package" && line.lineId === `package:${edit.orderPackageId}`
+  );
+  const packageRow = packageLine ? catalog.packages.get(packageLine.refId) : undefined;
+  const includedPhotoCount = packageRow?.photoCount ?? context.includedPhotoCount;
+  const packageName = packageRow?.name ?? packageLine?.label ?? context.packageName;
+  if (edit.selectedPhotoCount < includedPhotoCount) {
+    throw new Error("Selected photos cannot be below included package photos");
+  }
+
+  const derivedExtraCount = Math.max(edit.selectedPhotoCount - includedPhotoCount, 0);
+  // Mirrors updateOrderSelectedPhotoCount: explicit digital/print allocations must total derived extras.
+  if (edit.extraDigitalCount + edit.extraPrintCount !== derivedExtraCount) {
+    throw new Error(
+      "Digital and print extra allocations must equal the derived extra-photo count."
+    );
+  }
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (lines[index]?.lineId.startsWith(`extra-photo:${edit.orderPackageId}:`)) {
+      lines.splice(index, 1);
+    }
+  }
+
+  if (edit.extraDigitalCount > 0) {
+    lines.push(
+      makeLine({
+        lineId: extraPhotoLineId(edit.orderPackageId, MediaType.DIGITAL),
+        kind: "item",
+        refId: extraPhotoRef(packageName, MediaType.DIGITAL),
+        label: extraPhotoRef(packageName, MediaType.DIGITAL),
+        quantity: edit.extraDigitalCount,
+        unitPrice: context.extraDigitalUnitPrice,
+      })
+    );
+  }
+  if (edit.extraPrintCount > 0) {
+    lines.push(
+      makeLine({
+        lineId: extraPhotoLineId(edit.orderPackageId, MediaType.PRINT),
+        kind: "item",
+        refId: extraPhotoRef(packageName, MediaType.PRINT),
+        label: extraPhotoRef(packageName, MediaType.PRINT),
+        quantity: edit.extraPrintCount,
+        unitPrice: context.extraPrintUnitPrice,
+      })
+    );
+  }
+}
+
+function isExtraPhotoLine(line: AdjustmentCompositionLine): boolean {
+  // The refId fallback covers existing extraPhotoRef-generated ADJ lines.
+  return line.lineId.startsWith("extra-photo:") || isExtraPhotoRef(line.refId);
+}
+
 function negateLine(line: AdjustmentCompositionLine): AdjustmentCompositionLine {
   return {
     ...line,
@@ -1222,12 +1543,56 @@ function collectProductIds(edits: AdjustmentWorkspaceEdit[]): string[] {
   return edits.flatMap((edit) => {
     if (edit.op === "add_line") return [edit.refId];
     if (edit.op === "swap_addon") return [edit.toAddonRefId];
+    if (edit.op === "upgrade_package_item") return [edit.toProductId];
     return [];
   });
 }
 
 function collectPackageIds(edits: AdjustmentWorkspaceEdit[]): string[] {
-  return edits.flatMap((edit) => edit.op === "swap_package" ? [edit.toPackageRefId] : []);
+  return edits.flatMap((edit) => {
+    if (edit.op === "swap_package" || edit.op === "change_package_tier") {
+      return [edit.toPackageRefId];
+    }
+    return [];
+  });
+}
+
+function collectPackageItemIds(edits: AdjustmentWorkspaceEdit[]): string[] {
+  return edits.flatMap((edit) =>
+    edit.op === "upgrade_package_item" ? [edit.packageItemId] : []
+  );
+}
+
+function collectOrderPackageIds(edits: AdjustmentWorkspaceEdit[]): string[] {
+  return [
+    ...new Set(
+      edits.flatMap((edit) => {
+        if (
+          edit.op === "upgrade_package_item" ||
+          edit.op === "change_selected_photo_count" ||
+          edit.op === "change_package_tier"
+        ) {
+          return [edit.orderPackageId];
+        }
+        return [];
+      })
+    ),
+  ];
+}
+
+function collectBasePackageRefs(
+  baseSnapshot: AdjustmentBaseSnapshot,
+  orderPackageIds: string[]
+): string[] {
+  if (orderPackageIds.length === 0) return [];
+  const orderPackageIdSet = new Set(orderPackageIds);
+  return baseSnapshot.lines.flatMap((line) =>
+    line.kind === "package" &&
+    line.lineId.startsWith("package:") &&
+    orderPackageIdSet.has(line.lineId.slice("package:".length))
+      ? [line.refId]
+      : []
+  );
 }
 
 function eventTypeForEdit(edit: AdjustmentWorkspaceEdit): AdjustmentWorkspaceEventType {
@@ -1239,6 +1604,7 @@ function kindFromInvoiceLine(
   lineType: InvoiceLineType,
   causeKind: OrderEntityKind | null
 ): AdjustmentLineKind {
+  if (causeKind === OrderEntityKind.EXTRA_PHOTO) return "item";
   if (causeKind === OrderEntityKind.ADDON) return "addon";
   if (causeKind === OrderEntityKind.UPGRADE) return "item";
   if (lineType === InvoiceLineType.PACKAGE_BASE || causeKind === OrderEntityKind.PACKAGE_TIER_UPGRADE) {
@@ -1248,16 +1614,39 @@ function kindFromInvoiceLine(
   return "item";
 }
 
-function invoiceLineTypeForKind(kind: AdjustmentLineKind): InvoiceLineType {
-  if (kind === "package") return InvoiceLineType.PACKAGE_UPGRADE;
-  if (kind === "addon") return InvoiceLineType.ADD_ON;
-  return InvoiceLineType.BUNDLE_ADJUSTMENT;
+export function resolveAdjustmentInvoiceLineSemantics(
+  line: AdjustmentCompositionLine
+): { lineType: InvoiceLineType; causeOrderEntityKind: OrderEntityKind } {
+  if (isExtraPhotoLine(line)) {
+    return {
+      lineType: InvoiceLineType.BUNDLE_ADJUSTMENT,
+      causeOrderEntityKind: OrderEntityKind.EXTRA_PHOTO,
+    };
+  }
+  if (line.kind === "package") {
+    return {
+      lineType: InvoiceLineType.PACKAGE_UPGRADE,
+      causeOrderEntityKind: OrderEntityKind.PACKAGE_TIER_UPGRADE,
+    };
+  }
+  if (line.kind === "addon") {
+    return {
+      lineType: InvoiceLineType.ADD_ON,
+      causeOrderEntityKind: OrderEntityKind.ADDON,
+    };
+  }
+  return {
+    lineType: InvoiceLineType.PACKAGE_UPGRADE,
+    causeOrderEntityKind: OrderEntityKind.UPGRADE,
+  };
 }
 
-function orderEntityKindForLine(line: AdjustmentCompositionLine): OrderEntityKind {
-  if (line.kind === "package") return OrderEntityKind.PACKAGE_TIER_UPGRADE;
-  if (line.kind === "addon") return OrderEntityKind.ADDON;
-  return OrderEntityKind.UPGRADE;
+function formatEnum(value: string): string {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function assertStaffActor(actorContext: ActorContext): void {

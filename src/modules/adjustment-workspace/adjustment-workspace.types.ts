@@ -48,7 +48,29 @@ export type AdjustmentWorkspaceEdit =
       fromPackageRefId: string;
       toPackageRefId: string;
     }
-  | { id: string; op: "swap_addon"; targetLineId: string; toAddonRefId: string };
+  | { id: string; op: "swap_addon"; targetLineId: string; toAddonRefId: string }
+  | {
+      id: string;
+      op: "upgrade_package_item";
+      orderPackageId: string;
+      packageItemId: string;
+      toProductId: string;
+      quantity: number;
+    }
+  | {
+      id: string;
+      op: "change_selected_photo_count";
+      orderPackageId: string;
+      selectedPhotoCount: number;
+      extraDigitalCount: number;
+      extraPrintCount: number;
+    }
+  | {
+      id: string;
+      op: "change_package_tier";
+      orderPackageId: string;
+      toPackageRefId: string;
+    };
 
 export interface AdjustmentPendingChanges {
   edits: AdjustmentWorkspaceEdit[];
