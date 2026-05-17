@@ -33,13 +33,17 @@ export function OrdersFilters({
     searchParams.get("sessionDateFrom") ?? currentFilters.sessionDateFrom ?? "";
   const sessionDateTo = searchParams.get("sessionDateTo") ?? currentFilters.sessionDateTo ?? "";
   const editorId = searchParams.get("editorId") ?? currentFilters.editorId ?? "all";
+  const hasOpenWorkspace =
+    searchParams.get("hasOpenWorkspace") ??
+    (currentFilters.hasOpenWorkspace ? "true" : "all");
   const hasActiveFilters = Boolean(
     search ||
       sessionDateFrom ||
       sessionDateTo ||
       orderStatus !== "all" ||
       invoiceStatus !== "all" ||
-      editorId !== "all"
+      editorId !== "all" ||
+      hasOpenWorkspace !== "all"
   );
 
   function updateFilters(
@@ -50,7 +54,8 @@ export function OrdersFilters({
         | "invoiceStatus"
         | "sessionDateFrom"
         | "sessionDateTo"
-        | "editorId",
+        | "editorId"
+        | "hasOpenWorkspace",
         string
       >
     >
@@ -76,7 +81,8 @@ export function OrdersFilters({
       | "invoiceStatus"
       | "sessionDateFrom"
       | "sessionDateTo"
-      | "editorId",
+      | "editorId"
+      | "hasOpenWorkspace",
     value: string
   ) {
     updateFilters({ [key]: value });
@@ -193,6 +199,26 @@ export function OrdersFilters({
         aria-pressed={orderStatus === "READY"}
       >
         Ready for Pickup
+      </Button>
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={
+          hasOpenWorkspace === "true"
+            ? "border-info bg-info-soft text-info hover:bg-info-soft/80 hover:text-info"
+            : "border-border bg-surface-soft text-text-secondary hover:border-info hover:bg-info-soft hover:text-info"
+        }
+        onClick={() =>
+          updateFilter(
+            "hasOpenWorkspace",
+            hasOpenWorkspace === "true" ? "all" : "true"
+          )
+        }
+        aria-pressed={hasOpenWorkspace === "true"}
+      >
+        Has open workspace
       </Button>
     </div>
   );

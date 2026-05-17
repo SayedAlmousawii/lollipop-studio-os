@@ -194,6 +194,28 @@ enum AuditAction {
   ORDER_LOCKED_FIELD_MUTATED
 }
 
+enum AdjustmentWorkspaceStatus {
+  OPEN      @map("open")
+  FINALIZED @map("finalized")
+  CANCELLED @map("cancelled")
+
+  @@map("adjustment_workspace_status")
+}
+
+enum AdjustmentWorkspaceEventType {
+  OPENED                @map("opened")
+  EDIT_ADDED            @map("edit_added")
+  EDIT_REMOVED          @map("edit_removed")
+  EDIT_MODIFIED         @map("edit_modified")
+  PACKAGE_SWAPPED       @map("package_swapped")
+  TAKEN_OVER            @map("taken_over")
+  FINALIZED             @map("finalized")
+  CANCELLED             @map("cancelled")
+  PARENT_INVOICE_VOIDED @map("parent_invoice_voided")
+
+  @@map("adjustment_workspace_event_type")
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -213,6 +235,9 @@ model User {
   auditLogs            AuditLog[]
   deliveryCompletions  Order[]               @relation("DeliveryCompletedBy")
   documentApplications DocumentApplication[]
+  openedAdjustmentWorkspaces AdjustmentWorkspace[]      @relation("AdjustmentWorkspaceOpenedBy")
+  ownedAdjustmentWorkspaces  AdjustmentWorkspace[]      @relation("AdjustmentWorkspaceCurrentOwner")
+  adjustmentWorkspaceEvents  AdjustmentWorkspaceEvent[]
 
   @@map("users")
 }
@@ -527,6 +552,8 @@ model Order {
   orderAddOns             OrderAddOn[]
   packageItemUpgrades     OrderPackageItemUpgrade[]
   packages                OrderPackage[]
+  adjustmentWorkspaces     AdjustmentWorkspace[]
+  refundPending           Boolean                   @default(false) @map("refund_pending")
 
   @@index([jobNumber])
   @@map("orders")
@@ -731,12 +758,61 @@ model Invoice {
   documentApplicationsAsSource DocumentApplication[] @relation("DocumentApplicationSource")
   documentApplicationsAsTarget DocumentApplication[] @relation("DocumentApplicationTarget")
   paymentAllocations           PaymentAllocation[]
+  adjustmentWorkspaces         AdjustmentWorkspace[] @relation("AdjustmentWorkspaceParentInvoice")
+  finalizedAdjustmentWorkspaces AdjustmentWorkspace[] @relation("AdjustmentWorkspaceFinalizedInvoice")
 
   @@unique([id, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])
   @@map("invoices")
+}
+
+model AdjustmentWorkspace {
+  id                            String                    @id @default(cuid())
+  invoiceId                     String                    @map("invoice_id")
+  orderId                       String                    @map("order_id")
+  status                        AdjustmentWorkspaceStatus @default(OPEN)
+  openedByUserId                String                    @map("opened_by_user_id")
+  openedAt                      DateTime                  @default(now()) @map("opened_at")
+  lastActivityAt                DateTime                  @default(now()) @map("last_activity_at")
+  currentOwnerUserId            String?                   @map("current_owner_user_id")
+  version                       Int                       @default(0)
+  baseSnapshotJson              Json                      @map("base_snapshot_json")
+  pendingChangesJson            Json                      @default("{\"edits\":[]}") @map("pending_changes_json")
+  finalizedAdjustmentInvoiceId  String?                   @map("finalized_adjustment_invoice_id")
+  cancelledReason               String?                   @map("cancelled_reason")
+  createdAt                     DateTime                  @default(now()) @map("created_at")
+  updatedAt                     DateTime                  @updatedAt @map("updated_at")
+
+  invoice                    Invoice  @relation("AdjustmentWorkspaceParentInvoice", fields: [invoiceId], references: [id], onDelete: Cascade)
+  order                      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  openedByUser               User     @relation("AdjustmentWorkspaceOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  currentOwnerUser           User?    @relation("AdjustmentWorkspaceCurrentOwner", fields: [currentOwnerUserId], references: [id], onDelete: SetNull)
+  finalizedAdjustmentInvoice Invoice? @relation("AdjustmentWorkspaceFinalizedInvoice", fields: [finalizedAdjustmentInvoiceId], references: [id], onDelete: SetNull)
+  events                     AdjustmentWorkspaceEvent[]
+
+  @@index([invoiceId, status])
+  @@index([orderId, status])
+  @@index([currentOwnerUserId])
+  @@map("adjustment_workspaces")
+}
+
+model AdjustmentWorkspaceEvent {
+  id          String                       @id @default(cuid())
+  workspaceId String                       @map("workspace_id")
+  actorUserId String?                      @map("actor_user_id")
+  at          DateTime                     @default(now())
+  eventType   AdjustmentWorkspaceEventType @map("event_type")
+  payloadJson Json                         @default("{}") @map("payload_json")
+
+  workspace AdjustmentWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actor     User?               @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, at])
+  @@index([actorUserId, at])
+  @@index([eventType, at])
+  @@map("adjustment_workspace_events")
 }
 
 model InvoiceLockSnapshot {

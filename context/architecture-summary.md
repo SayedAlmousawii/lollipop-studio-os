@@ -59,6 +59,7 @@ src/
 | Orders | original package, final package, selected photos, deliverables, add-ons, order state, price snapshots | — |
 | FinancialCase | financial grouping hub — owns all Invoices and Payments for a workflow thread; bridges Booking → Job | does not own operational workflow state |
 | Invoices/Payments | invoice total, deposit invoice, final invoice, upgrade payment, add-on payment, method, status | — |
+| AdjustmentWorkspace | post-lock operational edit staging, pending composition changes, owner/takeover lifecycle, event stream | accounting/revenue reporting; payment posting |
 | Editing | assigned editor, edit status, revision loop, approval status | — |
 | Production | print job, album design, vendor album, pickup status | — |
 | Commissions | upgrade tracking, commission calc, commission status, reports | — |
@@ -106,6 +107,7 @@ src/
 11. Order must not be marked delivered until all required production jobs are complete
 12. Manual overrides must store: who changed it, when, and why
 13. Package template edits must not retroactively change old invoices/orders
+14. Locked final invoices are edited operationally only through `AdjustmentWorkspace`; the workspace is not an accounting document, and finalization emits at most one consolidated ADJUSTMENT record.
 
 ---
 

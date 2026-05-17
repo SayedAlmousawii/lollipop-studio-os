@@ -75,6 +75,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 82: added AdjustmentWorkspace schema/events and refund-pending flag, staged post-lock edit services with optimistic versioning/takeover/cancel/finalize, effective composition folding, consolidated ADJUSTMENT emission with finalize-time approval, read-only locked sales gate plus dedicated workspace route, order-list workspace chip/filter, and net-delta regression tests.
 - Feature 81f: updated INV-18 goodwill classification, added the audited idempotent F6 backfill script, flipped the regression test to pass, and marked roadmap F6 complete.
 - Feature 81c: added a pure canonical order settlement summary, serialized it through order detail/list hydration, replaced header/list/detail financial readouts, and covered refund/credit-note/negative-outstanding display regressions.
 - Feature 81d: added successful-report Healthchecks.io ping support to the reconciliation runner, passed `RECONCILIATION_PING_URL` through the scheduled workflow, and documented monitor setup/on-call response.

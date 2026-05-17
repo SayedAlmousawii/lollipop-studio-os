@@ -1,6 +1,12 @@
 import { notFound } from "next/navigation";
-import { AlertCircle, ChevronDown, Lock, ReceiptText } from "lucide-react";
+import Link from "next/link";
+import { AlertCircle, ChevronDown, Lock, ReceiptText, RotateCcw } from "lucide-react";
 import { createOrderInvoiceAction } from "@/app/orders/[orderId]/actions";
+import {
+  openAdjustmentWorkspaceAction,
+  takeOverAdjustmentWorkspaceAction,
+} from "@/app/orders/[orderId]/adjustment-workspace/actions";
+import { requireCurrentAppUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +16,10 @@ import {
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
 import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
+import {
+  getEffectiveCompositionForInvoice,
+  getOpenWorkspaceForInvoice,
+} from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 import styles from "./sales-page.module.css";
@@ -18,8 +28,32 @@ export default async function SalesPage(
   props: PageProps<"/orders/[orderId]/sales">
 ) {
   const { orderId } = await props.params;
-  const workspace = await getPOSWorkspace(orderId);
+  const [workspace, appUser] = await Promise.all([
+    getPOSWorkspace(orderId),
+    requireCurrentAppUser(),
+  ]);
   if (!workspace) notFound();
+
+  if (workspace.invoice?.isLocked) {
+    const [effectiveComposition, openWorkspace] = await Promise.all([
+      getEffectiveCompositionForInvoice(workspace.invoice.invoiceId),
+      getOpenWorkspaceForInvoice(workspace.invoice.invoiceId),
+    ]);
+    return (
+      <div className={styles.salesGrid}>
+        <main className="space-y-5">
+          <LockedInvoiceAdjustmentGate
+            workspace={workspace}
+            effectiveComposition={effectiveComposition}
+            openWorkspace={openWorkspace}
+            currentUserId={appUser.id}
+            isManager={appUser.role === "ADMIN" || appUser.role === "MANAGER"}
+          />
+        </main>
+        <FinancialSidebar workspace={workspace} />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.salesGrid}>
@@ -30,6 +64,99 @@ export default async function SalesPage(
       </main>
       <FinancialSidebar workspace={workspace} />
     </div>
+  );
+}
+
+function LockedInvoiceAdjustmentGate({
+  workspace,
+  effectiveComposition,
+  openWorkspace,
+  currentUserId,
+  isManager,
+}: {
+  workspace: POSWorkspace;
+  effectiveComposition: Awaited<ReturnType<typeof getEffectiveCompositionForInvoice>>;
+  openWorkspace: Awaited<ReturnType<typeof getOpenWorkspaceForInvoice>>;
+  currentUserId: string;
+  isManager: boolean;
+}) {
+  const isOwner = openWorkspace?.currentOwnerUserId === currentUserId;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-3 text-base">
+          <span className="inline-flex items-center gap-2">
+            <Lock className="h-4 w-4 text-accent" />
+            Locked Composition
+          </span>
+          <Badge variant="outline" className="rounded-md">
+            Read only
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {openWorkspace ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
+            <span>
+              Workspace open by {openWorkspace.currentOwnerUser?.name ?? openWorkspace.openedByUser.name} since{" "}
+              {openWorkspace.openedAt.toLocaleString()}.
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {isOwner ? (
+                <Button asChild>
+                  <Link href={`/orders/${workspace.orderId}/adjustment-workspace`}>
+                    Resume Workspace
+                  </Link>
+                </Button>
+              ) : null}
+              {!isOwner && isManager ? (
+                <form
+                  action={takeOverAdjustmentWorkspaceAction.bind(
+                    null,
+                    workspace.orderId,
+                    openWorkspace.id
+                  )}
+                >
+                  <Button type="submit" variant="outline">
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Take Over
+                  </Button>
+                </form>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <form
+            action={openAdjustmentWorkspaceAction.bind(
+              null,
+              workspace.orderId,
+              workspace.invoice!.invoiceId
+            )}
+            className="rounded-md border border-border bg-surface-soft p-3"
+          >
+            <Button type="submit">Open Adjustment Workspace</Button>
+          </form>
+        )}
+
+        <div className="space-y-2">
+          {effectiveComposition.lines.map((line) => (
+            <div
+              key={line.lineId}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft p-3 text-sm"
+            >
+              <div>
+                <p className="font-medium text-text-primary">{line.label}</p>
+                <p className="text-text-secondary">
+                  {line.quantity} × {line.unitPrice} KD
+                </p>
+              </div>
+              <p className="font-medium text-text-primary">{line.lineTotalNet} KD</p>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

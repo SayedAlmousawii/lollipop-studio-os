@@ -32,6 +32,7 @@ export interface OrderFilters {
   sessionDateFrom?: string;
   sessionDateTo?: string;
   editorId?: string;
+  hasOpenWorkspace?: boolean;
 }
 
 export interface Order {
@@ -50,6 +51,7 @@ export interface Order {
   createdAt: string;
   primaryInvoiceId: string | null;
   primaryInvoiceNumber: string | null;
+  hasOpenAdjustmentWorkspace: boolean;
 }
 
 export interface CustomerOrderHistoryItem {
