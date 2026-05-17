@@ -150,7 +150,9 @@ export default async function AdjustmentWorkspacePage(
                     key={edit.id}
                     className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft p-3 text-sm"
                   >
-                    <span className="text-text-primary">{formatEdit(edit)}</span>
+                    <span className="text-text-primary">
+                      {formatEdit(edit, workspace.proposal.proposed.lines)}
+                    </span>
                     {canEdit ? (
                       <form
                         action={removeWorkspaceEditAction.bind(
@@ -309,8 +311,16 @@ function FinalizeControls({
   );
 }
 
-function formatEdit(edit: AdjustmentWorkspaceView["pendingChanges"]["edits"][number]) {
-  if (edit.op === "add_line") return `Add ${edit.quantity} ${edit.kind}`;
+function formatEdit(
+  edit: AdjustmentWorkspaceView["pendingChanges"]["edits"][number],
+  proposedLines: AdjustmentCompositionLine[]
+) {
+  if (edit.op === "add_line") {
+    const line = proposedLines.find(
+      (proposedLine) => proposedLine.lineId === `edit:${edit.id}`
+    );
+    return `Add ${edit.quantity} ${line?.label ?? edit.kind}`;
+  }
   if (edit.op === "remove_line") return `Remove line ${edit.targetLineId}`;
   if (edit.op === "modify_quantity") {
     return `Change ${edit.targetLineId} quantity to ${edit.newQuantity}`;
@@ -319,13 +329,20 @@ function formatEdit(edit: AdjustmentWorkspaceView["pendingChanges"]["edits"][num
     return `Swap package ${edit.fromPackageRefId} → ${edit.toPackageRefId}`;
   }
   if (edit.op === "upgrade_package_item") {
-    return `Upgrade package item ${edit.packageItemId}`;
+    const line = proposedLines.find(
+      (proposedLine) =>
+        proposedLine.lineId === `item:${edit.orderPackageId}:${edit.packageItemId}`
+    );
+    return `Upgrade ${line?.label ?? "package item"}`;
   }
   if (edit.op === "change_selected_photo_count") {
     return `Change selected photos to ${edit.selectedPhotoCount}`;
   }
   if (edit.op === "change_package_tier") {
-    return `Change package tier to ${edit.toPackageRefId}`;
+    const line = proposedLines.find(
+      (proposedLine) => proposedLine.lineId === `package:${edit.orderPackageId}`
+    );
+    return `Change package tier to ${line?.label ?? edit.toPackageRefId}`;
   }
   return `Swap add-on ${edit.targetLineId}`;
 }
