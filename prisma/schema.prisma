@@ -179,6 +179,37 @@ enum AuditEntityType {
   FINANCIAL_CASE
   CREDIT_NOTE
   REFUND
+  ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION
+}
+
+enum SessionConfigurationInputType {
+  TOGGLE
+  SELECT
+  NUMBER
+  TEXT
+  COUNTER
+}
+
+enum SessionConfigurationPricingMode {
+  NONE
+  FIXED
+  TIERED
+  LINKED_PRODUCT
+}
+
+enum SessionConfigurationFinancialBehavior {
+  OPERATIONAL
+  FINANCIAL
+}
+
+enum SessionConfigurationLinkProductDisplay {
+  LINE_ITEM
+  MODIFIER_ONLY
+}
+
+enum SessionConfigurationCounterPricingMode {
+  PER_UNIT
+  TIERED
 }
 
 enum AuditAction {
@@ -354,8 +385,9 @@ model Product {
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
-  packageItems PackageItem[]
-  orderAddOns  OrderAddOn[]
+  packageItems                PackageItem[]
+  orderAddOns                 OrderAddOn[]
+  linkedSessionConfigurations SessionConfiguration[]
 
   @@index([category, isActive])
   @@index([isAddOn, isActive, sortOrder])
@@ -415,9 +447,59 @@ model SessionType {
   extraPhotoPricing SessionTypeExtraPhotoPricing[]
   bookingPackages   BookingPackage[]
   orderPackages     OrderPackage[]
+  configurations    SessionConfiguration[]
 
   @@index([departmentId, isActive, sortOrder])
   @@map("session_types")
+}
+
+model SessionConfiguration {
+  id                 String                                  @id @default(cuid())
+  code               String                                  @unique
+  name               String
+  sessionTypeId      String
+  inputType          SessionConfigurationInputType
+  pricingMode        SessionConfigurationPricingMode
+  financialBehavior  SessionConfigurationFinancialBehavior
+  required           Boolean                                 @default(false)
+  isActive           Boolean                                 @default(true)
+  sortOrder          Int                                     @default(0)
+  fixedPriceDelta    Decimal?                                @db.Decimal(10, 3)
+  linkedProductId    String?
+  linkProductDisplay SessionConfigurationLinkProductDisplay?
+  counterPricingMode SessionConfigurationCounterPricingMode?
+  counterUnitPrice   Decimal?                                @db.Decimal(10, 3)
+  createdAt          DateTime                                @default(now())
+  updatedAt          DateTime                                @updatedAt
+
+  sessionType   SessionType                                 @relation(fields: [sessionTypeId], references: [id], onDelete: Restrict)
+  linkedProduct Product?                                    @relation(fields: [linkedProductId], references: [id], onDelete: Restrict)
+  options       SessionConfigurationOption[]
+  selections    OrderPackageSessionConfigurationSelection[]
+
+  @@index([sessionTypeId, isActive, sortOrder])
+  @@index([linkedProductId])
+  @@map("session_configurations")
+}
+
+model SessionConfigurationOption {
+  id              String   @id @default(cuid())
+  configurationId String
+  label           String
+  value           String
+  priceDelta      Decimal  @default(0) @db.Decimal(10, 3)
+  sortOrder       Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  configuration SessionConfiguration                        @relation(fields: [configurationId], references: [id], onDelete: Restrict)
+  selections    OrderPackageSessionConfigurationSelection[]
+
+  @@unique([configurationId, value])
+  @@unique([id, configurationId])
+  @@index([configurationId, isActive, sortOrder])
+  @@map("session_configuration_options")
 }
 
 model SessionTypeExtraPhotoPricing {
@@ -575,16 +657,46 @@ model OrderPackage {
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 
-  order               Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  package             Package                   @relation(fields: [packageId], references: [id])
-  sessionType         SessionType               @relation(fields: [sessionTypeId], references: [id])
-  orderAddOns         OrderAddOn[]
-  packageItemUpgrades OrderPackageItemUpgrade[]
+  order                          Order                                       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  package                        Package                                     @relation(fields: [packageId], references: [id])
+  sessionType                    SessionType                                 @relation(fields: [sessionTypeId], references: [id])
+  orderAddOns                    OrderAddOn[]
+  packageItemUpgrades            OrderPackageItemUpgrade[]
+  sessionConfigurationSelections OrderPackageSessionConfigurationSelection[]
 
   @@index([orderId, sortOrder])
   @@index([packageId])
   @@index([sessionTypeId])
   @@map("order_packages")
+}
+
+model OrderPackageSessionConfigurationSelection {
+  id                         String                                  @id @default(cuid())
+  orderPackageId             String
+  configurationId            String
+  optionId                   String?
+  numericValue               Decimal?                                @db.Decimal(10, 3)
+  textValue                  String?
+  snapshotConfigurationCode  String
+  snapshotLabel              String
+  snapshotPriceDelta         Decimal                                 @default(0) @db.Decimal(10, 3)
+  snapshotFinancialBehavior  SessionConfigurationFinancialBehavior
+  snapshotInputType          SessionConfigurationInputType
+  snapshotPricingMode        SessionConfigurationPricingMode
+  snapshotLinkedProductId    String?
+  snapshotLinkProductDisplay SessionConfigurationLinkProductDisplay?
+  createdAt                  DateTime                                @default(now())
+  updatedAt                  DateTime                                @updatedAt
+
+  orderPackage  OrderPackage                @relation(fields: [orderPackageId], references: [id], onDelete: Cascade)
+  configuration SessionConfiguration        @relation(fields: [configurationId], references: [id], onDelete: Restrict)
+  option        SessionConfigurationOption? @relation(fields: [optionId, configurationId], references: [id, configurationId], onDelete: Restrict)
+
+  @@unique([orderPackageId, configurationId])
+  @@index([orderPackageId])
+  @@index([configurationId])
+  @@index([snapshotLinkedProductId])
+  @@map("order_package_session_configuration_selections")
 }
 
 model EditingJob {

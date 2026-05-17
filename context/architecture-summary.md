@@ -66,6 +66,8 @@ src/
 | Production | print job, album design, vendor album, pickup status | — |
 | Commissions | upgrade tracking, commission calc, commission status, reports | — |
 
+**Session Configurations:** `session_configurations`, `session_configuration_options`, and `order_package_session_configuration_selections` persist session-type-scoped operational or financial modifiers. Definition rows remain soft-deleted with `isActive`, while per-package selection rows snapshot configuration code, label, input/pricing mode, financial behavior, and price/link metadata at write time so later admin edits do not mutate historical orders; specs 89+ wire runtime behavior.
+
 **Role permissions:**
 
 | Role | Access |
