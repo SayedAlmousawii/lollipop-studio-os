@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 88 is complete: Session Configurations now have schema/migration scaffolding for session-type definitions, option rows, and per-OrderPackage snapshotted selections, with no runtime reads or writes wired yet.
 - Feature 87 is complete: Order Details Financials now reads POS workspace + FinancialCase linked documents, renders the shared read-only Payment Summary/Total Source/Linked Documents components before snapshot Price Breakdown, and the retired `getOrderFinancialSummary` loader/type path is removed.
 - Feature 86 is complete: extra-photo pricing is manager/admin editable at `/pricing`, active session types show one digital/print price pair per row, edits update both media prices transactionally, and invoice generation continues to use current pricing for future invoices only.
 - Feature 85 is complete: session types are manager/admin editable at `/session-types`, create/edit/archive uses a new service/action/UI flow, calendar labels/colors now live on `SessionType`, and new session types get zero-priced DIGITAL/PRINT pricing rows.
@@ -45,6 +46,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Current phase: Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 
 ## Key State
+- Session Configurations are schema-only through Feature 88: definitions live on `SessionType`, optional linked-product pricing points at `Product`, and `OrderPackageSessionConfigurationSelection` snapshots code/label/pricing/input metadata so later admin edits do not rewrite historical order meaning.
 - Session type admin CRUD is live behind `PACKAGE_CATALOG_MANAGE`: `SessionType.code` and `departmentId` stay frozen after create, `isActive` is the archive flag, calendar display values are row-level data, and package/booking pickers filter archived taxonomy out of active flows.
 - Shared POS components that may mount in multiple persistence contexts use handler props from `src/modules/orders/pos-handlers.types.ts`; sales passes commit-through server-action adapters with inline reductive approval enabled, while AdjustmentWorkspace passes staged-edit adapters with inline approval disabled and finalize-time approval preserved.
 - `derivePOSWorkspaceFromAdjustmentWorkspace()` is the canonical bridge for rendering staged post-lock edits through POS modules without mutating the locked invoice or reusing the sales commit-through orchestrator.
@@ -93,6 +95,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Production `READY_FOR_PICKUP` requires: editing approved or completed.
 
 ## Feature History
+- Feature 88: added Session Configuration enums, definition/option/OrderPackage selection models, restrictive definition FKs plus package-selection cascade, the `ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION` audit entity type, migration scaffolding, and architecture notes without wiring runtime consumers.
 - Feature 87: extracted shared read-only financial components, rewired locked POS to compose them with the existing payment/action affordances, rewired Order Details Financials to canonical FinancialCase documents and final-invoice snapshot lines, added read-only/ledger/number/header parity coverage, and removed the stale order financial summary loader.
 - Feature 86: added Extra Photo Pricing CRUD with active-only collapsed pricing rows, paired digital/print dialog edits, transactional validation, action permission coverage, and invoice-current-price regression coverage.
 - Feature 85: added Session Type admin CRUD, row-level calendar display fields, case-insensitive per-department name uniqueness, default zero-priced extra-photo pricing rows on create, archived taxonomy filtering, and calendar lookup removal.
