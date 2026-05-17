@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- Feature 83b is complete: POS package composition, selected-photo counts, and add-on marketplace now use typed handler props so the same UI can support commit-through sales actions and future staged workspace handlers without direct action imports.
+- Feature 83b is complete with review cleanup: POS package composition, selected-photo counts, and add-on marketplace use typed handler props, sales adapters reject quantity drift where needed, and handler exceptions surface as inline form errors.
 - Backend invariant alignment for Feature 82 is complete: locked direct POS edits are asserted as rejected, Phase B/C/F invariant scenarios now stage post-lock edits through AdjustmentWorkspace, and negative ADJUSTMENT invoices are permitted for finalized net-reduction workspaces.
 - Feature 83a is complete with review cleanup: AdjustmentWorkspace pending edits accept package-tier changes, package item upgrades, and selected-photo count changes, with stage-to-finalize ADJ coverage and diff-against-base normalization preserved.
 - Feature 81f is complete: INV-18 now excludes only manual goodwill CREDIT_NOTE applications from revenue-composition comparison, preserves classifier/order-composition credits, and has a focused backfill script for the historical F6 row.

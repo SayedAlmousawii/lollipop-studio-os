@@ -348,8 +348,13 @@ function useHandlerAction<TInput>(
   readInput: (formData: FormData) => TInput
 ) {
   return useActionState<POSMutationActionState, FormData>(
-    async (_previousState, formData) =>
-      actionStateFromHandlerResult(await handler(readInput(formData))),
+    async (_previousState, formData) => {
+      try {
+        return actionStateFromHandlerResult(await handler(readInput(formData)));
+      } catch (error) {
+        return actionStateFromHandlerResult(handlerErrorResult(error));
+      }
+    },
     {}
   );
 }
@@ -370,6 +375,14 @@ function actionStateFromHandlerResult(
   }
 
   return { kind: "error", errors: result.errors };
+}
+
+function handlerErrorResult(error: unknown): HandlerResult {
+  const message =
+    error instanceof Error && error.message.trim()
+      ? error.message
+      : "Unable to save POS changes";
+  return { ok: false, errors: { _global: [message] } };
 }
 
 function formDataString(formData: FormData, field: string): string {

@@ -5,6 +5,7 @@ import test from "node:test";
 import { OrderSelectionStatus, OrderStatus } from "@prisma/client";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 import type {
   POSAddOnHandlers,
@@ -39,6 +40,7 @@ const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 
 test("POS handler components render the stable sales DOM labels from handler props", async () => {
   const originalModuleLoad = moduleWithLoader._load;
+  // The approval modal is statically imported and still owns the sales approval action.
   moduleWithLoader._load = function loadWithSalesActionStub(
     request,
     parent,
@@ -80,7 +82,6 @@ test("POS handler components render the stable sales DOM labels from handler pro
     const addOnHandlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      changeAddOnQuantity: async () => ({ ok: true }),
       shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
@@ -116,18 +117,48 @@ test("POS handler components render the stable sales DOM labels from handler pro
 });
 
 test("POS composition components do not import sales server actions directly", () => {
-  const packageSource = readFileSync(
-    "src/components/orders/pos-package-composition.tsx",
-    "utf8"
+  assert.equal(
+    hasImportFrom(
+      "src/components/orders/pos-package-composition.tsx",
+      "@/app/orders/[orderId]/sales/actions"
+    ),
+    false
   );
-  const addOnSource = readFileSync(
-    "src/components/orders/pos-add-on-marketplace.tsx",
-    "utf8"
+  assert.equal(
+    hasImportFrom(
+      "src/components/orders/pos-add-on-marketplace.tsx",
+      "@/app/orders/[orderId]/sales/actions"
+    ),
+    false
+  );
+});
+
+function hasImportFrom(filePath: string, modulePath: string): boolean {
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    readFileSync(filePath, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
   );
 
-  assert.doesNotMatch(packageSource, /@\/app\/orders\/\[orderId\]\/sales\/actions/);
-  assert.doesNotMatch(addOnSource, /@\/app\/orders\/\[orderId\]\/sales\/actions/);
-});
+  let found = false;
+  function visit(node: ts.Node) {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === modulePath
+    ) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return found;
+}
 
 function buildPOSWorkspaceFixture(): POSWorkspace {
   const packageLine = {

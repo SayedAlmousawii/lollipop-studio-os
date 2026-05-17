@@ -68,7 +68,7 @@ export default async function SalesPage(
     );
   }
 
-  const compositionHandlers = createPOSCompositionHandlers(orderId);
+  const compositionHandlers = createPOSCompositionHandlers(orderId, workspace);
   const addOnHandlers = createPOSAddOnHandlers(orderId);
 
   return (
@@ -92,7 +92,10 @@ export default async function SalesPage(
   );
 }
 
-function createPOSCompositionHandlers(orderId: string): POSCompositionHandlers {
+function createPOSCompositionHandlers(
+  orderId: string,
+  workspace: POSWorkspace
+): POSCompositionHandlers {
   async function changePackageTier(input: {
     orderPackageId: string;
     toPackageRefId: string;
@@ -113,6 +116,18 @@ function createPOSCompositionHandlers(orderId: string): POSCompositionHandlers {
   }): Promise<HandlerResult> {
     "use server";
 
+    const currentQuantity = workspace.packageLines
+      .flatMap((line) => line.packageItems)
+      .find((item) => item.id === input.packageItemId)?.quantity;
+    if (currentQuantity !== input.quantity) {
+      return {
+        ok: false,
+        errors: {
+          _global: ["Package item quantity changed. Refresh before applying this upgrade."],
+        },
+      };
+    }
+    // Sales package-item actions replace the existing item quantity; they do not accept a quantity override.
     return callPOSServerAction(upgradeOrderPackageItemAction, orderId, {
       orderPackageId: input.orderPackageId,
       packageItemId: input.packageItemId,
@@ -151,6 +166,7 @@ function createPOSAddOnHandlers(orderId: string): POSAddOnHandlers {
   }): Promise<HandlerResult> {
     "use server";
 
+    // Sales add-on actions add one row per submit; they do not accept a quantity override.
     return callPOSServerAction(addOrderProductAddOnAction, orderId, {
       productId: input.productId,
     });
@@ -166,21 +182,9 @@ function createPOSAddOnHandlers(orderId: string): POSAddOnHandlers {
     });
   }
 
-  async function changeAddOnQuantity(): Promise<HandlerResult> {
-    "use server";
-
-    return {
-      ok: false,
-      errors: {
-        _global: ["Changing add-on quantity is not available on this POS surface."],
-      },
-    };
-  }
-
   return {
     addAddOn,
     removeAddOn,
-    changeAddOnQuantity,
     shouldPromptInlineApproval: true,
   };
 }
@@ -201,6 +205,7 @@ async function callPOSServerAction(
     formData.set(field, String(value));
   }
 
+  // POS composition actions ignore previousState; adapters always submit a fresh state.
   return handlerResultFromActionState(await action(orderId, {}, formData));
 }
 
