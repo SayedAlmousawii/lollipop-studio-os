@@ -3,6 +3,14 @@ import Link from "next/link";
 import { AlertCircle, ChevronDown, Lock, ReceiptText, RotateCcw } from "lucide-react";
 import { createOrderInvoiceAction } from "@/app/orders/[orderId]/actions";
 import {
+  addOrderProductAddOnAction,
+  removeOrderAddOnAction,
+  updateOrderPackageAction,
+  updateOrderSelectedPhotoCountAction,
+  upgradeOrderPackageItemAction,
+  type POSCompositionActionState,
+} from "@/app/orders/[orderId]/sales/actions";
+import {
   openAdjustmentWorkspaceAction,
   takeOverAdjustmentWorkspaceAction,
 } from "@/app/orders/[orderId]/adjustment-workspace/actions";
@@ -22,6 +30,11 @@ import {
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import type {
+  HandlerResult,
+  POSAddOnHandlers,
+  POSCompositionHandlers,
+} from "@/modules/orders/pos-handlers.types";
 import styles from "./sales-page.module.css";
 
 export default async function SalesPage(
@@ -55,16 +68,170 @@ export default async function SalesPage(
     );
   }
 
+  const compositionHandlers = createPOSCompositionHandlers(orderId);
+  const addOnHandlers = createPOSAddOnHandlers(orderId);
+
   return (
     <div className={styles.salesGrid}>
       <main className="space-y-5">
-        <POSPackageComposition workspace={workspace} />
-        <POSPhotoCountCard workspace={workspace} />
-        <POSAddOnMarketplace workspace={workspace} />
+        <POSPackageComposition
+          workspace={workspace}
+          handlers={compositionHandlers}
+        />
+        <POSPhotoCountCard
+          workspace={workspace}
+          handlers={compositionHandlers}
+        />
+        <POSAddOnMarketplace
+          workspace={workspace}
+          handlers={addOnHandlers}
+        />
       </main>
       <FinancialSidebar workspace={workspace} />
     </div>
   );
+}
+
+function createPOSCompositionHandlers(orderId: string): POSCompositionHandlers {
+  async function changePackageTier(input: {
+    orderPackageId: string;
+    toPackageRefId: string;
+  }): Promise<HandlerResult> {
+    "use server";
+
+    return callPOSServerAction(updateOrderPackageAction, orderId, {
+      orderPackageId: input.orderPackageId,
+      packageId: input.toPackageRefId,
+    });
+  }
+
+  async function upgradePackageItem(input: {
+    orderPackageId: string;
+    packageItemId: string;
+    toProductId: string;
+    quantity: number;
+  }): Promise<HandlerResult> {
+    "use server";
+
+    return callPOSServerAction(upgradeOrderPackageItemAction, orderId, {
+      orderPackageId: input.orderPackageId,
+      packageItemId: input.packageItemId,
+      newProductId: input.toProductId,
+    });
+  }
+
+  async function changeSelectedPhotoCount(input: {
+    orderPackageId: string;
+    selectedPhotoCount: number;
+    extraDigitalCount: number;
+    extraPrintCount: number;
+  }): Promise<HandlerResult> {
+    "use server";
+
+    return callPOSServerAction(updateOrderSelectedPhotoCountAction, orderId, {
+      orderPackageId: input.orderPackageId,
+      selectedPhotoCount: input.selectedPhotoCount,
+      extraDigitalCount: input.extraDigitalCount,
+      extraPrintCount: input.extraPrintCount,
+    });
+  }
+
+  return {
+    changePackageTier,
+    upgradePackageItem,
+    changeSelectedPhotoCount,
+    shouldPromptInlineApproval: true,
+  };
+}
+
+function createPOSAddOnHandlers(orderId: string): POSAddOnHandlers {
+  async function addAddOn(input: {
+    productId: string;
+    quantity: number;
+  }): Promise<HandlerResult> {
+    "use server";
+
+    return callPOSServerAction(addOrderProductAddOnAction, orderId, {
+      productId: input.productId,
+    });
+  }
+
+  async function removeAddOn(input: {
+    addOnId: string;
+  }): Promise<HandlerResult> {
+    "use server";
+
+    return callPOSServerAction(removeOrderAddOnAction, orderId, {
+      addOnId: input.addOnId,
+    });
+  }
+
+  async function changeAddOnQuantity(): Promise<HandlerResult> {
+    "use server";
+
+    return {
+      ok: false,
+      errors: {
+        _global: ["Changing add-on quantity is not available on this POS surface."],
+      },
+    };
+  }
+
+  return {
+    addAddOn,
+    removeAddOn,
+    changeAddOnQuantity,
+    shouldPromptInlineApproval: true,
+  };
+}
+
+type POSServerAction = (
+  orderId: string,
+  previousState: POSCompositionActionState,
+  formData: FormData
+) => Promise<POSCompositionActionState>;
+
+async function callPOSServerAction(
+  action: POSServerAction,
+  orderId: string,
+  fields: Record<string, string | number>
+): Promise<HandlerResult> {
+  const formData = new FormData();
+  for (const [field, value] of Object.entries(fields)) {
+    formData.set(field, String(value));
+  }
+
+  return handlerResultFromActionState(await action(orderId, {}, formData));
+}
+
+function handlerResultFromActionState(
+  state: POSCompositionActionState
+): HandlerResult {
+  if (state.kind === "success") {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    errors: normalizeActionErrors(state.errors),
+    approval: state.kind === "approval-required" ? state.payload : undefined,
+  };
+}
+
+function normalizeActionErrors(
+  errors: POSCompositionActionState["errors"]
+): Record<string, string[]> {
+  if (!errors) {
+    return {};
+  }
+
+  const normalized: Record<string, string[]> = {};
+  for (const [field, messages] of Object.entries(errors)) {
+    if (messages?.length) {
+      normalized[field] = messages;
+    }
+  }
+  return normalized;
 }
 
 function LockedInvoiceAdjustmentGate({

@@ -48,6 +48,7 @@ import {
   getBookingFinancialSnapshot,
   makeOrderReadyForDelivery,
   seedPhaseBFixtures,
+  type FinalInvoiceWorkflow,
   type PhaseBFixtures,
 } from "./fixtures";
 
