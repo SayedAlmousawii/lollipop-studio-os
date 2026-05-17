@@ -23,6 +23,15 @@ import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordInvoiceLockSnapshot } from "@/modules/invoices/invoice-lock.service";
 import { generateInvoiceNumber } from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
+import { getPOSWorkspace } from "@/modules/orders/order.service";
+import type {
+  POSAddOn,
+  POSPackage,
+  POSPackageItem,
+  POSPackageLine,
+  POSPackageOption,
+  POSWorkspace,
+} from "@/modules/orders/order.types";
 import { adjustmentPendingChangesSchema } from "./adjustment-workspace.schema";
 import type {
   AdjustmentBaseSnapshot,
@@ -170,6 +179,86 @@ export async function getAdjustmentWorkspaceCatalog() {
       price: packageRow.price.toNumber(),
       priceLabel: formatMoney(packageRow.price),
     })),
+  };
+}
+
+export async function derivePOSWorkspaceFromAdjustmentWorkspace(
+  workspaceId: string
+): Promise<POSWorkspace | null> {
+  const workspace = await getAdjustmentWorkspaceView(workspaceId);
+  if (!workspace) return null;
+
+  const posWorkspace = await getPOSWorkspace(workspace.orderId);
+  if (!posWorkspace) return null;
+
+  const proposedLines = workspace.proposal.proposed.lines;
+  const proposedPackageRefs = proposedLines.flatMap((line) =>
+    line.kind === "package" ? [line.refId] : []
+  );
+  const packageRows = await db.package.findMany({
+    where: { id: { in: proposedPackageRefs } },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      photoCount: true,
+      bundleAdjustment: true,
+      items: {
+        select: {
+          id: true,
+          productId: true,
+          quantity: true,
+          priceSnapshot: true,
+          product: { select: { name: true, category: true } },
+        },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      },
+    },
+  });
+  const packagesById = new Map(packageRows.map((row) => [row.id, row]));
+  const packageLines = posWorkspace.packageLines.map((line) =>
+    derivePOSPackageLine(line, proposedLines, packagesById)
+  );
+  const packageItems = packageLines.flatMap((line) => line.packageItems);
+  const addOns = derivePOSAddOns(proposedLines);
+  const extraPhotoTotal = packageLines.reduce(
+    (sum, line) => sum + line.extraPhotoTotal,
+    0
+  );
+  const addOnTotal = addOns.reduce((sum, addOn) => sum + addOn.price, 0);
+
+  return {
+    ...posWorkspace,
+    packageLines,
+    packageItems,
+    rawDeliverableTotal: packageItems.reduce(
+      (sum, item) => sum + item.priceSnapshot * item.quantity,
+      0
+    ),
+    includedPhotoCount: packageLines.reduce(
+      (sum, line) => sum + line.includedPhotoCount,
+      0
+    ),
+    selectedPhotoCount: packageLines.reduce(
+      (sum, line) => sum + line.selectedPhotoCount,
+      0
+    ),
+    extraPhotoCount: packageLines.reduce(
+      (sum, line) => sum + line.extraPhotoCount,
+      0
+    ),
+    extraPhotoTotal,
+    addOns,
+    addOnTotal,
+    invoice: posWorkspace.invoice
+      ? { ...posWorkspace.invoice, isLocked: true }
+      : posWorkspace.invoice,
+    aggregateOutstanding:
+      (posWorkspace.invoice?.remainingAmount ?? 0) +
+      posWorkspace.adjustmentInvoices.reduce(
+        (sum, invoice) => sum + invoice.remainingAmount,
+        0
+      ),
   };
 }
 
@@ -337,6 +426,16 @@ export async function applyEdit(
             },
           },
         });
+
+        recordWorkspaceMetric(
+          `adjustment_workspace.edit.${input.edit.op}.staged`,
+          {
+            workspaceId,
+            orderId: workspace.orderId,
+            invoiceId: workspace.invoiceId,
+            op: input.edit.op,
+          }
+        );
       }),
     "Failed to apply workspace edit"
   );
@@ -584,6 +683,7 @@ export async function finalizeWorkspace(
           workspaceId,
           orderId: workspace.orderId,
           adjustmentKind: proposal.adjustmentKind,
+          editOps: [...new Set(proposal.edits.map((edit) => edit.op))].join(","),
         });
 
         return { adjustmentInvoiceId: adjustmentInvoice.id, proposal };
@@ -771,6 +871,8 @@ const workspaceAuthSelect = {
   status: true,
   currentOwnerUserId: true,
   version: true,
+  orderId: true,
+  invoiceId: true,
   pendingChangesJson: true,
 } satisfies Prisma.AdjustmentWorkspaceSelect;
 
@@ -1205,6 +1307,199 @@ function parseBaseSnapshot(value: Prisma.JsonValue): AdjustmentBaseSnapshot {
     throw new Error("Workspace base snapshot is invalid");
   }
   return value as unknown as AdjustmentBaseSnapshot;
+}
+
+function derivePOSPackageLine(
+  line: POSPackageLine,
+  proposedLines: AdjustmentCompositionLine[],
+  packagesById: Map<
+    string,
+    {
+      id: string;
+      name: string;
+      price: Prisma.Decimal;
+      photoCount: number;
+      bundleAdjustment: Prisma.Decimal;
+      items: Array<{
+        id: string;
+        productId: string;
+        quantity: number;
+        priceSnapshot: Prisma.Decimal;
+        product: { name: string; category: string };
+      }>;
+    }
+  >
+): POSPackageLine {
+  const proposedPackageLine = proposedLines.find(
+    (proposedLine) =>
+      proposedLine.kind === "package" &&
+      proposedLine.lineId === `package:${line.id}`
+  );
+  const packageRow = proposedPackageLine
+    ? packagesById.get(proposedPackageLine.refId)
+    : undefined;
+  const currentPackage = packageRow
+    ? mapDerivedPOSPackage(packageRow)
+    : proposedPackageLine
+      ? {
+          ...line.currentPackage,
+          id: proposedPackageLine.refId,
+          name: proposedPackageLine.label,
+          price: Number(proposedPackageLine.unitPrice),
+          priceLabel: formatMoney(decimal(proposedPackageLine.unitPrice)),
+        }
+      : line.currentPackage;
+  const includedPhotoCount = packageRow?.photoCount ?? line.includedPhotoCount;
+  const extraDigitalCount = positiveLineQuantity(
+    proposedLines.find(
+      (proposedLine) =>
+        proposedLine.lineId === extraPhotoLineId(line.id, MediaType.DIGITAL)
+    )
+  );
+  const extraPrintCount = positiveLineQuantity(
+    proposedLines.find(
+      (proposedLine) =>
+        proposedLine.lineId === extraPhotoLineId(line.id, MediaType.PRINT)
+    )
+  );
+  const extraPhotoCount = extraDigitalCount + extraPrintCount;
+  const extraPhotoTotal =
+    extraDigitalCount * line.extraDigitalUnitPrice +
+    extraPrintCount * line.extraPrintUnitPrice;
+  const selectedPhotoCount = includedPhotoCount + extraPhotoCount;
+  const packageItems = (packageRow
+    ? packageRow.items.map(mapDerivedPOSPackageItem)
+    : line.packageItems
+  ).map((item) => derivePOSPackageItem(line.id, item, proposedLines));
+  const upgradeDelta = currentPackage.price - line.originalPackage.price;
+
+  return {
+    ...line,
+    currentPackage,
+    packageItems,
+    includedPhotoCount,
+    selectedPhotoCount,
+    extraDigitalCount,
+    extraPrintCount,
+    extraPhotoCount,
+    extraPhotoTotal,
+    packageSubtotal: currentPackage.price + extraPhotoTotal,
+    upgradeDelta,
+    upgradeDeltaLabel: formatSignedNumber(upgradeDelta),
+    packageOptions: derivePOSPackageOptions(line.packageOptions, currentPackage),
+  };
+}
+
+function derivePOSPackageItem(
+  orderPackageId: string,
+  item: POSPackageItem,
+  proposedLines: AdjustmentCompositionLine[]
+): POSPackageItem {
+  const upgradeLine = proposedLines.find(
+    (line) =>
+      line.kind === "item" &&
+      line.lineId === packageItemUpgradeLineId(orderPackageId, item.id)
+  );
+  if (!upgradeLine) return item;
+
+  return {
+    ...item,
+    productId: upgradeLine.refId,
+    productName: labelAfterUpgradePrefix(upgradeLine.label) ?? upgradeLine.label,
+    quantity: Math.abs(upgradeLine.quantity),
+    priceSnapshot: item.priceSnapshot + Number(upgradeLine.unitPrice),
+    priceSnapshotLabel: formatMoney(
+      new Prisma.Decimal(item.priceSnapshot).plus(upgradeLine.unitPrice)
+    ),
+  };
+}
+
+function derivePOSPackageOptions(
+  options: POSPackageOption[],
+  currentPackage: POSPackage
+): POSPackageOption[] {
+  return options.map((option) => {
+    const upgradeDelta = option.price - currentPackage.price;
+    return {
+      ...option,
+      isCurrentPackage: option.id === currentPackage.id,
+      upgradeDelta,
+      upgradeDeltaLabel: formatSignedNumber(upgradeDelta),
+    };
+  });
+}
+
+function derivePOSAddOns(proposedLines: AdjustmentCompositionLine[]): POSAddOn[] {
+  return proposedLines
+    .filter((line) => line.kind === "addon" && line.quantity > 0)
+    .flatMap((line) => {
+      const entries: POSAddOn[] = [];
+      for (let index = 0; index < line.quantity; index += 1) {
+        entries.push({
+          id: line.quantity === 1 ? line.lineId : `${line.lineId}-${index + 1}`,
+          addOnRowId: line.lineId,
+          productId: line.refId,
+          name: line.label,
+          price: Number(line.unitPrice),
+          priceLabel: formatMoney(decimal(line.unitPrice)),
+        });
+      }
+      return entries;
+    });
+}
+
+function mapDerivedPOSPackage(packageRow: {
+  id: string;
+  name: string;
+  price: Prisma.Decimal;
+  photoCount: number;
+  bundleAdjustment: Prisma.Decimal;
+}): POSPackage {
+  return {
+    id: packageRow.id,
+    name: packageRow.name,
+    price: packageRow.price.toNumber(),
+    priceLabel: formatMoney(packageRow.price),
+    photoCount: packageRow.photoCount,
+    bundleAdjustment: packageRow.bundleAdjustment.toNumber(),
+  };
+}
+
+function mapDerivedPOSPackageItem(row: {
+  id: string;
+  productId: string;
+  quantity: number;
+  priceSnapshot: Prisma.Decimal;
+  product: { name: string; category: string };
+}): POSPackageItem {
+  return {
+    id: row.id,
+    productId: row.productId,
+    productName: row.product.name,
+    category: row.product.category,
+    quantity: row.quantity,
+    priceSnapshot: row.priceSnapshot.toNumber(),
+    priceSnapshotLabel: formatMoney(row.priceSnapshot),
+  };
+}
+
+function positiveLineQuantity(
+  line: AdjustmentCompositionLine | undefined
+): number {
+  return Math.max(line?.quantity ?? 0, 0);
+}
+
+function labelAfterUpgradePrefix(label: string): string | null {
+  const separator = " to ";
+  const index = label.lastIndexOf(separator);
+  return index >= 0 ? label.slice(index + separator.length) : null;
+}
+
+function formatSignedNumber(value: number): string {
+  const formatted = `${Math.abs(value).toFixed(3)} KD`;
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `-${formatted}`;
+  return formatted;
 }
 
 function parsePendingChanges(value: Prisma.JsonValue): AdjustmentPendingChanges {

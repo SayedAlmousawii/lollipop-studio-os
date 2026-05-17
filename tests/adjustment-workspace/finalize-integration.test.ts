@@ -27,6 +27,16 @@ type PhaseBFixturesModule = typeof import("../financial-phase-b/fixtures");
 type PhaseBFixtures = Awaited<
   ReturnType<PhaseBFixturesModule["seedPhaseBFixtures"]>
 >;
+type BuildLockedWorkflow =
+  PhaseBFixturesModule["buildLockedFinalInvoiceWorkflowFixture"];
+
+type IntegrationContext = {
+  db: PrismaClient;
+  services: WorkspaceServices;
+  fixtures: PhaseBFixtures;
+  buildLockedFinalInvoiceWorkflowFixture: BuildLockedWorkflow;
+  upgradeProductId: string;
+};
 
 const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 const originalModuleLoad = moduleWithLoader._load;
@@ -36,8 +46,19 @@ moduleWithLoader._load = function loadWithServerOnlyShim(request, parent, isMain
   return originalModuleLoad.call(this, request, parent, isMain);
 };
 
-test("finalizeWorkspace emits ADJ lines for each new 83a edit op", async () => {
-  await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
+let integrationContext: IntegrationContext | null = null;
+let releaseSchema: (() => void) | null = null;
+let schemaRun: Promise<void> | null = null;
+
+test.before(async () => {
+  let resolveSetup: () => void = () => {};
+  let rejectSetup: (error: unknown) => void = () => {};
+  const setupComplete = new Promise<void>((resolve, reject) => {
+    resolveSetup = resolve;
+    rejectSetup = reject;
+  });
+
+  schemaRun = withIsolatedBackendInvariantSchema(async (databaseUrl) => {
     const previousDatabaseUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = databaseUrl;
 
@@ -58,6 +79,44 @@ test("finalizeWorkspace emits ADJ lines for each new 83a edit op", async () => {
         "83a Finalize Premium Frame",
         "65.000"
       );
+
+      integrationContext = {
+        db,
+        services,
+        fixtures,
+        buildLockedFinalInvoiceWorkflowFixture,
+        upgradeProductId,
+      };
+      resolveSetup();
+
+      await new Promise<void>((resolve) => {
+        releaseSchema = resolve;
+      });
+    } catch (error) {
+      rejectSetup(error);
+      throw error;
+    } finally {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  });
+
+  await setupComplete;
+});
+
+test.after(async () => {
+  releaseSchema?.();
+  await schemaRun;
+  moduleWithLoader._load = originalModuleLoad;
+});
+
+test("finalizeWorkspace emits ADJ lines for each new 83a edit op", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
 
       await assertFinalizedAdjustment({
         db,
@@ -185,10 +244,257 @@ test("finalizeWorkspace emits ADJ lines for each new 83a edit op", async () => {
           causeOrderEntityKind: OrderEntityKind.EXTRA_PHOTO,
         },
       ]);
-    } finally {
-      process.env.DATABASE_URL = previousDatabaseUrl;
-    }
+});
+
+test("derivePOSWorkspaceFromAdjustmentWorkspace projects staged edits into POS modules", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "83c-derived-pos"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const packageItemId = await firstPackageItemId(db, fixtures.basePackageId);
+  const workspace = await services.openWorkspace(
+    workflow.finalInvoiceId,
+    fixtures.adminActor
+  );
+  let version = 0;
+  for (const edit of [
+    {
+      id: "83c-tier",
+      op: "change_package_tier",
+      orderPackageId,
+      toPackageRefId: fixtures.upgradePackageId,
+    },
+    {
+      id: "83c-photos",
+      op: "change_selected_photo_count",
+      orderPackageId,
+      selectedPhotoCount: 17,
+      extraDigitalCount: 2,
+      extraPrintCount: 0,
+    },
+    {
+      id: "83c-addon",
+      op: "add_line",
+      kind: "addon",
+      refId: fixtures.addOnProductId,
+      quantity: 1,
+    },
+  ] satisfies AdjustmentWorkspaceEdit[]) {
+    const view = await services.applyEdit(
+      workspace.id,
+      { version, edit },
+      fixtures.adminActor
+    );
+    version = view.version;
+  }
+
+  const derived = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    workspace.id
+  );
+  assert.ok(derived);
+  assert.equal(derived.invoice?.isLocked, true);
+  assert.equal(
+    derived.packageLines[0]?.currentPackage.id,
+    fixtures.upgradePackageId
+  );
+  assert.equal(derived.packageLines[0]?.selectedPhotoCount, 17);
+  assert.equal(derived.packageLines[0]?.extraDigitalCount, 2);
+  assert.equal(
+    derived.addOns.some((addOn) => addOn.productId === fixtures.addOnProductId),
+    true
+  );
+
+  const upgradeWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "83c-derived-item"
+  );
+  const upgradeWorkspace = await services.openWorkspace(
+    upgradeWorkflow.finalInvoiceId,
+    fixtures.adminActor
+  );
+  await services.applyEdit(
+    upgradeWorkspace.id,
+    {
+      version: 0,
+      edit: {
+        id: "83c-upgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId: await firstOrderPackageId(db, upgradeWorkflow.orderId),
+        packageItemId,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    },
+    fixtures.adminActor
+  );
+  const upgradedDerived =
+    await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+      upgradeWorkspace.id
+    );
+  assert.equal(
+    upgradedDerived?.packageLines[0]?.packageItems[0]?.productId,
+    upgradeProductId
+  );
+});
+
+test("finalizeWorkspace emits no ADJ when selected-photo edits return to baseline", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "83c-photo-revert"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: { id: true, package: { select: { photoCount: true } } },
   });
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "photo-count-increase",
+        op: "change_selected_photo_count",
+        orderPackageId: orderPackage.id,
+        selectedPhotoCount: orderPackage.package.photoCount + 2,
+        extraDigitalCount: 2,
+        extraPrintCount: 0,
+      },
+      {
+        id: "photo-count-baseline",
+        op: "change_selected_photo_count",
+        orderPackageId: orderPackage.id,
+        selectedPhotoCount: orderPackage.package.photoCount,
+        extraDigitalCount: 0,
+        extraPrintCount: 0,
+      },
+    ]
+  );
+  const derived = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    workspaceId
+  );
+  assert.equal(
+    derived?.packageLines[0]?.selectedPhotoCount,
+    orderPackage.package.photoCount
+  );
+
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+
+  assert.equal(result.adjustmentInvoiceId, null);
+  await assertNoAdjustmentInvoice(db, workflow.orderId, workflow.finalInvoiceId);
+});
+
+test("finalizeWorkspace emits no ADJ when staged add-on is removed before finalize", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "83c-addon-revert"
+  );
+  const addEditId = "staged-addon-then-remove";
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: addEditId,
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 1,
+      },
+      {
+        id: "remove-staged-addon",
+        op: "remove_line",
+        targetLineId: `edit:${addEditId}`,
+      },
+    ]
+  );
+
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+
+  assert.equal(result.adjustmentInvoiceId, null);
+  await assertNoAdjustmentInvoice(db, workflow.orderId, workflow.finalInvoiceId);
+});
+
+test("workspace POS handlers disable inline reductive approval for staged edits", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const {
+    createWorkspaceAddOnHandlers,
+    createWorkspaceCompositionHandlers,
+  } = await import(
+    "../../app/orders/[orderId]/adjustment-workspace/pos-handler-adapters"
+  );
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "83c-inline-approval"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const workspace = await services.openWorkspace(
+    workflow.finalInvoiceId,
+    fixtures.adminActor
+  );
+  const view = await services.applyEdit(
+    workspace.id,
+    {
+      version: 0,
+      edit: {
+        id: "remove-base-package-line",
+        op: "remove_line",
+        targetLineId: `package:${orderPackageId}`,
+      },
+    },
+    fixtures.adminActor
+  );
+
+  const compositionHandlers = createWorkspaceCompositionHandlers(
+    workflow.orderId,
+    workspace.id
+  );
+  const addOnHandlers = createWorkspaceAddOnHandlers(
+    workflow.orderId,
+    workspace.id
+  );
+
+  assert.equal(view.proposal.requiresManagerApproval, true);
+  assert.equal(compositionHandlers.shouldPromptInlineApproval, false);
+  assert.equal(addOnHandlers.shouldPromptInlineApproval, false);
 });
 
 async function assertFinalizedAdjustment(input: {
@@ -230,13 +536,50 @@ async function stageAndFinalize(
   actor: ActorContext,
   edits: AdjustmentWorkspaceEdit[]
 ) {
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    finalInvoiceId,
+    actor,
+    edits
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, actor);
+}
+
+async function stageWorkspaceEdits(
+  services: WorkspaceServices,
+  finalInvoiceId: string,
+  actor: ActorContext,
+  edits: AdjustmentWorkspaceEdit[]
+): Promise<{ workspaceId: string; version: number }> {
   const workspace = await services.openWorkspace(finalInvoiceId, actor);
   let version = 0;
   for (const edit of edits) {
     const view = await services.applyEdit(workspace.id, { version, edit }, actor);
     version = view.version;
   }
-  await services.finalizeWorkspace(workspace.id, { version }, actor);
+  return { workspaceId: workspace.id, version };
+}
+
+function getIntegrationContext(): IntegrationContext {
+  if (!integrationContext) {
+    throw new Error("Integration test context was not initialized");
+  }
+  return integrationContext;
+}
+
+async function assertNoAdjustmentInvoice(
+  db: PrismaClient,
+  orderId: string,
+  parentInvoiceId: string
+) {
+  const count = await db.invoice.count({
+    where: {
+      orderId,
+      invoiceType: InvoiceType.ADJUSTMENT,
+      parentInvoiceId,
+    },
+  });
+  assert.equal(count, 0, "finalize should not emit an ADJ");
 }
 
 async function onlyAdjustmentInvoice(
