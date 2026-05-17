@@ -374,14 +374,20 @@ export async function stageMarketplaceAddOnQuantityAction(
         parsed.data.quantity
       );
     }
+    if (parsed.data.quantity === 0) {
+      return stageWorkspaceEdit(orderId, workspaceId, parsed.data.version, {
+        id: `remove:${line.lineId}`,
+        op: "remove_line",
+        targetLineId: line.lineId,
+      });
+    }
+
     return stageWorkspaceEdit(orderId, workspaceId, parsed.data.version, {
       id: `qty:${line.lineId}`,
-      op: parsed.data.quantity === 0 ? "remove_line" : "modify_quantity",
+      op: "modify_quantity",
       targetLineId: line.lineId,
-      ...(parsed.data.quantity === 0
-        ? {}
-        : { newQuantity: parsed.data.quantity }),
-    } as AdjustmentWorkspaceEdit);
+      newQuantity: parsed.data.quantity,
+    });
   } catch (error) {
     return handlerError(error);
   }

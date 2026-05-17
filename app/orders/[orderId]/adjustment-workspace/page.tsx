@@ -20,22 +20,16 @@ import type {
   AdjustmentCompositionLine,
   AdjustmentWorkspaceView,
 } from "@/modules/adjustment-workspace/adjustment-workspace.types";
-import type {
-  POSAddOnHandlers,
-  POSCompositionHandlers,
-} from "@/modules/orders/pos-handlers.types";
 import {
   cancelAdjustmentWorkspaceAction,
   finalizeAdjustmentWorkspaceAction,
   removeWorkspaceEditAction,
-  stageMarketplaceAddOnAction,
-  stageMarketplaceAddOnQuantityAction,
-  stageMarketplaceAddOnRemovalAction,
-  stagePackageItemUpgradeAction,
-  stagePackageTierChangeAction,
-  stageSelectedPhotoCountChangeAction,
   takeOverAdjustmentWorkspaceAction,
 } from "./actions";
+import {
+  createWorkspaceAddOnHandlers,
+  createWorkspaceCompositionHandlers,
+} from "./pos-handler-adapters";
 
 export default async function AdjustmentWorkspacePage(
   props: { params: Promise<{ orderId: string }> }
@@ -210,99 +204,6 @@ export default async function AdjustmentWorkspacePage(
       </main>
     </div>
   );
-}
-
-function createWorkspaceCompositionHandlers(
-  orderId: string,
-  workspaceId: string,
-  version: number
-): POSCompositionHandlers {
-  async function changePackageTier(input: {
-    orderPackageId: string;
-    toPackageRefId: string;
-  }) {
-    "use server";
-
-    return stagePackageTierChangeAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
-  }
-
-  async function upgradePackageItem(input: {
-    orderPackageId: string;
-    packageItemId: string;
-    toProductId: string;
-    quantity: number;
-  }) {
-    "use server";
-
-    return stagePackageItemUpgradeAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
-  }
-
-  async function changeSelectedPhotoCount(input: {
-    orderPackageId: string;
-    selectedPhotoCount: number;
-    extraDigitalCount: number;
-    extraPrintCount: number;
-  }) {
-    "use server";
-
-    return stageSelectedPhotoCountChangeAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
-  }
-
-  return {
-    changePackageTier,
-    upgradePackageItem,
-    changeSelectedPhotoCount,
-    shouldPromptInlineApproval: false,
-  };
-}
-
-function createWorkspaceAddOnHandlers(
-  orderId: string,
-  workspaceId: string,
-  version: number
-): POSAddOnHandlers {
-  async function addAddOn(input: { productId: string; quantity: number }) {
-    "use server";
-
-    return stageMarketplaceAddOnAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
-  }
-
-  async function removeAddOn(input: { addOnId: string }) {
-    "use server";
-
-    return stageMarketplaceAddOnRemovalAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
-  }
-
-  async function changeAddOnQuantity(input: { addOnId: string; quantity: number }) {
-    "use server";
-
-    return stageMarketplaceAddOnQuantityAction(orderId, workspaceId, {
-      version,
-      ...input,
-    });
-  }
-
-  return {
-    addAddOn,
-    removeAddOn,
-    changeAddOnQuantity,
-    shouldPromptInlineApproval: false,
-  };
 }
 
 function CompositionPanel({
