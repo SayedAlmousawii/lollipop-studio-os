@@ -114,6 +114,14 @@ const packageEditCatalog = {
         price: new Prisma.Decimal("35.000"),
       },
     ],
+    [
+      "product-gallery-frame",
+      {
+        id: "product-gallery-frame",
+        name: "Gallery Frame",
+        price: new Prisma.Decimal("45.000"),
+      },
+    ],
   ]),
   packages: new Map([
     [
@@ -144,6 +152,28 @@ const packageEditCatalog = {
         productId: "product-frame",
         productName: "Frame",
         price: new Prisma.Decimal("10.000"),
+        quantity: 1,
+      },
+    ],
+    [
+      "package-item-premium-frame",
+      {
+        id: "package-item-premium-frame",
+        packageId: "pkg-premium",
+        productId: "product-premium-frame",
+        productName: "Premium Frame",
+        price: new Prisma.Decimal("20.000"),
+        quantity: 1,
+      },
+    ],
+    [
+      "package-item-unrelated-frame",
+      {
+        id: "package-item-unrelated-frame",
+        packageId: "pkg-unrelated",
+        productId: "product-unrelated-frame",
+        productName: "Unrelated Frame",
+        price: new Prisma.Decimal("12.000"),
         quantity: 1,
       },
     ],
@@ -330,6 +360,102 @@ test("package item upgrade replaces the package deliverable line", async () => {
   );
 });
 
+test("package item upgrade uses staged tier package items after a tier change", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    packageEditBaseSnapshot,
+    {
+      edits: [
+        {
+          id: "change-tier",
+          op: "change_package_tier",
+          orderPackageId: "order-package-1",
+          toPackageRefId: "pkg-premium",
+        },
+        {
+          id: "upgrade-premium-frame",
+          op: "upgrade_package_item",
+          orderPackageId: "order-package-1",
+          packageItemId: "package-item-premium-frame",
+          toProductId: "product-gallery-frame",
+          quantity: 1,
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+
+  const upgradedLine = proposal.proposed.lines.find(
+    (line) => line.lineId === "item:order-package-1:package-item-premium-frame"
+  );
+  assert.equal(upgradedLine?.refId, "product-gallery-frame");
+  assert.equal(upgradedLine?.label, "Premium Frame to Gallery Frame");
+  assert.equal(upgradedLine?.unitPrice, "25.000");
+});
+
+test("package item upgrade sees staged tier edits later in the pending list", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    packageEditBaseSnapshot,
+    {
+      edits: [
+        {
+          id: "upgrade-premium-frame",
+          op: "upgrade_package_item",
+          orderPackageId: "order-package-1",
+          packageItemId: "package-item-premium-frame",
+          toProductId: "product-gallery-frame",
+          quantity: 1,
+        },
+        {
+          id: "change-tier",
+          op: "change_package_tier",
+          orderPackageId: "order-package-1",
+          toPackageRefId: "pkg-premium",
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+
+  assert.equal(proposal.netPayableDelta, "75.000");
+});
+
+test("package item upgrade rejects items outside the persisted or staged tier", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  await assert.rejects(
+    computeWorkspaceProposal(
+      packageEditBaseSnapshot,
+      {
+        edits: [
+          {
+            id: "change-tier",
+            op: "change_package_tier",
+            orderPackageId: "order-package-1",
+            toPackageRefId: "pkg-premium",
+          },
+          {
+            id: "upgrade-unrelated-frame",
+            op: "upgrade_package_item",
+            orderPackageId: "order-package-1",
+            packageItemId: "package-item-unrelated-frame",
+            toProductId: "product-gallery-frame",
+            quantity: 1,
+          },
+        ],
+      },
+      packageEditCatalog
+    ),
+    /Package item does not belong to the specified order package/
+  );
+});
+
 test("selected photo count changes replace extra-photo billing lines", async () => {
   const { computeWorkspaceProposal } = await import(
     "@/modules/adjustment-workspace/adjustment-workspace.service"
@@ -412,8 +538,8 @@ test("tier change composes with package item and photo count changes", async () 
           id: "upgrade-frame",
           op: "upgrade_package_item",
           orderPackageId: "order-package-1",
-          packageItemId: "package-item-frame",
-          toProductId: "product-premium-frame",
+          packageItemId: "package-item-premium-frame",
+          toProductId: "product-gallery-frame",
           quantity: 1,
         },
         {
@@ -436,7 +562,7 @@ test("tier change composes with package item and photo count changes", async () 
     "pkg-premium"
   );
   assert.equal(
-    proposal.proposed.lines.find((line) => line.refId === "product-premium-frame")
+    proposal.proposed.lines.find((line) => line.refId === "product-gallery-frame")
       ?.lineTotalNet,
     "25.000"
   );

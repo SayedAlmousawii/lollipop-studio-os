@@ -73,12 +73,27 @@ test.before(async () => {
       } = await import("../financial-phase-b/fixtures");
 
       const fixtures = await seedPhaseBFixtures(db);
+      const upgradeTierProductId = await createDeliverableProduct(
+        db,
+        "83a-finalize-tier-product",
+        "83a Finalize Tier Frame",
+        "45.000"
+      );
       const upgradeProductId = await createDeliverableProduct(
         db,
         "83a-finalize-upgrade-product",
         "83a Finalize Premium Frame",
         "65.000"
       );
+      await db.packageItem.create({
+        data: {
+          id: "83a-finalize-upgrade-package-item",
+          packageId: fixtures.upgradePackageId,
+          productId: upgradeTierProductId,
+          quantity: 1,
+          priceSnapshot: new Prisma.Decimal("45.000"),
+        },
+      });
 
       integrationContext = {
         db,
@@ -207,7 +222,7 @@ test("finalizeWorkspace emits ADJ lines for each new 83a edit op", async () => {
             id: "combined-upgrade",
             op: "upgrade_package_item",
             orderPackageId: combinedOrderPackageId,
-            packageItemId: await firstPackageItemId(db, fixtures.basePackageId),
+            packageItemId: await firstPackageItemId(db, fixtures.upgradePackageId),
             toProductId: upgradeProductId,
             quantity: 1,
           },

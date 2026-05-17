@@ -5,6 +5,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- AdjustmentWorkspace pending diff labels now resolve staged add-on, package tier, and package-item upgrade names from proposal lines instead of exposing raw internal ids.
+- AdjustmentWorkspace package-item upgrade validation now resolves the staged package tier before checking package item ownership, so rebuilding proposals with tier-change plus new-tier item-upgrade edits no longer rejects valid staged work.
 - Feature 83c review follow-up is complete: workspace POS staged handlers resolve current versions without closed-over page state, staged add-on resizing reuses the already-loaded edit, handler factories fail fast on invalid IDs, POS handlers normalize thrown errors, add-on handlers retry once on thrown stage failures, and derived selected-photo counts reflect reductions back to baseline.
 - Feature 83c review cleanup is complete: missing no-op finalize regressions and inline-approval handler assertions were added as separate integration tests, and the marketplace quantity stage action now uses narrowed edit branches without a cast.
 - Feature 83c is complete: AdjustmentWorkspace derives a POS-shaped staged read model, mounts the shared POS composition/photo/add-on modules, routes module handlers to staged edits with inline approval disabled, and records per-op staged counters.
