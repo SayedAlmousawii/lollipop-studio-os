@@ -89,6 +89,7 @@ Button, Input, Select, Textarea, DatePicker, Modal/Dialog, Card, Table, Badge, T
 - Dashboard → summary stat cards
 - Calendar → day/week/month; color-coded by session type
 - Session Types → permission-gated admin table grouped by department, with create/edit dialogs, archive/unarchive actions, calendar label/color controls, and zero-priced extra-photo indicators
+- Pricing → permission-gated extra-photo pricing table grouped by department, one row per active session type, with digital/print unit prices edited together in a dialog and non-retroactive invoice banner copy
 - Customer Profile → tabs: Overview, Children, Sessions, Invoices, Notes, History
 - Order Detail → sections: Customer, Booking, Package, Invoice, Selection, Editing, Production, Pickup, Audit Log
 - Locked Sales View → left column renders the shared normalized CurrentCompositionCard in locked mode; right column uses FinancialSidebarLocked with Payment Summary, Total Source, Linked Financial Documents, and the Open/Resume/Take Over Adjustment Workspace actions; pre-lock sales uses FinancialSidebarDraft and keeps the original computed/snapshot invoice sidebar behavior

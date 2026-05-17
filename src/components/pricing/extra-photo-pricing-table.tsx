@@ -1,3 +1,10 @@
+import { MoreHorizontal } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Table,
   TableBody,
@@ -6,15 +13,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { ExtraPhotoPricingRow } from "@/modules/pricing/pricing.types";
+import { ExtraPhotoPricingEditDialog } from "./extra-photo-pricing-edit-dialog";
 
 interface ExtraPhotoPricingTableProps {
   rows: ExtraPhotoPricingRow[];
 }
 
-interface SessionTypeGroup {
+interface DepartmentGroup {
+  departmentCode: string;
   departmentName: string;
-  sessionTypeName: string;
   rows: ExtraPhotoPricingRow[];
 }
 
@@ -41,38 +50,55 @@ export function ExtraPhotoPricingTable({ rows }: ExtraPhotoPricingTableProps) {
           <TableRow className="border-border bg-surface-soft">
             <TableHead className="text-text-secondary">Department</TableHead>
             <TableHead className="text-text-secondary">Session Type</TableHead>
-            <TableHead className="text-text-secondary">Media Type</TableHead>
-            <TableHead className="text-text-secondary">Unit Price</TableHead>
+            <TableHead className="text-text-secondary">Digital unit price</TableHead>
+            <TableHead className="text-text-secondary">Print unit price</TableHead>
+            <TableHead className="w-12">
+              <span className="sr-only">Actions</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {groups.map((group) =>
             group.rows.map((row, index) => (
               <TableRow
-                key={row.id}
+                key={row.sessionTypeId}
                 className="border-border hover:bg-surface-soft"
               >
                 {index === 0 ? (
-                  <>
-                    <TableCell
-                      rowSpan={group.rows.length}
-                      className="align-top font-medium text-text-primary"
-                    >
-                      {group.departmentName}
-                    </TableCell>
-                    <TableCell
-                      rowSpan={group.rows.length}
-                      className="align-top text-sm text-text-secondary"
-                    >
-                      {group.sessionTypeName}
-                    </TableCell>
-                  </>
+                  <TableCell
+                    rowSpan={group.rows.length}
+                    className="align-top font-medium text-text-primary"
+                  >
+                    {group.departmentName}
+                  </TableCell>
                 ) : null}
-                <TableCell className="text-sm text-text-secondary">
-                  {row.mediaTypeLabel}
+                <TableCell className="font-medium text-text-primary">
+                  <div>{row.sessionTypeName}</div>
+                  <p className="mt-1 font-mono text-xs font-normal text-text-secondary">
+                    {row.sessionTypeCode}
+                  </p>
                 </TableCell>
                 <TableCell className="text-sm text-text-secondary">
-                  {row.unitPrice}
+                  {row.digitalUnitPrice}
+                </TableCell>
+                <TableCell className="text-sm text-text-secondary">
+                  {row.printUnitPrice}
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      className={cn(
+                        buttonVariants({ variant: "ghost", size: "icon" }),
+                        "h-8 w-8"
+                      )}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                      <span className="sr-only">Open actions</span>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      <ExtraPhotoPricingEditDialog row={row} />
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))
@@ -83,12 +109,12 @@ export function ExtraPhotoPricingTable({ rows }: ExtraPhotoPricingTableProps) {
   );
 }
 
-function groupRows(rows: ExtraPhotoPricingRow[]): SessionTypeGroup[] {
-  const groups: SessionTypeGroup[] = [];
-  const groupByKey = new Map<string, SessionTypeGroup>();
+function groupRows(rows: ExtraPhotoPricingRow[]): DepartmentGroup[] {
+  const groups: DepartmentGroup[] = [];
+  const groupByKey = new Map<string, DepartmentGroup>();
 
   for (const row of rows) {
-    const key = row.sessionTypeId;
+    const key = row.departmentCode;
     const existingGroup = groupByKey.get(key);
     if (existingGroup) {
       existingGroup.rows.push(row);
@@ -96,8 +122,8 @@ function groupRows(rows: ExtraPhotoPricingRow[]): SessionTypeGroup[] {
     }
 
     const group = {
+      departmentCode: row.departmentCode,
       departmentName: row.departmentName,
-      sessionTypeName: row.sessionTypeName,
       rows: [row],
     };
     groupByKey.set(key, group);

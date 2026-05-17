@@ -57,6 +57,7 @@ src/
 | Bookings | date/time, dept, session type, status, photographer, themes; BK reference generated at confirmation | final invoice, package upgrade logic |
 | Packages | templates, prices, included items, add-on definitions, upgrade rules | customer-specific orders |
 | SessionTypes | admin-managed session taxonomy rows, frozen session-type codes, calendar labels/colors, archive state, default PackageFamily creation, and default SessionTypeExtraPhotoPricing rows (DIGITAL, PRINT, unitPrice=0) via createSessionType | department CRUD, package pricing |
+| Pricing | active session-type extra-photo unit prices, collapsed digital/print pricing rows for admin editing, transactional paired updates | invoice snapshotting, package pricing, price history |
 | Orders | original package, final package, selected photos, deliverables, add-ons, order state, price snapshots | — |
 | FinancialCase | financial grouping hub — owns all Invoices and Payments for a workflow thread; bridges Booking → Job | does not own operational workflow state |
 | Invoices/Payments | invoice total, deposit invoice, final invoice, upgrade payment, add-on payment, method, status | — |
