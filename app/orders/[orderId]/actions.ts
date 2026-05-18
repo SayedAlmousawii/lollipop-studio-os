@@ -123,10 +123,11 @@ export async function configureSessionAction(
     return { errors: parsed.error.flatten().fieldErrors };
   }
 
+  const appUser = await requireCurrentAppUserPermission(
+    PERMISSIONS.ORDER_FINANCIAL_UPDATE
+  );
+
   try {
-    const appUser = await requireCurrentAppUserPermission(
-      PERMISSIONS.ORDER_FINANCIAL_UPDATE
-    );
     await writeOrderPackageSelections(parsed.data.orderPackageId, parsed.data.selections, {
       id: appUser.id,
       role: appUser.role,

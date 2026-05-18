@@ -459,9 +459,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
 
   if (!order) return null;
 
-  const resolvedSessionConfigurations = await resolveOrderSessionConfigurations(
-    db,
-    order.id
+  const resolvedSessionConfigurations = await withRetry(
+    () => resolveOrderSessionConfigurations(db, order.id),
+    "Failed to fetch POS session configurations"
   );
   const resolvedConfigurationsByPackageId = new Map(
     resolvedSessionConfigurations.map((configurationState) => [
@@ -524,7 +524,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     )
   );
   const sessionConfigurationTotal = priceSelections(
-    order.packages.flatMap((line) => line.sessionConfigurationSelections)
+    resolvedSessionConfigurations.flatMap(
+      (configurationState) => configurationState.selections
+    )
   ).totalDelta;
 
   const finalInvoice = order.invoices[0]

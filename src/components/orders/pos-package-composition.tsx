@@ -106,9 +106,6 @@ export function POSPackageComposition({
                   sessionTypeName={line.sessionTypeName}
                   availableConfigurations={line.availableConfigurations}
                   currentSelections={line.currentSelections}
-                  missingRequiredConfigurationCodes={
-                    line.missingRequiredConfigurationCodes
-                  }
                 />
               </div>
               {line.sessionConfigurationSummary.length > 0 ||

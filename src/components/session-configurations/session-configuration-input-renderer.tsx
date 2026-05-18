@@ -108,13 +108,14 @@ export function SessionConfigurationInputRenderer(props: Props) {
           value={props.value?.kind === "number" ? props.value.numericValue : ""}
           onChange={(event) => {
             const value = event.currentTarget.value;
+            const parsed = parseFiniteNumber(value);
             props.onChange(
-              value === ""
+              parsed === null
                 ? null
                 : {
                     configurationId: props.configurationId,
                     kind: "number",
-                    numericValue: Number(value),
+                    numericValue: parsed,
                   }
             );
           }}
@@ -129,13 +130,16 @@ export function SessionConfigurationInputRenderer(props: Props) {
   if (inputType === "COUNTER") {
     if (mode === "edit") {
       const currentValue =
-        props.value?.kind === "counter" ? props.value.numericValue : 0;
+        props.value?.kind === "counter" &&
+        Number.isFinite(props.value.numericValue)
+          ? props.value.numericValue
+          : 0;
       const currentOptionId =
         props.value?.kind === "counter" && "optionId" in props.value
           ? props.value.optionId ?? ""
           : "";
       const commitValue = (nextValue: number, optionId = currentOptionId) => {
-        if (nextValue <= 0) {
+        if (!Number.isFinite(nextValue) || nextValue <= 0) {
           props.onChange(null);
           return;
         }
@@ -162,9 +166,10 @@ export function SessionConfigurationInputRenderer(props: Props) {
               min="0"
               step="1"
               value={currentValue || ""}
-              onChange={(event) =>
-                commitValue(Number(event.currentTarget.value || 0))
-              }
+              onChange={(event) => {
+                const parsed = parseFiniteNumber(event.currentTarget.value);
+                commitValue(parsed ?? 0);
+              }}
               className="h-10 w-16 rounded-none border-y-0 text-center"
             />
             <button
@@ -229,4 +234,10 @@ export function SessionConfigurationInputRenderer(props: Props) {
   }
 
   return <Input disabled placeholder="Text value" />;
+}
+
+function parseFiniteNumber(value: string): number | null {
+  if (value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

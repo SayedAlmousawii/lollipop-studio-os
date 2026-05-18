@@ -34,7 +34,6 @@ export function ConfigureSessionPanel({
   sessionTypeName,
   availableConfigurations,
   currentSelections,
-  missingRequiredConfigurationCodes,
 }: {
   orderId: string;
   orderPackageId: string;
@@ -42,7 +41,6 @@ export function ConfigureSessionPanel({
   sessionTypeName: string;
   availableConfigurations: POSAvailableSessionConfiguration[];
   currentSelections: POSSessionConfigurationSelection[];
-  missingRequiredConfigurationCodes: string[];
 }) {
   const [state, formAction] = useActionState<ActionState, FormData>(
     configureSessionAction.bind(null, orderId),
@@ -71,7 +69,15 @@ export function ConfigureSessionPanel({
       .filter((selection): selection is SelectionInput => selection !== null)
       .filter(isSubmittableSelection)
   );
-  const missingCodes = new Set(missingRequiredConfigurationCodes);
+  const missingCodes = new Set(
+    sortedConfigurations
+      .filter(
+        (configuration) =>
+          configuration.required &&
+          !isSubmittableSelection(draftSelections[configuration.id] ?? null)
+      )
+      .map((configuration) => configuration.code)
+  );
 
   return (
     <Dialog>
@@ -95,7 +101,7 @@ export function ConfigureSessionPanel({
             {sortedConfigurations.map((configuration) => {
               const value = draftSelections[configuration.id] ?? null;
               const feeHint = previewFee(configuration, value);
-              const isMissing = missingCodes.has(configuration.code) && !value;
+              const isMissing = missingCodes.has(configuration.code);
 
               return (
                 <div
@@ -187,7 +193,8 @@ function stripSelectionMetadata(
   }
 }
 
-function isSubmittableSelection(selection: SelectionInput): boolean {
+function isSubmittableSelection(selection: SelectionInput | null): selection is SelectionInput {
+  if (!selection) return false;
   if (selection.kind === "text") return selection.textValue.trim().length > 0;
   if (selection.kind === "number") return Number.isFinite(selection.numericValue);
   if (selection.kind === "counter") {
