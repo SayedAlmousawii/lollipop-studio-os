@@ -126,6 +126,42 @@ function buildPendingChangeRow(
     };
   }
 
+  if (edit.op === "change_session_configuration_selection") {
+    const proposedSelection = context?.proposed?.sessionConfigurationSelections?.find(
+      (selection) =>
+        selection.orderPackageId === edit.orderPackageId &&
+        selection.configurationId === edit.configurationId
+    );
+    const baseSelection = context?.base?.sessionConfigurationSelections?.find(
+      (selection) =>
+        selection.orderPackageId === edit.orderPackageId &&
+        selection.configurationId === edit.configurationId
+    );
+    const label =
+      proposedSelection?.snapshotLabel ??
+      baseSelection?.snapshotLabel ??
+      "Session Configuration";
+    const selectionIds = [
+      proposedSelection?.id,
+      baseSelection?.id,
+      `pending:${edit.configurationId}`,
+    ].filter((value): value is string => Boolean(value));
+    const displayValue = sessionConfigurationDesiredDisplay(
+      edit.desired,
+      proposedSelection
+    );
+    return {
+      id: edit.id,
+      kind: edit.desired === null ? "removal" : "change",
+      label: `Session Configuration: ${label}`,
+      description: edit.desired === null ? "Removed" : `Updated -> ${displayValue}`,
+      amount: sessionConfigurationAmount(
+        context?.deltas,
+        selectionIds
+      ),
+    };
+  }
+
   const baseLine = findLine(context?.base?.lines, `package:${edit.orderPackageId}`);
   const proposedLine = findLine(context?.proposed?.lines, `package:${edit.orderPackageId}`);
   return {
@@ -157,6 +193,48 @@ function selectedPhotoAmount(
     lines?.filter((line) => line.lineId.includes(`extra-photo:${orderPackageId}:`)) ??
       []
   );
+}
+
+function sessionConfigurationAmount(
+  lines: AdjustmentCompositionLine[] | undefined,
+  selectionIds: string[]
+): number {
+  const selectionIdSet = new Set(selectionIds);
+  return sumAmounts(
+    lines?.filter(
+      (line) =>
+        line.kind === "session_configuration" && selectionIdSet.has(line.refId)
+    ) ?? []
+  );
+}
+
+function sessionConfigurationDesiredDisplay(
+  desired: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_session_configuration_selection" }
+  >["desired"],
+  proposedSelection?: {
+    snapshotLabel: string;
+    optionId: string | null;
+    numericValue: string | null;
+    textValue: string | null;
+  }
+): string {
+  if (desired === null) return "Removed";
+  switch (desired.kind) {
+    case "toggle":
+      return "Selected";
+    case "select":
+      return proposedSelection?.snapshotLabel ?? desired.optionId;
+    case "number":
+      return String(desired.numericValue);
+    case "text":
+      return desired.textValue;
+    case "counter":
+      return proposedSelection?.snapshotLabel
+        ? `${desired.numericValue} · ${proposedSelection.snapshotLabel}`
+        : String(desired.numericValue);
+  }
 }
 
 function sumAmounts(lines: AdjustmentCompositionLine[]): number {

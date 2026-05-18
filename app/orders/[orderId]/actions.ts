@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { PaymentType } from "@prisma/client";
+import { InvoiceType, PaymentType } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import {
@@ -11,12 +11,16 @@ import {
 } from "@/lib/permissions";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
+import { applyEdit } from "@/modules/adjustment-workspace/adjustment-workspace.service";
+import { adjustmentWorkspaceEditSchema } from "@/modules/adjustment-workspace/adjustment-workspace.schema";
 import { SessionConfigurationRequiredSelectionMissingError } from "@/modules/session-configurations/session-configuration-resolver";
 import {
   SessionConfigurationSelectionConfigurationNotFoundError,
+  SessionConfigurationSelectionFinancialNotAllowedError,
   SessionConfigurationSelectionInputMismatchError,
   SessionConfigurationSelectionLockedError,
   SessionConfigurationSelectionOptionMismatchError,
+  SessionConfigurationSelectionPostLockMisuseError,
   writeOrderPackageSelections,
 } from "@/modules/session-configurations/session-configuration-selection.service";
 import { writeSelectionsPayloadSchema } from "@/modules/session-configurations/session-configuration-selection.schema";
@@ -47,6 +51,7 @@ export type CreateOrderInvoiceActionState = {
 
 export type ConfigureSessionActionState = {
   errors?: Partial<Record<string, string[]>>;
+  adjustmentWorkspaceHref?: string;
 };
 
 export type RecordUpgradePaymentActionState = {
@@ -110,7 +115,10 @@ export async function configureSessionAction(
   _prev: ConfigureSessionActionState,
   formData: FormData
 ): Promise<ConfigureSessionActionState> {
-  const parsedSelections = parseSelectionsJson(formData.get("selections"));
+  const parsedSelections = parseJsonPayload(
+    formData.get("selections"),
+    "Selections payload"
+  );
   if (!parsedSelections.success) {
     return { errors: { selections: [parsedSelections.error] } };
   }
@@ -128,10 +136,48 @@ export async function configureSessionAction(
   );
 
   try {
-    await writeOrderPackageSelections(parsed.data.orderPackageId, parsed.data.selections, {
-      id: appUser.id,
-      role: appUser.role,
-    });
+    const route = await resolveConfigureSessionRoute(
+      orderId,
+      parsed.data.orderPackageId,
+      parsed.data.selections.map((selection) => selection.configurationId)
+    );
+    if (route.locked) {
+      const financialSelections = parsed.data.selections.filter((selection) =>
+        route.financialConfigurationIds.has(selection.configurationId)
+      );
+      if (financialSelections.length > 0) {
+        const affectedNames = financialSelections.map(
+          (selection) =>
+            route.configurationNameById.get(selection.configurationId) ??
+            "Session configuration"
+        );
+        return {
+          errors: {
+            _global: [
+              `Edit ${[...new Set(affectedNames)].join(", ")} in the Adjustment Workspace.`,
+            ],
+          },
+          adjustmentWorkspaceHref: `/orders/${orderId}/adjustment-workspace`,
+        };
+      }
+      const operationalSelections = parsed.data.selections.filter((selection) =>
+        route.operationalConfigurationIds.has(selection.configurationId)
+      );
+      await writeOrderPackageSelections(
+        parsed.data.orderPackageId,
+        operationalSelections,
+        {
+          id: appUser.id,
+          role: appUser.role,
+        },
+        { allowPostLock: true, postLockAudit: { actorUserId: appUser.id } }
+      );
+    } else {
+      await writeOrderPackageSelections(parsed.data.orderPackageId, parsed.data.selections, {
+        id: appUser.id,
+        role: appUser.role,
+      });
+    }
   } catch (error) {
     return { errors: { _global: [messageForConfigureSessionError(error)] } };
   }
@@ -140,6 +186,42 @@ export async function configureSessionAction(
   revalidatePath(`/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}/sales`);
   revalidatePath("/invoices");
+  return {};
+}
+
+export async function applySessionConfigurationWorkspaceEditAction(
+  workspaceId: string,
+  _prev: ConfigureSessionActionState,
+  formData: FormData
+): Promise<ConfigureSessionActionState> {
+  const parsedEditJson = parseJsonPayload(formData.get("edit"), "Edit payload");
+  if (!parsedEditJson.success) {
+    return { errors: { edit: [parsedEditJson.error] } };
+  }
+  const parsedEdit = adjustmentWorkspaceEditSchema.safeParse(parsedEditJson.value);
+  if (!parsedEdit.success) {
+    return { errors: parsedEdit.error.flatten().fieldErrors };
+  }
+  if (parsedEdit.data.op !== "change_session_configuration_selection") {
+    return { errors: { _global: ["Invalid session configuration workspace edit."] } };
+  }
+  const version = z.coerce.number().int().min(0).safeParse(formData.get("version"));
+  if (!version.success) {
+    return { errors: { version: ["Workspace version is required."] } };
+  }
+
+  const appUser = await requireCurrentAppUserPermission(
+    PERMISSIONS.ORDER_FINANCIAL_UPDATE
+  );
+  try {
+    await applyEdit(
+      workspaceId,
+      { version: version.data, edit: parsedEdit.data },
+      { actorUserId: appUser.id, actorRole: appUser.role }
+    );
+  } catch (error) {
+    return { errors: { _global: [messageForConfigureSessionError(error)] } };
+  }
   return {};
 }
 
@@ -182,23 +264,30 @@ export async function updateEditingWorkflowAction(
   return {};
 }
 
-function parseSelectionsJson(
-  value: FormDataEntryValue | null
+function parseJsonPayload(
+  value: FormDataEntryValue | null,
+  label: string
 ): { success: true; value: unknown } | { success: false; error: string } {
   if (typeof value !== "string") {
-    return { success: false, error: "Selections payload is required." };
+    return { success: false, error: `${label} is required.` };
   }
 
   try {
     return { success: true, value: JSON.parse(value) };
   } catch {
-    return { success: false, error: "Selections payload is invalid." };
+    return { success: false, error: `${label} is invalid.` };
   }
 }
 
 function messageForConfigureSessionError(error: unknown): string {
   if (error instanceof SessionConfigurationSelectionLockedError) {
     return "Order is locked. Edit configurations through the Adjustment Workspace.";
+  }
+  if (error instanceof SessionConfigurationSelectionPostLockMisuseError) {
+    return "Order lock state changed. Refresh and try again.";
+  }
+  if (error instanceof SessionConfigurationSelectionFinancialNotAllowedError) {
+    return `Edit ${error.offendingConfigurationCodes.join(", ")} in the Adjustment Workspace.`;
   }
   if (error instanceof SessionConfigurationSelectionConfigurationNotFoundError) {
     return "One of the session settings is no longer available. Refresh and try again.";
@@ -215,6 +304,70 @@ function messageForConfigureSessionError(error: unknown): string {
   return error instanceof Error
     ? error.message
     : "Unable to save session configuration.";
+}
+
+async function resolveConfigureSessionRoute(
+  orderId: string,
+  orderPackageId: string,
+  configurationIds: string[]
+): Promise<{
+  locked: boolean;
+  financialConfigurationIds: Set<string>;
+  operationalConfigurationIds: Set<string>;
+  configurationNameById: Map<string, string>;
+}> {
+  const orderPackage = await db.orderPackage.findUnique({
+    where: { id: orderPackageId },
+    select: {
+      orderId: true,
+      sessionTypeId: true,
+      order: {
+        select: {
+          invoices: {
+            where: {
+              parentInvoiceId: null,
+              invoiceType: InvoiceType.FINAL,
+            },
+            select: { isLocked: true },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+  if (!orderPackage || orderPackage.orderId !== orderId) {
+    throw new SessionConfigurationSelectionConfigurationNotFoundError();
+  }
+
+  const configurations = await db.sessionConfiguration.findMany({
+    where: {
+      id: { in: [...new Set(configurationIds)] },
+      sessionTypeId: orderPackage.sessionTypeId,
+      isActive: true,
+    },
+    select: { id: true, name: true, financialBehavior: true },
+  });
+  const financialConfigurationIds = new Set(
+    configurations
+      .filter((configuration) => configuration.financialBehavior === "FINANCIAL")
+      .map((configuration) => configuration.id)
+  );
+  const operationalConfigurationIds = new Set(
+    configurations
+      .filter((configuration) => configuration.financialBehavior === "OPERATIONAL")
+      .map((configuration) => configuration.id)
+  );
+  const configurationNameById = new Map(
+    configurations.map((configuration) => [configuration.id, configuration.name])
+  );
+
+  return {
+    locked: orderPackage.order.invoices[0]?.isLocked === true,
+    financialConfigurationIds,
+    operationalConfigurationIds,
+    configurationNameById,
+  };
 }
 
 async function missingSessionConfigurationMessage(

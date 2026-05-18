@@ -1,7 +1,10 @@
 import {
+  AuditAction,
+  AuditEntityType,
   InvoiceType,
   Prisma,
   SessionConfigurationCounterPricingMode,
+  SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
   SessionConfigurationPricingMode,
   type SessionConfiguration,
@@ -12,6 +15,7 @@ import type { CurrentAppUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 import { withRetry } from "@/lib/retry";
+import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import type { SelectionInput } from "./session-configuration-selection.schema";
 
 export type SessionConfigurationActor = Pick<CurrentAppUser, "id" | "role">;
@@ -36,10 +40,59 @@ type SelectionSnapshot = {
   snapshotLinkProductDisplay: LiveConfiguration["linkProductDisplay"];
 };
 
+const existingSelectionSelect = {
+  id: true,
+  configurationId: true,
+  optionId: true,
+  numericValue: true,
+  textValue: true,
+  snapshotConfigurationCode: true,
+  snapshotLabel: true,
+  snapshotPriceDelta: true,
+  snapshotFinancialBehavior: true,
+  snapshotInputType: true,
+  snapshotPricingMode: true,
+  snapshotLinkedProductId: true,
+  snapshotLinkProductDisplay: true,
+} satisfies Prisma.OrderPackageSessionConfigurationSelectionSelect;
+
+type ExistingSelection = Prisma.OrderPackageSessionConfigurationSelectionGetPayload<{
+  select: typeof existingSelectionSelect;
+}>;
+
+type SelectionSnapshotData = ReturnType<typeof snapshotData>;
+
+export type WorkspaceSessionConfigurationDesired =
+  | null
+  | { kind: "toggle" }
+  | { kind: "select"; optionId: string }
+  | { kind: "number"; numericValue: number }
+  | { kind: "text"; textValue: string }
+  | { kind: "counter"; numericValue: number; optionId?: string };
+
 export class SessionConfigurationSelectionLockedError extends Error {
   constructor() {
     super("Order session configurations are locked.");
     this.name = "SessionConfigurationSelectionLockedError";
+  }
+}
+
+export class SessionConfigurationSelectionPostLockMisuseError extends Error {
+  constructor() {
+    super("Post-lock session configuration writes require a locked final invoice.");
+    this.name = "SessionConfigurationSelectionPostLockMisuseError";
+  }
+}
+
+export class SessionConfigurationSelectionFinancialNotAllowedError extends Error {
+  offendingConfigurationCodes: string[];
+
+  constructor(offendingConfigurationCodes: string[]) {
+    super(
+      `Financial session configuration edits must use the Adjustment Workspace: ${offendingConfigurationCodes.join(", ")}`
+    );
+    this.name = "SessionConfigurationSelectionFinancialNotAllowedError";
+    this.offendingConfigurationCodes = offendingConfigurationCodes;
   }
 }
 
@@ -68,7 +121,7 @@ export async function writeOrderPackageSelections(
   orderPackageId: string,
   desiredSelections: SelectionInput[],
   actor: SessionConfigurationActor,
-  options: { allowPostLock?: boolean } = {}
+  options: { allowPostLock?: boolean; postLockAudit?: { actorUserId: string } } = {}
 ): Promise<{ orderPackageId: string; writtenSelectionIds: string[] }> {
   requirePermission(actor, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
 
@@ -110,6 +163,12 @@ export async function writeOrderPackageSelections(
             );
             throw new SessionConfigurationSelectionLockedError();
           }
+          if (options.allowPostLock === true && finalInvoice?.isLocked !== true) {
+            throw new SessionConfigurationSelectionPostLockMisuseError();
+          }
+          if (options.allowPostLock === true && !options.postLockAudit?.actorUserId) {
+            throw new SessionConfigurationSelectionPostLockMisuseError();
+          }
 
           const liveConfigurations = await tx.sessionConfiguration.findMany({
             where: {
@@ -141,7 +200,7 @@ export async function writeOrderPackageSelections(
           const existingSelections =
             await tx.orderPackageSessionConfigurationSelection.findMany({
               where: { orderPackageId },
-              select: { id: true, configurationId: true },
+              select: existingSelectionSelect,
             });
           const existingByConfigurationId = new Map(
             existingSelections.map((selection) => [
@@ -153,41 +212,108 @@ export async function writeOrderPackageSelections(
             snapshots.map((snapshot) => snapshot.configurationId)
           );
 
+          if (options.allowPostLock === true) {
+            assertPostLockOperationalOnly({
+              snapshots,
+              existingSelections,
+              existingByConfigurationId,
+            });
+          }
+
           const writtenSelectionIds: string[] = [];
+          const auditEntries: {
+            entityId: string;
+            before: ReturnType<typeof auditPayloadFromExistingSelection> | null;
+            after: ReturnType<typeof auditPayloadFromSelectionSnapshot> | null;
+          }[] = [];
           for (const snapshot of snapshots) {
             const existing = existingByConfigurationId.get(snapshot.configurationId);
+            const data = snapshotData(snapshot);
             if (existing) {
-              const updated =
-                await tx.orderPackageSessionConfigurationSelection.update({
-                  where: { id: existing.id },
-                  data: snapshotData(snapshot),
-                  select: { id: true },
-                });
+              if (selectionPayloadMatches(existing, data)) {
+                continue;
+              }
+              const updated = await updateSelectionRow(tx, existing.id, data);
               writtenSelectionIds.push(updated.id);
+              if (options.allowPostLock === true) {
+                auditEntries.push({
+                  entityId: updated.id,
+                  before: auditPayloadFromExistingSelection(existing),
+                  after: auditPayloadFromSelectionSnapshot(snapshot),
+                });
+              }
               continue;
             }
 
-            const created =
-              await tx.orderPackageSessionConfigurationSelection.create({
-                data: {
-                  orderPackageId,
-                  ...snapshotData(snapshot),
-                },
-                select: { id: true },
-              });
+            const created = await createSelectionRow(tx, orderPackageId, data);
             writtenSelectionIds.push(created.id);
+            if (options.allowPostLock === true) {
+              auditEntries.push({
+                entityId: created.id,
+                before: null,
+                after: auditPayloadFromSelectionSnapshot(snapshot),
+              });
+            }
           }
 
           const removedIds = existingSelections
             .filter(
               (selection) =>
-                !desiredConfigurationIds.has(selection.configurationId)
+                !desiredConfigurationIds.has(selection.configurationId) &&
+                (options.allowPostLock !== true ||
+                  selection.snapshotFinancialBehavior ===
+                    SessionConfigurationFinancialBehavior.OPERATIONAL)
             )
             .map((selection) => selection.id);
           if (removedIds.length > 0) {
-            await tx.orderPackageSessionConfigurationSelection.deleteMany({
-              where: { id: { in: removedIds } },
-            });
+            if (options.allowPostLock === true) {
+              for (const selection of existingSelections.filter((existing) =>
+                removedIds.includes(existing.id)
+              )) {
+                auditEntries.push({
+                  entityId: selection.id,
+                  before: auditPayloadFromExistingSelection(selection),
+                  after: null,
+                });
+              }
+            }
+            await deleteSelectionRows(tx, removedIds);
+          }
+
+          if (options.allowPostLock === true) {
+            for (const entry of auditEntries) {
+              await recordAuditLog(
+                tx,
+                {
+                  actorUserId: options.postLockAudit?.actorUserId ?? actor.id,
+                  actorRole: actor.role,
+                },
+                {
+                  entityType:
+                    AuditEntityType.ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+                  entityId: entry.entityId,
+                  action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
+                  before: entry.before,
+                  after: entry.after,
+                  context: {
+                    orderId: await orderIdForPackage(tx, orderPackageId),
+                    orderPackageId,
+                    actorUserId: options.postLockAudit?.actorUserId ?? actor.id,
+                    source: "post_lock_direct",
+                  },
+                }
+              );
+            }
+            if (auditEntries.length > 0) {
+              console.info(
+                JSON.stringify({
+                  metric:
+                    "pos.session_configuration_selections.post_lock_direct_edit",
+                  orderPackageId,
+                  count: auditEntries.length,
+                })
+              );
+            }
           }
 
           console.info(
@@ -206,6 +332,89 @@ export async function writeOrderPackageSelections(
     3,
     isSerializableWriteConflict
   );
+}
+
+export async function applyFinancialSelectionEditFromWorkspace(
+  tx: Prisma.TransactionClient,
+  input: {
+    orderPackageId: string;
+    configurationId: string;
+    desired: WorkspaceSessionConfigurationDesired;
+  }
+): Promise<{ selectionId: string | null }> {
+  const orderPackage = await tx.orderPackage.findUnique({
+    where: { id: input.orderPackageId },
+    select: { id: true, sessionTypeId: true },
+  });
+  if (!orderPackage) {
+    throw new SessionConfigurationSelectionConfigurationNotFoundError();
+  }
+
+  const liveConfigurations = await tx.sessionConfiguration.findMany({
+    where: {
+      id: input.configurationId,
+      sessionTypeId: orderPackage.sessionTypeId,
+      isActive: true,
+    },
+    include: {
+      linkedProduct: {
+        select: { id: true, name: true, canonicalPrice: true },
+      },
+      options: {
+        where: { isActive: true },
+        orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+      },
+    },
+  });
+  const configuration = liveConfigurations[0];
+  if (
+    !configuration ||
+    configuration.financialBehavior !== SessionConfigurationFinancialBehavior.FINANCIAL
+  ) {
+    throw new SessionConfigurationSelectionFinancialNotAllowedError([
+      configuration?.code ?? input.configurationId,
+    ]);
+  }
+
+  if (input.desired === null) {
+    const existing = await tx.orderPackageSessionConfigurationSelection.findUnique({
+      where: {
+        orderPackageId_configurationId: {
+          orderPackageId: input.orderPackageId,
+          configurationId: input.configurationId,
+        },
+      },
+      select: { id: true },
+    });
+    if (!existing) return { selectionId: null };
+    await deleteSelectionRow(tx, existing.id);
+    return { selectionId: existing.id };
+  }
+
+  const snapshot = buildSelectionSnapshot(
+    { configurationId: input.configurationId, ...input.desired },
+    new Map(liveConfigurations.map((row) => [row.id, row]))
+  );
+  const existing = await tx.orderPackageSessionConfigurationSelection.findUnique({
+    where: {
+      orderPackageId_configurationId: {
+        orderPackageId: input.orderPackageId,
+        configurationId: input.configurationId,
+      },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    const updated = await updateSelectionRow(tx, existing.id, snapshotData(snapshot));
+    return { selectionId: updated.id };
+  }
+
+  const created = await createSelectionRow(
+    tx,
+    input.orderPackageId,
+    snapshotData(snapshot)
+  );
+  return { selectionId: created.id };
 }
 
 function buildSelectionSnapshot(
@@ -257,6 +466,95 @@ function buildSelectionSnapshot(
         ? configuration.linkProductDisplay
         : null,
   };
+}
+
+function assertPostLockOperationalOnly(input: {
+  snapshots: SelectionSnapshot[];
+  existingSelections: ExistingSelection[];
+  existingByConfigurationId: Map<string, ExistingSelection>;
+}): void {
+  const offendingCodes = new Set<string>();
+
+  for (const snapshot of input.snapshots) {
+    const existing = input.existingByConfigurationId.get(snapshot.configurationId);
+    if (!existing) {
+      if (
+        snapshot.snapshotFinancialBehavior !==
+        SessionConfigurationFinancialBehavior.OPERATIONAL
+      ) {
+        offendingCodes.add(snapshot.snapshotConfigurationCode);
+      }
+      continue;
+    }
+
+    if (
+      existing.snapshotFinancialBehavior !==
+        SessionConfigurationFinancialBehavior.OPERATIONAL ||
+      snapshot.snapshotFinancialBehavior !==
+        SessionConfigurationFinancialBehavior.OPERATIONAL
+    ) {
+      offendingCodes.add(
+        existing.snapshotConfigurationCode || snapshot.snapshotConfigurationCode
+      );
+    }
+  }
+
+  if (offendingCodes.size > 0) {
+    console.info(
+      JSON.stringify({
+        metric: "pos.session_configuration_selections.post_lock_financial_block",
+        count: offendingCodes.size,
+      })
+    );
+    throw new SessionConfigurationSelectionFinancialNotAllowedError([
+      ...offendingCodes,
+    ]);
+  }
+}
+
+function auditPayloadFromExistingSelection(selection: ExistingSelection) {
+  return {
+    configurationId: selection.configurationId,
+    snapshotConfigurationCode: selection.snapshotConfigurationCode,
+    snapshotLabel: selection.snapshotLabel,
+    snapshotPriceDelta: selection.snapshotPriceDelta.toString(),
+    snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
+    snapshotInputType: selection.snapshotInputType,
+    snapshotPricingMode: selection.snapshotPricingMode,
+    snapshotLinkedProductId: selection.snapshotLinkedProductId,
+    snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
+    optionId: selection.optionId,
+    numericValue: selection.numericValue?.toString() ?? null,
+    textValue: selection.textValue,
+  };
+}
+
+function auditPayloadFromSelectionSnapshot(snapshot: SelectionSnapshot) {
+  return {
+    configurationId: snapshot.configurationId,
+    snapshotConfigurationCode: snapshot.snapshotConfigurationCode,
+    snapshotLabel: snapshot.snapshotLabel,
+    snapshotPriceDelta: snapshot.snapshotPriceDelta.toString(),
+    snapshotFinancialBehavior: snapshot.snapshotFinancialBehavior,
+    snapshotInputType: snapshot.snapshotInputType,
+    snapshotPricingMode: snapshot.snapshotPricingMode,
+    snapshotLinkedProductId: snapshot.snapshotLinkedProductId,
+    snapshotLinkProductDisplay: snapshot.snapshotLinkProductDisplay,
+    optionId: snapshot.optionId,
+    numericValue: snapshot.numericValue?.toString() ?? null,
+    textValue: snapshot.textValue,
+  };
+}
+
+async function orderIdForPackage(
+  tx: Prisma.TransactionClient,
+  orderPackageId: string
+): Promise<string> {
+  const orderPackage = await tx.orderPackage.findUnique({
+    where: { id: orderPackageId },
+    select: { orderId: true },
+  });
+  return orderPackage?.orderId ?? "";
 }
 
 function assertInputTypeMatches(
@@ -348,6 +646,88 @@ function resolveSnapshotPriceDelta(
     default:
       throw new SessionConfigurationSelectionInputMismatchError();
   }
+}
+
+async function createSelectionRow(
+  tx: Prisma.TransactionClient,
+  orderPackageId: string,
+  data: SelectionSnapshotData
+): Promise<{ id: string }> {
+  return tx.orderPackageSessionConfigurationSelection.create({
+    data: {
+      orderPackageId,
+      ...data,
+    },
+    select: { id: true },
+  });
+}
+
+async function updateSelectionRow(
+  tx: Prisma.TransactionClient,
+  id: string,
+  data: SelectionSnapshotData
+): Promise<{ id: string }> {
+  return tx.orderPackageSessionConfigurationSelection.update({
+    where: { id },
+    data,
+    select: { id: true },
+  });
+}
+
+async function deleteSelectionRow(
+  tx: Prisma.TransactionClient,
+  id: string
+): Promise<void> {
+  await tx.orderPackageSessionConfigurationSelection.delete({
+    where: { id },
+  });
+}
+
+async function deleteSelectionRows(
+  tx: Prisma.TransactionClient,
+  ids: string[]
+): Promise<void> {
+  await tx.orderPackageSessionConfigurationSelection.deleteMany({
+    where: { id: { in: ids } },
+  });
+}
+
+function selectionPayloadMatches(
+  existing: ExistingSelection,
+  data: SelectionSnapshotData
+): boolean {
+  return (
+    existing.configurationId === data.configurationId &&
+    existing.optionId === data.optionId &&
+    decimalValuesEqual(existing.numericValue, data.numericValue) &&
+    existing.textValue === data.textValue &&
+    existing.snapshotConfigurationCode === data.snapshotConfigurationCode &&
+    existing.snapshotLabel === data.snapshotLabel &&
+    decimalValuesEqual(existing.snapshotPriceDelta, data.snapshotPriceDelta) &&
+    existing.snapshotFinancialBehavior === data.snapshotFinancialBehavior &&
+    existing.snapshotInputType === data.snapshotInputType &&
+    existing.snapshotPricingMode === data.snapshotPricingMode &&
+    existing.snapshotLinkedProductId === data.snapshotLinkedProductId &&
+    existing.snapshotLinkProductDisplay === data.snapshotLinkProductDisplay
+  );
+}
+
+function decimalValuesEqual(
+  left: Prisma.Decimal | null,
+  right:
+    | Prisma.Decimal
+    | Prisma.DecimalJsLike
+    | string
+    | number
+    | null
+    | undefined
+): boolean {
+  if (left === null || left === undefined) {
+    return right === null || right === undefined;
+  }
+  if (right === null || right === undefined) return false;
+  if (right instanceof Prisma.Decimal) return left.equals(right);
+  return left.equals(new Prisma.Decimal(right as string | number));
 }
 
 function snapshotData(
