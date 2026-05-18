@@ -122,6 +122,14 @@ const baseSessionConfigurationSchema = z
           path: ["linkProductDisplay"],
           message: "Product display mode is required for linked-product pricing.",
         });
+      } else if (
+        value.linkProductDisplay !== SessionConfigurationLinkProductDisplay.LINE_ITEM
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["linkProductDisplay"],
+          message: "Linked products must be added to invoices as line items.",
+        });
       }
     }
 

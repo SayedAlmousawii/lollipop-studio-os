@@ -42,6 +42,7 @@ export type AdjustmentSessionConfigurationSelection = {
   optionId: string | null;
   numericValue: string | null;
   textValue: string | null;
+  snapshotOptionLabel: string | null;
   snapshotConfigurationCode: string;
   snapshotLabel: string;
   snapshotPriceDelta: AdjustmentMoney;

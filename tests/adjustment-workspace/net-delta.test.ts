@@ -220,6 +220,35 @@ const packageEditCatalog = {
       },
     ],
     [
+      "config-age",
+      {
+        id: "config-age",
+        sessionTypeId: "session-family",
+        code: "AGE",
+        name: "Age Range",
+        inputType: SessionConfigurationInputType.SELECT,
+        pricingMode: SessionConfigurationPricingMode.TIERED,
+        financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+        fixedPriceDelta: null,
+        linkedProductId: null,
+        linkProductDisplay: null,
+        linkedProductPrice: null,
+        counterPricingMode: null,
+        counterUnitPrice: null,
+        options: new Map([
+          [
+            "age-option",
+            {
+              id: "age-option",
+              label: "30-45 Days",
+              price: new Prisma.Decimal("12.000"),
+              priceDelta: new Prisma.Decimal("12.000"),
+            },
+          ],
+        ]),
+      },
+    ],
+    [
       "config-theme",
       {
         id: "config-theme",
@@ -240,6 +269,97 @@ const packageEditCatalog = {
     ],
   ]),
 };
+
+function baseWithTwinsSelection(priceDelta: string): AdjustmentBaseSnapshot {
+  return {
+    ...packageEditBaseSnapshot,
+    lines: [
+      ...packageEditBaseSnapshot.lines,
+      {
+        lineId: "session-config:selection-twins",
+        kind: "session_configuration",
+        refId: "selection-twins",
+        label: "Twins",
+        quantity: 1,
+        unitPrice: priceDelta,
+        lineTotalGross: priceDelta,
+        lineTotalNet: priceDelta,
+        taxBreakdown: [],
+      },
+    ],
+    totals: {
+      gross: (110 + Number(priceDelta)).toFixed(3),
+      discount: "0.000",
+      tax: "0.000",
+      netPayable: (110 + Number(priceDelta)).toFixed(3),
+    },
+    sessionConfigurationSelections: [
+      {
+        id: "selection-twins",
+        orderPackageId: "order-package-1",
+        configurationId: "config-twins",
+        optionId: null,
+        numericValue: null,
+        textValue: null,
+        snapshotOptionLabel: null,
+        snapshotConfigurationCode: "TWINS",
+        snapshotLabel: "Twins",
+        snapshotPriceDelta: priceDelta,
+        snapshotFinancialBehavior: "FINANCIAL",
+        snapshotInputType: "TOGGLE",
+        snapshotPricingMode: "FIXED",
+        snapshotLinkedProductId: null,
+        snapshotLinkProductDisplay: null,
+      },
+    ],
+  };
+}
+
+function baseWithAgeSelection(optionLabel: string): AdjustmentBaseSnapshot {
+  const priceDelta = "12.000";
+  return {
+    ...packageEditBaseSnapshot,
+    lines: [
+      ...packageEditBaseSnapshot.lines,
+      {
+        lineId: "session-config:selection-age",
+        kind: "session_configuration",
+        refId: "selection-age",
+        label: `Age Range — ${optionLabel}`,
+        quantity: 1,
+        unitPrice: priceDelta,
+        lineTotalGross: priceDelta,
+        lineTotalNet: priceDelta,
+        taxBreakdown: [],
+      },
+    ],
+    totals: {
+      gross: "122.000",
+      discount: "0.000",
+      tax: "0.000",
+      netPayable: "122.000",
+    },
+    sessionConfigurationSelections: [
+      {
+        id: "selection-age",
+        orderPackageId: "order-package-1",
+        configurationId: "config-age",
+        optionId: "age-option",
+        numericValue: null,
+        textValue: null,
+        snapshotOptionLabel: optionLabel,
+        snapshotConfigurationCode: "AGE",
+        snapshotLabel: "Age Range",
+        snapshotPriceDelta: priceDelta,
+        snapshotFinancialBehavior: "FINANCIAL",
+        snapshotInputType: "SELECT",
+        snapshotPricingMode: "TIERED",
+        snapshotLinkedProductId: null,
+        snapshotLinkProductDisplay: null,
+      },
+    ],
+  };
+}
 
 test("pending changes parser accepts mixed old and new edit shapes", () => {
   const parsed = adjustmentPendingChangesSchema.parse({
@@ -314,6 +434,7 @@ test("session configuration workspace edits produce session configuration deltas
   assert.equal(proposal.deltas.length, 1);
   assert.equal(proposal.deltas[0]?.kind, "session_configuration");
   assert.equal(proposal.deltas[0]?.refId, "pending:config-twins");
+  assert.match(proposal.deltas[0]?.label ?? "", /^Added: /);
   assert.deepEqual(
     proposal.deltas.map((line) => resolveAdjustmentInvoiceLineSemantics(line)),
     [
@@ -323,6 +444,72 @@ test("session configuration workspace edits produce session configuration deltas
       },
     ]
   );
+});
+
+test("session configuration workspace deltas prefix removed and changed descriptions", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const base = baseWithTwinsSelection("5.000");
+
+  const removed = await computeWorkspaceProposal(
+    base,
+    {
+      edits: [
+        {
+          id: "remove-session-config",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-twins",
+          desired: null,
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+  assert.match(removed.deltas[0]?.label ?? "", /^Removed: Twins/);
+
+  const changed = await computeWorkspaceProposal(
+    base,
+    {
+      edits: [
+        {
+          id: "change-session-config",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-twins",
+          desired: { kind: "toggle" },
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+  assert.match(changed.deltas[0]?.label ?? "", /^Changed: Twins → Twins/);
+});
+
+test("session configuration changed detection includes option label snapshots", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    baseWithAgeSelection("Old Label"),
+    {
+      edits: [
+        {
+          id: "age-label-refresh",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-age",
+          desired: { kind: "select", optionId: "age-option" },
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+
+  assert.equal(proposal.netPayableDelta, "0.000");
+  assert.equal(proposal.deltas.length, 0);
+  assert.equal(proposal.hasEdits, true);
 });
 
 test("session configuration workspace edits accept operational configurations without deltas", async () => {
@@ -386,6 +573,7 @@ test("operational workspace edits leave historical invoice lines untouched", asy
         optionId: null,
         numericValue: null,
         textValue: "Red",
+        snapshotOptionLabel: null,
         snapshotConfigurationCode: "THEME",
         snapshotLabel: "Theme",
         snapshotPriceDelta: "12.000",

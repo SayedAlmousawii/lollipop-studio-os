@@ -156,6 +156,7 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
             id: true,
             snapshotConfigurationCode: true,
             snapshotLabel: true,
+            snapshotOptionLabel: true,
             snapshotPriceDelta: true,
             snapshotPricingMode: true,
             snapshotInputType: true,
@@ -216,10 +217,11 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
           },
           orderBy: { sortOrder: "asc" },
         });
-        assert.equal(sessionConfigLines.length, 2);
+        assert.equal(sessionConfigLines.length, 3);
         assert.deepEqual(
           sessionConfigLines.map((line) => line.causeOrderEntityKind),
           [
+            OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
             OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
             OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
           ]
@@ -238,7 +240,7 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
               lineType: InvoiceLineType.SESSION_CONFIGURATION,
             },
           }),
-          0
+          1
         );
 
         const lockedInvoice = await db.invoice.findUniqueOrThrow({
@@ -467,6 +469,7 @@ async function insertSelection(
       configurationId: input.configurationId,
       snapshotConfigurationCode: input.code,
       snapshotLabel: input.label,
+      snapshotOptionLabel: null,
       snapshotPriceDelta: new Prisma.Decimal(input.priceDelta),
       snapshotFinancialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
       snapshotInputType: input.inputType,

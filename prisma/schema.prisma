@@ -679,6 +679,7 @@ model OrderPackageSessionConfigurationSelection {
   optionId                   String?
   numericValue               Decimal?                                @db.Decimal(10, 3)
   textValue                  String?
+  snapshotOptionLabel        String?
   snapshotConfigurationCode  String
   snapshotLabel              String
   snapshotPriceDelta         Decimal                                 @default(0) @db.Decimal(10, 3)

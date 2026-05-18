@@ -34,18 +34,20 @@ test("session configuration pricing maps snapshot selections to totals and invoi
   const tieredSelect = selection({
     id: "tiered-select-selection",
     label: "Age Range",
+    optionLabel: "30-45 Days",
     priceDelta: "10.000",
     pricingMode: SessionConfigurationPricingMode.TIERED,
     inputType: SessionConfigurationInputType.SELECT,
   });
   assert.equal(
     priceSingleSelection(tieredSelect).lineItem?.description,
-    "Age Range"
+    "Age Range — 30-45 Days"
   );
 
   const tieredCounter = selection({
     id: "tiered-counter-selection",
     label: "Sibling Count",
+    optionLabel: "Tier 3+",
     priceDelta: "15.000",
     pricingMode: SessionConfigurationPricingMode.TIERED,
     inputType: SessionConfigurationInputType.COUNTER,
@@ -53,7 +55,7 @@ test("session configuration pricing maps snapshot selections to totals and invoi
   });
   assert.equal(
     priceSingleSelection(tieredCounter).lineItem?.description,
-    "Sibling Count (×3)"
+    "Sibling Count — Tier 3+"
   );
 
   const linkedLine = selection({
@@ -75,8 +77,8 @@ test("session configuration pricing maps snapshot selections to totals and invoi
     linkProductDisplay: SessionConfigurationLinkProductDisplay.MODIFIER_ONLY,
   });
   const linkedModifierResult = priceSingleSelection(linkedModifier);
-  assert.equal(linkedModifierResult.lineItem, null);
-  assert.equal(linkedModifierResult.nonLineDelta?.toFixed(3), "4.000");
+  assert.equal(linkedModifierResult.lineItem?.description, "Album Color");
+  assert.equal(linkedModifierResult.lineDelta?.toFixed(3), "4.000");
 
   const operational = selection({
     id: "operational-selection",
@@ -98,8 +100,8 @@ test("session configuration pricing maps snapshot selections to totals and invoi
     linkedModifier,
     operational,
   ]);
-  assert.equal(mixed.lineItems.length, 4);
-  assert.equal(mixed.nonLineDelta.toFixed(3), "4.000");
+  assert.equal(mixed.lineItems.length, 5);
+  assert.equal(mixed.nonLineDelta.toFixed(3), "0.000");
   assert.equal(mixed.totalDelta.toFixed(3), "62.000");
 });
 
@@ -110,6 +112,7 @@ function selection(input: {
   pricingMode: SessionConfigurationPricingMode;
   inputType: SessionConfigurationInputType;
   linkProductDisplay?: SessionConfigurationLinkProductDisplay | null;
+  optionLabel?: string | null;
   numericValue?: string | null;
 }): PricedSelection {
   return {
@@ -119,6 +122,7 @@ function selection(input: {
     snapshotPriceDelta: new Prisma.Decimal(input.priceDelta),
     snapshotPricingMode: input.pricingMode,
     snapshotInputType: input.inputType,
+    snapshotOptionLabel: input.optionLabel ?? null,
     snapshotLinkProductDisplay: input.linkProductDisplay ?? null,
     snapshotLinkedProductId: null,
     numericValue: input.numericValue ? new Prisma.Decimal(input.numericValue) : null,

@@ -20,6 +20,10 @@ import { CreateOrderInvoiceForm } from "@/components/orders/create-order-invoice
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
+import {
+  OperationalConfigurationsBlock,
+  type OperationalConfigurationsPackageLine,
+} from "@/components/orders/operational-configurations-block";
 import { ProductionWorkflowForm } from "@/components/orders/production-workflow-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -227,7 +231,10 @@ export default async function OrderDetailPage(
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
-            <OverviewTab order={order} />
+            <OverviewTab
+              order={order}
+              operationalPackageLines={deriveOperationalPackageLines(workspace)}
+            />
           </TabsContent>
           <TabsContent value="selection" className="space-y-4">
             <SelectionTab selection={selection} />
@@ -369,7 +376,13 @@ function EditingTab({
   );
 }
 
-function OverviewTab({ order }: { order: OrderDetail }) {
+function OverviewTab({
+  order,
+  operationalPackageLines,
+}: {
+  order: OrderDetail;
+  operationalPackageLines: OperationalConfigurationsPackageLine[];
+}) {
   const selectedPhotoCountLabel =
     order.selectedPhotoCount.trim().length > 0 ? order.selectedPhotoCount : "—";
   const extraPhotoCountValue = Number.parseInt(order.extraPhotoCount, 10);
@@ -414,6 +427,9 @@ function OverviewTab({ order }: { order: OrderDetail }) {
               ]}
             />
             <PackageLineList lines={order.packageLines} />
+            <OperationalConfigurationsBlock
+              packageLines={operationalPackageLines}
+            />
             <AddOnList items={order.paidAddOns} />
           </CardContent>
         </Card>
@@ -434,6 +450,40 @@ function OverviewTab({ order }: { order: OrderDetail }) {
       </div>
     </div>
   );
+}
+
+function deriveOperationalPackageLines(
+  workspace: POSWorkspace | null
+): OperationalConfigurationsPackageLine[] {
+  if (!workspace) return [];
+
+  return workspace.packageLines.map((line) => ({
+    packageName: line.currentPackage.name,
+    sessionTypeName: line.sessionTypeName,
+    operationalSelections: line.sessionConfigurationSummary
+      .filter((selection) => selection.financialBehavior === "OPERATIONAL")
+      .map((selection) => ({
+        configName: selection.label,
+        valueDisplay: valueDisplayForOperationalSelection(selection),
+      }))
+      .filter((selection) => selection.valueDisplay.trim().length > 0),
+  }));
+}
+
+function valueDisplayForOperationalSelection(
+  selection: POSWorkspace["packageLines"][number]["sessionConfigurationSummary"][number]
+): string {
+  switch (selection.inputType) {
+    case "TOGGLE":
+      return "Enabled";
+    case "SELECT":
+      return selection.optionLabel ?? "";
+    case "NUMBER":
+    case "COUNTER":
+      return selection.numericValue ?? "";
+    case "TEXT":
+      return selection.textValue ?? "";
+  }
 }
 
 function PackageLineList({ lines }: { lines: OrderDetail["packageLines"] }) {
