@@ -993,14 +993,17 @@ export async function computeWorkspaceProposal(
   }
 
   proposed.totals = computeTotals(proposed.lines);
-  const linkedProductAddOnRefs = linkedProductSessionConfigurationAddOnRefs(
+  const linkedProductAddOnLineIds = linkedProductSessionConfigurationAddOnLineIds(
     base.sessionConfigurationSelections ?? [],
     proposed.sessionConfigurationSelections ?? []
   );
   const compositionDeltas = diffCompositionLines(base.lines, proposed.lines).filter(
     (line) =>
       line.kind !== "session_configuration" &&
-      !(line.kind === "addon" && linkedProductAddOnRefs.has(line.refId))
+      !isLinkedProductSessionConfigurationAddOnDelta(
+        line,
+        linkedProductAddOnLineIds
+      )
   );
   const sessionConfigurationDeltas = diffSessionConfigurationSelections(
     base.sessionConfigurationSelections ?? [],
@@ -1052,7 +1055,7 @@ function sessionConfigurationSelectionsChanged(
   );
 }
 
-function linkedProductSessionConfigurationAddOnRefs(
+function linkedProductSessionConfigurationAddOnLineIds(
   baseSelections: AdjustmentSessionConfigurationSelection[],
   proposedSelections: AdjustmentSessionConfigurationSelection[]
 ): Set<string> {
@@ -1060,10 +1063,20 @@ function linkedProductSessionConfigurationAddOnRefs(
     [...baseSelections, ...proposedSelections].flatMap((selection) =>
       selection.snapshotPricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT &&
       selection.orderAddOnId
-        ? [selection.orderAddOnId]
+        ? [`addon:${selection.orderAddOnId}`]
         : []
     )
   );
+}
+
+function isLinkedProductSessionConfigurationAddOnDelta(
+  line: AdjustmentCompositionLine,
+  linkedProductAddOnLineIds: Set<string>
+): boolean {
+  if (line.kind !== "addon") return false;
+  if (linkedProductAddOnLineIds.has(line.lineId)) return true;
+  const orderAddOnId = line.refMetadata?.orderAddOnId;
+  return Boolean(orderAddOnId && linkedProductAddOnLineIds.has(`addon:${orderAddOnId}`));
 }
 
 function normalizedSessionConfigurationSelections(
@@ -1570,11 +1583,17 @@ function remapSessionConfigurationProposal(
 ): AdjustmentWorkspaceProposal {
   if (selectionIdByPlaceholder.size === 0) return proposal;
   const remapLine = (line: AdjustmentCompositionLine): AdjustmentCompositionLine => {
-    const realSelectionId = selectionIdByPlaceholder.get(line.refId);
+    const placeholder = line.refMetadata?.orderAddOnId ?? line.refId;
+    const realSelectionId = selectionIdByPlaceholder.get(placeholder);
     if (!realSelectionId) return line;
+    const refMetadata =
+      line.refMetadata?.orderAddOnId === placeholder
+        ? { ...line.refMetadata, orderAddOnId: realSelectionId }
+        : line.refMetadata;
     return {
       ...line,
-      refId: realSelectionId,
+      refId: line.refMetadata?.orderAddOnId === placeholder ? line.refId : realSelectionId,
+      ...(refMetadata ? { refMetadata } : {}),
       lineId:
         line.kind === "session_configuration"
           ? sessionConfigurationLineId(realSelectionId)
@@ -1591,7 +1610,14 @@ function remapSessionConfigurationProposal(
       sessionConfigurationSelections:
         proposal.proposed.sessionConfigurationSelections?.map((selection) => {
           const realSelectionId = selectionIdByPlaceholder.get(selection.id);
-          return realSelectionId ? { ...selection, id: realSelectionId } : selection;
+          const realOrderAddOnId = selection.orderAddOnId
+            ? selectionIdByPlaceholder.get(selection.orderAddOnId)
+            : null;
+          return {
+            ...selection,
+            ...(realSelectionId ? { id: realSelectionId } : {}),
+            ...(realOrderAddOnId ? { orderAddOnId: realOrderAddOnId } : {}),
+          };
         }),
     },
     deltas: proposal.deltas.map(remapLine),
@@ -1640,6 +1666,10 @@ async function createWorkspaceAdjustmentInvoice(
       lineItems: {
         create: input.proposal.deltas.map((line, index) => {
           const semantics = resolveAdjustmentInvoiceLineSemantics(line);
+          const causeOrderEntityId =
+            line.kind === "addon" && line.refMetadata?.orderAddOnId
+              ? line.refMetadata.orderAddOnId
+              : line.refId;
           return {
             lineType: semantics.lineType,
             description: line.label,
@@ -1651,7 +1681,7 @@ async function createWorkspaceAdjustmentInvoice(
             lineTotal: new Prisma.Decimal(line.lineTotalNet),
             sortOrder: index,
             causeOrderEntityKind: semantics.causeOrderEntityKind,
-            causeOrderEntityId: line.refId,
+            causeOrderEntityId,
           };
         }),
       },
@@ -2001,6 +2031,7 @@ function makeLine(input: {
   lineId: string;
   kind: AdjustmentLineKind;
   refId: string;
+  refMetadata?: AdjustmentCompositionLine["refMetadata"];
   label: string;
   quantity: number;
   unitPrice: Prisma.Decimal;
@@ -2009,6 +2040,7 @@ function makeLine(input: {
     lineId: input.lineId,
     kind: input.kind,
     refId: input.refId,
+    ...(input.refMetadata ? { refMetadata: input.refMetadata } : {}),
     label: input.label,
     quantity: input.quantity,
     unitPrice: input.unitPrice.toFixed(3),
@@ -2208,7 +2240,8 @@ function applySessionConfigurationSelectionChange(
         makeLine({
           lineId: `addon:${selection.orderAddOnId}`,
           kind: "addon",
-          refId: selection.orderAddOnId,
+          refId: selection.snapshotLinkedProductId ?? "",
+          refMetadata: { orderAddOnId: selection.orderAddOnId },
           label: selection.snapshotLabel,
           quantity: 1,
           unitPrice: configuration.linkedProductPrice ?? moneyZero,
@@ -2520,7 +2553,8 @@ function diffSessionConfigurationSelections(
         makeLine({
           lineId: `delta:addon:${orderAddOnId}`,
           kind: "addon",
-          refId: orderAddOnId,
+          refId: refSelection.snapshotLinkedProductId ?? "",
+          refMetadata: { orderAddOnId },
           label,
           quantity: 1,
           unitPrice: delta,
@@ -2567,8 +2601,7 @@ function linkedProductSelectionAmount(
     ? baseLines.find(
         (line) =>
           line.kind === "addon" &&
-          (line.refId === selection.orderAddOnId ||
-            line.lineId === `addon:${selection.orderAddOnId}`)
+          line.lineId === `addon:${selection.orderAddOnId}`
       )
     : null;
   if (baseLine) return decimal(baseLine.lineTotalNet);

@@ -13,6 +13,9 @@ export interface AdjustmentCompositionLine {
   lineId: string;
   kind: AdjustmentLineKind;
   refId: string;
+  refMetadata?: {
+    orderAddOnId?: string;
+  };
   label: string;
   quantity: number;
   unitPrice: AdjustmentMoney;

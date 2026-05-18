@@ -484,7 +484,11 @@ test("linked-product session configuration workspace edits produce add-on deltas
   assert.equal(proposal.netPayableDelta, "9.000");
   assert.equal(proposal.deltas.length, 1);
   assert.equal(proposal.deltas[0]?.kind, "addon");
-  assert.equal(proposal.deltas[0]?.refId, "pending:addon:config-cake");
+  assert.equal(proposal.deltas[0]?.refId, "product-cake");
+  assert.equal(
+    proposal.deltas[0]?.refMetadata?.orderAddOnId,
+    "pending:addon:config-cake"
+  );
   assert.equal(proposal.deltas[0]?.label, "Added: Cake");
   assert.deepEqual(resolveAdjustmentInvoiceLineSemantics(proposal.deltas[0]!), {
     lineType: InvoiceLineType.ADD_ON,

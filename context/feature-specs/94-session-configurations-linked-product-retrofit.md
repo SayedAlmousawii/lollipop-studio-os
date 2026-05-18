@@ -116,8 +116,7 @@ The Configure Session UI is unchanged from the user's perspective — they still
   - For `OPERATIONAL` edits: continue emitting zero-contribution per spec 92a.
 - Finalize:
   - `finalizeSessionConfigurationSelectionEdits` (existing helper) iterates the pending edits and calls `applySessionConfigurationEditFromWorkspace`. For `LINKED_PRODUCT` edits, the helper materializes the add-on (insert) or deletes both (remove). The placeholder-to-real-id remap routes `causeOrderEntityId` to either the selection id (for FIXED/TIERED) or the add-on id (for LINKED_PRODUCT).
-  - The adjustment invoice's line creation pipeline already produces `ADD_ON` `InvoiceLineItem` rows from `OrderAddOn` deltas — verify the proposal-driven path constructs these correctly with the new prefixed descriptions.
-- Open question to surface in PR review: does the existing workspace adjustment-invoice line generation read `ADD_ON` deltas from the proposal's `lines` field or recompute from `OrderAddOn`? Trace before implementing — the `ADD_ON` line must carry the verb-prefixed description regardless of which path emits it.
+  - Chosen implementation: adjustment invoices are created from the proposal's delta lines, not by recomputing from `OrderAddOn` rows at invoice-write time. For `LINKED_PRODUCT` session-config edits, the proposal emits an `ADD_ON` delta whose `description` / `label` already includes the spec-93 verb prefix, and finalize remaps the placeholder add-on id to the real `OrderAddOn.id` for `causeOrderEntityId`. This preserves the verb-prefixed description regardless of whether the add-on was just materialized or existed in the base composition.
 
 #### POS workspace ([order.service.ts:getPOSWorkspace](src/modules/orders/order.service.ts#L307))
 
@@ -276,6 +275,6 @@ After this spec:
 - `getPOSWorkspace` order-wide totals match the sum of per-package totals; `sessionConfigurationTotal` no longer includes linked-product contributions; `addOnTotal` does.
 - Workspace finalize on a `change_session_configuration_selection` edit for a `LINKED_PRODUCT` config produces an `ADD_ON` `InvoiceLineItem` (not `SESSION_CONFIGURATION`) with the spec-93 verb prefix in its description. The selection and the `OrderAddOn` are both written/deleted in the same finalize transaction.
 - A locked-invoice render against a pre-spec-94 locked order still shows the `SESSION_CONFIGURATION` line item — assertion that historical data is preserved.
-- A grep for `db.orderPackageSessionConfigurationSelection.(create|update|delete*)` outside `src/modules/session-configurations/session-configuration-selection.service.ts` and `src/modules/development/dev-reset.service.ts` returns zero hits.
+- A grep for `db.orderPackageSessionConfigurationSelection.(create|update|delete*)` outside `src/modules/session-configurations/session-configuration-selection.service.ts` returns zero hits; reset handlers, including the session-configuration reset service, must delegate selection-row cleanup to `session-configuration-selection.service.ts`.
 - `npm run build` passes.
 - `npm run lint` passes.

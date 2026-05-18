@@ -531,7 +531,15 @@ export async function applySessionConfigurationEditFromWorkspace(
 export async function deleteAllSessionConfigurationSelectionsForReset(
   tx: Prisma.TransactionClient
 ): Promise<void> {
+  const ownedAddOns = await tx.orderPackageSessionConfigurationSelection.findMany({
+    where: { orderAddOnId: { not: null } },
+    select: { orderAddOnId: true },
+  });
+  const ownedAddOnIds = ownedAddOns
+    .map((selection) => selection.orderAddOnId)
+    .filter((id): id is string => Boolean(id));
   await tx.orderPackageSessionConfigurationSelection.deleteMany({});
+  await deleteSelectionOwnedAddOns(tx, ownedAddOnIds);
 }
 
 async function recordWorkspaceOperationalAudit(
@@ -633,20 +641,15 @@ function assertPostLockOperationalOnly(input: {
   for (const snapshot of input.snapshots) {
     const existing = input.existingByConfigurationId.get(snapshot.configurationId);
     if (!existing) {
-      if (
-        snapshot.snapshotFinancialBehavior !==
-        SessionConfigurationFinancialBehavior.OPERATIONAL
-      ) {
+      if (!isOperationalOnlySnapshot(snapshot)) {
         offendingCodes.add(snapshot.snapshotConfigurationCode);
       }
       continue;
     }
 
     if (
-      existing.snapshotFinancialBehavior !==
-        SessionConfigurationFinancialBehavior.OPERATIONAL ||
-      snapshot.snapshotFinancialBehavior !==
-        SessionConfigurationFinancialBehavior.OPERATIONAL
+      !isOperationalOnlyExistingSelection(existing) ||
+      !isOperationalOnlySnapshot(snapshot)
     ) {
       offendingCodes.add(
         existing.snapshotConfigurationCode || snapshot.snapshotConfigurationCode
@@ -665,6 +668,26 @@ function assertPostLockOperationalOnly(input: {
       ...offendingCodes,
     ]);
   }
+}
+
+function isOperationalOnlySnapshot(snapshot: SelectionSnapshot): boolean {
+  return (
+    snapshot.snapshotFinancialBehavior ===
+      SessionConfigurationFinancialBehavior.OPERATIONAL &&
+    snapshot.snapshotPricingMode !== SessionConfigurationPricingMode.LINKED_PRODUCT &&
+    !snapshot.snapshotLinkedProductId &&
+    !snapshot.orderAddOnId
+  );
+}
+
+function isOperationalOnlyExistingSelection(selection: ExistingSelection): boolean {
+  return (
+    selection.snapshotFinancialBehavior ===
+      SessionConfigurationFinancialBehavior.OPERATIONAL &&
+    selection.snapshotPricingMode !== SessionConfigurationPricingMode.LINKED_PRODUCT &&
+    !selection.snapshotLinkedProductId &&
+    !selection.orderAddOnId
+  );
 }
 
 function auditPayloadFromExistingSelection(selection: ExistingSelection) {

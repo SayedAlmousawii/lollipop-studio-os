@@ -148,6 +148,8 @@ function buildPendingChangeRow(
       baseSelection?.orderAddOnId,
       `pending:${edit.configurationId}`,
       `pending:addon:${edit.configurationId}`,
+      proposedSelection?.snapshotLinkedProductId,
+      baseSelection?.snapshotLinkedProductId,
     ].filter((value): value is string => Boolean(value));
     const displayValue = sessionConfigurationDesiredDisplay(
       edit.desired,
@@ -207,7 +209,10 @@ function sessionConfigurationAmount(
     lines?.filter(
       (line) =>
         (line.kind === "session_configuration" || line.kind === "addon") &&
-        selectionIdSet.has(line.refId)
+        (selectionIdSet.has(line.refId) ||
+          (line.refMetadata?.orderAddOnId
+            ? selectionIdSet.has(line.refMetadata.orderAddOnId)
+            : false))
     ) ?? []
   );
 }

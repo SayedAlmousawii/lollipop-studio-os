@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { withRetry } from "@/lib/retry";
+import { deleteAllSessionConfigurationSelectionsForReset } from "@/modules/session-configurations/session-configuration-selection.service";
 
 export async function resetWorkflowTestData(): Promise<void> {
   if (process.env.NODE_ENV !== "development") {
@@ -18,7 +19,7 @@ export async function resetWorkflowTestData(): Promise<void> {
         await tx.invoiceLockSnapshot.deleteMany({});
         await tx.invoiceLineItem.deleteMany({});
         await tx.invoice.deleteMany({});
-        await tx.orderPackageSessionConfigurationSelection.deleteMany({});
+        await deleteAllSessionConfigurationSelectionsForReset(tx);
         await tx.orderPackageItemUpgrade.deleteMany({});
         await tx.orderAddOn.deleteMany({});
         await tx.orderActivity.deleteMany({});
