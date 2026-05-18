@@ -2948,7 +2948,7 @@ function recordWorkspaceMetric(
 
 function isOpenWorkspaceInvoiceUniqueConflict(error: unknown): boolean {
   if (!isUniqueConstraintError(error)) return false;
-  return isOpenWorkspaceInvoiceTarget(error.meta?.target);
+  return isOpenWorkspaceInvoiceTarget(error.meta?.target, error.message);
 }
 
 function isUniqueConstraintError(
@@ -2960,10 +2960,22 @@ function isUniqueConstraintError(
   );
 }
 
-function isOpenWorkspaceInvoiceTarget(target: unknown): boolean {
-  if (target === "adjustment_workspaces_invoiceId_open_key") return true;
-  if (Array.isArray(target)) {
-    return target.includes("invoice_id") || target.includes("invoiceId");
+function isOpenWorkspaceInvoiceTarget(target: unknown, message?: string): boolean {
+  if (
+    typeof target === "string" &&
+    isOpenWorkspaceInvoiceTargetText(target)
+  ) {
+    return true;
   }
-  return false;
+  if (Array.isArray(target)) {
+    return target.some(
+      (value) =>
+        typeof value === "string" && isOpenWorkspaceInvoiceTargetText(value)
+    );
+  }
+  return message ? isOpenWorkspaceInvoiceTargetText(message) : false;
+}
+
+function isOpenWorkspaceInvoiceTargetText(value: string): boolean {
+  return /adjustment_workspaces_invoiceId_open_key|invoice[_"]?id/i.test(value);
 }
