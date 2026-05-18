@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect } from "react";
+
 type GroupedInvoiceLineItem = {
   id: string;
   lineType: string;
@@ -16,23 +20,24 @@ export function InvoiceLineItems({
   lineItems: GroupedInvoiceLineItem[];
   emptyLabel?: string;
 }) {
-  if (lineItems.length === 0) {
-    return (
-      <p className="rounded-md border border-border bg-surface-soft p-3 text-sm text-text-secondary">
-        {emptyLabel}
-      </p>
-    );
-  }
-
   const regularLines = lineItems.filter((item) => !isSessionConfigurationLine(item));
   const sessionConfigurationLines = lineItems.filter(isSessionConfigurationLine);
 
-  if (sessionConfigurationLines.length > 0) {
+  useEffect(() => {
+    if (sessionConfigurationLines.length === 0) return;
     console.info(
       JSON.stringify({
         metric: "invoice.session_configuration_lines_grouped_render",
         count: sessionConfigurationLines.length,
       })
+    );
+  }, [sessionConfigurationLines.length]);
+
+  if (lineItems.length === 0) {
+    return (
+      <p className="rounded-md border border-border bg-surface-soft p-3 text-sm text-text-secondary">
+        {emptyLabel}
+      </p>
     );
   }
 

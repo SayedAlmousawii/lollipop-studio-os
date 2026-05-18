@@ -445,24 +445,34 @@ export async function openWorkspace(
         if (existing) return existing;
 
         const baseSnapshot = await getEffectiveCompositionForInvoice(invoiceId, tx);
-        const workspace = await tx.adjustmentWorkspace.create({
-          data: {
-            invoiceId,
-            orderId: invoice.orderId,
-            openedByUserId: actorContext.actorUserId,
-            currentOwnerUserId: actorContext.actorUserId,
-            baseSnapshotJson: baseSnapshot as unknown as Prisma.InputJsonValue,
-            pendingChangesJson: { edits: [] },
-            events: {
-              create: {
-                actorUserId: actorContext.actorUserId,
-                eventType: AdjustmentWorkspaceEventType.OPENED,
-                payloadJson: { invoiceId, orderId: invoice.orderId },
+        const workspace = await tx.adjustmentWorkspace
+          .create({
+            data: {
+              invoiceId,
+              orderId: invoice.orderId,
+              openedByUserId: actorContext.actorUserId,
+              currentOwnerUserId: actorContext.actorUserId,
+              baseSnapshotJson: baseSnapshot as unknown as Prisma.InputJsonValue,
+              pendingChangesJson: { edits: [] },
+              events: {
+                create: {
+                  actorUserId: actorContext.actorUserId,
+                  eventType: AdjustmentWorkspaceEventType.OPENED,
+                  payloadJson: { invoiceId, orderId: invoice.orderId },
+                },
               },
             },
-          },
-          select: { id: true },
-        });
+            select: { id: true },
+          })
+          .catch(async (error: unknown) => {
+            if (!isUniqueConstraintError(error)) throw error;
+            const concurrentExisting = await tx.adjustmentWorkspace.findFirst({
+              where: { invoiceId, status: AdjustmentWorkspaceStatus.OPEN },
+              select: { id: true },
+            });
+            if (concurrentExisting) return concurrentExisting;
+            throw error;
+          });
 
         recordWorkspaceMetric("adjustment_workspace.opened", {
           workspaceId: workspace.id,
@@ -1047,6 +1057,7 @@ function normalizedSessionConfigurationSelections(
         optionId: selection.optionId,
         numericValue: selection.numericValue,
         textValue: selection.textValue,
+        snapshotOptionLabel: selection.snapshotOptionLabel,
         snapshotPriceDelta: selection.snapshotPriceDelta,
         snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
       }))
@@ -2795,4 +2806,11 @@ function recordWorkspaceMetric(
   fields: Record<string, string | number | null>
 ): void {
   console.info(JSON.stringify({ metric, ...fields }));
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
 }
