@@ -103,7 +103,6 @@ type CatalogLookup = {
       financialBehavior: SessionConfigurationFinancialBehavior;
       fixedPriceDelta: Prisma.Decimal | null;
       linkedProductId: string | null;
-      linkProductDisplay: "LINE_ITEM" | "MODIFIER_ONLY" | null;
       linkedProductPrice: Prisma.Decimal | null;
       counterPricingMode: SessionConfigurationCounterPricingMode | null;
       counterUnitPrice: Prisma.Decimal | null;
@@ -994,12 +993,22 @@ export async function computeWorkspaceProposal(
   }
 
   proposed.totals = computeTotals(proposed.lines);
+  const linkedProductAddOnLineIds = linkedProductSessionConfigurationAddOnLineIds(
+    base.sessionConfigurationSelections ?? [],
+    proposed.sessionConfigurationSelections ?? []
+  );
   const compositionDeltas = diffCompositionLines(base.lines, proposed.lines).filter(
-    (line) => line.kind !== "session_configuration"
+    (line) =>
+      line.kind !== "session_configuration" &&
+      !isLinkedProductSessionConfigurationAddOnDelta(
+        line,
+        linkedProductAddOnLineIds
+      )
   );
   const sessionConfigurationDeltas = diffSessionConfigurationSelections(
     base.sessionConfigurationSelections ?? [],
     proposed.sessionConfigurationSelections ?? [],
+    base.lines,
     catalog
   );
   const deltas = [...compositionDeltas, ...sessionConfigurationDeltas];
@@ -1046,6 +1055,30 @@ function sessionConfigurationSelectionsChanged(
   );
 }
 
+function linkedProductSessionConfigurationAddOnLineIds(
+  baseSelections: AdjustmentSessionConfigurationSelection[],
+  proposedSelections: AdjustmentSessionConfigurationSelection[]
+): Set<string> {
+  return new Set(
+    [...baseSelections, ...proposedSelections].flatMap((selection) =>
+      selection.snapshotPricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT &&
+      selection.orderAddOnId
+        ? [`addon:${selection.orderAddOnId}`]
+        : []
+    )
+  );
+}
+
+function isLinkedProductSessionConfigurationAddOnDelta(
+  line: AdjustmentCompositionLine,
+  linkedProductAddOnLineIds: Set<string>
+): boolean {
+  if (line.kind !== "addon") return false;
+  if (linkedProductAddOnLineIds.has(line.lineId)) return true;
+  const orderAddOnId = line.refMetadata?.orderAddOnId;
+  return Boolean(orderAddOnId && linkedProductAddOnLineIds.has(`addon:${orderAddOnId}`));
+}
+
 function normalizedSessionConfigurationSelections(
   selections: AdjustmentSessionConfigurationSelection[]
 ): string {
@@ -1065,7 +1098,7 @@ function normalizedSessionConfigurationSelections(
         snapshotInputType: selection.snapshotInputType,
         snapshotPricingMode: selection.snapshotPricingMode,
         snapshotLinkedProductId: selection.snapshotLinkedProductId,
-        snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
+        orderAddOnId: selection.orderAddOnId,
       }))
       .sort((a, b) =>
         `${a.orderPackageId}:${a.configurationId}`.localeCompare(
@@ -1183,7 +1216,6 @@ async function buildProposal(
         financialBehavior: true,
         fixedPriceDelta: true,
         linkedProductId: true,
-        linkProductDisplay: true,
         linkedProduct: { select: { canonicalPrice: true } },
         counterPricingMode: true,
         counterUnitPrice: true,
@@ -1272,7 +1304,6 @@ async function buildProposal(
           financialBehavior: configuration.financialBehavior,
           fixedPriceDelta: configuration.fixedPriceDelta,
           linkedProductId: configuration.linkedProductId,
-          linkProductDisplay: configuration.linkProductDisplay,
           linkedProductPrice: configuration.linkedProduct?.canonicalPrice ?? null,
           counterPricingMode: configuration.counterPricingMode,
           counterUnitPrice: configuration.counterUnitPrice,
@@ -1318,7 +1349,7 @@ async function captureCurrentOrderComposition(
               snapshotInputType: true,
               snapshotPricingMode: true,
               snapshotLinkedProductId: true,
-              snapshotLinkProductDisplay: true,
+              orderAddOnId: true,
             },
           },
         },
@@ -1407,9 +1438,9 @@ async function captureCurrentOrderComposition(
         snapshotPriceDelta: selection.snapshotPriceDelta.toFixed(3),
         snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
         snapshotInputType: selection.snapshotInputType,
-        snapshotPricingMode: selection.snapshotPricingMode,
+       snapshotPricingMode: selection.snapshotPricingMode,
         snapshotLinkedProductId: selection.snapshotLinkedProductId,
-        snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
+        orderAddOnId: selection.orderAddOnId,
       }));
     }
   }
@@ -1458,7 +1489,7 @@ async function captureCurrentOrderComposition(
         snapshotInputType: selection.snapshotInputType,
         snapshotPricingMode: selection.snapshotPricingMode,
         snapshotLinkedProductId: selection.snapshotLinkedProductId,
-        snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
+        orderAddOnId: selection.orderAddOnId,
       }))
     ),
   };
@@ -1523,6 +1554,12 @@ async function finalizeSessionConfigurationSelectionEdits(
         pendingSessionConfigurationSelectionId(edit.configurationId),
         result.selectionId
       );
+      if (result.orderAddOnId) {
+        selectionIdByPlaceholder.set(
+          pendingSessionConfigurationAddOnId(edit.configurationId),
+          result.orderAddOnId
+        );
+      }
     }
     if (result.selectionId) {
       recordWorkspaceMetric(
@@ -1546,14 +1583,22 @@ function remapSessionConfigurationProposal(
 ): AdjustmentWorkspaceProposal {
   if (selectionIdByPlaceholder.size === 0) return proposal;
   const remapLine = (line: AdjustmentCompositionLine): AdjustmentCompositionLine => {
-    const realSelectionId = selectionIdByPlaceholder.get(line.refId);
+    const placeholder = line.refMetadata?.orderAddOnId ?? line.refId;
+    const realSelectionId = selectionIdByPlaceholder.get(placeholder);
     if (!realSelectionId) return line;
+    const refMetadata =
+      line.refMetadata?.orderAddOnId === placeholder
+        ? { ...line.refMetadata, orderAddOnId: realSelectionId }
+        : line.refMetadata;
     return {
       ...line,
-      refId: realSelectionId,
+      refId: line.refMetadata?.orderAddOnId === placeholder ? line.refId : realSelectionId,
+      ...(refMetadata ? { refMetadata } : {}),
       lineId:
         line.kind === "session_configuration"
           ? sessionConfigurationLineId(realSelectionId)
+          : line.kind === "addon"
+            ? `addon:${realSelectionId}`
           : line.lineId,
     };
   };
@@ -1565,7 +1610,14 @@ function remapSessionConfigurationProposal(
       sessionConfigurationSelections:
         proposal.proposed.sessionConfigurationSelections?.map((selection) => {
           const realSelectionId = selectionIdByPlaceholder.get(selection.id);
-          return realSelectionId ? { ...selection, id: realSelectionId } : selection;
+          const realOrderAddOnId = selection.orderAddOnId
+            ? selectionIdByPlaceholder.get(selection.orderAddOnId)
+            : null;
+          return {
+            ...selection,
+            ...(realSelectionId ? { id: realSelectionId } : {}),
+            ...(realOrderAddOnId ? { orderAddOnId: realOrderAddOnId } : {}),
+          };
         }),
     },
     deltas: proposal.deltas.map(remapLine),
@@ -1614,6 +1666,10 @@ async function createWorkspaceAdjustmentInvoice(
       lineItems: {
         create: input.proposal.deltas.map((line, index) => {
           const semantics = resolveAdjustmentInvoiceLineSemantics(line);
+          const causeOrderEntityId =
+            line.kind === "addon" && line.refMetadata?.orderAddOnId
+              ? line.refMetadata.orderAddOnId
+              : line.refId;
           return {
             lineType: semantics.lineType,
             description: line.label,
@@ -1625,7 +1681,7 @@ async function createWorkspaceAdjustmentInvoice(
             lineTotal: new Prisma.Decimal(line.lineTotalNet),
             sortOrder: index,
             causeOrderEntityKind: semantics.causeOrderEntityKind,
-            causeOrderEntityId: line.refId,
+            causeOrderEntityId,
           };
         }),
       },
@@ -1975,6 +2031,7 @@ function makeLine(input: {
   lineId: string;
   kind: AdjustmentLineKind;
   refId: string;
+  refMetadata?: AdjustmentCompositionLine["refMetadata"];
   label: string;
   quantity: number;
   unitPrice: Prisma.Decimal;
@@ -1983,6 +2040,7 @@ function makeLine(input: {
     lineId: input.lineId,
     kind: input.kind,
     refId: input.refId,
+    ...(input.refMetadata ? { refMetadata: input.refMetadata } : {}),
     label: input.label,
     quantity: input.quantity,
     unitPrice: input.unitPrice.toFixed(3),
@@ -2150,7 +2208,11 @@ function applySessionConfigurationSelectionChange(
     SessionConfigurationFinancialBehavior.FINANCIAL;
   if (emitsInvoiceLines) {
     snapshot.lines = snapshot.lines.filter(
-      (line) => !existing || line.lineId !== sessionConfigurationLineId(existing.id)
+      (line) =>
+        !existing ||
+        (line.lineId !== sessionConfigurationLineId(existing.id) &&
+          line.refId !== existing.orderAddOnId &&
+          line.lineId !== `addon:${existing.orderAddOnId}`)
     );
   }
 
@@ -2161,10 +2223,31 @@ function applySessionConfigurationSelectionChange(
     orderPackageId: edit.orderPackageId,
     configuration,
     desired: edit.desired,
+    orderAddOnId:
+      existing?.orderAddOnId ??
+      (configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
+        ? pendingSessionConfigurationAddOnId(edit.configurationId)
+        : null),
   });
   snapshot.sessionConfigurationSelections.push(selection);
   if (emitsInvoiceLines) {
     snapshot.lines.push(...linesForSessionConfigurationSelection(selection));
+    if (
+      selection.snapshotPricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT &&
+      selection.orderAddOnId
+    ) {
+      snapshot.lines.push(
+        makeLine({
+          lineId: `addon:${selection.orderAddOnId}`,
+          kind: "addon",
+          refId: selection.snapshotLinkedProductId ?? "",
+          refMetadata: { orderAddOnId: selection.orderAddOnId },
+          label: selection.snapshotLabel,
+          quantity: 1,
+          unitPrice: configuration.linkedProductPrice ?? moneyZero,
+        })
+      );
+    }
   }
 }
 
@@ -2178,6 +2261,7 @@ function buildWorkspaceSessionConfigurationSelection(input: {
     ? Configuration
     : never;
   desired: Exclude<WorkspaceSessionConfigurationDesired, null>;
+  orderAddOnId: string | null;
 }): AdjustmentSessionConfigurationSelection {
   assertWorkspaceDesiredMatchesConfiguration(input.desired, input.configuration);
   const option =
@@ -2232,10 +2316,7 @@ function buildWorkspaceSessionConfigurationSelection(input: {
       input.configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
         ? input.configuration.linkedProductId
         : null,
-    snapshotLinkProductDisplay:
-      input.configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
-        ? input.configuration.linkProductDisplay
-        : null,
+    orderAddOnId: input.orderAddOnId,
   };
 }
 
@@ -2292,7 +2373,7 @@ function resolveWorkspaceSnapshotPriceDelta(
       if (!configuration.linkedProductPrice) {
         throw new Error("Linked product price is not available");
       }
-      return configuration.linkedProductPrice;
+      return moneyZero;
   }
 }
 
@@ -2310,18 +2391,7 @@ function linesForSessionConfigurationSelection(
       unitPrice: lineItem.unitPrice,
     })
   );
-  if (lineItems.length > 0) return lineItems;
-  if (priced.nonLineDelta.equals(0)) return [];
-  return [
-    makeLine({
-      lineId: sessionConfigurationLineId(selection.id),
-      kind: "session_configuration",
-      refId: selection.id,
-      label: selection.snapshotLabel,
-      quantity: 1,
-      unitPrice: priced.nonLineDelta,
-    }),
-  ];
+  return lineItems;
 }
 
 function pricedSelectionFromAdjustmentSelection(
@@ -2335,8 +2405,8 @@ function pricedSelectionFromAdjustmentSelection(
     snapshotPricingMode: selection.snapshotPricingMode,
     snapshotInputType: selection.snapshotInputType,
     snapshotOptionLabel: selection.snapshotOptionLabel,
-    snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
     snapshotLinkedProductId: selection.snapshotLinkedProductId,
+    orderAddOnId: selection.orderAddOnId,
     numericValue: selection.numericValue ? decimal(selection.numericValue) : null,
   };
 }
@@ -2347,6 +2417,10 @@ function sessionConfigurationLineId(selectionId: string): string {
 
 function pendingSessionConfigurationSelectionId(configurationId: string): string {
   return `pending:${configurationId}`;
+}
+
+function pendingSessionConfigurationAddOnId(configurationId: string): string {
+  return `pending:addon:${configurationId}`;
 }
 
 function isExtraPhotoLine(line: AdjustmentCompositionLine): boolean {
@@ -2418,6 +2492,7 @@ function diffCompositionLines(
 function diffSessionConfigurationSelections(
   baseSelections: AdjustmentSessionConfigurationSelection[],
   proposedSelections: AdjustmentSessionConfigurationSelection[],
+  baseLines: AdjustmentCompositionLine[],
   catalog: CatalogLookup
 ): AdjustmentCompositionLine[] {
   const baseByKey = new Map(
@@ -2454,6 +2529,39 @@ function diffSessionConfigurationSelections(
       return [];
     }
 
+    if (
+      (base ?? proposed)?.snapshotPricingMode ===
+      SessionConfigurationPricingMode.LINKED_PRODUCT
+    ) {
+      const baseTotal = base
+        ? linkedProductSelectionAmount(base, baseLines, catalog)
+        : moneyZero;
+      const proposedTotal = proposed
+        ? linkedProductSelectionAmount(proposed, baseLines, catalog)
+        : moneyZero;
+      const delta = proposedTotal.minus(baseTotal);
+      if (delta.equals(0)) return [];
+      const label = sessionConfigurationDeltaLabel(base, proposed);
+      recordWorkspaceMetric("adjustment_invoice.session_configuration_prefix_emitted", {
+        kind: sessionConfigurationDeltaKind(base, proposed),
+        selectionId: (proposed ?? base)?.id ?? null,
+      });
+      const refSelection = proposed ?? base;
+      const orderAddOnId = refSelection?.orderAddOnId;
+      if (!refSelection || !orderAddOnId) return [];
+      return [
+        makeLine({
+          lineId: `delta:addon:${orderAddOnId}`,
+          kind: "addon",
+          refId: refSelection.snapshotLinkedProductId ?? "",
+          refMetadata: { orderAddOnId },
+          label,
+          quantity: 1,
+          unitPrice: delta,
+        }),
+      ];
+    }
+
     const baseTotal = base
       ? priceSelections([pricedSelectionFromAdjustmentSelection(base)]).totalDelta
       : moneyZero;
@@ -2482,6 +2590,28 @@ function diffSessionConfigurationSelections(
       }),
     ];
   });
+}
+
+function linkedProductSelectionAmount(
+  selection: AdjustmentSessionConfigurationSelection,
+  baseLines: AdjustmentCompositionLine[],
+  catalog: CatalogLookup
+): Prisma.Decimal {
+  const baseLine = selection.orderAddOnId
+    ? baseLines.find(
+        (line) =>
+          line.kind === "addon" &&
+          line.lineId === `addon:${selection.orderAddOnId}`
+      )
+    : null;
+  if (baseLine) return decimal(baseLine.lineTotalNet);
+  if (selection.orderAddOnId?.startsWith("pending:addon:")) {
+    const liveConfiguration = catalog.sessionConfigurations?.get(
+      selection.configurationId
+    );
+    return liveConfiguration?.linkedProductPrice ?? moneyZero;
+  }
+  return decimal(selection.snapshotPriceDelta);
 }
 
 function sessionConfigurationDeltaKind(
@@ -2536,8 +2666,8 @@ function sessionConfigurationSelectionValuesMatch(
     base.snapshotFinancialBehavior === proposed.snapshotFinancialBehavior &&
     base.snapshotPricingMode === proposed.snapshotPricingMode &&
     base.snapshotInputType === proposed.snapshotInputType &&
-    base.snapshotLinkProductDisplay === proposed.snapshotLinkProductDisplay &&
-    base.snapshotLinkedProductId === proposed.snapshotLinkedProductId
+    base.snapshotLinkedProductId === proposed.snapshotLinkedProductId &&
+    base.orderAddOnId === proposed.orderAddOnId
   );
 }
 
@@ -2818,7 +2948,7 @@ function recordWorkspaceMetric(
 
 function isOpenWorkspaceInvoiceUniqueConflict(error: unknown): boolean {
   if (!isUniqueConstraintError(error)) return false;
-  return isOpenWorkspaceInvoiceTarget(error.meta?.target);
+  return isOpenWorkspaceInvoiceTarget(error.meta?.target, error.message);
 }
 
 function isUniqueConstraintError(
@@ -2830,10 +2960,22 @@ function isUniqueConstraintError(
   );
 }
 
-function isOpenWorkspaceInvoiceTarget(target: unknown): boolean {
-  if (target === "adjustment_workspaces_invoiceId_open_key") return true;
-  if (Array.isArray(target)) {
-    return target.includes("invoice_id") || target.includes("invoiceId");
+function isOpenWorkspaceInvoiceTarget(target: unknown, message?: string): boolean {
+  if (
+    typeof target === "string" &&
+    isOpenWorkspaceInvoiceTargetText(target)
+  ) {
+    return true;
   }
-  return false;
+  if (Array.isArray(target)) {
+    return target.some(
+      (value) =>
+        typeof value === "string" && isOpenWorkspaceInvoiceTargetText(value)
+    );
+  }
+  return message ? isOpenWorkspaceInvoiceTargetText(message) : false;
+}
+
+function isOpenWorkspaceInvoiceTargetText(value: string): boolean {
+  return /adjustment_workspaces_invoiceId_open_key|invoice[_"]?id/i.test(value);
 }

@@ -5,7 +5,6 @@ import {
   OrderEntityKind,
   Prisma,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 import {
@@ -24,7 +23,6 @@ test("session configuration pricing maps snapshot selections to totals and invoi
   });
   const fixedResult = priceSingleSelection(fixed);
   assert.equal(fixedResult.lineDelta?.toFixed(3), "25.000");
-  assert.equal(fixedResult.nonLineDelta, null);
   assert.equal(fixedResult.lineItem?.lineType, InvoiceLineType.SESSION_CONFIGURATION);
   assert.equal(
     fixedResult.lineItem?.causeOrderEntityKind,
@@ -58,27 +56,16 @@ test("session configuration pricing maps snapshot selections to totals and invoi
     "Sibling Count — Tier 3+"
   );
 
-  const linkedLine = selection({
+  const linkedProduct = selection({
     id: "linked-line-selection",
     label: "Cake",
-    priceDelta: "8.000",
+    priceDelta: "0.000",
     pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
     inputType: SessionConfigurationInputType.TOGGLE,
-    linkProductDisplay: SessionConfigurationLinkProductDisplay.LINE_ITEM,
   });
-  assert.equal(priceSingleSelection(linkedLine).lineItem?.description, "Cake");
-
-  const linkedModifier = selection({
-    id: "linked-modifier-selection",
-    label: "Album Color",
-    priceDelta: "4.000",
-    pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
-    inputType: SessionConfigurationInputType.SELECT,
-    linkProductDisplay: SessionConfigurationLinkProductDisplay.MODIFIER_ONLY,
-  });
-  const linkedModifierResult = priceSingleSelection(linkedModifier);
-  assert.equal(linkedModifierResult.lineItem?.description, "Album Color");
-  assert.equal(linkedModifierResult.lineDelta?.toFixed(3), "4.000");
+  const linkedProductResult = priceSingleSelection(linkedProduct);
+  assert.equal(linkedProductResult.lineItem, null);
+  assert.equal(linkedProductResult.lineDelta?.toFixed(3), "0.000");
 
   const operational = selection({
     id: "operational-selection",
@@ -90,19 +77,16 @@ test("session configuration pricing maps snapshot selections to totals and invoi
   const operationalResult = priceSingleSelection(operational);
   assert.equal(operationalResult.lineItem, null);
   assert.equal(operationalResult.lineDelta?.toFixed(3), "0.000");
-  assert.equal(operationalResult.nonLineDelta?.toFixed(3), "0.000");
 
   const mixed = priceSelections([
     fixed,
     tieredSelect,
     tieredCounter,
-    linkedLine,
-    linkedModifier,
+    linkedProduct,
     operational,
   ]);
-  assert.equal(mixed.lineItems.length, 5);
-  assert.equal(mixed.nonLineDelta.toFixed(3), "0.000");
-  assert.equal(mixed.totalDelta.toFixed(3), "62.000");
+  assert.equal(mixed.lineItems.length, 3);
+  assert.equal(mixed.totalDelta.toFixed(3), "50.000");
 });
 
 function selection(input: {
@@ -111,7 +95,6 @@ function selection(input: {
   priceDelta: string;
   pricingMode: SessionConfigurationPricingMode;
   inputType: SessionConfigurationInputType;
-  linkProductDisplay?: SessionConfigurationLinkProductDisplay | null;
   optionLabel?: string | null;
   numericValue?: string | null;
 }): PricedSelection {
@@ -123,8 +106,8 @@ function selection(input: {
     snapshotPricingMode: input.pricingMode,
     snapshotInputType: input.inputType,
     snapshotOptionLabel: input.optionLabel ?? null,
-    snapshotLinkProductDisplay: input.linkProductDisplay ?? null,
     snapshotLinkedProductId: null,
+    orderAddOnId: null,
     numericValue: input.numericValue ? new Prisma.Decimal(input.numericValue) : null,
   };
 }

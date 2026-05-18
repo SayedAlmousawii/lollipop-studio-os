@@ -1445,9 +1445,7 @@ async function buildInvoiceLineItems(
       new Prisma.Decimal(0)
     );
     if (
-      !emittedLineTotal
-        .plus(pricedSelections.nonLineDelta)
-        .equals(pricedSelections.totalDelta)
+      !emittedLineTotal.equals(pricedSelections.totalDelta)
     ) {
       console.warn(
         JSON.stringify({

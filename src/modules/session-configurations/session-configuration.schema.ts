@@ -2,7 +2,6 @@ import {
   SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 import { z } from "zod";
@@ -84,9 +83,6 @@ const baseSessionConfigurationSchema = z
     sortOrder: integerSchema.default(0),
     fixedPriceDelta: moneySchema,
     linkedProductId: optionalNullableIdSchema,
-    linkProductDisplay: z
-      .nativeEnum(SessionConfigurationLinkProductDisplay)
-      .optional(),
     counterPricingMode: z
       .nativeEnum(SessionConfigurationCounterPricingMode)
       .optional(),
@@ -114,21 +110,6 @@ const baseSessionConfigurationSchema = z
           code: z.ZodIssueCode.custom,
           path: ["linkedProductId"],
           message: "Linked product is required for linked-product pricing.",
-        });
-      }
-      if (!value.linkProductDisplay) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["linkProductDisplay"],
-          message: "Product display mode is required for linked-product pricing.",
-        });
-      } else if (
-        value.linkProductDisplay !== SessionConfigurationLinkProductDisplay.LINE_ITEM
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["linkProductDisplay"],
-          message: "Linked products must be added to invoices as line items.",
         });
       }
     }

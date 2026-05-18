@@ -3,7 +3,6 @@ import type {
   SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 import type { db } from "@/lib/db";
@@ -20,8 +19,8 @@ export const pricedSessionConfigurationSelectionSelect = {
   snapshotFinancialBehavior: true,
   snapshotPricingMode: true,
   snapshotInputType: true,
-  snapshotLinkProductDisplay: true,
   snapshotLinkedProductId: true,
+  orderAddOnId: true,
   numericValue: true,
   textValue: true,
 } satisfies Prisma.OrderPackageSessionConfigurationSelectionSelect;
@@ -37,7 +36,6 @@ export type ResolvedConfigDefinition = {
   financialBehavior: SessionConfigurationFinancialBehavior;
   fixedPriceDelta: Prisma.Decimal | null;
   linkedProductId: string | null;
-  linkProductDisplay: SessionConfigurationLinkProductDisplay | null;
   linkedProductName: string | null;
   linkedProductPrice: Prisma.Decimal | null;
   counterPricingMode: SessionConfigurationCounterPricingMode | null;
@@ -163,7 +161,6 @@ async function resolvePackageConfigState(
       financialBehavior: true,
       fixedPriceDelta: true,
       linkedProductId: true,
-      linkProductDisplay: true,
       linkedProduct: {
         select: { name: true, canonicalPrice: true },
       },
@@ -205,7 +202,6 @@ async function resolvePackageConfigState(
       financialBehavior: configuration.financialBehavior,
       fixedPriceDelta: configuration.fixedPriceDelta,
       linkedProductId: configuration.linkedProductId,
-      linkProductDisplay: configuration.linkProductDisplay,
       linkedProductName: configuration.linkedProduct?.name ?? null,
       linkedProductPrice: configuration.linkedProduct?.canonicalPrice ?? null,
       counterPricingMode: configuration.counterPricingMode,

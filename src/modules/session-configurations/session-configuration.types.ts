@@ -2,7 +2,6 @@ import type {
   SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 
@@ -34,7 +33,6 @@ export interface SessionConfigurationRow {
   fixedPriceDelta: number | null;
   linkedProductId: string | null;
   linkedProductName: string | null;
-  linkProductDisplay: SessionConfigurationLinkProductDisplay | null;
   counterPricingMode: SessionConfigurationCounterPricingMode | null;
   counterUnitPrice: number | null;
   activeOptionCount: number;

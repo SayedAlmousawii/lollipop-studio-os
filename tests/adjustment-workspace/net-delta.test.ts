@@ -212,8 +212,25 @@ const packageEditCatalog = {
         financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
         fixedPriceDelta: new Prisma.Decimal("12.000"),
         linkedProductId: null,
-        linkProductDisplay: null,
         linkedProductPrice: null,
+        counterPricingMode: null,
+        counterUnitPrice: null,
+        options: new Map(),
+      },
+    ],
+    [
+      "config-cake",
+      {
+        id: "config-cake",
+        sessionTypeId: "session-family",
+        code: "CAKE",
+        name: "Cake",
+        inputType: SessionConfigurationInputType.TOGGLE,
+        pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
+        financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+        fixedPriceDelta: null,
+        linkedProductId: "product-cake",
+        linkedProductPrice: new Prisma.Decimal("9.000"),
         counterPricingMode: null,
         counterUnitPrice: null,
         options: new Map(),
@@ -231,7 +248,6 @@ const packageEditCatalog = {
         financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
         fixedPriceDelta: null,
         linkedProductId: null,
-        linkProductDisplay: null,
         linkedProductPrice: null,
         counterPricingMode: null,
         counterUnitPrice: null,
@@ -260,7 +276,6 @@ const packageEditCatalog = {
         financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
         fixedPriceDelta: null,
         linkedProductId: null,
-        linkProductDisplay: null,
         linkedProductPrice: null,
         counterPricingMode: null,
         counterUnitPrice: null,
@@ -309,7 +324,7 @@ function baseWithTwinsSelection(priceDelta: string): AdjustmentBaseSnapshot {
         snapshotInputType: "TOGGLE",
         snapshotPricingMode: "FIXED",
         snapshotLinkedProductId: null,
-        snapshotLinkProductDisplay: null,
+        orderAddOnId: null,
       },
     ],
   };
@@ -355,7 +370,7 @@ function baseWithAgeSelection(optionLabel: string): AdjustmentBaseSnapshot {
         snapshotInputType: "SELECT",
         snapshotPricingMode: "TIERED",
         snapshotLinkedProductId: null,
-        snapshotLinkProductDisplay: null,
+        orderAddOnId: null,
       },
     ],
   };
@@ -444,6 +459,41 @@ test("session configuration workspace edits produce session configuration deltas
       },
     ]
   );
+});
+
+test("linked-product session configuration workspace edits produce add-on deltas", async () => {
+  const { computeWorkspaceProposal, resolveAdjustmentInvoiceLineSemantics } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    packageEditBaseSnapshot,
+    {
+      edits: [
+        {
+          id: "session-config-cake",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-cake",
+          desired: { kind: "toggle" },
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+
+  assert.equal(proposal.netPayableDelta, "9.000");
+  assert.equal(proposal.deltas.length, 1);
+  assert.equal(proposal.deltas[0]?.kind, "addon");
+  assert.equal(proposal.deltas[0]?.refId, "product-cake");
+  assert.equal(
+    proposal.deltas[0]?.refMetadata?.orderAddOnId,
+    "pending:addon:config-cake"
+  );
+  assert.equal(proposal.deltas[0]?.label, "Added: Cake");
+  assert.deepEqual(resolveAdjustmentInvoiceLineSemantics(proposal.deltas[0]!), {
+    lineType: InvoiceLineType.ADD_ON,
+    causeOrderEntityKind: OrderEntityKind.ADDON,
+  });
 });
 
 test("session configuration workspace deltas prefix removed and changed descriptions", async () => {
@@ -581,7 +631,7 @@ test("operational workspace edits leave historical invoice lines untouched", asy
         snapshotInputType: "TEXT",
         snapshotPricingMode: "FIXED",
         snapshotLinkedProductId: null,
-        snapshotLinkProductDisplay: null,
+        orderAddOnId: null,
       },
     ],
   };

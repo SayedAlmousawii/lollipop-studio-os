@@ -13,6 +13,9 @@ export interface AdjustmentCompositionLine {
   lineId: string;
   kind: AdjustmentLineKind;
   refId: string;
+  refMetadata?: {
+    orderAddOnId?: string;
+  };
   label: string;
   quantity: number;
   unitPrice: AdjustmentMoney;
@@ -50,7 +53,7 @@ export type AdjustmentSessionConfigurationSelection = {
   snapshotInputType: "TOGGLE" | "SELECT" | "NUMBER" | "TEXT" | "COUNTER";
   snapshotPricingMode: "NONE" | "FIXED" | "TIERED" | "LINKED_PRODUCT";
   snapshotLinkedProductId: string | null;
-  snapshotLinkProductDisplay: "LINE_ITEM" | "MODIFIER_ONLY" | null;
+  orderAddOnId: string | null;
 };
 
 export type AdjustmentWorkspaceEdit =

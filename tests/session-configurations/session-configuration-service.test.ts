@@ -280,7 +280,6 @@ test("session configuration service creates, updates, archives, and preserves op
           required: false,
           sortOrder: 70,
           linkedProductId: product.id,
-          linkProductDisplay: "LINE_ITEM",
           options: [],
         },
         managerActor

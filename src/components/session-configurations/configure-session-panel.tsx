@@ -470,6 +470,10 @@ function previewFee(
       : null;
   const numericValue =
     "numericValue" in selection ? new Prisma.Decimal(selection.numericValue) : null;
+  if (configuration.pricingMode === "LINKED_PRODUCT") {
+    const total = configuration.linkedProductPrice ?? 0;
+    return total === 0 ? null : `+${total.toFixed(3)} KD`;
+  }
   const result = priceSingleSelection({
     id: configuration.id,
     snapshotConfigurationCode: configuration.code,
@@ -479,22 +483,18 @@ function previewFee(
         ? new Prisma.Decimal(0)
         : configuration.pricingMode === "TIERED"
           ? new Prisma.Decimal(option?.priceDelta ?? 0)
-          : configuration.pricingMode === "LINKED_PRODUCT"
-            ? new Prisma.Decimal(configuration.linkedProductPrice ?? 0)
-            : configuration.inputType === "COUNTER"
-              ? new Prisma.Decimal(configuration.counterUnitPrice ?? configuration.fixedPriceDelta ?? 0).mul(
-                  numericValue ?? new Prisma.Decimal(0)
-                )
-              : new Prisma.Decimal(configuration.fixedPriceDelta ?? 0),
+          : configuration.inputType === "COUNTER"
+            ? new Prisma.Decimal(configuration.counterUnitPrice ?? configuration.fixedPriceDelta ?? 0).mul(
+                numericValue ?? new Prisma.Decimal(0)
+              )
+            : new Prisma.Decimal(configuration.fixedPriceDelta ?? 0),
     snapshotPricingMode: configuration.pricingMode,
     snapshotInputType: configuration.inputType,
     snapshotOptionLabel: option?.label ?? null,
-    snapshotLinkProductDisplay: configuration.linkProductDisplay,
     snapshotLinkedProductId: configuration.linkedProductId,
     numericValue,
   });
-  const total = (result.lineDelta ?? result.nonLineDelta ?? new Prisma.Decimal(0))
-    .toNumber();
+  const total = (result.lineDelta ?? new Prisma.Decimal(0)).toNumber();
 
   if (total === 0) return null;
   return `+${total.toFixed(3)} KD`;

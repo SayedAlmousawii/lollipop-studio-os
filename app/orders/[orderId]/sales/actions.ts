@@ -20,6 +20,7 @@ import {
 import {
   addOrderProductAddOn,
   getPOSWorkspace,
+  OrderAddOnOwnedBySessionConfigurationError,
   removeOrderAddOn,
   recordPOSPaymentForOrder,
   updateOrderPackage,
@@ -562,6 +563,10 @@ const SAFE_POS_ERROR_MESSAGES = new Set([
 
 function posActionErrorMessage(error: unknown): string {
   console.error("Unknown POS action error", error);
+
+  if (error instanceof OrderAddOnOwnedBySessionConfigurationError) {
+    return error.message;
+  }
 
   if (
     error instanceof Error &&

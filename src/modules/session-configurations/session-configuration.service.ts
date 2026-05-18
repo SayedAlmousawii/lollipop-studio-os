@@ -419,7 +419,6 @@ function pricingData(
     | "inputType"
     | "fixedPriceDelta"
     | "linkedProductId"
-    | "linkProductDisplay"
     | "counterPricingMode"
     | "counterUnitPrice"
   >
@@ -427,7 +426,6 @@ function pricingData(
   Prisma.SessionConfigurationUncheckedCreateInput,
   | "fixedPriceDelta"
   | "linkedProductId"
-  | "linkProductDisplay"
   | "counterPricingMode"
   | "counterUnitPrice"
 > {
@@ -439,10 +437,6 @@ function pricingData(
     linkedProductId:
       data.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
         ? data.linkedProductId ?? null
-        : null,
-    linkProductDisplay:
-      data.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
-        ? data.linkProductDisplay ?? null
         : null,
     counterPricingMode:
       data.inputType === SessionConfigurationInputType.COUNTER &&
@@ -481,7 +475,6 @@ function mapConfigurationRow(
     fixedPriceDelta: row.fixedPriceDelta?.toNumber() ?? null,
     linkedProductId: row.linkedProductId,
     linkedProductName: row.linkedProduct?.name ?? null,
-    linkProductDisplay: row.linkProductDisplay,
     counterPricingMode: row.counterPricingMode,
     counterUnitPrice: row.counterUnitPrice?.toNumber() ?? null,
     activeOptionCount: activeOptions.length,
