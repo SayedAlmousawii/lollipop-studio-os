@@ -38,8 +38,6 @@ The system is for internal studio work, so clarity and speed are more important 
 
 ## 3. Color Tokens
 
-## 3. Color Tokens
-
 | Role           | CSS Variable              | Hex / Value |
 |----------------|---------------------------|-------------|
 | background     | `--color-background`      | #F7F3EC     |
@@ -224,12 +222,36 @@ Use sectioned layout:
 - Customer info
 - Booking details
 - Package details
-- Invoice/payment
+- Invoice / payment (Financials tab uses the shared read-only `src/components/financial/` surfaces — Payment Summary, Total Source, Linked Documents — against the POS workspace + FinancialCase linked documents; Price Breakdown comes from the final invoice locked snapshot)
 - Photo selection
 - Editing
 - Production
 - Pickup
 - Timeline / audit log
+
+---
+
+### Locked Sales View
+- Left column: shared normalized `CurrentCompositionCard` in locked mode.
+- Right column: `FinancialSidebarLocked` with Payment Summary, Total Source, Linked Financial Documents, plus Open / Resume / Take Over Adjustment Workspace actions.
+- Pre-lock sales uses `FinancialSidebarDraft` and keeps the original computed/snapshot invoice sidebar behavior.
+
+### Shared Financial UI
+`src/components/financial/` owns read-only Payment Summary, Total Source, Linked Financial Documents, and formatting helpers for FinancialCase-aware displays. These components are **dumb renderers** — they consume projector output from `modules/financial-cases/projections/` and never compute. POS injects action affordances through component slots; Order Details passes none and stays read-only.
+
+### Adjustment Workspace
+- Main column: Stage Edits POS mounts → Preview Composition through `CurrentCompositionCard` in adjustment mode → Pending Changes → Pending Adjustment Summary with Cancel / Discard.
+- Right column: `FinancialSidebarAdjustment` with pending-only financial preview and Finalize / Issue action.
+- The three order financial sidebar orchestrators are Draft, Locked, and Adjustment.
+
+### Session Types (admin)
+Permission-gated admin table grouped by department; create/edit dialogs; archive/unarchive actions; calendar label/color controls; zero-priced extra-photo indicators.
+
+### Pricing (admin)
+Permission-gated extra-photo pricing table grouped by department; one row per active session type; paired DIGITAL/PRINT unit prices edited together in a dialog; non-retroactive invoice banner copy.
+
+### Session Configurations (admin)
+`/session-configurations` for definition + option CRUD behind `PACKAGE_CATALOG_MANAGE`; codes frozen on update; soft archive via `isActive`.
 
 ---
 

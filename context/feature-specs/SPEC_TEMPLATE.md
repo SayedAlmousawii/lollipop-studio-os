@@ -47,5 +47,6 @@ Describe the desired behavior and point to the existing functions, modules, or p
 ## Acceptance Criteria
 
 - Specific, checkable conditions
+- If this spec adds or changes a financial / composition / workflow / status display surface: it consumes the canonical read model + a projector (`modules/financial-cases/projections/` for FinancialCase-bound surfaces) instead of re-deriving in pages or components. Money is read from raw projector fields and formatted via `src/lib/formatting/money.ts`. No `@/lib/db` imports in `app/**` or `src/components/**`.
 - `npm run build` passes
 - `npm run lint` passes

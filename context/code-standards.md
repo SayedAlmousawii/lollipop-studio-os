@@ -1,412 +1,250 @@
-# code-standards.md
+# Studio OS — Code Standards
 
-# Studio OS – Code Standards
+How code is structured, named, validated, and protected. This is a **main doc** (always loaded by default). Older `code-standards-summary.md` content has been merged here; the summary is archived in `context/_archive/summaries/`.
 
-## 1. Development Approach
-
-Studio OS will start as a Next.js full-stack application for speed and simplicity.
-
-However, the code must be written cleanly so the backend can be separated later if needed.
-
-Core rule:
-
-text UI → API/server action → service layer → database 
-
-Do not skip layers.
+For architecture and read-layer principles, see `context/architecture-context.md`.
 
 ---
 
-## 2. Technology Standards
+## 1. Core Layer Rule
+
+```text
+UI → server action / page loader → service module → database
+```
+
+Never skip a layer. The service module is the only place that touches Prisma.
+
+---
+
+## 2. Tech Standards
 
 | Area | Standard |
 |---|---|
-| Language | TypeScript |
-| Frontend | Next.js + React |
-| Styling | Tailwind CSS |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Validation | Zod |
-| API Style | REST-style routes / server actions |
-| Status Values | TypeScript enums or constant unions |
+| Language | TypeScript (no `any`) |
+| Frontend | Next.js (App Router) + React |
+| Styling | Tailwind CSS + shadcn/ui + Lucide |
+| Database | PostgreSQL + Prisma |
+| Validation | Zod (all forms, action inputs, financial records) |
+| API style | Server actions or thin route handlers — validate, check permissions, call service, return |
+| Statuses | TypeScript enums or `as const` unions; never raw strings |
+| Auth | Clerk session + Prisma `User` role |
 
 ---
 
-## 3. Folder Structure
+## 3. Module File Pattern
 
-Use feature-based organization.
+Each domain owns its folder:
 
-text src/ ├── app/ ├── components/ ├── modules/ ├── lib/ ├── integrations/ └── types/ 
+```text
+modules/bookings/
+├── booking.service.ts    # Business logic + DB ops
+├── booking.schema.ts     # Zod schemas
+├── booking.types.ts      # TypeScript types
+├── booking.constants.ts  # Status values, labels, fixed rules
+└── booking.utils.ts      # Small helpers only
+```
 
-Each business feature should live in its own module:
-
-text modules/bookings/ ├── booking.service.ts ├── booking.schema.ts ├── booking.types.ts ├── booking.constants.ts └── booking.utils.ts 
-
----
-
-## 4. Module Pattern
-
-Each module should follow this pattern:
-
-| File | Purpose |
-|---|---|
-| *.service.ts | Business logic and database operations |
-| *.schema.ts | Zod validation schemas |
-| *.types.ts | TypeScript types |
-| *.constants.ts | Status values, labels, fixed rules |
-| *.utils.ts | Small helper functions only |
-
-Example:
-
-text modules/invoices/ ├── invoice.service.ts ├── invoice.schema.ts ├── invoice.types.ts ├── invoice.constants.ts └── invoice.utils.ts 
+Service files own business logic. They handle validation, DB updates, related-record updates, audit logs, and commission updates as one transactional whole when applicable.
 
 ---
 
-## 5. Naming Conventions
+## 4. Naming Conventions
 
 | Item | Convention | Example |
 |---|---|---|
-| Files | kebab-case | booking-card.tsx |
-| Components | PascalCase | BookingCard |
-| Functions | camelCase | createBooking() |
-| Variables | camelCase | selectedPackage |
-| Constants | UPPER_SNAKE_CASE | BASE_DEPOSIT_AMOUNT |
-| Database Models | PascalCase | Booking, Invoice |
-| Enums / Statuses | UPPER_SNAKE_CASE | WAITING_SELECTION |
+| Files | kebab-case | `booking-card.tsx` |
+| Components | PascalCase | `BookingCard` |
+| Functions | camelCase | `createBooking()` |
+| Variables | camelCase | `selectedPackage` |
+| Constants | UPPER_SNAKE_CASE | `DEFAULT_DEPOSIT_AMOUNT` |
+| DB models | PascalCase | `Booking`, `Invoice` |
+| Enums / statuses | UPPER_SNAKE_CASE | `WAITING_SELECTION` |
 
 ---
 
-## 6. TypeScript Rules
+## 5. Status Definition Pattern
 
-- Use TypeScript everywhere.
-- Do not use any unless absolutely unavoidable.
-- Prefer explicit types for business objects.
-- Keep shared types inside the relevant module.
-- Do not duplicate types across modules.
-- Use Zod schemas for runtime validation.
-- Infer types from Zod when useful.
+All workflow statuses are constants — never raw strings.
 
-Example:
+```ts
+// BookingStatus — lifecycle revision is current.
+// PENDING bookings are calendar holds with no references.
+// Deposit recording atomically flips PENDING → CONFIRMED.
+// CHECKED_IN replaces the old COMPLETED state.
+export const BOOKING_STATUS = {
+  PENDING: "PENDING",
+  CONFIRMED: "CONFIRMED",
+  CHECKED_IN: "CHECKED_IN",
+  CANCELLED: "CANCELLED",
+  NO_SHOW: "NO_SHOW",
+} as const;
+```
 
-ts export const createBookingSchema = z.object({   customerId: z.string(),   sessionDate: z.date(),   packageId: z.string(), });  export type CreateBookingInput = z.infer<typeof createBookingSchema>; 
-
----
-
-## 7. UI Component Rules
-
-- UI components should not contain business logic.
-- UI components may handle display, local UI state, and user interaction.
-- Financial calculations must not happen inside React components.
-- Package upgrade logic must not happen inside React components.
-- Commission logic must not happen inside React components.
-
-Bad:
-
-ts const commission = upgradeAmount * 0.1; 
-
-inside a component.
-
-Good:
-
-ts calculatePhotographerCommission(upgradeAmount); 
-
-inside a commission service/helper.
+Important status groups: BookingStatus, OrderStatus, PaymentStatus, InvoiceStatus, InvoiceType, PaymentType, EditingStatus, ProductionStatus, AlbumStatus, PickupStatus, CommissionStatus, VoucherStatus.
 
 ---
 
-## 8. API / Server Action Rules
+## 6. Zod + Type Inference
 
-API routes or server actions should be thin.
+```ts
+export const createBookingSchema = z.object({
+  customerPhone: z.string(),
+  sessionDate: z.date(),
+  packageId: z.string(),
+});
+export type CreateBookingInput = z.infer<typeof createBookingSchema>;
+```
 
-They may:
-- validate input
-- check permissions
-- call service functions
-- return response
-
-They should not:
-- contain complex business logic
-- directly calculate invoices
-- directly calculate commissions
-- directly update multiple unrelated systems without service coordination
+Zod validates: forms, server-action inputs, payment records, package creation, add-ons, upgrades, commission settings, voucher creation. Invalid data is rejected before reaching the database.
 
 ---
 
-## 9. Service Layer Rules
+## 7. Permission & Audit Patterns
 
-Service files own business logic.
+```ts
+requirePermission(user, "payment:update");
+```
 
-Examples:
-- creating bookings
-- confirming deposits
-- upgrading packages
-- calculating invoice totals
-- assigning editors
-- marking production complete
-- calculating commissions
+Every protected action checks permission. High-risk server actions pass `actorUserId` into service operations.
 
-Example:
+**Audit log fields** for sensitive actions:
 
-ts await upgradeOrderPackage({   orderId,   newPackageId,   performedByUserId, }); 
+```text
+userId | action | entityType | entityId | oldValue | newValue | timestamp | note
+```
 
-The service should handle:
-- validation
-- database update
-- invoice update
-- audit log
-- commission update if needed
-
----
-
-## 10. Database Access Rules
-
-- Prisma queries should stay inside service files.
-- UI components must never call Prisma directly.
-- Shared database client lives in lib/db.
-- Do not spread raw database logic across pages/components.
-- Use transactions for multi-step financial or workflow updates.
-
-Use transactions for:
-- package upgrades
-- payments
-- commission creation
-- voucher usage
-- order delivery
-- invoice changes
-
----
-
-## 11. Status Rules
-
-All workflow statuses must be defined as enums or constant unions.
-
-Do not use random strings.
-
-Example:
-
-ts export const BOOKING_STATUS = {   PENDING: "PENDING",   DEPOSIT_PAID: "DEPOSIT_PAID",   CONFIRMED: "CONFIRMED",   CANCELLED: "CANCELLED",   NO_SHOW: "NO_SHOW", } as const; 
-
-Important status groups:
-
-- Booking status
-- Payment status
-- Order status
-- Editing status
-- Print status
-- Album status
-- Pickup status
-- Commission status
-- Voucher status
-
----
-
-## 12. Validation Rules
-
-Use Zod for:
-- forms
-- API inputs
-- payment records
-- package creation
-- add-ons
-- upgrades
-- commission settings
-- voucher creation
-
-Invalid data must be rejected before reaching the database.
-
----
-
-## 13. Financial Logic Rules
-
-Financial logic must be centralized.
-
-Centralize logic for:
-- deposit amount
-- base package payment
-- upgrade difference
-- add-on totals
-- package replacement
-- commission calculation
-- voucher usage
-- discounts/overrides
-
-Never duplicate financial formulas in multiple places.
-
-Important rule:
-
-text Package upgrade = final package price - already paid package price 
-
-Not:
-
-text old package + new package 
-
----
-
-## 14. Package Rules
-
-- Packages are templates.
-- Orders store original package and final package.
-- Package upgrades replace the final package.
-- Add-ons are added on top of the final package.
-- Old invoices/orders must not change if a package template is edited later.
-
-This means orders should store snapshots of important package data.
-
----
-
-## 15. Audit Logging Rules
-
-Create audit logs for sensitive actions:
-
-- payment added/edited/deleted
+**Sensitive actions requiring audit logs** (co-transactional with the action via `recordAuditLog`):
+- payment added / edited / deleted
 - package upgraded
 - package price overridden
-- add-on added/removed
-- commission created/edited/paid
-- voucher issued/used
+- add-on added / removed
+- commission created / edited / paid
+- voucher issued / used
 - order marked delivered
 - manual status override
-- refund/complaint/dispute
-
-Each audit log should store:
-
-text userId action entityType entityId oldValue newValue timestamp note 
+- invoice lock / unlock
+- refund / credit-note issuance
+- post-lock workspace finalize
 
 ---
 
-## 16. Permission Rules
+## 8. Financial Logic Rules
 
-Every protected action must check permissions.
-
-Examples:
-
-- Only manager/admin can override prices.
-- Only manager/admin can approve commissions.
-- Only accountant/manager/admin can edit payments.
-- Editors can only update assigned editing jobs.
-- Photographers can view assigned sessions but not financial data.
-- Receptionists can create bookings but not modify commissions.
-
-Permission checks should live in reusable helpers.
-
-Example:
-
-ts requirePermission(user, "payment:update"); 
+- All financial logic lives in service files. Never in components, pages, or server actions.
+- **No duplicated financial formulas.** A formula has exactly one definition.
+- Upgrade charge formula: `finalPackagePrice − originalPaidPackagePrice` (subtraction; never addition).
+- `PaymentType.BASE` is retired. The remaining-balance payment against the Final Invoice at POS uses `PaymentType.FINAL`.
+- Invoice split: `InvoiceType.DEPOSIT` (created at confirmation, immediately PAID + LOCKED) and `InvoiceType.FINAL` (created at POS finalization). Do not use a single evolving invoice for both stages.
+- Editing cannot start until the Final Invoice remaining balance is fully paid.
+- Multi-step financial operations run inside a transaction; failures roll back the whole operation.
 
 ---
 
-## 17. Error Handling Rules
+## 9. Read-Layer Rules (canonical; tied to architecture standards)
 
-- Errors should be clear and user-friendly.
+These mirror §6 of `context/architecture-context.md`. They are repeated here because most code review happens against this file.
+
+- **Do not compute business semantics in components or pages.** Money totals, payment status, composition state, allowed actions, blocked reasons — all come from service-layer read models.
+- **Do not parse formatted money strings.** Read raw numbers from projector output.
+- **New financial / composition / workflow display surfaces require a projector** in the relevant module (`modules/financial-cases/projections/` for FinancialCase-bound displays). Do not re-derive in the page or component.
+- **One money formatter** lives at `src/lib/formatting/money.ts`. No surface defines its own.
+- **One status-label source per enum** lives in that enum's `*.constants.ts`. No component redefines labels.
+- **One canonical read model per business concept**; surface projectors reshape but never recompute.
+
+---
+
+## 10. DB Access Rules
+
+- Prisma queries only inside service files (`src/modules/**/*.service.ts`).
+- Shared DB client lives in `src/lib/db`.
+- **Do not import `@/lib/db` from `app/**` or `src/components/**`.** Allowed only in `src/modules/**`, `src/lib/**`, `tests/**`, `scripts/**`.
+- Use transactions for: package upgrades, payments, commission creation, voucher usage, order delivery, invoice changes, post-lock workspace finalize.
+
+---
+
+## 11. UI Component Rules
+
+- UI components handle display, local UI state, and user interaction.
+- No financial calculations, no package logic, no commission logic, no composition derivation inside components.
+- No inline styles; no random hex colors. Use design tokens (see `context/ui-context.md`).
+- Use shared UI components (Button, Input, Select, Card, Table, Badge, Tabs, Dialog, Toast, Status Timeline). Do not create one-off variants.
+
+---
+
+## 12. API / Server Action Rules
+
+Server actions and route handlers are thin:
+- validate input (Zod)
+- check permissions
+- call a service function
+- return response
+
+They never contain complex business logic, financial calculations, commission math, or cross-system updates outside service coordination.
+
+---
+
+## 13. Form Rules
+
+- Zod validation on all forms.
+- Errors shown near fields.
+- Submit disabled while saving.
+- Success / failure feedback shown.
+- Dangerous actions require confirmation.
+
+Important forms: create booking, record payment, upgrade package, add add-on, assign editor, mark job complete, issue voucher, finalize workspace.
+
+---
+
+## 14. Error Handling Rules
+
+- Errors must be clear and user-friendly.
 - Do not expose raw database errors to users.
 - Log technical errors internally.
-- Financial failures must not silently pass.
-- Multi-step operations must fail safely.
-
-Example:
-
-If package upgrade succeeds but invoice update fails, the entire operation should roll back.
+- Financial failures must surface — never silently swallow.
+- Multi-step operations fail safely (transactions; full rollback on error).
 
 ---
 
-## 18. Styling Rules
+## 15. Comments and Documentation
 
-- Use Tailwind CSS.
-- Avoid inline styles.
-- Avoid random hex colors in components.
-- Use shared UI components for buttons, inputs, modals, tables, cards, and badges.
-- Follow ui-context.md once it is created.
-- Keep layouts consistent across dashboard pages.
+Comment only when the *why* is non-obvious — financial calculations, package upgrade rules, commission logic, workflow transitions, permission decisions. Do not comment obvious code.
 
 ---
 
-## 19. Form Rules
+## 16. Verification Before Completion
 
-Forms should:
-- use Zod validation
-- show clear error messages
-- prevent invalid submission
-- disable submit while saving
-- show success/failure feedback
-
-Important forms:
-- create booking
-- record payment
-- upgrade package
-- add add-on
-- assign editor
-- mark job complete
-- issue voucher
-
----
-
-## 20. Reporting Rules
-
-Reports must be generated from source data, not manually entered totals.
-
-Reports should be based on:
-- payments
-- invoices
-- upgrades
-- commissions
-- job statuses
-- audit logs where needed
-
-Daily/monthly totals must match recorded payments.
-
----
-
-## 21. Comments and Documentation
-
-Use comments only when logic is not obvious.
-
-Comment:
-- financial calculations
-- package upgrade rules
-- commission logic
-- workflow transitions
-- permission decisions
-
-Do not comment obvious code.
-
----
-
-## 22. Testing / Verification Checklist
-
-Before a feature is considered complete:
-
+Before marking a unit complete:
 - TypeScript has no errors
 - No console errors
 - Forms validate correctly
-- Permissions are checked
-- Financial calculations are correct
-- Audit logs are created for sensitive actions
-- Status transitions work correctly
-- UI works on desktop and tablet widths
-- Existing flows are not broken
+- Permissions enforced
+- Financial calculations verified
+- Audit logs created for sensitive actions
+- Status transitions work
+- UI renders correctly on desktop and tablet widths
+- No unrelated features broken
+- `npm run build` passes
+- `npm run lint` passes
 
 ---
 
-## 23. AI Coding Agent Rules
+## 17. What to Avoid
 
-When using Codex or another AI coding agent:
-
-- Work on one feature unit at a time.
-- Read context files before coding.
-- Do not invent new architecture.
-- Do not add dependencies unless needed.
-- Do not change financial logic without explicit instruction.
-- Do not modify unrelated files.
-- Update progress tracker after meaningful changes.
-- Ask when requirements are missing instead of guessing.
-
----
-
-## 24. Core Codebase Rule
-
-The codebase must remain easy to separate later.
-
-That means:
-
-text Business logic must live in modules, not UI pages. Database access must live in services, not components. Financial rules must be centralized, not duplicated. Permissions must be enforced before sensitive actions. 
+- No `any` in TypeScript.
+- No raw strings for statuses.
+- No Prisma queries in components, pages, server actions, or any file under `app/**` or `src/components/**`.
+- No business logic in UI components.
+- No duplicated financial formulas.
+- No formatted-money parsing in UI.
+- No inline styles; no random hex colors.
+- No multi-step financial operations without transactions.
+- No silent failures — financial failures must surface.
 
 ---
+
+## 18. Related Docs
+
+- `context/architecture-context.md` — module ownership, invariants, canonical read layer.
+- `context/ai-workflow-rules.md` — how the agent behaves (scoping, splitting, completion).
+- `context/ui-context.md` — visual tokens, component variants, page patterns.
+- `context/target-data-model.md` — Prisma schema for the canonical data model.

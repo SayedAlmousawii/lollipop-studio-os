@@ -1,392 +1,264 @@
-# architecture.md
+# Studio OS — Architecture
 
-# Studio OS – Architecture
+Canonical architecture, module ownership, invariants, and the read-layer standards every feature must follow.
 
-## 1. Stack Table
+This is a **main doc** (always loaded by default). Older `architecture-summary.md` content has been merged here; the summary is archived in `context/_archive/summaries/`.
 
-| Layer | Technology | Role |
+---
+
+## 1. Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js (App Router) + React (TypeScript) |
+| Styling | Tailwind CSS + shadcn/ui + Lucide icons |
+| Backend | Next.js server actions + service modules (no separate API service in V1) |
+| Database | PostgreSQL via Prisma |
+| Auth | Clerk (`@clerk/nextjs`) — session/identity. Prisma `User` is the source of truth for role and internal identity. |
+| File Storage | Synology NAS (manual folder link in V1) |
+| Payments | Manual recording in V1 |
+| Notifications | Manual / template in V1 |
+
+Layer flow:
+```text
+Staff Browser → Next.js (page / server action) → service module → PostgreSQL
+```
+
+The database is the single source of truth. Google Calendar, WhatsApp, Synology are integrations — never sources of truth.
+
+---
+
+## 2. Folder Structure (actual, current)
+
+```text
+src/
+├── app/                    # Pages, layouts, server actions (no DB imports here)
+├── components/             # UI; never imports the DB
+│   ├── financial/          # Shared read-only financial UI (payment summary, total source, linked documents, line items)
+│   ├── orders/             # POS, sidebars, composition cards
+│   ├── session-configurations/
+│   └── ...
+├── modules/                # Business logic; the only place DB is touched
+│   ├── adjustment-workspace/   # Post-lock staged edits
+│   ├── audit/                  # AuditLog writes
+│   ├── bookings/
+│   ├── calendar/
+│   ├── commissions/
+│   ├── composition-view/       # Shared composition normalizer
+│   ├── customers/
+│   ├── dashboard/
+│   ├── departments/
+│   ├── development/            # Dev-only resets and utilities
+│   ├── financial/              # Cross-entity financial rules (classifier, invariants, reconciliation)
+│   ├── financial-cases/        # PLANNED in R1 — FinancialCase-scoped read models + projectors (see §6, §7). Folder does not exist yet.
+│   ├── identifiers/            # BK / JOB / INV reference generation
+│   ├── invoices/
+│   ├── jobs/
+│   ├── orders/
+│   ├── packages/
+│   ├── payments/
+│   ├── pricing/
+│   ├── products/
+│   ├── refunds/
+│   ├── session-configurations/
+│   └── session-types/
+├── lib/
+│   ├── auth/
+│   ├── db/                 # Prisma client — importable only from modules/, lib/, tests/, scripts/
+│   ├── formatting/         # Shared formatters (money, dates) — single source per format
+│   ├── invoices/
+│   ├── permissions/
+│   ├── retry.ts
+│   └── utils.ts
+└── types/
+```
+
+---
+
+## 3. Module Ownership
+
+| Module | Owns | Does NOT own |
 |---|---|---|
-| Frontend | Next.js + React | Admin dashboard and staff UI |
-| Language | TypeScript | Type safety across frontend/backend |
-| Styling | Tailwind CSS | Fast, consistent UI styling |
-| Backend | Node.js API / NestJS recommended | Business logic, workflows, permissions, invoices, reports |
-| Database | PostgreSQL | Main source of truth for customers, bookings, orders, payments, jobs |
-| ORM | Prisma | Database schema, migrations, typed queries |
-| Auth | Auth.js / Clerk / custom JWT | User login, sessions, role-based access |
-| File Storage | Synology NAS manually linked in V1 | Stores actual photos/files outside database |
-| Calendar | Internal booking calendar first | System owns bookings; Google Calendar sync later |
-| Payments | Manual recording in V1 | Payment gateway integration later |
-| Notifications | Manual/semi-template in V1 | WhatsApp/email automation later |
-| Hosting | Hybrid recommended | Cloud app + local Synology media storage |
+| Customers | parent profile, phone, children, session history | invoices, job statuses |
+| Bookings | date/time, dept, session type, status, photographer, themes; atomic confirmation that generates BK reference + FinancialCase + locked Deposit Invoice | final invoice, package upgrade |
+| Packages | templates, prices, included items, add-on definitions, upgrade rules | per-customer orders |
+| SessionTypes | admin-managed taxonomy, frozen code, calendar label/color, archive state, default PackageFamily + zero-priced extra-photo pricing rows on create | department CRUD, package pricing |
+| Pricing | active session-type extra-photo unit prices, transactional paired DIGITAL/PRINT updates | invoice snapshotting, package pricing, price history |
+| Orders | original package, final package, selected photos, deliverables, add-ons, order state, price snapshots, POS workspace | financial truth (delegated to FinancialCase) |
+| FinancialCase | financial grouping hub — owns all Invoices and Payments for a workflow thread; bridges Booking → Job | operational workflow state |
+| FinancialCases (read layer) | `FinancialCaseSummary` canonical read model + surface projectors (header, financials tab, sales sidebar, payment dialog, orders table, booking page, invoice list). **Module is planned in R1; folder does not exist yet.** | mutations of any kind |
+| Invoices / Payments | invoice total, deposit invoice, final invoice, adjustment/credit-note/refund invoices, allocation, status; locked-invoice contract | display projections (delegated to FinancialCases read layer) |
+| AdjustmentWorkspace | post-lock operational edit staging, package-tier / package-item / add-on / photo-count / session-config pending changes, owner/takeover lifecycle, event stream, POS-shaped derived read model, pending-change display normalization, pending financial preview | revenue reporting, payment posting |
+| Session Configurations | per-session-type operational/financial modifiers, snapshot selection writes, pricing, post-lock routing | order composition |
+| Composition View | shared composition normalizer (`buildCompositionView`) and presentational card for locked/adjustment displays | derivation of effective composition (delegated to AdjustmentWorkspace + Orders) |
+| Identifiers | BK / JOB / INV sequences, self-healing on drift | business workflow |
+| Editing / Production / Delivery | workflow states, transition rules, assignment, completion | financial state |
+| Commissions | upgrade tracking, photographer commission calc, status | invoice writes |
+| Refunds | REFUND invoice + outbound payment, source-payment traceability, cap enforcement | invoice line composition |
+| Audit | append-only AuditLog records co-transactional with actions | anything else |
+| Dashboard / Reports | read-only derivations for KPIs | mutations |
 
 ---
 
-## 2. High-Level Architecture
+## 4. Role Permissions
 
-Studio OS is a web-based internal operations system.
+| Role | Access |
+|---|---|
+| Admin | Full access |
+| Manager | Full view; can edit assignments, overrides, commissions, reports |
+| Receptionist | Customers + bookings; no financial overrides or commissions |
+| Reservation Employee | Calendar + scheduling; no financial access |
+| Photographer | Assigned sessions only; no payments/invoices/commissions |
+| Editor | Assigned editing jobs only; no financial data |
+| Accountant | Invoices + payments + reports; no editing/production changes |
 
-The database is the source of truth.
-
-Google Calendar, payment links, WhatsApp, and Synology should be integrations — not the main source of truth.
-
-text Staff Browser    ↓ Next.js Admin Dashboard    ↓ Backend API / Services    ↓ PostgreSQL Database    ↓ Optional Integrations: Google Calendar / Payment Gateway / WhatsApp / Synology 
-
----
-
-## 3. System Boundaries
-
-Recommended folder structure:
-
-text src/ ├── app/ │   ├── dashboard/ │   ├── customers/ │   ├── bookings/ │   ├── orders/ │   ├── packages/ │   ├── invoices/ │   ├── jobs/ │   ├── commissions/ │   ├── reports/ │   └── settings/ │ ├── components/ │   ├── ui/ │   ├── forms/ │   ├── tables/ │   ├── calendar/ │   └── layout/ │ ├── modules/ │   ├── customers/ │   ├── bookings/ │   ├── packages/ │   ├── orders/ │   ├── invoices/ │   ├── payments/ │   ├── editing/ │   ├── production/ │   ├── commissions/ │   ├── reports/ │   └── auth/ │ ├── lib/ │   ├── db/ │   ├── auth/ │   ├── permissions/ │   ├── validators/ │   └── utils/ │ ├── integrations/ │   ├── google-calendar/ │   ├── payments/ │   ├── whatsapp/ │   └── synology/ │ └── types/ 
-
----
-
-## 4. Module Responsibilities
-
-### Customers Module
-Owns:
-- parent/customer profile
-- phone number
-- linked children
-- customer history
-
-Does not own:
-- invoices
-- job statuses
-- production states
+Auth rules:
+- Every user must log in (Clerk session).
+- Every action must check role permissions via `requirePermission` / `assertActorPermission`.
+- Financial, commission, and package-price-override changes must be audit-logged (AuditLog rows co-transactional with the action).
+- High-risk server actions pass `actorUserId` to service operations for attribution.
 
 ---
 
-### Bookings Module
-Owns:
-- date/time
-- department
-- session type
-- booking status
-- assigned photographer
-- selected themes
-- deposit status
+## 5. V1 Integration Stance
 
-Does not own:
-- final invoice totals
-- package upgrade logic
-- editing status
+- Payments: manual recording (no gateway).
+- Synology: store folder path string on the order; manual linking.
+- Calendar: internal system is the source of truth; no Google Calendar sync in V1.
+- WhatsApp: manual messages only.
+- No background jobs required in V1 (nightly reconciliation runs via scheduled workflow only).
+
+Add integrations after V1 workflow is stable; never as sources of truth.
 
 ---
 
-### Packages Module
-Owns:
-- package templates
-- package price
-- included items
-- add-on definitions
-- upgrade rules
+## 6. Canonical Architecture Standards (permanent rules)
 
-Does not own:
-- customer-specific final order
+These are standing engineering law. Every spec and every PR must satisfy them. They are not phase rules and do not expire.
 
----
+### 6.1 Write/Read Separation
 
-### Orders Module
-Owns:
-- original package
-- final package
-- selected photos count
-- final deliverables
-- add-ons
-- current order state
+- **Canonical write services own all mutations.** Every database mutation goes through a `modules/<domain>/<domain>.service.ts` function. UI, pages, server actions, and API routes never mutate the DB directly.
+- **Canonical read models own all display truth.** Business semantics — totals, payment status, composition, available actions, blocked reasons, formatted money — are produced by service-layer read models, never by pages or components.
+- **No mixed roles.** A function either mutates or it derives display. A function that mutates does not return display strings; a function that derives display does not write.
 
----
+### 6.2 One Truth, Many Projections
 
-### Invoice / Payment Module
-Owns:
-- invoice total
-- deposit
-- base payment
-- upgrade payment
-- add-on payment
-- payment method
-- payment status
+- **One canonical read model per business concept**, exposing raw structured fields (numbers, enums, references). FinancialCaseSummary is the financial example; OrderCompositionViewModel will be the composition example.
+- **Surface-specific projector functions** consume the canonical model and produce typed DTOs shaped for one surface (header chip, table row, sidebar, dialog, page section).
+- Projectors **may** reshape, filter, group, and re-label. Projectors **may not** recompute business semantics independently.
+- A new financial/composition/workflow surface = new projector, never a new derivation.
 
----
+### 6.3 Dumb UI
 
-### Editing Module
-Owns:
-- assigned editor
-- edit status
-- revision loop
-- edit complete flag
-- customer approval status
+- UI components and pages render. They do not compute money, derive status, decide allowed actions, or assemble totals from partial rows.
+- No formatted-string parsing in UI. Read raw numbers/enums from projector output.
+- No business strings hardcoded in UI when a policy or projector can supply them (blocked reasons, action labels, badge copy).
 
----
+### 6.4 Service-Only DB Access
 
-### Production Module
-Owns:
-- print job status
-- album design status
-- vendor album status
-- ready for pickup status
+- `@/lib/db` (the Prisma client) is imported **only** from `src/modules/**`, `src/lib/**`, `tests/**`, and `scripts/**`.
+- `app/**` and `src/components/**` never import the DB client. Server actions call service functions; pages call service loaders.
+
+### 6.5 Centralized Policies
+
+- Edit-mode rules (draft / locked / adjustment) live in one policy module. Every UI consumer reads from it. Service-layer write guards remain authoritative; the policy reads the same predicates the guards use.
+- Workflow availability rules (booking / editing / production / delivery) live in per-area policy builders. UI never hardcodes action lists.
+
+### 6.6 Centralized Formatting
+
+- One money formatter at `src/lib/formatting/money.ts`. No surface defines its own.
+- One status-label source per status enum (the enum's `*.constants.ts` file). No component redefines labels.
+
+### 6.7 Module-Scope Discipline
+
+- New financial concepts bound to a FinancialCase live in `modules/financial-cases/`.
+- Cross-entity financial rules (classifier, invariants, reconciliation) live in `modules/financial/`.
+- Operational composition lives in `modules/orders/composition/`.
+- Each module owns its DB writes, its policies, its read models, and its projectors.
 
 ---
 
-### Commission Module
-Owns:
-- upgrade tracking
-- photographer commission calculation
-- commission status
-- daily/monthly commission reports
+## 7. Canonical Read Layer
+
+The read layer translates database state into display truth. It is built on the standards above.
+
+### 7.1 FinancialCaseSummary (canonical financial read model — planned in R1)
+
+The `modules/financial-cases/` module does not exist in the codebase yet; it is created in R1 (see `context/reviews/centralization-roadmap.md`). The description below is the target shape that R1 must produce.
+
+- One service in `modules/financial-cases/` exposes `getFinancialCaseSummary({ financialCaseId | orderId | bookingId })`.
+- The summary contains: invoice total, effective paid, deposit applied, remaining, overpaid / refund capacity, linked documents (DEP / FINAL / ADJ / CN / REFUND), status classification.
+- The summary handles boundary states explicitly, including the booking-stage state (confirmed booking, no Job yet, no Final Invoice yet) — it returns booking-stage fields (`depositPaid`, `awaitingFinalInvoiceAfterCheckIn`, `finalInvoicePending`) instead of synthesizing a final-invoice state.
+
+### 7.2 Surface Projectors
+
+Each UI surface consumes its own projector in `modules/financial-cases/projections/`:
+
+| Projector | Used by |
+|---|---|
+| `toOrderHeaderFinancial` | Order detail header cards |
+| `toFinancialTabBlock` | Order detail Financials tab |
+| `toSalesSidebarDraft` / `toSalesSidebarLocked` | Sales view sidebars |
+| `toPaymentDialogContext` | Payment / refund dialogs |
+| `toOrdersTableRow` | Orders list table |
+| `toBookingPageFinancial` | Booking detail page |
+| `toInvoiceListRow` | Invoice list table |
+
+A new financial surface = add a new projector. Do not recompute from raw invoice/payment rows.
+
+### 7.3 Future Read Models (planned, same pattern)
+
+- **OrderCompositionViewModel** in `modules/orders/composition/` — packages, item upgrades, add-ons, extra photos, session configurations, deliverables, totals; base / effective / pending-adjustment projections.
+- **OrderEditModePolicy** in `modules/orders/policies/` — draft / locked / adjustment rules; returns `{ canEditDirectly, shouldOpenAdjustmentWorkspace, requiresManagerApproval, blockedReason?, routeTarget? }`.
+- **Workflow policy builders** per area (booking / editing / production / delivery) — available actions, blockers, labels, manager-override requirements.
+
+Detailed sequencing for adopting these is in `context/reviews/centralization-roadmap.md`.
 
 ---
 
-### Reports Module
-Owns:
-- daily sales
-- monthly sales
-- upgrade revenue
-- commission reports
-- pending jobs
-- delayed jobs
+## 8. Core Invariants (never violate)
+
+1. The database is the source of truth — not Google Calendar, WhatsApp, or Synology.
+2. Pending bookings consume no references (no BK, no JOB, no invoice numbers). They are calendar holds only and are hard-deleted on cancellation.
+3. Booking confirmation is atomic: deposit recording generates the BK reference, creates the FinancialCase, and issues a locked closed Deposit Invoice (default 20 KD, minimum 20 KD, immutable thereafter) in one transaction.
+4. Booking check-in is atomic and payment-free: generates the JOB reference, creates the canonical Job, stamps `FinancialCase.jobId`, and creates the initial `WAITING_SELECTION` Order.
+5. A session cannot move to editing until the Final Invoice remaining balance is fully paid (`PaymentType.FINAL`). `PaymentType.BASE` is retired.
+6. Package upgrade = replace the final package (not a second line). Upgrade charge = `finalPackagePrice − originalPaidPackagePrice`.
+7. Commission is created only from package upgrade revenue.
+8. Every payment, package change, commission change, and price override is audit-logged co-transactionally via `AuditLog`.
+9. Editing / printing / album / pickup are separate sub-statuses, not one flat status.
+10. Staff can only update their responsible workflow area (unless manager / admin).
+11. An order is not marked delivered until all required production jobs are complete.
+12. Manual overrides must store who, when, and why.
+13. Package template edits never retroactively change old invoices or orders.
+14. Locked final invoices accept post-lock operational session-configuration edits only through `writeOrderPackageSelections(..., { allowPostLock: true, postLockAudit })`, which produces operational diffs plus co-transactional `AuditLog` rows. Adjustment Workspace session-selection changes stage through `change_session_configuration_selection`; operational edits finalize as row writes plus `post_lock_workspace` audit logs. Standard financial session-selection edits (`FIXED` / `TIERED`) finalize as `SESSION_CONFIGURATION` adjustment invoice lines linked to the real selection row; `LINKED_PRODUCT` financial edits finalize as `ADD_ON` adjustment invoice lines linked to the real `OrderAddOn` row.
+15. `derivePOSWorkspaceFromAdjustmentWorkspace()` is the read-only bridge from staged workspace state to shared POS UI modules. Handlers stage edits into `pending_changes_json`; the unlocked sales page handlers still commit directly.
+16. `derivePendingAdjustmentPreview()` is the service-layer source for Adjustment Workspace sidebar preview totals. Base Locked Total reads live from the parent final invoice plus finalized ADJs through settlement math; pending additions / reductions / net come from `computeWorkspaceProposal()`.
+17. `buildPendingChangesView()` is the pure display normalizer for staged edits. It renders business-facing pending change rows from the edit DSL and optional base/proposed/delta context; it is not a financial calculation source.
+18. Locked invoices remain content-immutable, but unpaid locked invoices can accept append-only payments and refresh payment-derived fields. A DB trigger blocks frozen-field mutation of locked invoices; every service lock path writes an `InvoiceLockSnapshot`.
+19. Payment settlement acquires an invoice row lock before balance reads; fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
+20. PaymentAllocation totals cannot exceed the invoice's `totalAmount` (DB trigger); ADJUSTMENT invoices cannot parent another ADJUSTMENT (DB trigger).
 
 ---
 
-## 5. Storage Model
+## 9. What to Avoid
 
-## PostgreSQL Database
-
-Store structured business data:
-
-- users
-- roles
-- customers
-- children
-- bookings
-- sessions
-- packages
-- package items
-- orders
-- invoices
-- payments
-- upgrades
-- add-ons
-- editing jobs
-- production jobs
-- commissions
-- vouchers
-- audit logs
-- reports metadata
+- Do not place business logic outside `modules/*/`.
+- Do not query the DB from UI components or pages, or from `app/**` server actions/loaders.
+- Do not parse formatted money strings in components.
+- Do not compute money, status, or composition in components or pages.
+- Do not treat external integrations as sources of truth.
+- Do not add integrations before V1 workflow is stable.
+- Do not introduce alternative libraries for validation, DB, styling, or auth (stay on Zod, Prisma, Tailwind, Clerk).
+- Do not modify `prisma/schema.prisma`, financial / commission core logic, or auth configuration without explicit instruction.
 
 ---
 
-## Synology NAS
-
-Store actual media files:
-
-- raw photos
-- selected photos
-- edited photos
-- album design files
-- final delivery folders
-
-V1 approach:
-- store manual Synology folder link/path in the order record
-
-Example:
-
-text Order NAS Folder: \\Synology\Newborn\2026-05-04\965XXXXXXXX-BabyName 
-
-Future:
-- automatic folder creation
-- direct folder browsing
-- automatic file linking
-
----
-
-## Cache
-
-Not required in V1.
-
-Possible future uses:
-- dashboard statistics
-- report previews
-- calendar availability
-- notification queues
-
----
-
-## 6. Auth & Access Model
-
-Recommended roles:
-
-- Admin
-- Manager
-- Receptionist
-- Reservation Employee
-- Photographer
-- Editor
-- Accountant
-
----
-
-## Role Permissions
-
-| Role | Can View | Can Edit | Restricted From |
-|---|---|---|---|
-| Admin | Everything | Everything | Nothing |
-| Manager | Everything | Assignments, overrides, commissions, reports | Nothing major |
-| Receptionist | Customers, bookings, orders | Create bookings, update reminders, customer info | Financial overrides, commissions |
-| Reservation Employee | Calendar, bookings, themes | Scheduling and confirmation | Financial overrides |
-| Photographer | Assigned sessions | Limited notes/status only | Payments, invoices, commissions |
-| Editor | Assigned editing jobs | Edit status, revision status | Payments, customer financial info |
-| Accountant | Invoices, payments, reports | Payment verification, reports | Editing/production changes |
-
----
-
-## Auth Rules
-
-- Every user must log in.
-- Every action must be checked against role permissions.
-- Sensitive actions require manager/admin permission.
-- Financial changes must be audit logged.
-- Commission changes must be audit logged.
-- Package price overrides must be audit logged.
-
----
-
-## 7. Background Tasks / Automation Model
-
-V1:
-- Mostly manual
-- System shows reminders and pending tasks
-- Staff sends WhatsApp messages manually
-
-Future background tasks:
-- automatic booking reminders
-- selection reminders
-- approval reminders
-- pickup notifications
-- delayed job alerts
-- Google Calendar sync
-- payment status sync
-- daily report generation
-
-Recommended future tool:
-- Trigger.dev, BullMQ, or similar background job system
-
----
-
-## 8. Integration Strategy
-
-## Google Calendar
-
-V1:
-- internal booking calendar is source of truth
-- optional manual calendar usage
-
-Future:
-- sync confirmed bookings to Google Calendar
-- color-code events by session type
-- attach theme links
-- update calendar when booking changes
-
----
-
-## Payments
-
-V1:
-- manually record KNET / link / cash payment
-
-Future:
-- payment gateway integration
-- automatic payment confirmation
-- automatic invoice status update
-
----
-
-## WhatsApp
-
-V1:
-- manual messages or copied templates
-
-Future:
-- WhatsApp Business API integration
-- automatic reminders
-- pickup notifications
-- approval follow-ups
-
----
-
-## Synology
-
-V1:
-- manual folder link/path
-
-Future:
-- automatic folder creation
-- file status tracking
-- folder validation
-
----
-
-## 9. Core Invariants
-
-These are rules the codebase must never violate.
-
-1. The database is the source of truth, not Google Calendar, WhatsApp, or Synology.
-
-2. A booking cannot become confirmed until the 20 KD deposit is recorded.
-
-3. A session cannot move to editing until the base package payment is recorded.
-
-4. A package upgrade must replace the final package, not add a second package line.
-
-5. Upgrade charges must be calculated from the difference between original paid package and final package.
-
-6. Commission is created only from package upgrade revenue unless management defines another rule.
-
-7. Every payment, package change, commission change, and financial override must be audit logged.
-
-8. Editing, printing, album production, and pickup must be separate sub-statuses, not one flat status.
-
-9. Staff members can only update the workflow area they are responsible for unless they are manager/admin.
-
-10. An order should not be marked delivered until all required production jobs are complete.
-
-11. Manual overrides must store who changed it, when, and why.
-
-12. Package templates must not be modified retroactively in a way that changes old invoices/orders.
-
----
-
-## 10. V1 Architecture Decision
-
-For V1, build the system as:
-
-- Web admin dashboard
-- PostgreSQL database
-- Manual payment recording
-- Manual Synology folder linking
-- Internal calendar/source of truth
-- Manual WhatsApp messages
-- Role-based staff accounts
-- Basic reports
-
-Integrations should be added after the workflow is stable.
-
----
-
-## 11. Future Architecture Additions
-
-Possible later additions:
-
-- Google Calendar sync
-- Payment gateway integration
-- WhatsApp automation
-- Synology direct integration
-- Customer portal
-- Online booking page
-- Inventory system
-- Multi-branch support
-- Advanced analytics
-- Cloud backup integration
-
----
+## 10. Related Docs
+
+- `context/code-standards.md` — code shape, naming, validation, audit fields, read-layer rules.
+- `context/ai-workflow-rules.md` — agent behavior, scoping, completion gates.
+- `context/target-data-model.md` — Prisma schema reference for the canonical data model.
+- `context/reviews/centralization-roadmap.md` — sequencing for adopting the read-layer standards across the codebase (R1–R12).
+- `context/ui-context.md` — visual tokens, component rules, page patterns.
