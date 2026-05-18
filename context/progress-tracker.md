@@ -5,6 +5,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Session Configurations dev reset is complete: `/session-configurations` shows a development-only reset control that clears configuration definitions, options, and saved order-package configuration selections after rechecking package-catalog manage permission.
+- Development workflow reset hotfix is complete: reset now clears AdjustmentWorkspace/event rows, invoice snapshots/lines, session-configuration selections, order package children, order activities, editing/production jobs, and booking package rows explicitly before deleting parent workflow records.
 - Feature 88 is complete: Session Configurations now have schema/migration scaffolding for session-type definitions, option rows, and per-OrderPackage snapshotted selections, with no runtime reads or writes wired yet.
 - Feature 87 is complete: Order Details Financials now reads POS workspace + FinancialCase linked documents, renders the shared read-only Payment Summary/Total Source/Linked Documents components before snapshot Price Breakdown, and the retired `getOrderFinancialSummary` loader/type path is removed.
 - Feature 86 is complete: extra-photo pricing is manager/admin editable at `/pricing`, active session types show one digital/print price pair per row, edits update both media prices transactionally, and invoice generation continues to use current pricing for future invoices only.
@@ -60,7 +62,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Extra-photo pricing is data-backed by `SessionTypeExtraPhotoPricing`: each active session type has editable `DIGITAL` and `PRINT` unit prices managed as one admin-facing pair; newly-created session types get zero-priced rows until pricing is configured.
 - Packages are classified through `Package.packageFamilyId`; department and session type are derived live through `PackageFamily -> SessionType -> StudioDepartment`; package duration is stored per package.
 - Booking creation accepts customer phone instead of customer id; existing customer names are display-only and not overwritten from the new booking form.
-- Development workflow reset must delete `FinancialCase` rows before `Booking` rows — financial cases use a restrictive FK on the booking lifecycle.
+- Development workflow reset clears workflow child tables explicitly and must delete `FinancialCase` rows before `Booking` rows — financial cases use a restrictive FK on the booking lifecycle.
 - Lifecycle revision foundation is live: `BookingStatus.CHECKED_IN` replaces old `COMPLETED`, `PaymentType.FINAL` replaces `BASE`, `InvoiceType` exists, and `identifier_sequences` is keyed by `scope/year/kind`.
 - Pending bookings are calendar holds only: no `publicId`, `jobNumber`, `jobId`, `Job`, `FinancialCase`, or invoice until the deposit is recorded; pending cancellation uses hard deletion.
 - Booking confirmation is atomic: deposit recording creates the `BK-DEPT-YEAR-XXXXX` reference, `FinancialCase`, locked closed Deposit Invoice, and deposit payment in one transaction.

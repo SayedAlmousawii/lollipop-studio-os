@@ -10,13 +10,25 @@ export async function resetWorkflowTestData(): Promise<void> {
   await withRetry(
     () =>
       db.$transaction(async (tx) => {
+        await tx.adjustmentWorkspaceEvent.deleteMany({});
+        await tx.adjustmentWorkspace.deleteMany({});
         await tx.documentApplication.deleteMany({});
         await tx.paymentAllocation.deleteMany({});
         await tx.payment.deleteMany({});
+        await tx.invoiceLockSnapshot.deleteMany({});
+        await tx.invoiceLineItem.deleteMany({});
         await tx.invoice.deleteMany({});
+        await tx.orderPackageSessionConfigurationSelection.deleteMany({});
+        await tx.orderPackageItemUpgrade.deleteMany({});
+        await tx.orderAddOn.deleteMany({});
+        await tx.orderActivity.deleteMany({});
+        await tx.productionJob.deleteMany({});
+        await tx.editingJob.deleteMany({});
+        await tx.orderPackage.deleteMany({});
         await tx.order.deleteMany({});
         await tx.financialCase.deleteMany({});
         await tx.bookingTheme.deleteMany({});
+        await tx.bookingPackage.deleteMany({});
         await tx.booking.deleteMany({});
         await tx.job.deleteMany({});
         await tx.identifierSequence.deleteMany({});

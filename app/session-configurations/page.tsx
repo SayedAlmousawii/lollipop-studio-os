@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { PageContainer } from "@/components/layout/page-container";
+import { DevResetSessionConfigurationsButton } from "@/components/session-configurations/dev-reset-session-configurations-button";
 import { SessionConfigurationCreateDialog } from "@/components/session-configurations/session-configuration-create-dialog";
 import { SessionConfigurationTable } from "@/components/session-configurations/session-configuration-table";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ export default async function SessionConfigurationsPage(
     code: sessionType.code,
     name: sessionType.name,
   }));
+  const showDevReset = process.env.NODE_ENV === "development";
 
   return (
     <PageContainer>
@@ -53,6 +55,7 @@ export default async function SessionConfigurationsPage(
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {showDevReset ? <DevResetSessionConfigurationsButton /> : null}
             <Button type="button" variant="outline" asChild>
               <Link
                 href={

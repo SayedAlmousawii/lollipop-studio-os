@@ -12,6 +12,8 @@ import {
   unarchiveSessionConfiguration,
   updateSessionConfiguration,
 } from "@/modules/session-configurations/session-configuration.service";
+import { resetSessionConfigurationTestData } from "@/modules/session-configurations/session-configuration-reset.service";
+import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import {
   createSessionConfigurationSchema,
   updateSessionConfigurationSchema,
@@ -26,6 +28,12 @@ export type SessionConfigurationActionState = {
 export type SessionConfigurationArchiveActionState = {
   errors?: Partial<Record<string, string[]>>;
   success?: string;
+};
+
+export type ResetSessionConfigurationsActionState = {
+  message?: string;
+  error?: string;
+  token?: number;
 };
 
 export type SessionConfigurationFormValues = {
@@ -148,6 +156,36 @@ export async function unarchiveSessionConfigurationAction(
 
   revalidateSessionConfigurationPaths();
   return { success: "Session configuration unarchived." };
+}
+
+export async function resetSessionConfigurationsAction(
+  _prev: ResetSessionConfigurationsActionState,
+  _formData: FormData
+): Promise<ResetSessionConfigurationsActionState> {
+  void _prev;
+  void _formData;
+
+  try {
+    await requireCurrentAppUserPermission(PERMISSIONS.PACKAGE_CATALOG_MANAGE);
+    await resetSessionConfigurationTestData();
+  } catch (error) {
+    logSessionConfigurationActionError("resetSessionConfigurations", error);
+    return {
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to reset session configuration test data.",
+      token: Date.now(),
+    };
+  }
+
+  revalidateSessionConfigurationPaths();
+  revalidatePath("/orders");
+
+  return {
+    message: "Session configurations reset.",
+    token: Date.now(),
+  };
 }
 
 function sessionConfigurationFormValues(
