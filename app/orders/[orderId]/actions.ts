@@ -115,7 +115,10 @@ export async function configureSessionAction(
   _prev: ConfigureSessionActionState,
   formData: FormData
 ): Promise<ConfigureSessionActionState> {
-  const parsedSelections = parseSelectionsJson(formData.get("selections"));
+  const parsedSelections = parseJsonPayload(
+    formData.get("selections"),
+    "Selections payload"
+  );
   if (!parsedSelections.success) {
     return { errors: { selections: [parsedSelections.error] } };
   }
@@ -191,7 +194,7 @@ export async function applySessionConfigurationWorkspaceEditAction(
   _prev: ConfigureSessionActionState,
   formData: FormData
 ): Promise<ConfigureSessionActionState> {
-  const parsedEditJson = parseSelectionsJson(formData.get("edit"));
+  const parsedEditJson = parseJsonPayload(formData.get("edit"), "Edit payload");
   if (!parsedEditJson.success) {
     return { errors: { edit: [parsedEditJson.error] } };
   }
@@ -261,17 +264,18 @@ export async function updateEditingWorkflowAction(
   return {};
 }
 
-function parseSelectionsJson(
-  value: FormDataEntryValue | null
+function parseJsonPayload(
+  value: FormDataEntryValue | null,
+  label: string
 ): { success: true; value: unknown } | { success: false; error: string } {
   if (typeof value !== "string") {
-    return { success: false, error: "Selections payload is required." };
+    return { success: false, error: `${label} is required.` };
   }
 
   try {
     return { success: true, value: JSON.parse(value) };
   } catch {
-    return { success: false, error: "Selections payload is invalid." };
+    return { success: false, error: `${label} is invalid.` };
   }
 }
 
@@ -279,16 +283,10 @@ function messageForConfigureSessionError(error: unknown): string {
   if (error instanceof SessionConfigurationSelectionLockedError) {
     return "Order is locked. Edit configurations through the Adjustment Workspace.";
   }
-  if (
-    typeof SessionConfigurationSelectionPostLockMisuseError === "function" &&
-    error instanceof SessionConfigurationSelectionPostLockMisuseError
-  ) {
+  if (error instanceof SessionConfigurationSelectionPostLockMisuseError) {
     return "Order lock state changed. Refresh and try again.";
   }
-  if (
-    typeof SessionConfigurationSelectionFinancialNotAllowedError === "function" &&
-    error instanceof SessionConfigurationSelectionFinancialNotAllowedError
-  ) {
+  if (error instanceof SessionConfigurationSelectionFinancialNotAllowedError) {
     return `Edit ${error.offendingConfigurationCodes.join(", ")} in the Adjustment Workspace.`;
   }
   if (error instanceof SessionConfigurationSelectionConfigurationNotFoundError) {

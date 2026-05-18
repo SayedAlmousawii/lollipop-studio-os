@@ -28,7 +28,7 @@ Spec 91 already prepared the selection service to accept `allowPostLock`; spec 9
 
 ## Rules
 
-- **Single writer remains.** All inserts/updates/deletes on `OrderPackageSessionConfigurationSelection` continue to go through `writeOrderPackageSelections`. Spec 92 only changes its behavior when `allowPostLock: true`; nothing else writes the table. Asserted by grep.
+- **Single writer module remains.** All inserts/updates/deletes on `OrderPackageSessionConfigurationSelection` stay inside `session-configuration-selection.service.ts`. `writeOrderPackageSelections` remains the public direct-edit entry point, and `applyFinancialSelectionEditFromWorkspace` delegates to the same service-local selection-row mutation helpers for workspace finalization. Nothing outside this service writes the table. Asserted by grep.
 - **Operational vs financial split is enforced server-side by `snapshotFinancialBehavior` for existing rows and live `financialBehavior` for newly-added rows.** The decision uses the *live* config for new selections (consistent with the "currently financial" semantics required-gate already uses) and the *snapshot* for edits/deletes of existing rows (consistent with "the row was financial when it landed on the invoice"). If both views disagree for the same configuration in a single submission (e.g. admin flipped operational → financial after the selection was first written), treat it as **financial** for routing — the conservative choice.
 - **Post-lock operational direct edits write audit-log rows.** One `AuditLog` row per insert/update/delete, with:
   - `entityType: ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION`
@@ -36,7 +36,7 @@ Spec 91 already prepared the selection service to accept `allowPostLock`; spec 9
   - `action: ORDER_LOCKED_FIELD_MUTATED`
   - `before` / `after`: structured payloads with all snapshot columns and the input value (numericValue/textValue/optionId).
   - `context`: `{ orderId, orderPackageId, actorUserId, source: "post_lock_direct" }`.
-- **Post-lock financial edits never write `OrderPackageSessionConfigurationSelection` directly.** They land as edit ops inside an `AdjustmentWorkspace`. The selection table is touched *only* when the workspace is finalized — and even then, **the row is not mutated**. Instead, the adjustment invoice carries `InvoiceLineItem` rows with the new snapshot values, and the original selection row is left untouched. This preserves the "invoice line snapshot is the historical truth" property that the rest of the financial architecture relies on.
+- **Post-lock financial edits never write `OrderPackageSessionConfigurationSelection` from the direct configure path.** They land as edit ops inside an `AdjustmentWorkspace`. The selection table is touched *only* when the workspace is finalized through the selection service helper, which creates, updates, or deletes the real selection row before adjustment invoice lines are emitted. The adjustment invoice carries `InvoiceLineItem` rows with the post-edit snapshot values and `causeOrderEntityId` linked to that real selection row.
 - **No retroactive financial mutation of locked invoices.** Spec 92 never updates `Invoice.totalAmount`, never edits existing `InvoiceLineItem` rows. Adjustment invoices are the only mechanism for post-lock financial movement. This matches the spec-90 rule about no backfill.
 - **Required-gate does not re-fire post-lock.** Once an invoice locks, missing required configurations are not blockers anymore — the gate is a precondition for locking, not an ongoing invariant. Removing a required selection post-lock (operational or financial) is allowed by the service; the panel hides "remove" affordances on required rows by convention but the server does not refuse it (avoids deadlocks if admin later flips `required=true`).
 - **Permissions:**
@@ -104,7 +104,7 @@ Spec 91 already prepared the selection service to accept `allowPostLock`; spec 9
     - Reject the proposal with a typed error if any pending edit references an `OPERATIONAL` config or an inactive config / option — those must not land in workspace flow.
   - `finalizeWorkspace`:
     - Today this creates an adjustment invoice from the proposal. Extend it so that, for each `change_session_configuration_selection` edit:
-      1. **Insert/update** the selection row in `OrderPackageSessionConfigurationSelection` (via the selection service with `{ allowPostLock: true, postLockAudit }`? — **no.** Workspace finalize is a privileged path; introduce a sibling service helper `applyFinancialSelectionEditFromWorkspace(tx, ...)` in the selection service module that performs the write **without** the operational-only assertion and **without** an audit row, because the workspace creates its own audit trail). The helper still snapshots from live configs/options at finalize time.
+      1. **Insert/update** the selection row in `OrderPackageSessionConfigurationSelection` through the selection service's canonical row-mutation helpers (via `writeOrderPackageSelections` with `{ allowPostLock: true, postLockAudit }`? — **no.** Workspace finalize is a privileged path; introduce a sibling service helper `applyFinancialSelectionEditFromWorkspace(tx, ...)` in the selection service module that delegates to the same controlled row writer **without** the operational-only assertion and **without** an audit row, because the workspace creates its own audit trail). The helper still snapshots from live configs/options at finalize time.
       2. The `InvoiceLineItem` rows on the new adjustment invoice carry `causeOrderEntityId = realSelection.id` (no `pending:` placeholders survive).
       3. If `desired === null`, delete the existing selection row. The adjustment invoice still gets a negative line covering the original snapshot delta.
     - The existing audit/event trail on the workspace (workspace events table) is unchanged; selection-row audit-log rows are *not* duplicated when changes come through the workspace.
@@ -113,8 +113,8 @@ Spec 91 already prepared the selection service to accept `allowPostLock`; spec 9
 
 - Add `applyFinancialSelectionEditFromWorkspace(tx, { orderPackageId, configurationId, desired }): { selectionId | null }` — exported for the workspace finalize step only. Internally:
   - Loads the live config; throws if not `FINANCIAL` (defense-in-depth — proposal already enforces this).
-  - For `desired !== null`: builds the snapshot, upserts the selection row.
-  - For `desired === null`: deletes the row if present, no-op otherwise.
+  - For `desired !== null`: builds the snapshot, then upserts through the service-local selection-row mutation helper.
+  - For `desired === null`: deletes through the same service-local row mutation helper if present, no-op otherwise.
   - Does not write `AuditLog` rows (workspace audit is the source of truth here).
 
 #### Server action: `app/orders/[orderId]/actions.ts`

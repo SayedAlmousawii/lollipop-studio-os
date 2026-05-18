@@ -117,7 +117,7 @@ src/
 11. Order must not be marked delivered until all required production jobs are complete
 12. Manual overrides must store: who changed it, when, and why
 13. Package template edits must not retroactively change old invoices/orders
-14. Locked final invoices are edited operationally only through `AdjustmentWorkspace`; the workspace is not an accounting document, and finalization diffs proposed composition against the base snapshot to emit at most one consolidated ADJUSTMENT record.
+14. Locked final invoices allow post-lock operational session-configuration edits only through `writeOrderPackageSelections(..., { allowPostLock: true, postLockAudit })`, which produces operational diffs plus co-transactional `AuditLog` rows. Financial/session-selection changes must be staged through Adjustment Workspace `change_session_configuration_selection` edits and finalized by the workspace helper, which emits `SESSION_CONFIGURATION` adjustment invoice lines linked to the real selection row.
 15. `derivePOSWorkspaceFromAdjustmentWorkspace()` is the read-only bridge from staged workspace state to shared POS UI modules: handlers stage edits into `pending_changes_json`, while the unlocked sales page handlers still commit directly.
 16. `derivePendingAdjustmentPreview()` is the service-layer source for Adjustment Workspace sidebar preview totals. Base Locked Total is read live from the parent final invoice plus finalized ADJs through settlement math, while pending additions/reductions/net come from `computeWorkspaceProposal()`.
 17. `buildPendingChangesView()` is the pure display normalizer for staged edits. It renders business-facing pending change rows from the edit DSL and optional base/proposed/delta context; it is not a financial calculation source.

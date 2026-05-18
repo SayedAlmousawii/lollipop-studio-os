@@ -764,7 +764,8 @@ export async function finalizeWorkspace(
         const sessionConfigurationSelectionIds =
           await finalizeSessionConfigurationSelectionEdits(
             tx,
-            proposal.edits
+            proposal.edits,
+            workspace.orderId
           );
         const finalizedProposal = remapSessionConfigurationProposal(
           proposal,
@@ -1423,7 +1424,8 @@ function applySignedInvoiceLines(
 
 async function finalizeSessionConfigurationSelectionEdits(
   client: Prisma.TransactionClient,
-  edits: AdjustmentWorkspaceEdit[]
+  edits: AdjustmentWorkspaceEdit[],
+  orderId: string
 ): Promise<Map<string, string>> {
   const selectionIdByPlaceholder = new Map<string, string>();
   for (const edit of edits) {
@@ -1442,7 +1444,7 @@ async function finalizeSessionConfigurationSelectionEdits(
         "adjustment_workspace.session_configuration_edit_finalized",
         {
           workspaceId: "in_transaction",
-          orderId: null,
+          orderId,
           selectionId: result.selectionId,
         }
       );

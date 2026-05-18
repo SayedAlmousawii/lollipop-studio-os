@@ -60,6 +60,8 @@ type ExistingSelection = Prisma.OrderPackageSessionConfigurationSelectionGetPayl
   select: typeof existingSelectionSelect;
 }>;
 
+type SelectionSnapshotData = ReturnType<typeof snapshotData>;
+
 export type WorkspaceSessionConfigurationDesired =
   | null
   | { kind: "toggle" }
@@ -226,13 +228,12 @@ export async function writeOrderPackageSelections(
           }[] = [];
           for (const snapshot of snapshots) {
             const existing = existingByConfigurationId.get(snapshot.configurationId);
+            const data = snapshotData(snapshot);
             if (existing) {
-              const updated =
-                await tx.orderPackageSessionConfigurationSelection.update({
-                  where: { id: existing.id },
-                  data: snapshotData(snapshot),
-                  select: { id: true },
-                });
+              if (selectionPayloadMatches(existing, data)) {
+                continue;
+              }
+              const updated = await updateSelectionRow(tx, existing.id, data);
               writtenSelectionIds.push(updated.id);
               if (options.allowPostLock === true) {
                 auditEntries.push({
@@ -244,14 +245,7 @@ export async function writeOrderPackageSelections(
               continue;
             }
 
-            const created =
-              await tx.orderPackageSessionConfigurationSelection.create({
-                data: {
-                  orderPackageId,
-                  ...snapshotData(snapshot),
-                },
-                select: { id: true },
-              });
+            const created = await createSelectionRow(tx, orderPackageId, data);
             writtenSelectionIds.push(created.id);
             if (options.allowPostLock === true) {
               auditEntries.push({
@@ -283,9 +277,7 @@ export async function writeOrderPackageSelections(
                 });
               }
             }
-            await tx.orderPackageSessionConfigurationSelection.deleteMany({
-              where: { id: { in: removedIds } },
-            });
+            await deleteSelectionRows(tx, removedIds);
           }
 
           if (options.allowPostLock === true) {
@@ -395,9 +387,7 @@ export async function applyFinancialSelectionEditFromWorkspace(
       select: { id: true },
     });
     if (!existing) return { selectionId: null };
-    await tx.orderPackageSessionConfigurationSelection.delete({
-      where: { id: existing.id },
-    });
+    await deleteSelectionRow(tx, existing.id);
     return { selectionId: existing.id };
   }
 
@@ -415,21 +405,15 @@ export async function applyFinancialSelectionEditFromWorkspace(
     select: { id: true },
   });
   if (existing) {
-    const updated = await tx.orderPackageSessionConfigurationSelection.update({
-      where: { id: existing.id },
-      data: snapshotData(snapshot),
-      select: { id: true },
-    });
+    const updated = await updateSelectionRow(tx, existing.id, snapshotData(snapshot));
     return { selectionId: updated.id };
   }
 
-  const created = await tx.orderPackageSessionConfigurationSelection.create({
-    data: {
-      orderPackageId: input.orderPackageId,
-      ...snapshotData(snapshot),
-    },
-    select: { id: true },
-  });
+  const created = await createSelectionRow(
+    tx,
+    input.orderPackageId,
+    snapshotData(snapshot)
+  );
   return { selectionId: created.id };
 }
 
@@ -662,6 +646,88 @@ function resolveSnapshotPriceDelta(
     default:
       throw new SessionConfigurationSelectionInputMismatchError();
   }
+}
+
+async function createSelectionRow(
+  tx: Prisma.TransactionClient,
+  orderPackageId: string,
+  data: SelectionSnapshotData
+): Promise<{ id: string }> {
+  return tx.orderPackageSessionConfigurationSelection.create({
+    data: {
+      orderPackageId,
+      ...data,
+    },
+    select: { id: true },
+  });
+}
+
+async function updateSelectionRow(
+  tx: Prisma.TransactionClient,
+  id: string,
+  data: SelectionSnapshotData
+): Promise<{ id: string }> {
+  return tx.orderPackageSessionConfigurationSelection.update({
+    where: { id },
+    data,
+    select: { id: true },
+  });
+}
+
+async function deleteSelectionRow(
+  tx: Prisma.TransactionClient,
+  id: string
+): Promise<void> {
+  await tx.orderPackageSessionConfigurationSelection.delete({
+    where: { id },
+  });
+}
+
+async function deleteSelectionRows(
+  tx: Prisma.TransactionClient,
+  ids: string[]
+): Promise<void> {
+  await tx.orderPackageSessionConfigurationSelection.deleteMany({
+    where: { id: { in: ids } },
+  });
+}
+
+function selectionPayloadMatches(
+  existing: ExistingSelection,
+  data: SelectionSnapshotData
+): boolean {
+  return (
+    existing.configurationId === data.configurationId &&
+    existing.optionId === data.optionId &&
+    decimalValuesEqual(existing.numericValue, data.numericValue) &&
+    existing.textValue === data.textValue &&
+    existing.snapshotConfigurationCode === data.snapshotConfigurationCode &&
+    existing.snapshotLabel === data.snapshotLabel &&
+    decimalValuesEqual(existing.snapshotPriceDelta, data.snapshotPriceDelta) &&
+    existing.snapshotFinancialBehavior === data.snapshotFinancialBehavior &&
+    existing.snapshotInputType === data.snapshotInputType &&
+    existing.snapshotPricingMode === data.snapshotPricingMode &&
+    existing.snapshotLinkedProductId === data.snapshotLinkedProductId &&
+    existing.snapshotLinkProductDisplay === data.snapshotLinkProductDisplay
+  );
+}
+
+function decimalValuesEqual(
+  left: Prisma.Decimal | null,
+  right:
+    | Prisma.Decimal
+    | Prisma.DecimalJsLike
+    | string
+    | number
+    | null
+    | undefined
+): boolean {
+  if (left === null || left === undefined) {
+    return right === null || right === undefined;
+  }
+  if (right === null || right === undefined) return false;
+  if (right instanceof Prisma.Decimal) return left.equals(right);
+  return left.equals(new Prisma.Decimal(right as string | number));
 }
 
 function snapshotData(

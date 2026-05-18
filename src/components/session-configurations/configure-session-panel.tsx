@@ -217,20 +217,25 @@ function selectionDisplay(
       return "Selected";
     case "select":
       return (
+        selection.snapshotLabel ||
         configuration.options.find((option) => option.id === selection.optionId)
-          ?.label ?? selection.snapshotLabel
+          ?.label ||
+        "Selected"
       );
     case "number":
       return String(selection.numericValue);
     case "text":
       return selection.textValue;
-    case "counter":
-      return selection.optionId
-        ? `${selection.numericValue} · ${
-            configuration.options.find((option) => option.id === selection.optionId)
-              ?.label ?? selection.snapshotLabel
-          }`
+    case "counter": {
+      if (!selection.optionId) return String(selection.numericValue);
+      const optionLabel =
+        selection.snapshotLabel ||
+        configuration.options.find((option) => option.id === selection.optionId)
+          ?.label;
+      return optionLabel
+        ? `${selection.numericValue} · ${optionLabel}`
         : String(selection.numericValue);
+    }
   }
 }
 

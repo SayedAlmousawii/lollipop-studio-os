@@ -146,11 +146,15 @@ function buildPendingChangeRow(
       baseSelection?.id,
       `pending:${edit.configurationId}`,
     ].filter((value): value is string => Boolean(value));
+    const displayValue = sessionConfigurationDesiredDisplay(
+      edit.desired,
+      proposedSelection
+    );
     return {
       id: edit.id,
       kind: edit.desired === null ? "removal" : "change",
       label: `Session Configuration: ${label}`,
-      description: edit.desired === null ? "Removed" : `Updated -> ${label}`,
+      description: edit.desired === null ? "Removed" : `Updated -> ${displayValue}`,
       amount: sessionConfigurationAmount(
         context?.deltas,
         selectionIds
@@ -202,6 +206,35 @@ function sessionConfigurationAmount(
         line.kind === "session_configuration" && selectionIdSet.has(line.refId)
     ) ?? []
   );
+}
+
+function sessionConfigurationDesiredDisplay(
+  desired: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_session_configuration_selection" }
+  >["desired"],
+  proposedSelection?: {
+    snapshotLabel: string;
+    optionId: string | null;
+    numericValue: string | null;
+    textValue: string | null;
+  }
+): string {
+  if (desired === null) return "Removed";
+  switch (desired.kind) {
+    case "toggle":
+      return "Selected";
+    case "select":
+      return proposedSelection?.snapshotLabel ?? desired.optionId;
+    case "number":
+      return String(desired.numericValue);
+    case "text":
+      return desired.textValue;
+    case "counter":
+      return proposedSelection?.snapshotLabel
+        ? `${desired.numericValue} · ${proposedSelection.snapshotLabel}`
+        : String(desired.numericValue);
+  }
 }
 
 function sumAmounts(lines: AdjustmentCompositionLine[]): number {
