@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { Prisma } from "@prisma/client";
-import { Settings2 } from "lucide-react";
+import { ExternalLink, Settings2 } from "lucide-react";
 import { useActionState, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { configureSessionAction } from "@/app/orders/[orderId]/actions";
@@ -25,6 +26,7 @@ import type {
 
 type ActionState = {
   errors?: Partial<Record<string, string[]>>;
+  adjustmentWorkspaceHref?: string;
 };
 
 export function ConfigureSessionPanel({
@@ -32,6 +34,7 @@ export function ConfigureSessionPanel({
   orderPackageId,
   packageName,
   sessionTypeName,
+  mode,
   availableConfigurations,
   currentSelections,
 }: {
@@ -39,6 +42,7 @@ export function ConfigureSessionPanel({
   orderPackageId: string;
   packageName: string;
   sessionTypeName: string;
+  mode: "draft" | "locked";
   availableConfigurations: POSAvailableSessionConfiguration[];
   currentSelections: POSSessionConfigurationSelection[];
 }) {
@@ -63,12 +67,40 @@ export function ConfigureSessionPanel({
       ),
     [availableConfigurations]
   );
+  const editableConfigurationIds = new Set(
+    sortedConfigurations
+      .filter(
+        (configuration) =>
+          mode === "draft" || configuration.financialBehavior === "OPERATIONAL"
+      )
+      .map((configuration) => configuration.id)
+  );
+  const currentSelectionByConfigurationId = new Map(
+    currentSelections.map((selection) => [selection.configurationId, selection])
+  );
   const serializedSelections = JSON.stringify(
     sortedConfigurations
+      .filter((configuration) => editableConfigurationIds.has(configuration.id))
       .map((configuration) => draftSelections[configuration.id] ?? null)
       .filter((selection): selection is SelectionInput => selection !== null)
       .filter(isSubmittableSelection)
   );
+  const initialEditableSelections = JSON.stringify(
+    sortedConfigurations
+      .filter((configuration) => editableConfigurationIds.has(configuration.id))
+      .map((configuration) =>
+        currentSelectionByConfigurationId.get(configuration.id) ?? null
+      )
+      .filter((selection): selection is POSSessionConfigurationSelection => selection !== null)
+      .map(stripSelectionMetadata)
+      .filter(isSubmittableSelection)
+  );
+  const hasEditableChanges = serializedSelections !== initialEditableSelections;
+  const hasFinancialConfigurations = sortedConfigurations.some(
+    (configuration) => configuration.financialBehavior === "FINANCIAL"
+  );
+  const adjustmentWorkspaceHref =
+    state.adjustmentWorkspaceHref ?? `/orders/${orderId}/adjustment-workspace`;
   const missingCodes = new Set(
     sortedConfigurations
       .filter(
@@ -102,6 +134,11 @@ export function ConfigureSessionPanel({
               const value = draftSelections[configuration.id] ?? null;
               const feeHint = previewFee(configuration, value);
               const isMissing = missingCodes.has(configuration.code);
+              const isFinancialLocked =
+                mode === "locked" &&
+                configuration.financialBehavior === "FINANCIAL";
+              const currentSelection =
+                currentSelectionByConfigurationId.get(configuration.id) ?? null;
 
               return (
                 <div
@@ -121,22 +158,28 @@ export function ConfigureSessionPanel({
                       </span>
                     ) : null}
                   </div>
-                  <SessionConfigurationInputRenderer
-                    mode="edit"
-                    inputType={configuration.inputType}
-                    configurationId={configuration.id}
-                    value={value}
-                    onChange={(next) =>
-                      setDraftSelections((current) => ({
-                        ...current,
-                        [configuration.id]: next,
-                      }))
-                    }
-                    options={configuration.options.map((option) => ({
-                      label: option.label,
-                      value: option.id,
-                    }))}
-                  />
+                  {isFinancialLocked ? (
+                    <div className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
+                      {selectionDisplay(currentSelection, configuration)}
+                    </div>
+                  ) : (
+                    <SessionConfigurationInputRenderer
+                      mode="edit"
+                      inputType={configuration.inputType}
+                      configurationId={configuration.id}
+                      value={value}
+                      onChange={(next) =>
+                        setDraftSelections((current) => ({
+                          ...current,
+                          [configuration.id]: next,
+                        }))
+                      }
+                      options={configuration.options.map((option) => ({
+                        label: option.label,
+                        value: option.id,
+                      }))}
+                    />
+                  )}
                   {isMissing ? (
                     <p className="mt-2 text-xs text-warning">
                       This required setting must be configured before invoicing.
@@ -147,13 +190,48 @@ export function ConfigureSessionPanel({
             })}
           </div>
           <GlobalErrors messages={state.errors?._global} />
+          {mode === "locked" && hasFinancialConfigurations ? (
+            <Button asChild variant="outline">
+              <Link href={adjustmentWorkspaceHref}>
+                <ExternalLink className="h-4 w-4" />
+                Edit in Adjustment Workspace
+              </Link>
+            </Button>
+          ) : null}
           <DialogFooter>
-            <SubmitButton />
+            <SubmitButton disabled={mode === "locked" && !hasEditableChanges} />
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   );
+}
+
+function selectionDisplay(
+  selection: POSSessionConfigurationSelection | null,
+  configuration: POSAvailableSessionConfiguration
+): string {
+  if (!selection) return "Not selected";
+  switch (selection.kind) {
+    case "toggle":
+      return "Selected";
+    case "select":
+      return (
+        configuration.options.find((option) => option.id === selection.optionId)
+          ?.label ?? selection.snapshotLabel
+      );
+    case "number":
+      return String(selection.numericValue);
+    case "text":
+      return selection.textValue;
+    case "counter":
+      return selection.optionId
+        ? `${selection.numericValue} · ${
+            configuration.options.find((option) => option.id === selection.optionId)
+              ?.label ?? selection.snapshotLabel
+          }`
+        : String(selection.numericValue);
+  }
 }
 
 function stripSelectionMetadata(
@@ -253,10 +331,10 @@ function GlobalErrors({ messages }: { messages?: string[] }) {
   );
 }
 
-function SubmitButton() {
+function SubmitButton({ disabled = false }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || disabled}>
       {pending ? "Saving..." : "Save Configuration"}
     </Button>
   );

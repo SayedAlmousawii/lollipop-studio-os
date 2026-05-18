@@ -357,6 +357,10 @@ export interface POSPackageLine {
   missingRequiredConfigurationCodes: string[];
   availableConfigurations: POSAvailableSessionConfiguration[];
   currentSelections: POSSessionConfigurationSelection[];
+  sessionConfigurationFinancialBehaviorByConfigurationId?: Record<
+    string,
+    SessionConfigurationFinancialBehavior
+  >;
 }
 
 export interface SessionConfigurationSummaryEntry {

@@ -72,6 +72,8 @@ src/
 
 **Session Configuration Selection Writes:** `src/modules/session-configurations/session-configuration-selection.service.ts` is the sole production writer for `OrderPackageSessionConfigurationSelection`, performing full per-package transactional diffs and refreshing all snapshot columns from live definitions on every insert/update.
 
+**Session Configuration Post-Lock Routing:** After a final invoice locks, operational session-configuration edits still flow through `writeOrderPackageSelections(..., { allowPostLock: true, postLockAudit })`, which allows only operational diffs and writes co-transactional `AuditLog` rows. Financial session-configuration edits are staged exclusively through Adjustment Workspace `change_session_configuration_selection` edits; finalization applies the selection-row change through the workspace helper and emits `SESSION_CONFIGURATION` adjustment invoice lines linked to the real selection row.
+
 **Role permissions:**
 
 | Role | Access |

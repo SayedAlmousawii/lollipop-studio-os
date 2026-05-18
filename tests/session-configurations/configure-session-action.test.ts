@@ -33,7 +33,14 @@ test("configure session action parses JSON selections and maps locked errors", a
       return {
         db: {
           sessionConfiguration: { findMany: async () => [] },
-          orderPackage: { findMany: async () => [] },
+          orderPackage: {
+            findMany: async () => [],
+            findUnique: async () => ({
+              orderId: "order-1",
+              sessionTypeId: "session-1",
+              order: { invoices: [{ isLocked: false }] },
+            }),
+          },
         },
       };
     }
@@ -55,9 +62,11 @@ test("configure session action parses JSON selections and maps locked errors", a
     ) {
       return {
         SessionConfigurationSelectionConfigurationNotFoundError: class extends Error {},
+        SessionConfigurationSelectionFinancialNotAllowedError: class extends Error {},
         SessionConfigurationSelectionInputMismatchError: class extends Error {},
         SessionConfigurationSelectionLockedError: LockedError,
         SessionConfigurationSelectionOptionMismatchError: class extends Error {},
+        SessionConfigurationSelectionPostLockMisuseError: class extends Error {},
         writeOrderPackageSelections: async (
           orderPackageId: string,
           selections: unknown

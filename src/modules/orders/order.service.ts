@@ -3732,6 +3732,12 @@ function mapPOSPackageLines(input: {
             priceDelta: option.priceDelta.toNumber(),
           })),
         })) ?? [],
+      sessionConfigurationFinancialBehaviorByConfigurationId: Object.fromEntries(
+        (resolvedConfigurations?.activeConfigurations ?? []).map((configuration) => [
+          configuration.id,
+          configuration.financialBehavior,
+        ])
+      ),
       currentSelections: (resolvedConfigurations?.selections ?? []).map(
         mapCurrentSessionConfigurationSelection
       ),

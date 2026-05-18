@@ -104,6 +104,7 @@ export function POSPackageComposition({
                   orderPackageId={line.id}
                   packageName={line.currentPackage.name}
                   sessionTypeName={line.sessionTypeName}
+                  mode={locked ? "locked" : "draft"}
                   availableConfigurations={line.availableConfigurations}
                   currentSelections={line.currentSelections}
                 />

@@ -126,6 +126,38 @@ function buildPendingChangeRow(
     };
   }
 
+  if (edit.op === "change_session_configuration_selection") {
+    const proposedSelection = context?.proposed?.sessionConfigurationSelections?.find(
+      (selection) =>
+        selection.orderPackageId === edit.orderPackageId &&
+        selection.configurationId === edit.configurationId
+    );
+    const baseSelection = context?.base?.sessionConfigurationSelections?.find(
+      (selection) =>
+        selection.orderPackageId === edit.orderPackageId &&
+        selection.configurationId === edit.configurationId
+    );
+    const label =
+      proposedSelection?.snapshotLabel ??
+      baseSelection?.snapshotLabel ??
+      "Session Configuration";
+    const selectionIds = [
+      proposedSelection?.id,
+      baseSelection?.id,
+      `pending:${edit.configurationId}`,
+    ].filter((value): value is string => Boolean(value));
+    return {
+      id: edit.id,
+      kind: edit.desired === null ? "removal" : "change",
+      label: `Session Configuration: ${label}`,
+      description: edit.desired === null ? "Removed" : `Updated -> ${label}`,
+      amount: sessionConfigurationAmount(
+        context?.deltas,
+        selectionIds
+      ),
+    };
+  }
+
   const baseLine = findLine(context?.base?.lines, `package:${edit.orderPackageId}`);
   const proposedLine = findLine(context?.proposed?.lines, `package:${edit.orderPackageId}`);
   return {
@@ -156,6 +188,19 @@ function selectedPhotoAmount(
   return sumAmounts(
     lines?.filter((line) => line.lineId.includes(`extra-photo:${orderPackageId}:`)) ??
       []
+  );
+}
+
+function sessionConfigurationAmount(
+  lines: AdjustmentCompositionLine[] | undefined,
+  selectionIds: string[]
+): number {
+  const selectionIdSet = new Set(selectionIds);
+  return sumAmounts(
+    lines?.filter(
+      (line) =>
+        line.kind === "session_configuration" && selectionIdSet.has(line.refId)
+    ) ?? []
   );
 }
 

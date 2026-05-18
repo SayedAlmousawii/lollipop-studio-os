@@ -10,6 +10,10 @@ import {
   OrderActivityType,
   OrderEntityKind,
   Prisma,
+  SessionConfigurationCounterPricingMode,
+  SessionConfigurationFinancialBehavior,
+  SessionConfigurationInputType,
+  SessionConfigurationPricingMode,
   UserRole,
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
@@ -25,6 +29,14 @@ import { generateInvoiceNumber } from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import { derivePaymentSummary } from "@/modules/orders/order-settlement";
+import {
+  priceSelections,
+  type PricedSelection,
+} from "@/modules/session-configurations/session-configuration-pricing";
+import {
+  applyFinancialSelectionEditFromWorkspace,
+  type WorkspaceSessionConfigurationDesired,
+} from "@/modules/session-configurations/session-configuration-selection.service";
 import type {
   POSAddOn,
   POSPackage,
@@ -40,6 +52,7 @@ import type {
   AdjustmentCompositionTotals,
   AdjustmentLineKind,
   AdjustmentPendingChanges,
+  AdjustmentSessionConfigurationSelection,
   PendingAdjustmentPreview,
   AdjustmentWorkspaceEdit,
   AdjustmentWorkspaceProposal,
@@ -75,6 +88,25 @@ type CatalogLookup = {
       sessionTypeId: string;
       extraDigitalUnitPrice: Prisma.Decimal;
       extraPrintUnitPrice: Prisma.Decimal;
+    }
+  >;
+  sessionConfigurations?: Map<
+    string,
+    {
+      id: string;
+      sessionTypeId: string;
+      code: string;
+      name: string;
+      inputType: SessionConfigurationInputType;
+      pricingMode: SessionConfigurationPricingMode;
+      financialBehavior: SessionConfigurationFinancialBehavior;
+      fixedPriceDelta: Prisma.Decimal | null;
+      linkedProductId: string | null;
+      linkProductDisplay: "LINE_ITEM" | "MODIFIER_ONLY" | null;
+      linkedProductPrice: Prisma.Decimal | null;
+      counterPricingMode: SessionConfigurationCounterPricingMode | null;
+      counterUnitPrice: Prisma.Decimal | null;
+      options: Map<string, { id: string; label: string; priceDelta: Prisma.Decimal }>;
     }
   >;
 };
@@ -472,6 +504,11 @@ export async function applyEdit(
                 index === editIndex ? input.edit : edit
               )
             : [...pending.edits, input.edit];
+        await buildProposal(
+          parseBaseSnapshot(workspace.baseSnapshotJson),
+          { edits: nextEdits },
+          tx
+        );
         const eventType =
           editIndex >= 0
             ? AdjustmentWorkspaceEventType.EDIT_MODIFIED
@@ -502,6 +539,16 @@ export async function applyEdit(
             op: input.edit.op,
           }
         );
+        if (input.edit.op === "change_session_configuration_selection") {
+          recordWorkspaceMetric(
+            "adjustment_workspace.session_configuration_edit_applied",
+            {
+              workspaceId,
+              orderId: workspace.orderId,
+              invoiceId: workspace.invoiceId,
+            }
+          );
+        }
       }),
     "Failed to apply workspace edit"
   );
@@ -714,9 +761,19 @@ export async function finalizeWorkspace(
           proposal.requiresManagerApproval && approvalUserId
             ? approvalUserId
             : actorContext.actorUserId;
+        const sessionConfigurationSelectionIds =
+          await finalizeSessionConfigurationSelectionEdits(
+            tx,
+            proposal.edits
+          );
+        const finalizedProposal = remapSessionConfigurationProposal(
+          proposal,
+          sessionConfigurationSelectionIds
+        );
+
         const adjustmentInvoice = await createWorkspaceAdjustmentInvoice(tx, {
           parent: workspace.invoice,
-          proposal,
+          proposal: finalizedProposal,
           createdByUserId: invoiceActorUserId,
           notes:
             input.managerApprovedReason?.trim() ||
@@ -742,17 +799,17 @@ export async function finalizeWorkspace(
           workspaceId,
           actorContext.actorUserId,
           adjustmentInvoice.id,
-          proposal
+          finalizedProposal
         );
 
         recordWorkspaceMetric("adjustment_workspace.finalized", {
           workspaceId,
           orderId: workspace.orderId,
-          adjustmentKind: proposal.adjustmentKind,
-          editOps: [...new Set(proposal.edits.map((edit) => edit.op))].join(","),
+          adjustmentKind: finalizedProposal.adjustmentKind,
+          editOps: [...new Set(finalizedProposal.edits.map((edit) => edit.op))].join(","),
         });
 
-        return { adjustmentInvoiceId: adjustmentInvoice.id, proposal };
+        return { adjustmentInvoiceId: adjustmentInvoice.id, proposal: finalizedProposal };
       }),
     "Failed to finalize workspace"
   );
@@ -890,6 +947,11 @@ export async function computeWorkspaceProposal(
       continue;
     }
 
+    if (edit.op === "change_session_configuration_selection") {
+      applySessionConfigurationSelectionChange(proposed, edit, catalog);
+      continue;
+    }
+
     const existing = proposed.lines.find((line) => line.lineId === edit.targetLineId);
     const product = catalog.products.get(edit.toAddonRefId);
     if (!product) throw new Error("Add-on swap is not available");
@@ -944,6 +1006,7 @@ const workspaceAuthSelect = {
   version: true,
   orderId: true,
   invoiceId: true,
+  baseSnapshotJson: true,
   pendingChangesJson: true,
 } satisfies Prisma.AdjustmentWorkspaceSelect;
 
@@ -992,7 +1055,8 @@ async function buildProposal(
   const hasPhotoCountEdits = pendingChanges.edits.some(
     (edit) => edit.op === "change_selected_photo_count"
   );
-  const [products, packages, packageItems, orderPackages] = await Promise.all([
+  const sessionConfigurationIds = collectSessionConfigurationIds(pendingChanges.edits);
+  const [products, packages, packageItems, orderPackages, sessionConfigurations] = await Promise.all([
     client.product.findMany({
       where: { id: { in: collectProductIds(pendingChanges.edits) } },
       select: { id: true, name: true, canonicalPrice: true },
@@ -1026,6 +1090,31 @@ async function buildProposal(
         packageId: true,
         sessionTypeId: true,
         package: { select: { name: true, photoCount: true } },
+      },
+    }),
+    client.sessionConfiguration.findMany({
+      where: {
+        id: { in: sessionConfigurationIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        sessionTypeId: true,
+        code: true,
+        name: true,
+        inputType: true,
+        pricingMode: true,
+        financialBehavior: true,
+        fixedPriceDelta: true,
+        linkedProductId: true,
+        linkProductDisplay: true,
+        linkedProduct: { select: { canonicalPrice: true } },
+        counterPricingMode: true,
+        counterUnitPrice: true,
+        options: {
+          where: { isActive: true },
+          select: { id: true, label: true, priceDelta: true },
+        },
       },
     }),
   ]);
@@ -1094,6 +1183,36 @@ async function buildProposal(
         },
       ])
     ),
+    sessionConfigurations: new Map(
+      sessionConfigurations.map((configuration) => [
+        configuration.id,
+        {
+          id: configuration.id,
+          sessionTypeId: configuration.sessionTypeId,
+          code: configuration.code,
+          name: configuration.name,
+          inputType: configuration.inputType,
+          pricingMode: configuration.pricingMode,
+          financialBehavior: configuration.financialBehavior,
+          fixedPriceDelta: configuration.fixedPriceDelta,
+          linkedProductId: configuration.linkedProductId,
+          linkProductDisplay: configuration.linkProductDisplay,
+          linkedProductPrice: configuration.linkedProduct?.canonicalPrice ?? null,
+          counterPricingMode: configuration.counterPricingMode,
+          counterUnitPrice: configuration.counterUnitPrice,
+          options: new Map(
+            configuration.options.map((option) => [
+              option.id,
+              {
+                id: option.id,
+                label: option.label,
+                priceDelta: option.priceDelta,
+              },
+            ])
+          ),
+        },
+      ])
+    ),
   });
 }
 
@@ -1107,6 +1226,24 @@ async function captureCurrentOrderComposition(
       packages: {
         include: {
           package: { select: { id: true, name: true, price: true, photoCount: true } },
+          sessionConfigurationSelections: {
+            select: {
+              id: true,
+              orderPackageId: true,
+              configurationId: true,
+              optionId: true,
+              numericValue: true,
+              textValue: true,
+              snapshotConfigurationCode: true,
+              snapshotLabel: true,
+              snapshotPriceDelta: true,
+              snapshotFinancialBehavior: true,
+              snapshotInputType: true,
+              snapshotPricingMode: true,
+              snapshotLinkedProductId: true,
+              snapshotLinkProductDisplay: true,
+            },
+          },
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
@@ -1173,6 +1310,30 @@ async function captureCurrentOrderComposition(
         })
       );
     }
+    for (const selection of orderPackage.sessionConfigurationSelections) {
+      if (
+        selection.snapshotFinancialBehavior !==
+        SessionConfigurationFinancialBehavior.FINANCIAL
+      ) {
+        continue;
+      }
+      lines.push(...linesForSessionConfigurationSelection({
+        id: selection.id,
+        orderPackageId: selection.orderPackageId,
+        configurationId: selection.configurationId,
+        optionId: selection.optionId,
+        numericValue: selection.numericValue?.toString() ?? null,
+        textValue: selection.textValue,
+        snapshotConfigurationCode: selection.snapshotConfigurationCode,
+        snapshotLabel: selection.snapshotLabel,
+        snapshotPriceDelta: selection.snapshotPriceDelta.toFixed(3),
+        snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
+        snapshotInputType: selection.snapshotInputType,
+        snapshotPricingMode: selection.snapshotPricingMode,
+        snapshotLinkedProductId: selection.snapshotLinkedProductId,
+        snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
+      }));
+    }
   }
   for (const addOn of order.orderAddOns) {
     lines.push(
@@ -1203,6 +1364,24 @@ async function captureCurrentOrderComposition(
     capturedAt: new Date().toISOString(),
     lines,
     totals: computeTotals(lines),
+    sessionConfigurationSelections: order.packages.flatMap((orderPackage) =>
+      orderPackage.sessionConfigurationSelections.map((selection) => ({
+        id: selection.id,
+        orderPackageId: selection.orderPackageId,
+        configurationId: selection.configurationId,
+        optionId: selection.optionId,
+        numericValue: selection.numericValue?.toString() ?? null,
+        textValue: selection.textValue,
+        snapshotConfigurationCode: selection.snapshotConfigurationCode,
+        snapshotLabel: selection.snapshotLabel,
+        snapshotPriceDelta: selection.snapshotPriceDelta.toFixed(3),
+        snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
+        snapshotInputType: selection.snapshotInputType,
+        snapshotPricingMode: selection.snapshotPricingMode,
+        snapshotLinkedProductId: selection.snapshotLinkedProductId,
+        snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
+      }))
+    ),
   };
 }
 
@@ -1220,6 +1399,12 @@ function applySignedInvoiceLines(
   }>
 ) {
   for (const invoiceLine of invoiceLines) {
+    if (
+      invoiceLine.causeOrderEntityKind ===
+      OrderEntityKind.SESSION_CONFIGURATION_SELECTION
+    ) {
+      continue;
+    }
     const signedQuantity =
       invoiceLine.unitPrice.lessThan(0) || invoiceLine.lineTotal.lessThan(0)
         ? -invoiceLine.quantity
@@ -1234,6 +1419,68 @@ function applySignedInvoiceLines(
     });
     upsertWorkingLine(lines, line);
   }
+}
+
+async function finalizeSessionConfigurationSelectionEdits(
+  client: Prisma.TransactionClient,
+  edits: AdjustmentWorkspaceEdit[]
+): Promise<Map<string, string>> {
+  const selectionIdByPlaceholder = new Map<string, string>();
+  for (const edit of edits) {
+    if (edit.op !== "change_session_configuration_selection") continue;
+    const result = await applyFinancialSelectionEditFromWorkspace(client, {
+      orderPackageId: edit.orderPackageId,
+      configurationId: edit.configurationId,
+      desired: edit.desired,
+    });
+    if (result.selectionId) {
+      selectionIdByPlaceholder.set(
+        pendingSessionConfigurationSelectionId(edit.configurationId),
+        result.selectionId
+      );
+      recordWorkspaceMetric(
+        "adjustment_workspace.session_configuration_edit_finalized",
+        {
+          workspaceId: "in_transaction",
+          orderId: null,
+          selectionId: result.selectionId,
+        }
+      );
+    }
+  }
+  return selectionIdByPlaceholder;
+}
+
+function remapSessionConfigurationProposal(
+  proposal: AdjustmentWorkspaceProposal,
+  selectionIdByPlaceholder: Map<string, string>
+): AdjustmentWorkspaceProposal {
+  if (selectionIdByPlaceholder.size === 0) return proposal;
+  const remapLine = (line: AdjustmentCompositionLine): AdjustmentCompositionLine => {
+    const realSelectionId = selectionIdByPlaceholder.get(line.refId);
+    if (!realSelectionId) return line;
+    return {
+      ...line,
+      refId: realSelectionId,
+      lineId:
+        line.kind === "session_configuration"
+          ? sessionConfigurationLineId(realSelectionId)
+          : line.lineId,
+    };
+  };
+  return {
+    ...proposal,
+    proposed: {
+      ...proposal.proposed,
+      lines: proposal.proposed.lines.map(remapLine),
+      sessionConfigurationSelections:
+        proposal.proposed.sessionConfigurationSelections?.map((selection) => {
+          const realSelectionId = selectionIdByPlaceholder.get(selection.id);
+          return realSelectionId ? { ...selection, id: realSelectionId } : selection;
+        }),
+    },
+    deltas: proposal.deltas.map(remapLine),
+  };
 }
 
 async function createWorkspaceAdjustmentInvoice(
@@ -1629,6 +1876,9 @@ function cloneSnapshot(snapshot: AdjustmentBaseSnapshot): AdjustmentBaseSnapshot
       taxBreakdown: line.taxBreakdown.map((tax) => ({ ...tax })),
     })),
     totals: { ...snapshot.totals },
+    sessionConfigurationSelections: snapshot.sessionConfigurationSelections?.map(
+      (selection) => ({ ...selection })
+    ),
   };
 }
 
@@ -1777,6 +2027,230 @@ function applySelectedPhotoCountChange(
       })
     );
   }
+}
+
+function applySessionConfigurationSelectionChange(
+  snapshot: AdjustmentBaseSnapshot,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_session_configuration_selection" }
+  >,
+  catalog: CatalogLookup
+): void {
+  const orderPackage = catalog.orderPackages?.get(edit.orderPackageId);
+  if (!orderPackage) throw new Error("Package line is not available");
+  const configuration = catalog.sessionConfigurations?.get(edit.configurationId);
+  if (!configuration || configuration.sessionTypeId !== orderPackage.sessionTypeId) {
+    throw new Error("Session configuration is not available");
+  }
+  if (
+    configuration.financialBehavior !==
+    SessionConfigurationFinancialBehavior.FINANCIAL
+  ) {
+    throw new Error("Operational session configurations cannot be edited in the Adjustment Workspace");
+  }
+
+  const currentSelections = snapshot.sessionConfigurationSelections ?? [];
+  const existing = currentSelections.find(
+    (selection) =>
+      selection.orderPackageId === edit.orderPackageId &&
+      selection.configurationId === edit.configurationId
+  );
+  snapshot.sessionConfigurationSelections = currentSelections.filter(
+    (selection) =>
+      !(
+        selection.orderPackageId === edit.orderPackageId &&
+        selection.configurationId === edit.configurationId
+      )
+  );
+  snapshot.lines = snapshot.lines.filter(
+    (line) => !existing || line.lineId !== sessionConfigurationLineId(existing.id)
+  );
+
+  if (edit.desired === null) return;
+
+  const selection = buildWorkspaceSessionConfigurationSelection({
+    id: existing?.id ?? pendingSessionConfigurationSelectionId(edit.configurationId),
+    orderPackageId: edit.orderPackageId,
+    configuration,
+    desired: edit.desired,
+  });
+  snapshot.sessionConfigurationSelections.push(selection);
+  snapshot.lines.push(...linesForSessionConfigurationSelection(selection));
+}
+
+function buildWorkspaceSessionConfigurationSelection(input: {
+  id: string;
+  orderPackageId: string;
+  configuration: NonNullable<CatalogLookup["sessionConfigurations"]> extends Map<
+    string,
+    infer Configuration
+  >
+    ? Configuration
+    : never;
+  desired: Exclude<WorkspaceSessionConfigurationDesired, null>;
+}): AdjustmentSessionConfigurationSelection {
+  assertWorkspaceDesiredMatchesConfiguration(input.desired, input.configuration);
+  const option =
+    "optionId" in input.desired && input.desired.optionId
+      ? input.configuration.options.get(input.desired.optionId)
+      : null;
+  if (
+    (input.desired.kind === "select" ||
+      (input.desired.kind === "counter" &&
+        input.configuration.pricingMode === SessionConfigurationPricingMode.TIERED)) &&
+    !option
+  ) {
+    throw new Error("Session configuration option is not available");
+  }
+  const numericValue =
+    "numericValue" in input.desired
+      ? new Prisma.Decimal(input.desired.numericValue)
+      : null;
+  if (numericValue && (numericValue.lessThan(0) || !Number.isFinite(numericValue.toNumber()))) {
+    throw new Error("Session configuration numeric value is invalid");
+  }
+  const textValue =
+    input.desired.kind === "text" ? input.desired.textValue.trim() : null;
+  if (input.desired.kind === "text" && (!textValue || textValue.length > 500)) {
+    throw new Error("Session configuration text value is invalid");
+  }
+
+  return {
+    id: input.id,
+    orderPackageId: input.orderPackageId,
+    configurationId: input.configuration.id,
+    optionId: option?.id ?? null,
+    numericValue: numericValue?.toString() ?? null,
+    textValue,
+    snapshotConfigurationCode: input.configuration.code,
+    snapshotLabel: input.configuration.name,
+    snapshotPriceDelta: resolveWorkspaceSnapshotPriceDelta(
+      input.configuration,
+      option ?? null,
+      numericValue
+    ).toFixed(3),
+    snapshotFinancialBehavior: input.configuration.financialBehavior,
+    snapshotInputType: input.configuration.inputType,
+    snapshotPricingMode: input.configuration.pricingMode,
+    snapshotLinkedProductId:
+      input.configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
+        ? input.configuration.linkedProductId
+        : null,
+    snapshotLinkProductDisplay:
+      input.configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
+        ? input.configuration.linkProductDisplay
+        : null,
+  };
+}
+
+function assertWorkspaceDesiredMatchesConfiguration(
+  desired: Exclude<WorkspaceSessionConfigurationDesired, null>,
+  configuration: NonNullable<CatalogLookup["sessionConfigurations"]> extends Map<
+    string,
+    infer Configuration
+  >
+    ? Configuration
+    : never
+): void {
+  const expectedKindByInputType = {
+    [SessionConfigurationInputType.TOGGLE]: "toggle",
+    [SessionConfigurationInputType.SELECT]: "select",
+    [SessionConfigurationInputType.NUMBER]: "number",
+    [SessionConfigurationInputType.TEXT]: "text",
+    [SessionConfigurationInputType.COUNTER]: "counter",
+  } satisfies Record<SessionConfigurationInputType, Exclude<WorkspaceSessionConfigurationDesired, null>["kind"]>;
+  if (desired.kind !== expectedKindByInputType[configuration.inputType]) {
+    throw new Error("Session configuration input does not match its definition");
+  }
+}
+
+function resolveWorkspaceSnapshotPriceDelta(
+  configuration: NonNullable<CatalogLookup["sessionConfigurations"]> extends Map<
+    string,
+    infer Configuration
+  >
+    ? Configuration
+    : never,
+  option: { id: string; label: string; priceDelta: Prisma.Decimal } | null,
+  numericValue: Prisma.Decimal | null
+): Prisma.Decimal {
+  switch (configuration.pricingMode) {
+    case SessionConfigurationPricingMode.NONE:
+      return moneyZero;
+    case SessionConfigurationPricingMode.FIXED:
+      if (configuration.inputType === SessionConfigurationInputType.COUNTER) {
+        if (
+          configuration.counterPricingMode ===
+          SessionConfigurationCounterPricingMode.PER_UNIT
+        ) {
+          return (configuration.counterUnitPrice ?? configuration.fixedPriceDelta ?? moneyZero).mul(
+            numericValue ?? moneyZero
+          );
+        }
+      }
+      return configuration.fixedPriceDelta ?? moneyZero;
+    case SessionConfigurationPricingMode.TIERED:
+      if (!option) throw new Error("Session configuration option is not available");
+      return option.priceDelta;
+    case SessionConfigurationPricingMode.LINKED_PRODUCT:
+      if (!configuration.linkedProductPrice) {
+        throw new Error("Linked product price is not available");
+      }
+      return configuration.linkedProductPrice;
+  }
+}
+
+function linesForSessionConfigurationSelection(
+  selection: AdjustmentSessionConfigurationSelection
+): AdjustmentCompositionLine[] {
+  const priced = priceSelections([pricedSelectionFromAdjustmentSelection(selection)]);
+  const lineItems = priced.lineItems.map((lineItem) =>
+    makeLine({
+      lineId: sessionConfigurationLineId(selection.id),
+      kind: "session_configuration",
+      refId: selection.id,
+      label: lineItem.description,
+      quantity: lineItem.quantity,
+      unitPrice: lineItem.unitPrice,
+    })
+  );
+  if (lineItems.length > 0) return lineItems;
+  if (priced.nonLineDelta.equals(0)) return [];
+  return [
+    makeLine({
+      lineId: sessionConfigurationLineId(selection.id),
+      kind: "session_configuration",
+      refId: selection.id,
+      label: selection.snapshotLabel,
+      quantity: 1,
+      unitPrice: priced.nonLineDelta,
+    }),
+  ];
+}
+
+function pricedSelectionFromAdjustmentSelection(
+  selection: AdjustmentSessionConfigurationSelection
+): PricedSelection {
+  return {
+    id: selection.id,
+    snapshotConfigurationCode: selection.snapshotConfigurationCode,
+    snapshotLabel: selection.snapshotLabel,
+    snapshotPriceDelta: decimal(selection.snapshotPriceDelta),
+    snapshotPricingMode: selection.snapshotPricingMode,
+    snapshotInputType: selection.snapshotInputType,
+    snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
+    snapshotLinkedProductId: selection.snapshotLinkedProductId,
+    numericValue: selection.numericValue ? decimal(selection.numericValue) : null,
+  };
+}
+
+function sessionConfigurationLineId(selectionId: string): string {
+  return `session-config:${selectionId}`;
+}
+
+function pendingSessionConfigurationSelectionId(configurationId: string): string {
+  return `pending:${configurationId}`;
 }
 
 function isExtraPhotoLine(line: AdjustmentCompositionLine): boolean {
@@ -1943,6 +2417,18 @@ function collectPackageItemIds(edits: AdjustmentWorkspaceEdit[]): string[] {
   );
 }
 
+function collectSessionConfigurationIds(edits: AdjustmentWorkspaceEdit[]): string[] {
+  return [
+    ...new Set(
+      edits.flatMap((edit) =>
+        edit.op === "change_session_configuration_selection"
+          ? [edit.configurationId]
+          : []
+      )
+    ),
+  ];
+}
+
 function collectOrderPackageIds(edits: AdjustmentWorkspaceEdit[]): string[] {
   return [
     ...new Set(
@@ -1950,7 +2436,8 @@ function collectOrderPackageIds(edits: AdjustmentWorkspaceEdit[]): string[] {
         if (
           edit.op === "upgrade_package_item" ||
           edit.op === "change_selected_photo_count" ||
-          edit.op === "change_package_tier"
+          edit.op === "change_package_tier" ||
+          edit.op === "change_session_configuration_selection"
         ) {
           return [edit.orderPackageId];
         }
@@ -1987,6 +2474,9 @@ function kindFromInvoiceLine(
   if (causeKind === OrderEntityKind.EXTRA_PHOTO) return "item";
   if (causeKind === OrderEntityKind.ADDON) return "addon";
   if (causeKind === OrderEntityKind.UPGRADE) return "item";
+  if (causeKind === OrderEntityKind.SESSION_CONFIGURATION_SELECTION) {
+    return "session_configuration";
+  }
   if (lineType === InvoiceLineType.PACKAGE_BASE || causeKind === OrderEntityKind.PACKAGE_TIER_UPGRADE) {
     return "package";
   }
@@ -1997,6 +2487,12 @@ function kindFromInvoiceLine(
 export function resolveAdjustmentInvoiceLineSemantics(
   line: AdjustmentCompositionLine
 ): { lineType: InvoiceLineType; causeOrderEntityKind: OrderEntityKind } {
+  if (line.kind === "session_configuration") {
+    return {
+      lineType: InvoiceLineType.SESSION_CONFIGURATION,
+      causeOrderEntityKind: OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
+    };
+  }
   if (isExtraPhotoLine(line)) {
     return {
       lineType: InvoiceLineType.BUNDLE_ADJUSTMENT,

@@ -2,6 +2,35 @@ import { z } from "zod";
 
 const editId = z.string().trim().min(1, "Edit id is required");
 
+const sessionConfigurationDesiredSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("toggle") }).strict(),
+  z
+    .object({
+      kind: z.literal("select"),
+      optionId: z.string().trim().min(1, "Option is required"),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("number"),
+      numericValue: z.coerce.number().finite().min(0),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("text"),
+      textValue: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("counter"),
+      numericValue: z.coerce.number().finite().min(0),
+      optionId: z.string().trim().min(1).optional(),
+    })
+    .strict(),
+]);
+
 export const adjustmentWorkspaceEditSchema = z.discriminatedUnion("op", [
   z.object({
     id: editId,
@@ -63,6 +92,13 @@ export const adjustmentWorkspaceEditSchema = z.discriminatedUnion("op", [
     op: z.literal("change_package_tier"),
     orderPackageId: z.string().trim().min(1, "Package line is required"),
     toPackageRefId: z.string().trim().min(1, "Replacement package is required"),
+  }),
+  z.object({
+    id: editId,
+    op: z.literal("change_session_configuration_selection"),
+    orderPackageId: z.string().trim().min(1, "Package line is required"),
+    configurationId: z.string().trim().min(1, "Configuration is required"),
+    desired: z.union([z.null(), sessionConfigurationDesiredSchema]),
   }),
 ]);
 

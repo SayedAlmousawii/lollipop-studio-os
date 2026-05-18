@@ -5,6 +5,8 @@ import Module from "node:module";
 import process from "node:process";
 import test, { after } from "node:test";
 import {
+  AuditAction,
+  AuditEntityType,
   InvoiceType,
   Prisma,
   ProductCategory,
@@ -45,7 +47,9 @@ test("session configuration selection service writes full package sets with fres
       const { db } = await import("@/lib/db");
       const {
         SessionConfigurationSelectionInputMismatchError,
+        SessionConfigurationSelectionFinancialNotAllowedError,
         SessionConfigurationSelectionLockedError,
+        SessionConfigurationSelectionPostLockMisuseError,
         SessionConfigurationSelectionOptionMismatchError,
         writeOrderPackageSelections,
       } = await import(
@@ -171,6 +175,26 @@ test("session configuration selection service writes full package sets with fres
       );
       assert.equal(linkedSelection.snapshotPriceDelta.toFixed(3), "8.000");
 
+      await assert.rejects(
+        () =>
+          writeOrderPackageSelections(
+            fixture.orderPackageId,
+            [
+              {
+                configurationId: fixture.operationalConfigId,
+                kind: "text",
+                textValue: "Misuse",
+              },
+            ],
+            { id: fixture.managerUserId, role: UserRole.MANAGER },
+            {
+              allowPostLock: true,
+              postLockAudit: { actorUserId: fixture.managerUserId },
+            }
+          ),
+        SessionConfigurationSelectionPostLockMisuseError
+      );
+
       await db.invoice.create({
         data: {
           publicId: "INV-SELECT-LOCKED",
@@ -194,6 +218,75 @@ test("session configuration selection service writes full package sets with fres
           ),
         SessionConfigurationSelectionLockedError
       );
+
+      const postLockActor = { id: fixture.managerUserId, role: UserRole.MANAGER };
+      await writeOrderPackageSelections(
+        fixture.orderPackageId,
+        [
+          {
+            configurationId: fixture.operationalConfigId,
+            kind: "text",
+            textValue: "Vanilla cake",
+          },
+        ],
+        postLockActor,
+        { allowPostLock: true, postLockAudit: { actorUserId: fixture.managerUserId } }
+      );
+      const operationalSelection =
+        await db.orderPackageSessionConfigurationSelection.findUniqueOrThrow({
+          where: {
+            orderPackageId_configurationId: {
+              orderPackageId: fixture.orderPackageId,
+              configurationId: fixture.operationalConfigId,
+            },
+          },
+        });
+      assert.equal(operationalSelection.textValue, "Vanilla cake");
+      assert.equal(
+        await db.auditLog.count({
+          where: {
+            entityType:
+              AuditEntityType.ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+            entityId: operationalSelection.id,
+            action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
+          },
+        }),
+        1
+      );
+
+      await assert.rejects(
+        () =>
+          writeOrderPackageSelections(
+            fixture.orderPackageId,
+            [
+              {
+                configurationId: fixture.operationalConfigId,
+                kind: "text",
+                textValue: "Chocolate cake",
+              },
+              { configurationId: fixture.toggleConfigId, kind: "toggle" },
+            ],
+            postLockActor,
+            {
+              allowPostLock: true,
+              postLockAudit: { actorUserId: fixture.managerUserId },
+            }
+          ),
+        SessionConfigurationSelectionFinancialNotAllowedError
+      );
+      assert.equal(
+        (
+          await db.orderPackageSessionConfigurationSelection.findUniqueOrThrow({
+            where: {
+              orderPackageId_configurationId: {
+                orderPackageId: fixture.orderPackageId,
+                configurationId: fixture.operationalConfigId,
+              },
+            },
+          })
+        ).textValue,
+        "Vanilla cake"
+      );
     } finally {
       process.env.DATABASE_URL = previousDatabaseUrl;
     }
@@ -201,6 +294,14 @@ test("session configuration selection service writes full package sets with fres
 });
 
 async function createFixture(db: typeof import("@/lib/db")["db"]) {
+  const manager = await db.user.create({
+    data: {
+      id: "selection-manager",
+      name: "Selection Manager",
+      email: "selection-manager@example.com",
+      role: UserRole.MANAGER,
+    },
+  });
   const department = await db.studioDepartment.create({
     data: {
       code: "SELECT_DEPT",
@@ -346,6 +447,17 @@ async function createFixture(db: typeof import("@/lib/db")["db"]) {
       isActive: true,
     },
   });
+  const operationalConfig = await db.sessionConfiguration.create({
+    data: {
+      code: "SELECT_CAKE_THEME",
+      name: "Cake Theme",
+      sessionTypeId: sessionType.id,
+      inputType: SessionConfigurationInputType.TEXT,
+      pricingMode: SessionConfigurationPricingMode.NONE,
+      financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+      isActive: true,
+    },
+  });
 
   return {
     bookingId: booking.id,
@@ -354,8 +466,10 @@ async function createFixture(db: typeof import("@/lib/db")["db"]) {
     customerId: customer.id,
     financialCaseId: financialCase.id,
     linkedConfigId: linkedConfig.id,
+    managerUserId: manager.id,
     orderId: order.id,
     orderPackageId: orderPackage.id,
+    operationalConfigId: operationalConfig.id,
     productId: product.id,
     selectConfigId: selectConfig.id,
     selectOptionId: selectConfig.options[0].id,

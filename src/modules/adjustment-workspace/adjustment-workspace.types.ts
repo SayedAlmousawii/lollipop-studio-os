@@ -1,6 +1,6 @@
 import type { InvoiceStatus } from "@prisma/client";
 
-export type AdjustmentLineKind = "package" | "item" | "addon";
+export type AdjustmentLineKind = "package" | "item" | "addon" | "session_configuration";
 
 export type AdjustmentMoney = string;
 
@@ -32,7 +32,25 @@ export interface AdjustmentBaseSnapshot {
   capturedAt: string;
   lines: AdjustmentCompositionLine[];
   totals: AdjustmentCompositionTotals;
+  sessionConfigurationSelections?: AdjustmentSessionConfigurationSelection[];
 }
+
+export type AdjustmentSessionConfigurationSelection = {
+  id: string;
+  orderPackageId: string;
+  configurationId: string;
+  optionId: string | null;
+  numericValue: string | null;
+  textValue: string | null;
+  snapshotConfigurationCode: string;
+  snapshotLabel: string;
+  snapshotPriceDelta: AdjustmentMoney;
+  snapshotFinancialBehavior: "OPERATIONAL" | "FINANCIAL";
+  snapshotInputType: "TOGGLE" | "SELECT" | "NUMBER" | "TEXT" | "COUNTER";
+  snapshotPricingMode: "NONE" | "FIXED" | "TIERED" | "LINKED_PRODUCT";
+  snapshotLinkedProductId: string | null;
+  snapshotLinkProductDisplay: "LINE_ITEM" | "MODIFIER_ONLY" | null;
+};
 
 export type AdjustmentWorkspaceEdit =
   | {
@@ -72,6 +90,19 @@ export type AdjustmentWorkspaceEdit =
       op: "change_package_tier";
       orderPackageId: string;
       toPackageRefId: string;
+    }
+  | {
+      id: string;
+      op: "change_session_configuration_selection";
+      orderPackageId: string;
+      configurationId: string;
+      desired:
+        | null
+        | { kind: "toggle" }
+        | { kind: "select"; optionId: string }
+        | { kind: "number"; numericValue: number }
+        | { kind: "text"; textValue: string }
+        | { kind: "counter"; numericValue: number; optionId?: string };
     };
 
 export interface AdjustmentPendingChanges {

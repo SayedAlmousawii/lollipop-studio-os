@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import Module from "node:module";
 import test from "node:test";
-import { InvoiceLineType, OrderEntityKind, Prisma } from "@prisma/client";
+import {
+  InvoiceLineType,
+  OrderEntityKind,
+  Prisma,
+  SessionConfigurationFinancialBehavior,
+  SessionConfigurationInputType,
+  SessionConfigurationPricingMode,
+} from "@prisma/client";
 import { adjustmentPendingChangesSchema } from "@/modules/adjustment-workspace/adjustment-workspace.schema";
 import type {
   AdjustmentBaseSnapshot,
@@ -192,6 +199,46 @@ const packageEditCatalog = {
       },
     ],
   ]),
+  sessionConfigurations: new Map([
+    [
+      "config-twins",
+      {
+        id: "config-twins",
+        sessionTypeId: "session-family",
+        code: "TWINS",
+        name: "Twins",
+        inputType: SessionConfigurationInputType.TOGGLE,
+        pricingMode: SessionConfigurationPricingMode.FIXED,
+        financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+        fixedPriceDelta: new Prisma.Decimal("12.000"),
+        linkedProductId: null,
+        linkProductDisplay: null,
+        linkedProductPrice: null,
+        counterPricingMode: null,
+        counterUnitPrice: null,
+        options: new Map(),
+      },
+    ],
+    [
+      "config-theme",
+      {
+        id: "config-theme",
+        sessionTypeId: "session-family",
+        code: "THEME",
+        name: "Theme",
+        inputType: SessionConfigurationInputType.TEXT,
+        pricingMode: SessionConfigurationPricingMode.NONE,
+        financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+        fixedPriceDelta: null,
+        linkedProductId: null,
+        linkProductDisplay: null,
+        linkedProductPrice: null,
+        counterPricingMode: null,
+        counterUnitPrice: null,
+        options: new Map(),
+      },
+    ],
+  ]),
 };
 
 test("pending changes parser accepts mixed old and new edit shapes", () => {
@@ -225,14 +272,81 @@ test("pending changes parser accepts mixed old and new edit shapes", () => {
         extraDigitalCount: "1",
         extraPrintCount: "2",
       },
+      {
+        id: "session-config",
+        op: "change_session_configuration_selection",
+        orderPackageId: "order-package-1",
+        configurationId: "config-twins",
+        desired: { kind: "toggle" },
+      },
     ],
   });
 
-  assert.equal(parsed.edits.length, 4);
+  assert.equal(parsed.edits.length, 5);
   assert.equal(parsed.edits[2]?.op, "upgrade_package_item");
   assert.equal(
     parsed.edits[2]?.op === "upgrade_package_item" ? parsed.edits[2].quantity : null,
     1
+  );
+});
+
+test("session configuration workspace edits produce session configuration deltas", async () => {
+  const { computeWorkspaceProposal, resolveAdjustmentInvoiceLineSemantics } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const proposal = await computeWorkspaceProposal(
+    packageEditBaseSnapshot,
+    {
+      edits: [
+        {
+          id: "session-config",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-twins",
+          desired: { kind: "toggle" },
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+
+  assert.equal(proposal.netPayableDelta, "12.000");
+  assert.equal(proposal.deltas.length, 1);
+  assert.equal(proposal.deltas[0]?.kind, "session_configuration");
+  assert.equal(proposal.deltas[0]?.refId, "pending:config-twins");
+  assert.deepEqual(
+    proposal.deltas.map((line) => resolveAdjustmentInvoiceLineSemantics(line)),
+    [
+      {
+        lineType: InvoiceLineType.SESSION_CONFIGURATION,
+        causeOrderEntityKind: OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
+      },
+    ]
+  );
+});
+
+test("session configuration workspace edits reject operational configurations", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  await assert.rejects(
+    () =>
+      computeWorkspaceProposal(
+        packageEditBaseSnapshot,
+        {
+          edits: [
+            {
+              id: "session-config",
+              op: "change_session_configuration_selection",
+              orderPackageId: "order-package-1",
+              configurationId: "config-theme",
+              desired: { kind: "text", textValue: "Blue" },
+            },
+          ],
+        },
+        packageEditCatalog
+      ),
+    /Operational session configurations/
   );
 });
 
