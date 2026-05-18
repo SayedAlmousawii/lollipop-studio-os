@@ -488,6 +488,7 @@ function previewFee(
               : new Prisma.Decimal(configuration.fixedPriceDelta ?? 0),
     snapshotPricingMode: configuration.pricingMode,
     snapshotInputType: configuration.inputType,
+    snapshotOptionLabel: option?.label ?? null,
     snapshotLinkProductDisplay: configuration.linkProductDisplay,
     snapshotLinkedProductId: configuration.linkedProductId,
     numericValue,

@@ -14,6 +14,7 @@ export type PricedSelection = {
   snapshotPriceDelta: Prisma.Decimal;
   snapshotPricingMode: SessionConfigurationPricingMode;
   snapshotInputType: SessionConfigurationInputType;
+  snapshotOptionLabel: string | null;
   snapshotLinkProductDisplay: SessionConfigurationLinkProductDisplay | null;
   snapshotLinkedProductId: string | null;
   numericValue: Prisma.Decimal | null;
@@ -98,11 +99,7 @@ export function priceSingleSelection(selection: PricedSelection): {
         return createLineSelectionPrice(selection);
       }
       if (selection.snapshotLinkProductDisplay === "MODIFIER_ONLY") {
-        return {
-          lineDelta: null,
-          nonLineDelta: selection.snapshotPriceDelta,
-          lineItem: null,
-        };
+        return createLineSelectionPrice(selection);
       }
       throw new SessionConfigurationPricingError(
         `Linked-product session configuration ${selection.snapshotConfigurationCode} is missing a display mode`
@@ -136,7 +133,16 @@ function createLineSelectionPrice(selection: PricedSelection): {
   };
 }
 
-function formatSelectionDescription(selection: PricedSelection): string {
+export function formatSelectionDescription(selection: PricedSelection): string {
+  if (
+    (selection.snapshotInputType === "SELECT" ||
+      (selection.snapshotInputType === "COUNTER" &&
+        selection.snapshotPricingMode === "TIERED")) &&
+    selection.snapshotOptionLabel
+  ) {
+    return `${selection.snapshotLabel} — ${selection.snapshotOptionLabel}`;
+  }
+
   if (selection.snapshotInputType !== "COUNTER") {
     return selection.snapshotLabel;
   }

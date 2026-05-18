@@ -30,6 +30,7 @@ import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import { derivePaymentSummary } from "@/modules/orders/order-settlement";
 import {
+  formatSelectionDescription,
   priceSelections,
   type PricedSelection,
 } from "@/modules/session-configurations/session-configuration-pricing";
@@ -983,7 +984,15 @@ export async function computeWorkspaceProposal(
   }
 
   proposed.totals = computeTotals(proposed.lines);
-  const deltas = diffCompositionLines(base.lines, proposed.lines);
+  const compositionDeltas = diffCompositionLines(base.lines, proposed.lines).filter(
+    (line) => line.kind !== "session_configuration"
+  );
+  const sessionConfigurationDeltas = diffSessionConfigurationSelections(
+    base.sessionConfigurationSelections ?? [],
+    proposed.sessionConfigurationSelections ?? [],
+    catalog
+  );
+  const deltas = [...compositionDeltas, ...sessionConfigurationDeltas];
   const grossDelta = decimal(proposed.totals.gross).minus(base.totals.gross);
   const discountDelta = decimal(proposed.totals.discount).minus(base.totals.discount);
   const taxDelta = decimal(proposed.totals.tax).minus(base.totals.tax);
@@ -1284,6 +1293,7 @@ async function captureCurrentOrderComposition(
               optionId: true,
               numericValue: true,
               textValue: true,
+              snapshotOptionLabel: true,
               snapshotConfigurationCode: true,
               snapshotLabel: true,
               snapshotPriceDelta: true,
@@ -1374,6 +1384,7 @@ async function captureCurrentOrderComposition(
         optionId: selection.optionId,
         numericValue: selection.numericValue?.toString() ?? null,
         textValue: selection.textValue,
+        snapshotOptionLabel: selection.snapshotOptionLabel,
         snapshotConfigurationCode: selection.snapshotConfigurationCode,
         snapshotLabel: selection.snapshotLabel,
         snapshotPriceDelta: selection.snapshotPriceDelta.toFixed(3),
@@ -1422,6 +1433,7 @@ async function captureCurrentOrderComposition(
         optionId: selection.optionId,
         numericValue: selection.numericValue?.toString() ?? null,
         textValue: selection.textValue,
+        snapshotOptionLabel: selection.snapshotOptionLabel,
         snapshotConfigurationCode: selection.snapshotConfigurationCode,
         snapshotLabel: selection.snapshotLabel,
         snapshotPriceDelta: selection.snapshotPriceDelta.toFixed(3),
@@ -2183,6 +2195,12 @@ function buildWorkspaceSessionConfigurationSelection(input: {
     optionId: option?.id ?? null,
     numericValue: numericValue?.toString() ?? null,
     textValue,
+    snapshotOptionLabel:
+      input.desired.kind === "select" ||
+      (input.desired.kind === "counter" &&
+        input.configuration.pricingMode === SessionConfigurationPricingMode.TIERED)
+        ? option?.label ?? null
+        : null,
     snapshotConfigurationCode: input.configuration.code,
     snapshotLabel: input.configuration.name,
     snapshotPriceDelta: resolveWorkspaceSnapshotPriceDelta(
@@ -2299,6 +2317,7 @@ function pricedSelectionFromAdjustmentSelection(
     snapshotPriceDelta: decimal(selection.snapshotPriceDelta),
     snapshotPricingMode: selection.snapshotPricingMode,
     snapshotInputType: selection.snapshotInputType,
+    snapshotOptionLabel: selection.snapshotOptionLabel,
     snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
     snapshotLinkedProductId: selection.snapshotLinkedProductId,
     numericValue: selection.numericValue ? decimal(selection.numericValue) : null,
@@ -2377,6 +2396,130 @@ function diffCompositionLines(
   }
 
   return deltas;
+}
+
+function diffSessionConfigurationSelections(
+  baseSelections: AdjustmentSessionConfigurationSelection[],
+  proposedSelections: AdjustmentSessionConfigurationSelection[],
+  catalog: CatalogLookup
+): AdjustmentCompositionLine[] {
+  const baseByKey = new Map(
+    baseSelections.map((selection) => [
+      sessionConfigurationSelectionKey(selection),
+      selection,
+    ])
+  );
+  const proposedByKey = new Map(
+    proposedSelections.map((selection) => [
+      sessionConfigurationSelectionKey(selection),
+      selection,
+    ])
+  );
+  const keys = [
+    ...baseByKey.keys(),
+    ...[...proposedByKey.keys()].filter((key) => !baseByKey.has(key)),
+  ];
+
+  return keys.flatMap((key) => {
+    const base = baseByKey.get(key) ?? null;
+    const proposed = proposedByKey.get(key) ?? null;
+    if (!base && !proposed) return [];
+    const liveConfiguration = catalog.sessionConfigurations?.get(
+      (proposed ?? base)?.configurationId ?? ""
+    );
+    if (
+      liveConfiguration?.financialBehavior !==
+      SessionConfigurationFinancialBehavior.FINANCIAL
+    ) {
+      return [];
+    }
+    if (base && proposed && sessionConfigurationSelectionValuesMatch(base, proposed)) {
+      return [];
+    }
+
+    const baseTotal = base
+      ? priceSelections([pricedSelectionFromAdjustmentSelection(base)]).totalDelta
+      : moneyZero;
+    const proposedTotal = proposed
+      ? priceSelections([pricedSelectionFromAdjustmentSelection(proposed)]).totalDelta
+      : moneyZero;
+    const delta = proposedTotal.minus(baseTotal);
+    if (delta.equals(0)) return [];
+
+    const label = sessionConfigurationDeltaLabel(base, proposed);
+    recordWorkspaceMetric("adjustment_invoice.session_configuration_prefix_emitted", {
+      kind: sessionConfigurationDeltaKind(base, proposed),
+      selectionId: (proposed ?? base)?.id ?? null,
+    });
+    const refSelection = proposed ?? base;
+    if (!refSelection) return [];
+
+    return [
+      makeLine({
+        lineId: `delta:${sessionConfigurationLineId(refSelection.id)}`,
+        kind: "session_configuration",
+        refId: refSelection.id,
+        label,
+        quantity: 1,
+        unitPrice: delta,
+      }),
+    ];
+  });
+}
+
+function sessionConfigurationDeltaKind(
+  base: AdjustmentSessionConfigurationSelection | null,
+  proposed: AdjustmentSessionConfigurationSelection | null
+): "added" | "removed" | "changed" {
+  if (!base && proposed) return "added";
+  if (base && !proposed) return "removed";
+  return "changed";
+}
+
+function sessionConfigurationDeltaLabel(
+  base: AdjustmentSessionConfigurationSelection | null,
+  proposed: AdjustmentSessionConfigurationSelection | null
+): string {
+  if (base && proposed) {
+    return `Changed: ${formatSelectionDescription(
+      pricedSelectionFromAdjustmentSelection(base)
+    )} → ${formatSelectionDescription(
+      pricedSelectionFromAdjustmentSelection(proposed)
+    )}`;
+  }
+  if (proposed) {
+    return `Added: ${formatSelectionDescription(
+      pricedSelectionFromAdjustmentSelection(proposed)
+    )}`;
+  }
+  if (!base) return "Changed: Session Configuration";
+  return `Removed: ${formatSelectionDescription(
+    pricedSelectionFromAdjustmentSelection(base)
+  )}`;
+}
+
+function sessionConfigurationSelectionKey(
+  selection: AdjustmentSessionConfigurationSelection
+): string {
+  return `${selection.orderPackageId}:${selection.configurationId}`;
+}
+
+function sessionConfigurationSelectionValuesMatch(
+  base: AdjustmentSessionConfigurationSelection,
+  proposed: AdjustmentSessionConfigurationSelection
+): boolean {
+  return (
+    base.optionId === proposed.optionId &&
+    base.numericValue === proposed.numericValue &&
+    base.textValue === proposed.textValue &&
+    base.snapshotOptionLabel === proposed.snapshotOptionLabel &&
+    base.snapshotLabel === proposed.snapshotLabel &&
+    base.snapshotPriceDelta === proposed.snapshotPriceDelta &&
+    base.snapshotPricingMode === proposed.snapshotPricingMode &&
+    base.snapshotInputType === proposed.snapshotInputType &&
+    base.snapshotLinkProductDisplay === proposed.snapshotLinkProductDisplay &&
+    base.snapshotLinkedProductId === proposed.snapshotLinkedProductId
+  );
 }
 
 function groupCompositionLines(lines: AdjustmentCompositionLine[]) {

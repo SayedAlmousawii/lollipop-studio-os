@@ -15,6 +15,7 @@ export const pricedSessionConfigurationSelectionSelect = {
   optionId: true,
   snapshotConfigurationCode: true,
   snapshotLabel: true,
+  snapshotOptionLabel: true,
   snapshotPriceDelta: true,
   snapshotFinancialBehavior: true,
   snapshotPricingMode: true,

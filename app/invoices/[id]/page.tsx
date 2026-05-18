@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
+import { InvoiceLineItems } from "@/components/financial/invoice-line-items";
 import { PaymentHistoryTable } from "@/components/invoices/payment-history-table";
 import { RecordPaymentForm } from "@/components/invoices/record-payment-form";
 import { RefundInvoiceForm } from "@/components/invoices/refund-invoice-form";
@@ -158,15 +159,8 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
                     </p>
                   ) : null}
                 </CardHeader>
-                <CardContent className="space-y-2">
-                  {invoice.lineItems.map((item) => (
-                    <InvoiceLineRow
-                      key={item.id}
-                      label={item.description}
-                      meta={`${item.quantity} × ${item.unitPrice}`}
-                      value={item.lineTotal}
-                    />
-                  ))}
+                <CardContent>
+                  <InvoiceLineItems lineItems={invoice.lineItems} />
                 </CardContent>
               </Card>
             ) : null}
@@ -372,28 +366,6 @@ function MoneyRow({
     >
       <span>{label}</span>
       <span className="tabular-nums">{value}</span>
-    </div>
-  );
-}
-
-function InvoiceLineRow({
-  label,
-  meta,
-  value,
-}: {
-  label: string;
-  meta: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-surface-soft px-3 py-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-text-primary">{label}</p>
-          <p className="text-xs text-text-secondary">{meta}</p>
-        </div>
-        <span className="text-sm font-medium tabular-nums text-text-primary">{value}</span>
-      </div>
     </div>
   );
 }

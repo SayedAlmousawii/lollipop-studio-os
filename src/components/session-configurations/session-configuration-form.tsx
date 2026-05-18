@@ -352,16 +352,21 @@ function SessionConfigurationFields({
             </select>
             <FieldError messages={state.errors?.linkedProductId} />
           </div>
-          <SelectField
-            id="session-configuration-product-display"
-            name="linkProductDisplay"
-            label="Product display *"
-            value={values.linkProductDisplay}
-            options={Object.values(SessionConfigurationLinkProductDisplay)}
-            disabled={pending}
-            error={state.errors?.linkProductDisplay}
-            onChange={(display) => onValueChange({ linkProductDisplay: display })}
-          />
+          <div className="space-y-2">
+            <Label>Product display</Label>
+            <input
+              type="hidden"
+              name="linkProductDisplay"
+              value={SessionConfigurationLinkProductDisplay.LINE_ITEM}
+            />
+            <div className="flex h-10 items-center rounded-md border border-border bg-surface-soft px-3 text-sm text-text-secondary">
+              Line item
+            </div>
+            <p className="text-xs text-text-secondary">
+              Linked products are added to the invoice as line items.
+            </p>
+            <FieldError messages={state.errors?.linkProductDisplay} />
+          </div>
         </div>
       ) : (
         <>
@@ -511,7 +516,10 @@ function valuesFromConfiguration(
         ? ""
         : configuration.fixedPriceDelta.toFixed(3),
     linkedProductId: configuration.linkedProductId ?? "",
-    linkProductDisplay: configuration.linkProductDisplay ?? "",
+    linkProductDisplay:
+      configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
+        ? SessionConfigurationLinkProductDisplay.LINE_ITEM
+        : configuration.linkProductDisplay ?? "",
     counterPricingMode: configuration.counterPricingMode ?? "",
     counterUnitPrice:
       configuration.counterUnitPrice === null

@@ -241,6 +241,51 @@ const packageEditCatalog = {
   ]),
 };
 
+function baseWithTwinsSelection(priceDelta: string): AdjustmentBaseSnapshot {
+  return {
+    ...packageEditBaseSnapshot,
+    lines: [
+      ...packageEditBaseSnapshot.lines,
+      {
+        lineId: "session-config:selection-twins",
+        kind: "session_configuration",
+        refId: "selection-twins",
+        label: "Twins",
+        quantity: 1,
+        unitPrice: priceDelta,
+        lineTotalGross: priceDelta,
+        lineTotalNet: priceDelta,
+        taxBreakdown: [],
+      },
+    ],
+    totals: {
+      gross: (110 + Number(priceDelta)).toFixed(3),
+      discount: "0.000",
+      tax: "0.000",
+      netPayable: (110 + Number(priceDelta)).toFixed(3),
+    },
+    sessionConfigurationSelections: [
+      {
+        id: "selection-twins",
+        orderPackageId: "order-package-1",
+        configurationId: "config-twins",
+        optionId: null,
+        numericValue: null,
+        textValue: null,
+        snapshotOptionLabel: null,
+        snapshotConfigurationCode: "TWINS",
+        snapshotLabel: "Twins",
+        snapshotPriceDelta: priceDelta,
+        snapshotFinancialBehavior: "FINANCIAL",
+        snapshotInputType: "TOGGLE",
+        snapshotPricingMode: "FIXED",
+        snapshotLinkedProductId: null,
+        snapshotLinkProductDisplay: null,
+      },
+    ],
+  };
+}
+
 test("pending changes parser accepts mixed old and new edit shapes", () => {
   const parsed = adjustmentPendingChangesSchema.parse({
     edits: [
@@ -314,6 +359,7 @@ test("session configuration workspace edits produce session configuration deltas
   assert.equal(proposal.deltas.length, 1);
   assert.equal(proposal.deltas[0]?.kind, "session_configuration");
   assert.equal(proposal.deltas[0]?.refId, "pending:config-twins");
+  assert.match(proposal.deltas[0]?.label ?? "", /^Added: /);
   assert.deepEqual(
     proposal.deltas.map((line) => resolveAdjustmentInvoiceLineSemantics(line)),
     [
@@ -323,6 +369,47 @@ test("session configuration workspace edits produce session configuration deltas
       },
     ]
   );
+});
+
+test("session configuration workspace deltas prefix removed and changed descriptions", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const base = baseWithTwinsSelection("5.000");
+
+  const removed = await computeWorkspaceProposal(
+    base,
+    {
+      edits: [
+        {
+          id: "remove-session-config",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-twins",
+          desired: null,
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+  assert.match(removed.deltas[0]?.label ?? "", /^Removed: Twins/);
+
+  const changed = await computeWorkspaceProposal(
+    base,
+    {
+      edits: [
+        {
+          id: "change-session-config",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-twins",
+          desired: { kind: "toggle" },
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+  assert.match(changed.deltas[0]?.label ?? "", /^Changed: Twins → Twins/);
 });
 
 test("session configuration workspace edits accept operational configurations without deltas", async () => {
@@ -386,6 +473,7 @@ test("operational workspace edits leave historical invoice lines untouched", asy
         optionId: null,
         numericValue: null,
         textValue: "Red",
+        snapshotOptionLabel: null,
         snapshotConfigurationCode: "THEME",
         snapshotLabel: "Theme",
         snapshotPriceDelta: "12.000",

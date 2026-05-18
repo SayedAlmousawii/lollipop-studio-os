@@ -4,6 +4,7 @@ import {
   FinancialTotalSource,
   type LockedFinancialSidebarSummary,
 } from "@/components/financial";
+import { InvoiceLineItems } from "@/components/financial/invoice-line-items";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type {
   LinkedFinancialDocument,
@@ -49,32 +50,7 @@ export function OrderDetailsFinancialsTab({
           <CardTitle className="text-base">Price Breakdown</CardTitle>
         </CardHeader>
         <CardContent>
-          {workspace.invoice.lineItems.length > 0 ? (
-            <div className="space-y-3">
-              {workspace.invoice.lineItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-text-primary">
-                      {item.description}
-                    </p>
-                    <p className="text-xs text-text-secondary">
-                      {item.lineType} · {item.quantity} × {item.unitPriceLabel}
-                    </p>
-                  </div>
-                  <p className="text-sm font-medium text-text-primary">
-                    {item.lineTotalLabel}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-md border border-border bg-surface-soft p-3 text-sm text-text-secondary">
-              No price breakdown lines are available.
-            </p>
-          )}
+          <InvoiceLineItems lineItems={workspace.invoice.lineItems} />
         </CardContent>
       </Card>
     </div>

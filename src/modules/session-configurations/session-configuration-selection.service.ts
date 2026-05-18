@@ -30,6 +30,7 @@ type SelectionSnapshot = {
   optionId: string | null;
   numericValue: Prisma.Decimal | null;
   textValue: string | null;
+  snapshotOptionLabel: string | null;
   snapshotConfigurationCode: string;
   snapshotLabel: string;
   snapshotPriceDelta: Prisma.Decimal;
@@ -46,6 +47,7 @@ const existingSelectionSelect = {
   optionId: true,
   numericValue: true,
   textValue: true,
+  snapshotOptionLabel: true,
   snapshotConfigurationCode: true,
   snapshotLabel: true,
   snapshotPriceDelta: true,
@@ -533,6 +535,12 @@ function buildSelectionSnapshot(
     optionId: option?.id ?? null,
     numericValue,
     textValue,
+    snapshotOptionLabel:
+      selection.kind === "select" ||
+      (selection.kind === "counter" &&
+        configuration.pricingMode === SessionConfigurationPricingMode.TIERED)
+        ? option?.label ?? null
+        : null,
     snapshotConfigurationCode: configuration.code,
     snapshotLabel: configuration.name,
     snapshotPriceDelta: resolveSnapshotPriceDelta(
@@ -603,6 +611,7 @@ function auditPayloadFromExistingSelection(selection: ExistingSelection) {
     configurationId: selection.configurationId,
     snapshotConfigurationCode: selection.snapshotConfigurationCode,
     snapshotLabel: selection.snapshotLabel,
+    snapshotOptionLabel: selection.snapshotOptionLabel,
     snapshotPriceDelta: selection.snapshotPriceDelta.toString(),
     snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
     snapshotInputType: selection.snapshotInputType,
@@ -620,6 +629,7 @@ function auditPayloadFromSelectionSnapshot(snapshot: SelectionSnapshot) {
     configurationId: snapshot.configurationId,
     snapshotConfigurationCode: snapshot.snapshotConfigurationCode,
     snapshotLabel: snapshot.snapshotLabel,
+    snapshotOptionLabel: snapshot.snapshotOptionLabel,
     snapshotPriceDelta: snapshot.snapshotPriceDelta.toString(),
     snapshotFinancialBehavior: snapshot.snapshotFinancialBehavior,
     snapshotInputType: snapshot.snapshotInputType,
@@ -787,6 +797,7 @@ function selectionPayloadMatches(
     existing.optionId === data.optionId &&
     decimalValuesEqual(existing.numericValue, data.numericValue) &&
     existing.textValue === data.textValue &&
+    existing.snapshotOptionLabel === data.snapshotOptionLabel &&
     existing.snapshotConfigurationCode === data.snapshotConfigurationCode &&
     existing.snapshotLabel === data.snapshotLabel &&
     decimalValuesEqual(existing.snapshotPriceDelta, data.snapshotPriceDelta) &&
@@ -827,6 +838,7 @@ function snapshotData(
     optionId: snapshot.optionId,
     numericValue: snapshot.numericValue,
     textValue: snapshot.textValue,
+    snapshotOptionLabel: snapshot.snapshotOptionLabel,
     snapshotConfigurationCode: snapshot.snapshotConfigurationCode,
     snapshotLabel: snapshot.snapshotLabel,
     snapshotPriceDelta: snapshot.snapshotPriceDelta,

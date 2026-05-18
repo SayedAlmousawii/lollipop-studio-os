@@ -367,6 +367,9 @@ export interface SessionConfigurationSummaryEntry {
   configurationId: string;
   code: string;
   label: string;
+  optionLabel: string | null;
+  numericValue: string | null;
+  textValue: string | null;
   priceDelta: number;
   financialBehavior: SessionConfigurationFinancialBehavior;
   inputType: SessionConfigurationInputType;

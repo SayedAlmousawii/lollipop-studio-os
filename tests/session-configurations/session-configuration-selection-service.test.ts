@@ -160,6 +160,7 @@ test("session configuration selection service writes full package sets with fres
           },
         });
       assert.equal(tieredCounter.snapshotPriceDelta.toFixed(3), "30.000");
+      assert.equal(tieredCounter.snapshotOptionLabel, "Three");
       const linkedSelection =
         await db.orderPackageSessionConfigurationSelection.findUniqueOrThrow({
           where: {
@@ -175,6 +176,53 @@ test("session configuration selection service writes full package sets with fres
         SessionConfigurationLinkProductDisplay.LINE_ITEM
       );
       assert.equal(linkedSelection.snapshotPriceDelta.toFixed(3), "8.000");
+
+      await writeOrderPackageSelections(
+        fixture.orderPackageId,
+        [
+          {
+            configurationId: fixture.selectConfigId,
+            kind: "select",
+            optionId: fixture.selectOptionId,
+          },
+        ],
+        managerActor
+      );
+      const selectSelection =
+        await db.orderPackageSessionConfigurationSelection.findUniqueOrThrow({
+          where: {
+            orderPackageId_configurationId: {
+              orderPackageId: fixture.orderPackageId,
+              configurationId: fixture.selectConfigId,
+            },
+          },
+        });
+      assert.equal(selectSelection.snapshotOptionLabel, "Newborn");
+      await db.sessionConfigurationOption.update({
+        where: { id: fixture.selectOptionId },
+        data: { label: "30-45 Days" },
+      });
+      await writeOrderPackageSelections(
+        fixture.orderPackageId,
+        [
+          {
+            configurationId: fixture.selectConfigId,
+            kind: "select",
+            optionId: fixture.selectOptionId,
+          },
+        ],
+        managerActor
+      );
+      const refreshedSelectSelection =
+        await db.orderPackageSessionConfigurationSelection.findUniqueOrThrow({
+          where: {
+            orderPackageId_configurationId: {
+              orderPackageId: fixture.orderPackageId,
+              configurationId: fixture.selectConfigId,
+            },
+          },
+        });
+      assert.equal(refreshedSelectSelection.snapshotOptionLabel, "30-45 Days");
 
       await assert.rejects(
         () =>
