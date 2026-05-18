@@ -97,9 +97,12 @@ export class SessionConfigurationSelectionFinancialNotAllowedError extends Error
 }
 
 export class SessionConfigurationSelectionConfigurationNotFoundError extends Error {
-  constructor() {
+  configurationId?: string;
+
+  constructor(configurationId?: string) {
     super("Session configuration is not available for this package.");
     this.name = "SessionConfigurationSelectionConfigurationNotFoundError";
+    this.configurationId = configurationId;
   }
 }
 
@@ -372,9 +375,9 @@ export async function applySessionConfigurationEditFromWorkspace(
   });
   const configuration = liveConfigurations[0];
   if (!configuration) {
-    throw new SessionConfigurationSelectionFinancialNotAllowedError([
-      input.configurationId,
-    ]);
+    throw new SessionConfigurationSelectionConfigurationNotFoundError(
+      input.configurationId
+    );
   }
   const isOperational =
     configuration.financialBehavior ===

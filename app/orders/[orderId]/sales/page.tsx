@@ -297,7 +297,11 @@ function LockedCompositionView({
     packageLines.map((line) => [
       `package:${line.id}`,
       <ConfigureSessionPanel
-        key={line.id}
+        key={JSON.stringify({
+          id: line.id,
+          workspaceIsOpen,
+          currentSelections: line.currentSelections,
+        })}
         orderId={orderId}
         orderPackageId={line.id}
         packageName={line.currentPackage.name}

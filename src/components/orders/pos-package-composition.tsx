@@ -53,26 +53,39 @@ import type {
   POSMutationActionState,
 } from "@/modules/orders/pos-handlers.types";
 
-interface POSPackageCompositionProps {
+type POSPackageCompositionBaseProps = {
   workspace: POSWorkspace;
   handlers: POSCompositionHandlers;
-  configurePanelMode?: "auto" | "adjustment";
-  workspaceId?: string;
-  workspaceVersion?: number;
-  pendingOverlayByOrderPackageId?: Record<
-    string,
-    PendingSessionConfigurationOverlay
-  >;
-}
+};
 
-export function POSPackageComposition({
-  workspace,
-  handlers,
-  configurePanelMode = "auto",
-  workspaceId,
-  workspaceVersion,
-  pendingOverlayByOrderPackageId = {},
-}: POSPackageCompositionProps) {
+type POSPackageCompositionProps =
+  | (POSPackageCompositionBaseProps & {
+      configurePanelMode?: "auto";
+      workspaceId?: never;
+      workspaceVersion?: never;
+      pendingOverlayByOrderPackageId?: never;
+    })
+  | (POSPackageCompositionBaseProps & {
+      configurePanelMode: "adjustment";
+      workspaceId: string;
+      workspaceVersion: number;
+      pendingOverlayByOrderPackageId: Record<
+        string,
+        PendingSessionConfigurationOverlay
+      >;
+    });
+
+export function POSPackageComposition(props: POSPackageCompositionProps) {
+  const { workspace, handlers } = props;
+  const configurePanelMode = props.configurePanelMode ?? "auto";
+  const adjustmentPanelContext =
+    props.configurePanelMode === "adjustment"
+      ? {
+          workspaceId: props.workspaceId,
+          workspaceVersion: props.workspaceVersion,
+          pendingOverlayByOrderPackageId: props.pendingOverlayByOrderPackageId,
+        }
+      : null;
   const locked = workspace.invoice?.isLocked ?? false;
   const packagePriceTotal =
     workspace.packageLines.reduce(
@@ -114,18 +127,31 @@ export function POSPackageComposition({
                   handlers={handlers}
                 />
                 <ConfigureSessionPanel
+                  key={configureSessionPanelKey({
+                    mode: configurePanelMode,
+                    line,
+                    workspaceVersion:
+                      adjustmentPanelContext?.workspaceVersion,
+                    pendingOverlay:
+                      adjustmentPanelContext?.pendingOverlayByOrderPackageId[
+                        line.id
+                      ],
+                  })}
                   orderId={workspace.orderId}
                   orderPackageId={line.id}
                   packageName={line.currentPackage.name}
                   sessionTypeName={line.sessionTypeName}
                   mode={
-                    configurePanelMode === "adjustment"
+                    configurePanelMode === "adjustment" && adjustmentPanelContext
                       ? {
                           kind: "adjustment",
-                          workspaceId: workspaceId ?? "",
-                          workspaceVersion: workspaceVersion ?? 0,
+                          workspaceId: adjustmentPanelContext.workspaceId,
+                          workspaceVersion:
+                            adjustmentPanelContext.workspaceVersion,
                           pendingOverlay:
-                            pendingOverlayByOrderPackageId[line.id] ?? {},
+                            adjustmentPanelContext.pendingOverlayByOrderPackageId[
+                              line.id
+                            ] ?? {},
                         }
                       : locked
                         ? { kind: "locked", workspaceIsOpen: false }
@@ -189,10 +215,25 @@ export function POSPackageComposition({
   );
 }
 
+function configureSessionPanelKey(input: {
+  mode: "auto" | "adjustment";
+  line: POSPackageLine;
+  workspaceVersion?: number;
+  pendingOverlay?: PendingSessionConfigurationOverlay;
+}): string {
+  return JSON.stringify({
+    id: input.line.id,
+    mode: input.mode,
+    workspaceVersion: input.workspaceVersion,
+    currentSelections: input.line.currentSelections,
+    pendingOverlay: input.pendingOverlay ?? {},
+  });
+}
+
 export function POSPhotoCountCard({
   workspace,
   handlers,
-}: POSPackageCompositionProps) {
+}: POSPackageCompositionBaseProps) {
   const locked = workspace.invoice?.isLocked ?? false;
 
   return (

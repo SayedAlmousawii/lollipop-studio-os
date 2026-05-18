@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { ExternalLink, Settings2 } from "lucide-react";
-import { useActionState, useMemo, useState, useTransition } from "react";
+import {
+  useActionState,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import { useFormStatus } from "react-dom";
 import {
   applySessionConfigurationWorkspaceEditAction,
@@ -73,6 +78,9 @@ export function ConfigureSessionPanel({
   const [draftSelections, setDraftSelections] = useState<
     Record<string, SelectionInput | null>
   >(() => buildInitialDraftSelections(currentSelections, mode));
+  const [workspaceVersion, setWorkspaceVersion] = useState(
+    mode.kind === "adjustment" ? mode.workspaceVersion : 0
+  );
   const sortedConfigurations = useMemo(
     () =>
       [...availableConfigurations].sort(
@@ -139,7 +147,7 @@ export function ConfigureSessionPanel({
     if (mode.kind !== "adjustment") return;
     setAdjustmentState({});
     startAdjustmentTransition(async () => {
-      let currentVersion = mode.workspaceVersion;
+      let currentVersion = workspaceVersion;
       for (const configuration of sortedConfigurations) {
         const desired = draftSelections[configuration.id] ?? null;
         const baseline = baselineSelection(
@@ -179,6 +187,7 @@ export function ConfigureSessionPanel({
           return;
         }
         currentVersion = result.version;
+        setWorkspaceVersion(result.version);
       }
       console.info(
         JSON.stringify({
