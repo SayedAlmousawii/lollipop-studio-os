@@ -46,6 +46,7 @@ test("POS handler components render the stable sales DOM labels from handler pro
     parent,
     isMain
   ) {
+    if (request === "server-only") return {};
     if (request === "@/app/orders/[orderId]/sales/actions") {
       return {
         confirmReductiveEditWithApproval: async () => ({ kind: "success" }),

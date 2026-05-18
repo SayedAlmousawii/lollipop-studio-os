@@ -97,9 +97,12 @@ export class SessionConfigurationSelectionFinancialNotAllowedError extends Error
 }
 
 export class SessionConfigurationSelectionConfigurationNotFoundError extends Error {
-  constructor() {
+  configurationId?: string;
+
+  constructor(configurationId?: string) {
     super("Session configuration is not available for this package.");
     this.name = "SessionConfigurationSelectionConfigurationNotFoundError";
+    this.configurationId = configurationId;
   }
 }
 
@@ -334,17 +337,21 @@ export async function writeOrderPackageSelections(
   );
 }
 
-export async function applyFinancialSelectionEditFromWorkspace(
+export async function applySessionConfigurationEditFromWorkspace(
   tx: Prisma.TransactionClient,
   input: {
     orderPackageId: string;
     configurationId: string;
     desired: WorkspaceSessionConfigurationDesired;
+    audit: { actorUserId: string };
   }
-): Promise<{ selectionId: string | null }> {
+): Promise<{
+  selectionId: string | null;
+  financialBehavior: SessionConfigurationFinancialBehavior;
+}> {
   const orderPackage = await tx.orderPackage.findUnique({
     where: { id: input.orderPackageId },
-    select: { id: true, sessionTypeId: true },
+    select: { id: true, sessionTypeId: true, orderId: true },
   });
   if (!orderPackage) {
     throw new SessionConfigurationSelectionConfigurationNotFoundError();
@@ -367,14 +374,14 @@ export async function applyFinancialSelectionEditFromWorkspace(
     },
   });
   const configuration = liveConfigurations[0];
-  if (
-    !configuration ||
-    configuration.financialBehavior !== SessionConfigurationFinancialBehavior.FINANCIAL
-  ) {
-    throw new SessionConfigurationSelectionFinancialNotAllowedError([
-      configuration?.code ?? input.configurationId,
-    ]);
+  if (!configuration) {
+    throw new SessionConfigurationSelectionConfigurationNotFoundError(
+      input.configurationId
+    );
   }
+  const isOperational =
+    configuration.financialBehavior ===
+    SessionConfigurationFinancialBehavior.OPERATIONAL;
 
   if (input.desired === null) {
     const existing = await tx.orderPackageSessionConfigurationSelection.findUnique({
@@ -384,11 +391,29 @@ export async function applyFinancialSelectionEditFromWorkspace(
           configurationId: input.configurationId,
         },
       },
-      select: { id: true },
+      select: existingSelectionSelect,
     });
-    if (!existing) return { selectionId: null };
+    if (!existing) {
+      return {
+        selectionId: null,
+        financialBehavior: configuration.financialBehavior,
+      };
+    }
     await deleteSelectionRow(tx, existing.id);
-    return { selectionId: existing.id };
+    if (isOperational) {
+      await recordWorkspaceOperationalAudit(tx, {
+        actorUserId: input.audit.actorUserId,
+        orderId: orderPackage.orderId,
+        orderPackageId: input.orderPackageId,
+        entityId: existing.id,
+        before: auditPayloadFromExistingSelection(existing),
+        after: null,
+      });
+    }
+    return {
+      selectionId: existing.id,
+      financialBehavior: configuration.financialBehavior,
+    };
   }
 
   const snapshot = buildSelectionSnapshot(
@@ -402,11 +427,24 @@ export async function applyFinancialSelectionEditFromWorkspace(
         configurationId: input.configurationId,
       },
     },
-    select: { id: true },
+    select: existingSelectionSelect,
   });
   if (existing) {
     const updated = await updateSelectionRow(tx, existing.id, snapshotData(snapshot));
-    return { selectionId: updated.id };
+    if (isOperational) {
+      await recordWorkspaceOperationalAudit(tx, {
+        actorUserId: input.audit.actorUserId,
+        orderId: orderPackage.orderId,
+        orderPackageId: input.orderPackageId,
+        entityId: updated.id,
+        before: auditPayloadFromExistingSelection(existing),
+        after: auditPayloadFromSelectionSnapshot(snapshot),
+      });
+    }
+    return {
+      selectionId: updated.id,
+      financialBehavior: configuration.financialBehavior,
+    };
   }
 
   const created = await createSelectionRow(
@@ -414,7 +452,55 @@ export async function applyFinancialSelectionEditFromWorkspace(
     input.orderPackageId,
     snapshotData(snapshot)
   );
-  return { selectionId: created.id };
+  if (isOperational) {
+    await recordWorkspaceOperationalAudit(tx, {
+      actorUserId: input.audit.actorUserId,
+      orderId: orderPackage.orderId,
+      orderPackageId: input.orderPackageId,
+      entityId: created.id,
+      before: null,
+      after: auditPayloadFromSelectionSnapshot(snapshot),
+    });
+  }
+  return {
+    selectionId: created.id,
+    financialBehavior: configuration.financialBehavior,
+  };
+}
+
+async function recordWorkspaceOperationalAudit(
+  tx: Prisma.TransactionClient,
+  input: {
+    actorUserId: string;
+    orderId: string;
+    orderPackageId: string;
+    entityId: string;
+    before: ReturnType<typeof auditPayloadFromExistingSelection> | null;
+    after: ReturnType<typeof auditPayloadFromSelectionSnapshot> | null;
+  }
+) {
+  const auditActor = await tx.user.findUnique({
+    where: { id: input.actorUserId },
+    select: { id: true, role: true },
+  });
+  if (!auditActor) throw new Error("Workspace audit actor was not found");
+  await recordAuditLog(
+    tx,
+    { actorUserId: auditActor.id, actorRole: auditActor.role },
+    {
+      entityType: AuditEntityType.ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+      entityId: input.entityId,
+      action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
+      before: input.before,
+      after: input.after,
+      context: {
+        orderId: input.orderId,
+        orderPackageId: input.orderPackageId,
+        actorUserId: input.actorUserId,
+        source: "post_lock_workspace",
+      },
+    }
+  );
 }
 
 function buildSelectionSnapshot(

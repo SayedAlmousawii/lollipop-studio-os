@@ -30,7 +30,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { ConfigurationMissingRequiredBadge } from "@/components/session-configurations/configuration-missing-required-badge";
 import { ConfigurationSummaryChip } from "@/components/session-configurations/configuration-summary-chip";
-import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
+import {
+  ConfigureSessionPanel,
+  type PendingSessionConfigurationOverlay,
+} from "@/components/session-configurations/configure-session-panel";
 import {
   Select,
   SelectContent,
@@ -50,15 +53,39 @@ import type {
   POSMutationActionState,
 } from "@/modules/orders/pos-handlers.types";
 
-interface POSPackageCompositionProps {
+type POSPackageCompositionBaseProps = {
   workspace: POSWorkspace;
   handlers: POSCompositionHandlers;
-}
+};
 
-export function POSPackageComposition({
-  workspace,
-  handlers,
-}: POSPackageCompositionProps) {
+type POSPackageCompositionProps =
+  | (POSPackageCompositionBaseProps & {
+      configurePanelMode?: "auto";
+      workspaceId?: never;
+      workspaceVersion?: never;
+      pendingOverlayByOrderPackageId?: never;
+    })
+  | (POSPackageCompositionBaseProps & {
+      configurePanelMode: "adjustment";
+      workspaceId: string;
+      workspaceVersion: number;
+      pendingOverlayByOrderPackageId: Record<
+        string,
+        PendingSessionConfigurationOverlay
+      >;
+    });
+
+export function POSPackageComposition(props: POSPackageCompositionProps) {
+  const { workspace, handlers } = props;
+  const configurePanelMode = props.configurePanelMode ?? "auto";
+  const adjustmentPanelContext =
+    props.configurePanelMode === "adjustment"
+      ? {
+          workspaceId: props.workspaceId,
+          workspaceVersion: props.workspaceVersion,
+          pendingOverlayByOrderPackageId: props.pendingOverlayByOrderPackageId,
+        }
+      : null;
   const locked = workspace.invoice?.isLocked ?? false;
   const packagePriceTotal =
     workspace.packageLines.reduce(
@@ -100,11 +127,36 @@ export function POSPackageComposition({
                   handlers={handlers}
                 />
                 <ConfigureSessionPanel
+                  key={configureSessionPanelKey({
+                    mode: configurePanelMode,
+                    line,
+                    workspaceVersion:
+                      adjustmentPanelContext?.workspaceVersion,
+                    pendingOverlay:
+                      adjustmentPanelContext?.pendingOverlayByOrderPackageId[
+                        line.id
+                      ],
+                  })}
                   orderId={workspace.orderId}
                   orderPackageId={line.id}
                   packageName={line.currentPackage.name}
                   sessionTypeName={line.sessionTypeName}
-                  mode={locked ? "locked" : "draft"}
+                  mode={
+                    configurePanelMode === "adjustment" && adjustmentPanelContext
+                      ? {
+                          kind: "adjustment",
+                          workspaceId: adjustmentPanelContext.workspaceId,
+                          workspaceVersion:
+                            adjustmentPanelContext.workspaceVersion,
+                          pendingOverlay:
+                            adjustmentPanelContext.pendingOverlayByOrderPackageId[
+                              line.id
+                            ] ?? {},
+                        }
+                      : locked
+                        ? { kind: "locked", workspaceIsOpen: false }
+                        : { kind: "draft" }
+                  }
                   availableConfigurations={line.availableConfigurations}
                   currentSelections={line.currentSelections}
                 />
@@ -163,10 +215,25 @@ export function POSPackageComposition({
   );
 }
 
+function configureSessionPanelKey(input: {
+  mode: "auto" | "adjustment";
+  line: POSPackageLine;
+  workspaceVersion?: number;
+  pendingOverlay?: PendingSessionConfigurationOverlay;
+}): string {
+  return JSON.stringify({
+    id: input.line.id,
+    mode: input.mode,
+    workspaceVersion: input.workspaceVersion,
+    currentSelections: input.line.currentSelections,
+    pendingOverlay: input.pendingOverlay ?? {},
+  });
+}
+
 export function POSPhotoCountCard({
   workspace,
   handlers,
-}: POSPackageCompositionProps) {
+}: POSPackageCompositionBaseProps) {
   const locked = workspace.invoice?.isLocked ?? false;
 
   return (
