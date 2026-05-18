@@ -9,7 +9,8 @@ export type InvoiceLineType =
   | "ADD_ON"
   | "EXTRA_PHOTOS"
   | "MANUAL_DISCOUNT"
-  | "MANUAL_SURCHARGE";
+  | "MANUAL_SURCHARGE"
+  | "SESSION_CONFIGURATION";
 
 export interface InvoiceLineItem {
   id: string;

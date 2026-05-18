@@ -303,6 +303,7 @@ export interface POSWorkspace {
   extraPhotoTotal: number;
   addOns: POSAddOn[];
   addOnTotal: number;
+  sessionConfigurationTotal: number;
   productOptions: POSProductOption[];
   addOnCatalog: POSAddOnCatalogItem[];
   invoice: POSInvoiceSummary | null;

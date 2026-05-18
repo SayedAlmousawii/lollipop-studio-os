@@ -68,6 +68,8 @@ src/
 
 **Session Configurations:** `session_configurations`, `session_configuration_options`, and `order_package_session_configuration_selections` persist session-type-scoped operational or financial modifiers. Definition rows remain soft-deleted with `isActive`, while per-package selection rows snapshot configuration code, label, input/pricing mode, financial behavior, and price/link metadata at write time so later admin edits do not mutate historical orders. Admin CRUD lives in `src/modules/session-configurations/` and `src/components/session-configurations/`; the service module is the only DB-touching layer for definition and option rows.
 
+**Session Configuration Pricing Pipeline:** `src/modules/session-configurations/session-configuration-pricing.ts` is the canonical selection-to-money path for snapshotted order-package configuration selections. `createInvoiceForOrderWithClient` uses it to add both invoice-line and modifier-only deltas into draft final invoice totals, `buildInvoiceLineItems` uses its invoice-line drafts for locked invoice snapshots, and `getPOSWorkspace` exposes the same `sessionConfigurationTotal` for draft POS totals.
+
 **Role permissions:**
 
 | Role | Access |

@@ -41,6 +41,14 @@ import {
 } from "@/modules/orders/order.delta";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
+import {
+  priceSelections,
+} from "@/modules/session-configurations/session-configuration-pricing";
+import {
+  pricedSessionConfigurationSelectionSelect,
+  resolveOrderSessionConfigurations,
+  SessionConfigurationRequiredSelectionMissingError,
+} from "@/modules/session-configurations/session-configuration-resolver";
 import { computeEffectivePaidFromAllocations } from "./invoice.calculation";
 import type {
   CreateAdjustmentInvoiceInput,
@@ -180,7 +188,12 @@ export async function createInvoiceForOrderWithClient(
       customer: { select: { id: true } },
       booking: { select: { financialCase: { select: { id: true } } } },
       packages: {
-        include: { package: { select: { price: true } } },
+        include: {
+          package: { select: { price: true } },
+          sessionConfigurationSelections: {
+            select: pricedSessionConfigurationSelectionSelect,
+          },
+        },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       orderAddOns: {
@@ -203,6 +216,9 @@ export async function createInvoiceForOrderWithClient(
   });
   if (existingInvoice) return existingInvoice;
 
+  const sessionConfigurationPrice =
+    await priceRequiredSessionConfigurationsForOrder(client, order.id);
+
   if (order.packages.length === 0) throw new Error("Order has no package lines");
   const packageAmount = order.packages.reduce(
     (sum, line) =>
@@ -218,7 +234,8 @@ export async function createInvoiceForOrderWithClient(
         )
       )
     )
-    .plus(extraPhotoCharge);
+    .plus(extraPhotoCharge)
+    .plus(sessionConfigurationPrice.totalDelta);
 
   const invoiceNumberData = await generateInvoiceNumber(client, InvoiceType.FINAL);
   let invoice: { id: string; status: InvoiceStatus };
@@ -338,12 +355,16 @@ export async function syncOrderInvoiceForFinancialEdit(
   const previousAddOnTotal = sumAddOns(input.previousAddOns);
   const nextAddOnTotal = sumAddOns(nextAddOns);
   const nextExtraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
+  const sessionConfigurationPrice =
+    await priceRequiredSessionConfigurationsForOrder(client, order.id);
   const previousExtraPhotoCharge =
     input.previousExtraPhotoCharge ??
     nextExtraPhotoCharge;
   const previousSelectionAddOnTotal = previousAddOnTotal.plus(previousExtraPhotoCharge);
   const nextSelectionAddOnTotal = nextAddOnTotal.plus(nextExtraPhotoCharge);
-  const targetTotalAmount = packagePrice.plus(nextSelectionAddOnTotal);
+  const targetTotalAmount = packagePrice
+    .plus(nextSelectionAddOnTotal)
+    .plus(sessionConfigurationPrice.totalDelta);
   const packageAdjustmentBaseline = order.packages.reduce(
     (sum, line) =>
       sum.plus(line.originalPackagePriceSnapshot ?? line.package.price),
@@ -758,7 +779,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     row.invoiceType === InvoiceType.FINAL;
   const computedLineItems =
     lineItemsAreComputed && row.orderId
-      ? await buildInvoiceLineItems(db, row.orderId)
+      ? await buildInvoiceLineItems(db, row.orderId, row.id)
       : null;
   const depositInvoice =
     row.invoiceType === InvoiceType.FINAL && row.financialCaseId
@@ -926,7 +947,7 @@ export async function snapshotInvoiceLineItemsWithClient(
     throw new Error("Invoice does not belong to this order");
   }
 
-  const lineItems = await buildInvoiceLineItems(client, orderId);
+  const lineItems = await buildInvoiceLineItems(client, orderId, invoiceId);
   if (lineItems.length === 0) return;
 
   await client.invoiceLineItem.createMany({
@@ -1327,7 +1348,8 @@ function sumAddOns(addOns: OrderAddOnLine[]): Prisma.Decimal {
 
 async function buildInvoiceLineItems(
   client: DbClient,
-  orderId: string
+  orderId: string,
+  invoiceId?: string
 ): Promise<SnapshotInvoiceLineItem[]> {
   const order = await client.order.findUnique({
     where: { id: orderId },
@@ -1340,6 +1362,9 @@ async function buildInvoiceLineItems(
               name: true,
               price: true,
             },
+          },
+          sessionConfigurationSelections: {
+            select: pricedSessionConfigurationSelectionSelect,
           },
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -1411,6 +1436,45 @@ async function buildInvoiceLineItems(
     );
   }
 
+  for (const orderPackage of order.packages) {
+    const pricedSelections = priceSelections(
+      orderPackage.sessionConfigurationSelections
+    );
+    const emittedLineTotal = pricedSelections.lineItems.reduce(
+      (sum, line) => sum.plus(line.lineTotal),
+      new Prisma.Decimal(0)
+    );
+    if (
+      !emittedLineTotal
+        .plus(pricedSelections.nonLineDelta)
+        .equals(pricedSelections.totalDelta)
+    ) {
+      console.warn(
+        JSON.stringify({
+          event: "invoice.session_configuration_line_delta_discrepancy",
+          invoiceId: invoiceId ?? null,
+          orderId,
+          orderPackageId: orderPackage.id,
+          selectionIds: orderPackage.sessionConfigurationSelections.map(
+            (selection) => selection.id
+          ),
+        })
+      );
+    }
+
+    for (const lineItem of pricedSelections.lineItems) {
+      lines.push({
+        ...lineItem,
+        sortOrder: sortOrder++,
+      });
+      recordInvoiceCounter("invoice.session_configuration_lines_emitted", {
+        orderId,
+        orderPackageId: orderPackage.id,
+        selectionId: lineItem.causeOrderEntityId,
+      });
+    }
+  }
+
   return lines;
 }
 
@@ -1442,6 +1506,42 @@ function createLineItem({
       ? { causeOrderEntityKind, causeOrderEntityId }
       : {}),
   };
+}
+
+function recordInvoiceCounter(
+  metric: string,
+  fields: Record<string, string | number | null>
+): void {
+  console.info(JSON.stringify({ metric, ...fields }));
+}
+
+async function priceRequiredSessionConfigurationsForOrder(
+  client: DbClient,
+  orderId: string
+): Promise<ReturnType<typeof priceSelections>> {
+  const resolvedSessionConfigurations = await resolveOrderSessionConfigurations(
+    client,
+    orderId
+  );
+  const missingRequiredSelections = resolvedSessionConfigurations
+    .filter((config) => config.missingRequiredConfigurationCodes.length > 0)
+    .map((config) => ({
+      orderPackageId: config.orderPackageId,
+      missingConfigurationCodes: config.missingRequiredConfigurationCodes,
+    }));
+  if (missingRequiredSelections.length > 0) {
+    recordInvoiceCounter("invoice.session_configuration_required_block", {
+      orderId,
+      count: missingRequiredSelections.length,
+    });
+    throw new SessionConfigurationRequiredSelectionMissingError(
+      missingRequiredSelections
+    );
+  }
+
+  return priceSelections(
+    resolvedSessionConfigurations.flatMap((config) => config.selections)
+  );
 }
 
 async function buildOpenAdjustmentLineMap(

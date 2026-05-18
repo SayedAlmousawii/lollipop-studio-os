@@ -9,6 +9,7 @@ import {
 } from "@/lib/permissions";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
+import { SessionConfigurationRequiredSelectionMissingError } from "@/modules/session-configurations/session-configuration-resolver";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import { recordPayment } from "@/modules/payments/payment.service";
 import {
@@ -48,9 +49,23 @@ export async function createOrderInvoiceAction(
   formData?: FormData
 ): Promise<void> {
   const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_CREATE);
-  const invoice = await createInvoiceForOrder(orderId, {
-    actorUserId: appUser.id, actorRole: appUser.role,
-  });
+  let invoice: { id: string };
+  try {
+    invoice = await createInvoiceForOrder(orderId, {
+      actorUserId: appUser.id, actorRole: appUser.role,
+    });
+  } catch (error) {
+    if (error instanceof SessionConfigurationRequiredSelectionMissingError) {
+      console.error(
+        JSON.stringify({
+          event: "session_configuration_required_selection_missing",
+          orderId,
+          details: error.details,
+        })
+      );
+    }
+    throw error;
+  }
   const shouldReturnToSales = formData?.get("returnTo") === "sales";
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
