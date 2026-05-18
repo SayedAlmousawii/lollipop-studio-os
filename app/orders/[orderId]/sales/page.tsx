@@ -16,6 +16,7 @@ import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
+import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import {
   getEffectiveCompositionForInvoice,
   getOpenWorkspaceForInvoice,
@@ -82,6 +83,9 @@ export default async function SalesPage(
         <main className="space-y-5">
           <LockedCompositionView
             effectiveComposition={effectiveComposition}
+            packageLines={workspace.packageLines}
+            orderId={workspace.orderId}
+            workspaceIsOpen={Boolean(openWorkspace)}
           />
         </main>
         <FinancialSidebarLocked
@@ -273,9 +277,38 @@ function normalizeActionErrors(
 
 function LockedCompositionView({
   effectiveComposition,
+  packageLines,
+  orderId,
+  workspaceIsOpen,
 }: {
   effectiveComposition: Awaited<ReturnType<typeof getEffectiveCompositionForInvoice>>;
+  packageLines: POSWorkspace["packageLines"];
+  orderId: string;
+  workspaceIsOpen: boolean;
 }) {
+  console.info(
+    JSON.stringify({
+      metric: "pos.locked.configure_session_panel_rendered",
+      orderId,
+      packageCount: packageLines.length,
+    })
+  );
+  const rowActions = Object.fromEntries(
+    packageLines.map((line) => [
+      `package:${line.id}`,
+      <ConfigureSessionPanel
+        key={line.id}
+        orderId={orderId}
+        orderPackageId={line.id}
+        packageName={line.currentPackage.name}
+        sessionTypeName={line.sessionTypeName}
+        mode={{ kind: "locked", workspaceIsOpen }}
+        availableConfigurations={line.availableConfigurations}
+        currentSelections={line.currentSelections}
+      />,
+    ])
+  );
+
   return (
     <CurrentCompositionCard
       view={buildCompositionView({
@@ -283,6 +316,7 @@ function LockedCompositionView({
         totals: effectiveComposition.totals,
         mode: "locked",
       })}
+      rowActions={rowActions}
     />
   );
 }

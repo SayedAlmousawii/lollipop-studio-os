@@ -52,6 +52,7 @@ export type CreateOrderInvoiceActionState = {
 export type ConfigureSessionActionState = {
   errors?: Partial<Record<string, string[]>>;
   adjustmentWorkspaceHref?: string;
+  version?: number;
 };
 
 export type RecordUpgradePaymentActionState = {
@@ -191,22 +192,27 @@ export async function configureSessionAction(
 
 export async function applySessionConfigurationWorkspaceEditAction(
   workspaceId: string,
-  _prev: ConfigureSessionActionState,
-  formData: FormData
+  version: number,
+  edit: Omit<
+    Extract<
+      z.infer<typeof adjustmentWorkspaceEditSchema>,
+      { op: "change_session_configuration_selection" }
+    >,
+    "id"
+  >
 ): Promise<ConfigureSessionActionState> {
-  const parsedEditJson = parseJsonPayload(formData.get("edit"), "Edit payload");
-  if (!parsedEditJson.success) {
-    return { errors: { edit: [parsedEditJson.error] } };
-  }
-  const parsedEdit = adjustmentWorkspaceEditSchema.safeParse(parsedEditJson.value);
+  const parsedEdit = adjustmentWorkspaceEditSchema.safeParse({
+    ...edit,
+    id: createWorkspaceEditId(),
+  });
   if (!parsedEdit.success) {
     return { errors: parsedEdit.error.flatten().fieldErrors };
   }
   if (parsedEdit.data.op !== "change_session_configuration_selection") {
     return { errors: { _global: ["Invalid session configuration workspace edit."] } };
   }
-  const version = z.coerce.number().int().min(0).safeParse(formData.get("version"));
-  if (!version.success) {
+  const parsedVersion = z.coerce.number().int().min(0).safeParse(version);
+  if (!parsedVersion.success) {
     return { errors: { version: ["Workspace version is required."] } };
   }
 
@@ -214,15 +220,21 @@ export async function applySessionConfigurationWorkspaceEditAction(
     PERMISSIONS.ORDER_FINANCIAL_UPDATE
   );
   try {
-    await applyEdit(
+    const workspace = await applyEdit(
       workspaceId,
-      { version: version.data, edit: parsedEdit.data },
+      { version: parsedVersion.data, edit: parsedEdit.data },
       { actorUserId: appUser.id, actorRole: appUser.role }
     );
+    revalidatePath(`/orders/${workspace.orderId}/adjustment-workspace`);
+    revalidatePath(`/orders/${workspace.orderId}/sales`);
+    return { version: workspace.version };
   } catch (error) {
     return { errors: { _global: [messageForConfigureSessionError(error)] } };
   }
-  return {};
+}
+
+function createWorkspaceEditId(): string {
+  return `cm${Date.now().toString(36)}${crypto.randomUUID().replace(/-/g, "").slice(0, 18)}`;
 }
 
 export async function updateEditingWorkflowAction(

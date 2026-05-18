@@ -51,6 +51,7 @@ test("session configuration selection service writes full package sets with fres
         SessionConfigurationSelectionLockedError,
         SessionConfigurationSelectionPostLockMisuseError,
         SessionConfigurationSelectionOptionMismatchError,
+        applySessionConfigurationEditFromWorkspace,
         writeOrderPackageSelections,
       } = await import(
         "@/modules/session-configurations/session-configuration-selection.service"
@@ -286,6 +287,37 @@ test("session configuration selection service writes full package sets with fres
           })
         ).textValue,
         "Vanilla cake"
+      );
+
+      await db.$transaction((tx) =>
+        applySessionConfigurationEditFromWorkspace(tx, {
+          orderPackageId: fixture.orderPackageId,
+          configurationId: fixture.operationalConfigId,
+          desired: { kind: "text", textValue: "Workspace cake" },
+          audit: { actorUserId: fixture.managerUserId },
+        })
+      );
+      const workspaceOperationalSelection =
+        await db.orderPackageSessionConfigurationSelection.findUniqueOrThrow({
+          where: {
+            orderPackageId_configurationId: {
+              orderPackageId: fixture.orderPackageId,
+              configurationId: fixture.operationalConfigId,
+            },
+          },
+        });
+      assert.equal(workspaceOperationalSelection.textValue, "Workspace cake");
+      assert.equal(
+        await db.auditLog.count({
+          where: {
+            entityType:
+              AuditEntityType.ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+            entityId: workspaceOperationalSelection.id,
+            action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
+            context: { path: ["source"], equals: "post_lock_workspace" },
+          },
+        }),
+        1
       );
     } finally {
       process.env.DATABASE_URL = previousDatabaseUrl;

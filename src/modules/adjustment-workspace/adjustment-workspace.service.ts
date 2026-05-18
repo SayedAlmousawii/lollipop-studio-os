@@ -34,7 +34,7 @@ import {
   type PricedSelection,
 } from "@/modules/session-configurations/session-configuration-pricing";
 import {
-  applyFinancialSelectionEditFromWorkspace,
+  applySessionConfigurationEditFromWorkspace,
   type WorkspaceSessionConfigurationDesired,
 } from "@/modules/session-configurations/session-configuration-selection.service";
 import type {
@@ -765,12 +765,24 @@ export async function finalizeWorkspace(
           await finalizeSessionConfigurationSelectionEdits(
             tx,
             proposal.edits,
-            workspace.orderId
+            workspace.orderId,
+            actorContext.actorUserId
           );
         const finalizedProposal = remapSessionConfigurationProposal(
           proposal,
           sessionConfigurationSelectionIds
         );
+
+        if (finalizedProposal.deltas.length === 0) {
+          await markWorkspaceFinalized(
+            tx,
+            workspaceId,
+            actorContext.actorUserId,
+            null,
+            finalizedProposal
+          );
+          return { adjustmentInvoiceId: null, proposal: finalizedProposal };
+        }
 
         const adjustmentInvoice = await createWorkspaceAdjustmentInvoice(tx, {
           parent: workspace.invoice,
@@ -976,7 +988,12 @@ export async function computeWorkspaceProposal(
   const discountDelta = decimal(proposed.totals.discount).minus(base.totals.discount);
   const taxDelta = decimal(proposed.totals.tax).minus(base.totals.tax);
   const netPayableDelta = decimal(proposed.totals.netPayable).minus(base.totals.netPayable);
-  const hasEdits = deltas.length > 0;
+  const hasEdits =
+    deltas.length > 0 ||
+    sessionConfigurationSelectionsChanged(
+      base.sessionConfigurationSelections ?? [],
+      proposed.sessionConfigurationSelections ?? []
+    );
   const adjustmentKind = !hasEdits
     ? "none"
     : netPayableDelta.greaterThan(0)
@@ -998,6 +1015,38 @@ export async function computeWorkspaceProposal(
     hasEdits,
     adjustmentKind,
   };
+}
+
+function sessionConfigurationSelectionsChanged(
+  baseSelections: AdjustmentSessionConfigurationSelection[],
+  proposedSelections: AdjustmentSessionConfigurationSelection[]
+): boolean {
+  return (
+    normalizedSessionConfigurationSelections(baseSelections) !==
+    normalizedSessionConfigurationSelections(proposedSelections)
+  );
+}
+
+function normalizedSessionConfigurationSelections(
+  selections: AdjustmentSessionConfigurationSelection[]
+): string {
+  return JSON.stringify(
+    selections
+      .map((selection) => ({
+        orderPackageId: selection.orderPackageId,
+        configurationId: selection.configurationId,
+        optionId: selection.optionId,
+        numericValue: selection.numericValue,
+        textValue: selection.textValue,
+        snapshotPriceDelta: selection.snapshotPriceDelta,
+        snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
+      }))
+      .sort((a, b) =>
+        `${a.orderPackageId}:${a.configurationId}`.localeCompare(
+          `${b.orderPackageId}:${b.configurationId}`
+        )
+      )
+  );
 }
 
 const workspaceAuthSelect = {
@@ -1425,23 +1474,32 @@ function applySignedInvoiceLines(
 async function finalizeSessionConfigurationSelectionEdits(
   client: Prisma.TransactionClient,
   edits: AdjustmentWorkspaceEdit[],
-  orderId: string
+  orderId: string,
+  actorUserId: string
 ): Promise<Map<string, string>> {
   const selectionIdByPlaceholder = new Map<string, string>();
   for (const edit of edits) {
     if (edit.op !== "change_session_configuration_selection") continue;
-    const result = await applyFinancialSelectionEditFromWorkspace(client, {
+    const result = await applySessionConfigurationEditFromWorkspace(client, {
       orderPackageId: edit.orderPackageId,
       configurationId: edit.configurationId,
       desired: edit.desired,
+      audit: { actorUserId },
     });
-    if (result.selectionId) {
+    if (
+      result.selectionId &&
+      result.financialBehavior === SessionConfigurationFinancialBehavior.FINANCIAL
+    ) {
       selectionIdByPlaceholder.set(
         pendingSessionConfigurationSelectionId(edit.configurationId),
         result.selectionId
       );
+    }
+    if (result.selectionId) {
       recordWorkspaceMetric(
-        "adjustment_workspace.session_configuration_edit_finalized",
+        result.financialBehavior === SessionConfigurationFinancialBehavior.FINANCIAL
+          ? "adjustment_workspace.session_configuration_edit_financial_finalized"
+          : "adjustment_workspace.session_configuration_edit_operational_finalized",
         {
           workspaceId: "in_transaction",
           orderId,
@@ -2045,13 +2103,6 @@ function applySessionConfigurationSelectionChange(
   if (!configuration || configuration.sessionTypeId !== orderPackage.sessionTypeId) {
     throw new Error("Session configuration is not available");
   }
-  if (
-    configuration.financialBehavior !==
-    SessionConfigurationFinancialBehavior.FINANCIAL
-  ) {
-    throw new Error("Operational session configurations cannot be edited in the Adjustment Workspace");
-  }
-
   const currentSelections = snapshot.sessionConfigurationSelections ?? [];
   const existing = currentSelections.find(
     (selection) =>
@@ -2065,9 +2116,14 @@ function applySessionConfigurationSelectionChange(
         selection.configurationId === edit.configurationId
       )
   );
-  snapshot.lines = snapshot.lines.filter(
-    (line) => !existing || line.lineId !== sessionConfigurationLineId(existing.id)
-  );
+  const emitsInvoiceLines =
+    configuration.financialBehavior ===
+    SessionConfigurationFinancialBehavior.FINANCIAL;
+  if (emitsInvoiceLines) {
+    snapshot.lines = snapshot.lines.filter(
+      (line) => !existing || line.lineId !== sessionConfigurationLineId(existing.id)
+    );
+  }
 
   if (edit.desired === null) return;
 
@@ -2078,7 +2134,9 @@ function applySessionConfigurationSelectionChange(
     desired: edit.desired,
   });
   snapshot.sessionConfigurationSelections.push(selection);
-  snapshot.lines.push(...linesForSessionConfigurationSelection(selection));
+  if (emitsInvoiceLines) {
+    snapshot.lines.push(...linesForSessionConfigurationSelection(selection));
+  }
 }
 
 function buildWorkspaceSessionConfigurationSelection(input: {

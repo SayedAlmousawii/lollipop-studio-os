@@ -13,6 +13,7 @@ import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
+import type { PendingSessionConfigurationOverlay } from "@/components/session-configurations/configure-session-panel";
 import { buildCompositionView } from "@/modules/composition-view/composition-view.model";
 import {
   derivePendingAdjustmentPreview,
@@ -22,6 +23,7 @@ import {
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { buildPendingChangesView } from "@/modules/adjustment-workspace/pending-changes-view";
 import type { PendingChangeRow } from "@/modules/adjustment-workspace/pending-changes-view";
+import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
 import {
   cancelAdjustmentWorkspaceAction,
   removeWorkspaceEditAction,
@@ -70,6 +72,16 @@ export default async function AdjustmentWorkspacePage(
     proposed: workspace.proposal.proposed,
     deltas: workspace.proposal.deltas,
   });
+  const pendingOverlayByOrderPackageId = buildSessionConfigurationPendingOverlay(
+    workspace.pendingChanges.edits
+  );
+  console.info(
+    JSON.stringify({
+      metric: "adjustment_workspace.configure_session_panel_rendered",
+      orderId,
+      workspaceId: workspace.id,
+    })
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -143,6 +155,10 @@ export default async function AdjustmentWorkspacePage(
                 <POSPackageComposition
                   workspace={derivedPOSWorkspace}
                   handlers={compositionHandlers}
+                  configurePanelMode="adjustment"
+                  workspaceId={workspace.id}
+                  workspaceVersion={workspace.version}
+                  pendingOverlayByOrderPackageId={pendingOverlayByOrderPackageId}
                 />
                 <POSPhotoCountCard
                   workspace={derivedPOSWorkspace}
@@ -188,6 +204,21 @@ export default async function AdjustmentWorkspacePage(
       </main>
     </div>
   );
+}
+
+function buildSessionConfigurationPendingOverlay(
+  edits: AdjustmentWorkspaceEdit[]
+): Record<string, PendingSessionConfigurationOverlay> {
+  const overlays: Record<string, PendingSessionConfigurationOverlay> = {};
+  for (const edit of edits) {
+    if (edit.op !== "change_session_configuration_selection") continue;
+    overlays[edit.orderPackageId] ??= {};
+    overlays[edit.orderPackageId][edit.configurationId] =
+      edit.desired === null
+        ? null
+        : { configurationId: edit.configurationId, ...edit.desired };
+  }
+  return overlays;
 }
 
 function PendingChangesBlock({

@@ -5,11 +5,16 @@ import Module from "node:module";
 import process from "node:process";
 import test from "node:test";
 import {
+  AuditAction,
+  AuditEntityType,
   InvoiceLineType,
   InvoiceType,
   OrderEntityKind,
   Prisma,
   ProductCategory,
+  SessionConfigurationFinancialBehavior,
+  SessionConfigurationInputType,
+  SessionConfigurationPricingMode,
   type PrismaClient,
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
@@ -259,6 +264,114 @@ test("finalizeWorkspace emits ADJ lines for each new 83a edit op", async () => {
           causeOrderEntityKind: OrderEntityKind.EXTRA_PHOTO,
         },
       ]);
+});
+
+test("finalizeWorkspace applies operational and financial session configuration edits through their split routes", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "92a-session-config"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: { id: true },
+  });
+  const [operationalConfig, financialConfig] = await Promise.all([
+    db.sessionConfiguration.create({
+      data: {
+        code: "92A_THEME",
+        name: "92a Cake Theme",
+        sessionTypeId: fixtures.sessionTypeId,
+        inputType: SessionConfigurationInputType.TEXT,
+        pricingMode: SessionConfigurationPricingMode.NONE,
+        financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+        isActive: true,
+      },
+    }),
+    db.sessionConfiguration.create({
+      data: {
+        code: "92A_TWINS",
+        name: "92a Twins",
+        sessionTypeId: fixtures.sessionTypeId,
+        inputType: SessionConfigurationInputType.TOGGLE,
+        pricingMode: SessionConfigurationPricingMode.FIXED,
+        financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+        fixedPriceDelta: new Prisma.Decimal("12.000"),
+        isActive: true,
+      },
+    }),
+  ]);
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "92a-operational-theme",
+        op: "change_session_configuration_selection",
+        orderPackageId: orderPackage.id,
+        configurationId: operationalConfig.id,
+        desired: { kind: "text", textValue: "Blue cake" },
+      },
+      {
+        id: "92a-financial-twins",
+        op: "change_session_configuration_selection",
+        orderPackageId: orderPackage.id,
+        configurationId: financialConfig.id,
+        desired: { kind: "toggle" },
+      },
+    ]
+  );
+
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const adjustment = await onlyAdjustmentInvoice(
+    db,
+    workflow.orderId,
+    workflow.finalInvoiceId
+  );
+  assertLineSemantics(adjustment.lineItems, [
+    {
+      lineType: InvoiceLineType.SESSION_CONFIGURATION,
+      causeOrderEntityKind: OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
+    },
+  ]);
+  const selectionRows = await db.orderPackageSessionConfigurationSelection.findMany({
+    where: { orderPackageId: orderPackage.id },
+    orderBy: { snapshotConfigurationCode: "asc" },
+  });
+  assert.equal(selectionRows.length, 2);
+  assert.equal(
+    selectionRows.find((row) => row.configurationId === operationalConfig.id)
+      ?.textValue,
+    "Blue cake"
+  );
+  assert.equal(
+    await db.auditLog.count({
+      where: {
+        entityType: AuditEntityType.ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+        action: AuditAction.ORDER_LOCKED_FIELD_MUTATED,
+        context: { path: ["source"], equals: "post_lock_workspace" },
+      },
+    }),
+    1
+  );
+  const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
+    where: { id: workspaceId },
+    select: { status: true },
+  });
+  assert.equal(workspace.status, "FINALIZED");
 });
 
 test("derivePOSWorkspaceFromAdjustmentWorkspace projects staged edits into POS modules", async () => {

@@ -1,4 +1,5 @@
 import { Lock } from "lucide-react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type {
@@ -10,9 +11,11 @@ import { cn } from "@/lib/utils";
 export function CurrentCompositionCard({
   view,
   className,
+  rowActions,
 }: {
   view: CompositionView;
   className?: string;
+  rowActions?: Record<string, ReactNode>;
 }) {
   const copy = view.mode === "locked"
     ? { title: "Current Composition", badge: "Read only" }
@@ -34,7 +37,7 @@ export function CurrentCompositionCard({
       <CardContent className="space-y-4">
         <div className="space-y-2">
           {view.rows.map((row) => (
-            <CompositionRow key={row.id} row={row} />
+            <CompositionRow key={row.id} row={row} action={rowActions?.[row.id]} />
           ))}
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-border pt-4 text-sm font-semibold text-text-primary">
@@ -46,7 +49,13 @@ export function CurrentCompositionCard({
   );
 }
 
-function CompositionRow({ row }: { row: CompositionViewRow }) {
+function CompositionRow({
+  row,
+  action,
+}: {
+  row: CompositionViewRow;
+  action?: ReactNode;
+}) {
   const isDeltaRow = row.kind === "swap" || row.kind === "upgrade";
 
   return (
@@ -66,14 +75,17 @@ function CompositionRow({ row }: { row: CompositionViewRow }) {
           <p className="mt-1 text-text-secondary">{row.sublabel}</p>
         ) : null}
       </div>
-      <p
-        className={cn(
-          "font-medium tabular-nums text-text-primary",
-          row.lineTotal < 0 ? "text-danger" : null
-        )}
-      >
-        {formatKD(row.lineTotal)}
-      </p>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {action}
+        <p
+          className={cn(
+            "font-medium tabular-nums text-text-primary",
+            row.lineTotal < 0 ? "text-danger" : null
+          )}
+        >
+          {formatKD(row.lineTotal)}
+        </p>
+      </div>
     </div>
   );
 }

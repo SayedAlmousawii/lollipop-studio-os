@@ -325,29 +325,99 @@ test("session configuration workspace edits produce session configuration deltas
   );
 });
 
-test("session configuration workspace edits reject operational configurations", async () => {
+test("session configuration workspace edits accept operational configurations without deltas", async () => {
   const { computeWorkspaceProposal } = await import(
     "@/modules/adjustment-workspace/adjustment-workspace.service"
   );
-  await assert.rejects(
-    () =>
-      computeWorkspaceProposal(
-        packageEditBaseSnapshot,
+  const proposal = await computeWorkspaceProposal(
+    packageEditBaseSnapshot,
+    {
+      edits: [
         {
-          edits: [
-            {
-              id: "session-config",
-              op: "change_session_configuration_selection",
-              orderPackageId: "order-package-1",
-              configurationId: "config-theme",
-              desired: { kind: "text", textValue: "Blue" },
-            },
-          ],
+          id: "session-config",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-theme",
+          desired: { kind: "text", textValue: "Blue" },
         },
-        packageEditCatalog
-      ),
-    /Operational session configurations/
+      ],
+    },
+    packageEditCatalog
   );
+
+  assert.equal(proposal.netPayableDelta, "0.000");
+  assert.equal(proposal.grossDelta, "0.000");
+  assert.equal(proposal.discountDelta, "0.000");
+  assert.equal(proposal.deltas.length, 0);
+  assert.equal(proposal.hasEdits, true);
+});
+
+test("operational workspace edits leave historical invoice lines untouched", async () => {
+  const { computeWorkspaceProposal } = await import(
+    "@/modules/adjustment-workspace/adjustment-workspace.service"
+  );
+  const baseWithHistoricalLine: AdjustmentBaseSnapshot = {
+    ...packageEditBaseSnapshot,
+    lines: [
+      ...packageEditBaseSnapshot.lines,
+      {
+        lineId: "session-config:selection-theme",
+        kind: "session_configuration",
+        refId: "selection-theme",
+        label: "Theme",
+        quantity: 1,
+        unitPrice: "12.000",
+        lineTotalGross: "12.000",
+        lineTotalNet: "12.000",
+        taxBreakdown: [],
+      },
+    ],
+    totals: {
+      gross: "122.000",
+      discount: "0.000",
+      tax: "0.000",
+      netPayable: "122.000",
+    },
+    sessionConfigurationSelections: [
+      {
+        id: "selection-theme",
+        orderPackageId: "order-package-1",
+        configurationId: "config-theme",
+        optionId: null,
+        numericValue: null,
+        textValue: "Red",
+        snapshotConfigurationCode: "THEME",
+        snapshotLabel: "Theme",
+        snapshotPriceDelta: "12.000",
+        snapshotFinancialBehavior: "FINANCIAL",
+        snapshotInputType: "TEXT",
+        snapshotPricingMode: "FIXED",
+        snapshotLinkedProductId: null,
+        snapshotLinkProductDisplay: null,
+      },
+    ],
+  };
+
+  const proposal = await computeWorkspaceProposal(
+    baseWithHistoricalLine,
+    {
+      edits: [
+        {
+          id: "session-config",
+          op: "change_session_configuration_selection",
+          orderPackageId: "order-package-1",
+          configurationId: "config-theme",
+          desired: { kind: "text", textValue: "Blue" },
+        },
+      ],
+    },
+    packageEditCatalog
+  );
+
+  assert.equal(proposal.netPayableDelta, "0.000");
+  assert.equal(proposal.deltas.length, 0);
+  assert.equal(proposal.proposed.lines.length, baseWithHistoricalLine.lines.length);
+  assert.equal(proposal.hasEdits, true);
 });
 
 test("workspace net delta requires approval only for finalized decreases", async () => {

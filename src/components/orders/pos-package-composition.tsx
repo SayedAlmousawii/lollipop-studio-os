@@ -30,7 +30,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { ConfigurationMissingRequiredBadge } from "@/components/session-configurations/configuration-missing-required-badge";
 import { ConfigurationSummaryChip } from "@/components/session-configurations/configuration-summary-chip";
-import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
+import {
+  ConfigureSessionPanel,
+  type PendingSessionConfigurationOverlay,
+} from "@/components/session-configurations/configure-session-panel";
 import {
   Select,
   SelectContent,
@@ -53,11 +56,22 @@ import type {
 interface POSPackageCompositionProps {
   workspace: POSWorkspace;
   handlers: POSCompositionHandlers;
+  configurePanelMode?: "auto" | "adjustment";
+  workspaceId?: string;
+  workspaceVersion?: number;
+  pendingOverlayByOrderPackageId?: Record<
+    string,
+    PendingSessionConfigurationOverlay
+  >;
 }
 
 export function POSPackageComposition({
   workspace,
   handlers,
+  configurePanelMode = "auto",
+  workspaceId,
+  workspaceVersion,
+  pendingOverlayByOrderPackageId = {},
 }: POSPackageCompositionProps) {
   const locked = workspace.invoice?.isLocked ?? false;
   const packagePriceTotal =
@@ -104,7 +118,19 @@ export function POSPackageComposition({
                   orderPackageId={line.id}
                   packageName={line.currentPackage.name}
                   sessionTypeName={line.sessionTypeName}
-                  mode={locked ? "locked" : "draft"}
+                  mode={
+                    configurePanelMode === "adjustment"
+                      ? {
+                          kind: "adjustment",
+                          workspaceId: workspaceId ?? "",
+                          workspaceVersion: workspaceVersion ?? 0,
+                          pendingOverlay:
+                            pendingOverlayByOrderPackageId[line.id] ?? {},
+                        }
+                      : locked
+                        ? { kind: "locked", workspaceIsOpen: false }
+                        : { kind: "draft" }
+                  }
                   availableConfigurations={line.availableConfigurations}
                   currentSelections={line.currentSelections}
                 />
