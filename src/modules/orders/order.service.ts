@@ -41,7 +41,12 @@ import {
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { RecordPaymentInput } from "@/modules/payments/payment.schema";
 import { priceSelections } from "@/modules/session-configurations/session-configuration-pricing";
-import { pricedSessionConfigurationSelectionSelect } from "@/modules/session-configurations/session-configuration-resolver";
+import {
+  pricedSessionConfigurationSelectionSelect,
+  resolveOrderSessionConfigurations,
+  type ResolvedOrderPackageConfigs,
+  type ResolvedSelection,
+} from "@/modules/session-configurations/session-configuration-resolver";
 import {
   computeOrderSettlementSummary,
   deriveSettlementPaidAmount,
@@ -454,6 +459,16 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
 
   if (!order) return null;
 
+  const resolvedSessionConfigurations = await withRetry(
+    () => resolveOrderSessionConfigurations(db, order.id),
+    "Failed to fetch POS session configurations"
+  );
+  const resolvedConfigurationsByPackageId = new Map(
+    resolvedSessionConfigurations.map((configurationState) => [
+      configurationState.orderPackageId,
+      configurationState,
+    ])
+  );
   const financialCaseInvoices = order.booking.financialCase?.invoices ?? [];
   const depositInvoice =
     financialCaseInvoices.filter((invoice) => invoice.invoiceType === InvoiceType.DEPOSIT).at(-1) ??
@@ -481,6 +496,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     lines: order.packages,
     packageOptions: packageRows,
     pricingRows: extraPhotoPricingRows,
+    resolvedConfigurationsByPackageId,
   });
   const packageItems = packageLines.flatMap((line) => line.packageItems);
   const includedPhotoCount =
@@ -508,7 +524,9 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     )
   );
   const sessionConfigurationTotal = priceSelections(
-    order.packages.flatMap((line) => line.sessionConfigurationSelections)
+    resolvedSessionConfigurations.flatMap(
+      (configurationState) => configurationState.selections
+    )
   ).totalDelta;
 
   const finalInvoice = order.invoices[0]
@@ -3623,6 +3641,7 @@ function mapPOSPackageLines(input: {
     mediaType: MediaType;
     unitPrice: Prisma.Decimal;
   }>;
+  resolvedConfigurationsByPackageId?: Map<string, ResolvedOrderPackageConfigs>;
 }): POSPackageLine[] {
   const priceByKey = new Map(
     input.pricingRows.map((row) => [
@@ -3648,6 +3667,11 @@ function mapPOSPackageLines(input: {
     const packageSubtotal = finalPrice.plus(extraPhotoTotal);
     const scopedPackageOptions = input.packageOptions.filter(
       (option) => option.packageFamily.sessionTypeId === line.sessionTypeId
+    );
+    const resolvedConfigurations =
+      input.resolvedConfigurationsByPackageId?.get(line.id) ?? null;
+    const sessionConfigurationPricing = priceSelections(
+      resolvedConfigurations?.selections ?? []
     );
 
     return {
@@ -3679,8 +3703,94 @@ function mapPOSPackageLines(input: {
         id: currentPackage.id,
         price: finalPrice,
       }),
+      sessionConfigurationSummary: mapSessionConfigurationSummary(
+        resolvedConfigurations?.selections ?? []
+      ),
+      sessionConfigurationSubtotal:
+        sessionConfigurationPricing.totalDelta.toNumber(),
+      missingRequiredConfigurationCodes:
+        resolvedConfigurations?.missingRequiredConfigurationCodes ?? [],
+      availableConfigurations:
+        resolvedConfigurations?.activeConfigurations.map((configuration) => ({
+          id: configuration.id,
+          code: configuration.code,
+          name: configuration.name,
+          required: configuration.required,
+          sortOrder: configuration.sortOrder,
+          inputType: configuration.inputType,
+          pricingMode: configuration.pricingMode,
+          financialBehavior: configuration.financialBehavior,
+          fixedPriceDelta: configuration.fixedPriceDelta?.toNumber() ?? null,
+          linkedProductId: configuration.linkedProductId,
+          linkedProductName: configuration.linkedProductName,
+          linkedProductPrice: configuration.linkedProductPrice?.toNumber() ?? null,
+          linkProductDisplay: configuration.linkProductDisplay,
+          counterUnitPrice: configuration.counterUnitPrice?.toNumber() ?? null,
+          options: configuration.options.map((option) => ({
+            id: option.id,
+            label: option.label,
+            priceDelta: option.priceDelta.toNumber(),
+          })),
+        })) ?? [],
+      currentSelections: (resolvedConfigurations?.selections ?? []).map(
+        mapCurrentSessionConfigurationSelection
+      ),
     };
   });
+}
+
+function mapSessionConfigurationSummary(
+  selections: ResolvedSelection[]
+): POSPackageLine["sessionConfigurationSummary"] {
+  return selections.map((selection) => ({
+    configurationId: selection.configurationId,
+    code: selection.snapshotConfigurationCode,
+    label: selection.snapshotLabel,
+    priceDelta: selection.snapshotPriceDelta.toNumber(),
+    financialBehavior: selection.snapshotFinancialBehavior,
+    inputType: selection.snapshotInputType,
+  }));
+}
+
+function mapCurrentSessionConfigurationSelection(
+  selection: ResolvedSelection
+): POSPackageLine["currentSelections"][number] {
+  const base = {
+    configurationId: selection.configurationId,
+    selectionId: selection.id,
+    snapshotLabel: selection.snapshotLabel,
+    snapshotPriceDelta: selection.snapshotPriceDelta.toNumber(),
+  };
+
+  switch (selection.snapshotInputType) {
+    case "TOGGLE":
+      return { ...base, kind: "toggle" };
+    case "SELECT":
+      return {
+        ...base,
+        kind: "select",
+        optionId: selection.optionId ?? "",
+      };
+    case "NUMBER":
+      return {
+        ...base,
+        kind: "number",
+        numericValue: selection.numericValue?.toNumber() ?? 0,
+      };
+    case "TEXT":
+      return {
+        ...base,
+        kind: "text",
+        textValue: selection.textValue ?? "",
+      };
+    case "COUNTER":
+      return {
+        ...base,
+        kind: "counter",
+        numericValue: selection.numericValue?.toNumber() ?? 0,
+        ...(selection.optionId ? { optionId: selection.optionId } : {}),
+      };
+  }
 }
 
 function mapPOSPackageOptions(

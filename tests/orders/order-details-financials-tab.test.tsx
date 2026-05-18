@@ -136,6 +136,7 @@ function workspaceFixture(): POSWorkspace {
     extraPhotoTotal: 0,
     addOns: [],
     addOnTotal: 0,
+    sessionConfigurationTotal: 0,
     productOptions: [],
     addOnCatalog: [],
     invoice: {

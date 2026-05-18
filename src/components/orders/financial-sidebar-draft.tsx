@@ -1,8 +1,8 @@
 import { AlertCircle, ChevronDown, Lock, ReceiptText } from "lucide-react";
-import { createOrderInvoiceAction } from "@/app/orders/[orderId]/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CreateOrderInvoiceForm } from "@/components/orders/create-order-invoice-form";
 import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
 import { MoneyRow, formatKD } from "@/components/financial";
 import type { POSWorkspace } from "@/modules/orders/order.types";
@@ -28,7 +28,10 @@ export function FinancialSidebarDraft({
   const extraPhotoAmount = workspace.extraPhotoTotal;
   const totalAmount =
     invoice?.invoiceTotal ??
-    packageAmount + extraPhotoAmount + workspace.addOnTotal;
+    packageAmount +
+      extraPhotoAmount +
+      workspace.addOnTotal +
+      workspace.sessionConfigurationTotal;
 
   return (
     <aside className={className}>
@@ -113,6 +116,12 @@ export function FinancialSidebarDraft({
                 {workspace.addOns.map((addOn) => (
                   <MoneyRow key={addOn.id} label={addOn.name} value={addOn.priceLabel} />
                 ))}
+                {workspace.sessionConfigurationTotal !== 0 ? (
+                  <MoneyRow
+                    label="Session configuration fees"
+                    value={formatKD(workspace.sessionConfigurationTotal)}
+                  />
+                ) : null}
               </>
             )}
             {invoice?.renderMode === "SNAPSHOT" && invoice.depositPaidAmount ? (
@@ -203,12 +212,7 @@ export function FinancialSidebarDraft({
                 </div>
               )
             ) : (
-              <form action={createOrderInvoiceAction.bind(null, workspace.orderId)}>
-                <input type="hidden" name="returnTo" value="sales" />
-                <Button type="submit" className="w-full">
-                  Create Invoice
-                </Button>
-              </form>
+              <CreateOrderInvoiceForm orderId={workspace.orderId} returnToSales />
             )}
           </div>
         </CardContent>

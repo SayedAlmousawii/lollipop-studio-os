@@ -224,6 +224,11 @@ function buildPOSWorkspaceFixture(): POSWorkspace {
         upgradeDeltaLabel: "50.000 KD",
       },
     ],
+    sessionConfigurationSummary: [],
+    sessionConfigurationSubtotal: 0,
+    missingRequiredConfigurationCodes: [],
+    availableConfigurations: [],
+    currentSelections: [],
   };
 
   return {
@@ -253,6 +258,7 @@ function buildPOSWorkspaceFixture(): POSWorkspace {
       },
     ],
     addOnTotal: 20,
+    sessionConfigurationTotal: 0,
     productOptions: [
       {
         id: "product-premium-album",

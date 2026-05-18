@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { PaymentType } from "@prisma/client";
+import { z } from "zod";
+import { db } from "@/lib/db";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -10,6 +12,14 @@ import {
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
 import { SessionConfigurationRequiredSelectionMissingError } from "@/modules/session-configurations/session-configuration-resolver";
+import {
+  SessionConfigurationSelectionConfigurationNotFoundError,
+  SessionConfigurationSelectionInputMismatchError,
+  SessionConfigurationSelectionLockedError,
+  SessionConfigurationSelectionOptionMismatchError,
+  writeOrderPackageSelections,
+} from "@/modules/session-configurations/session-configuration-selection.service";
+import { writeSelectionsPayloadSchema } from "@/modules/session-configurations/session-configuration-selection.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import { recordPayment } from "@/modules/payments/payment.service";
 import {
@@ -31,6 +41,14 @@ export type UpdateEditingActionState = {
   errors?: Partial<Record<string, string[]>>;
 };
 
+export type CreateOrderInvoiceActionState = {
+  errors?: Partial<Record<string, string[]>>;
+};
+
+export type ConfigureSessionActionState = {
+  errors?: Partial<Record<string, string[]>>;
+};
+
 export type RecordUpgradePaymentActionState = {
   errors?: Partial<Record<string, string[]>>;
 };
@@ -46,8 +64,11 @@ export type UpdateDeliveryActionState = {
 
 export async function createOrderInvoiceAction(
   orderId: string,
-  formData?: FormData
-): Promise<void> {
+  prevOrFormData?: CreateOrderInvoiceActionState | FormData,
+  maybeFormData?: FormData
+): Promise<CreateOrderInvoiceActionState> {
+  const formData =
+    prevOrFormData instanceof FormData ? prevOrFormData : maybeFormData;
   const appUser = await requireCurrentAppUserPermission(PERMISSIONS.INVOICE_CREATE);
   let invoice: { id: string };
   try {
@@ -63,6 +84,11 @@ export async function createOrderInvoiceAction(
           details: error.details,
         })
       );
+      return {
+        errors: {
+          _global: [await missingSessionConfigurationMessage(error)],
+        },
+      };
     }
     throw error;
   }
@@ -77,6 +103,44 @@ export async function createOrderInvoiceAction(
     redirect(`/orders/${orderId}/sales`);
   }
   redirect(`/invoices/${invoice.id}`);
+}
+
+export async function configureSessionAction(
+  orderId: string,
+  _prev: ConfigureSessionActionState,
+  formData: FormData
+): Promise<ConfigureSessionActionState> {
+  const parsedSelections = parseSelectionsJson(formData.get("selections"));
+  if (!parsedSelections.success) {
+    return { errors: { selections: [parsedSelections.error] } };
+  }
+
+  const parsed = writeSelectionsPayloadSchema.safeParse({
+    orderPackageId: formData.get("orderPackageId"),
+    selections: parsedSelections.value,
+  });
+  if (!parsed.success) {
+    return { errors: parsed.error.flatten().fieldErrors };
+  }
+
+  const appUser = await requireCurrentAppUserPermission(
+    PERMISSIONS.ORDER_FINANCIAL_UPDATE
+  );
+
+  try {
+    await writeOrderPackageSelections(parsed.data.orderPackageId, parsed.data.selections, {
+      id: appUser.id,
+      role: appUser.role,
+    });
+  } catch (error) {
+    return { errors: { _global: [messageForConfigureSessionError(error)] } };
+  }
+
+  revalidatePath("/orders");
+  revalidatePath(`/orders/${orderId}`);
+  revalidatePath(`/orders/${orderId}/sales`);
+  revalidatePath("/invoices");
+  return {};
 }
 
 export async function updateEditingWorkflowAction(
@@ -116,6 +180,79 @@ export async function updateEditingWorkflowAction(
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   return {};
+}
+
+function parseSelectionsJson(
+  value: FormDataEntryValue | null
+): { success: true; value: unknown } | { success: false; error: string } {
+  if (typeof value !== "string") {
+    return { success: false, error: "Selections payload is required." };
+  }
+
+  try {
+    return { success: true, value: JSON.parse(value) };
+  } catch {
+    return { success: false, error: "Selections payload is invalid." };
+  }
+}
+
+function messageForConfigureSessionError(error: unknown): string {
+  if (error instanceof SessionConfigurationSelectionLockedError) {
+    return "Order is locked. Edit configurations through the Adjustment Workspace.";
+  }
+  if (error instanceof SessionConfigurationSelectionConfigurationNotFoundError) {
+    return "One of the session settings is no longer available. Refresh and try again.";
+  }
+  if (error instanceof SessionConfigurationSelectionOptionMismatchError) {
+    return "One of the selected options is no longer available. Refresh and try again.";
+  }
+  if (error instanceof SessionConfigurationSelectionInputMismatchError) {
+    return "One of the session settings has an invalid value. Review the panel and try again.";
+  }
+  if (error instanceof z.ZodError) {
+    return "Review the session configuration values and try again.";
+  }
+  return error instanceof Error
+    ? error.message
+    : "Unable to save session configuration.";
+}
+
+async function missingSessionConfigurationMessage(
+  error: SessionConfigurationRequiredSelectionMissingError
+): Promise<string> {
+  const missingCodes = [
+    ...new Set(error.details.flatMap((detail) => detail.missingConfigurationCodes)),
+  ];
+  const configurations = await db.sessionConfiguration.findMany({
+    where: { code: { in: missingCodes } },
+    select: { code: true, name: true },
+  });
+  const nameByCode = new Map(
+    configurations.map((configuration) => [
+      configuration.code,
+      configuration.name,
+    ])
+  );
+  const packageIds = error.details.map((detail) => detail.orderPackageId);
+  const packages = await db.orderPackage.findMany({
+    where: { id: { in: packageIds } },
+    select: {
+      id: true,
+      package: { select: { name: true } },
+    },
+  });
+  const packageNameById = new Map(
+    packages.map((orderPackage) => [orderPackage.id, orderPackage.package.name])
+  );
+  const missingLabels = error.details.map((detail) => {
+    const names = detail.missingConfigurationCodes.map(
+      (code) => nameByCode.get(code) ?? code
+    );
+    const packageName = packageNameById.get(detail.orderPackageId);
+    return packageName ? `${names.join(", ")} (${packageName})` : names.join(", ");
+  });
+
+  return `Configure the missing session settings before generating the invoice: ${missingLabels.join("; ")}.`;
 }
 
 export async function recordUpgradePaymentAction(

@@ -1,18 +1,28 @@
-import type { Prisma } from "@prisma/client";
+import type {
+  Prisma,
+  SessionConfigurationCounterPricingMode,
+  SessionConfigurationFinancialBehavior,
+  SessionConfigurationInputType,
+  SessionConfigurationLinkProductDisplay,
+  SessionConfigurationPricingMode,
+} from "@prisma/client";
 import type { db } from "@/lib/db";
 
 type DbClient = typeof db | Prisma.TransactionClient;
 
 export const pricedSessionConfigurationSelectionSelect = {
   id: true,
+  optionId: true,
   snapshotConfigurationCode: true,
   snapshotLabel: true,
   snapshotPriceDelta: true,
+  snapshotFinancialBehavior: true,
   snapshotPricingMode: true,
   snapshotInputType: true,
   snapshotLinkProductDisplay: true,
   snapshotLinkedProductId: true,
   numericValue: true,
+  textValue: true,
 } satisfies Prisma.OrderPackageSessionConfigurationSelectionSelect;
 
 export type ResolvedConfigDefinition = {
@@ -21,6 +31,21 @@ export type ResolvedConfigDefinition = {
   name: string;
   required: boolean;
   sortOrder: number;
+  inputType: SessionConfigurationInputType;
+  pricingMode: SessionConfigurationPricingMode;
+  financialBehavior: SessionConfigurationFinancialBehavior;
+  fixedPriceDelta: Prisma.Decimal | null;
+  linkedProductId: string | null;
+  linkProductDisplay: SessionConfigurationLinkProductDisplay | null;
+  linkedProductName: string | null;
+  linkedProductPrice: Prisma.Decimal | null;
+  counterPricingMode: SessionConfigurationCounterPricingMode | null;
+  counterUnitPrice: Prisma.Decimal | null;
+  options: {
+    id: string;
+    label: string;
+    priceDelta: Prisma.Decimal;
+  }[];
 };
 
 export type ResolvedSelection = Prisma.OrderPackageSessionConfigurationSelectionGetPayload<{
@@ -132,6 +157,26 @@ async function resolvePackageConfigState(
       name: true,
       required: true,
       sortOrder: true,
+      inputType: true,
+      pricingMode: true,
+      financialBehavior: true,
+      fixedPriceDelta: true,
+      linkedProductId: true,
+      linkProductDisplay: true,
+      linkedProduct: {
+        select: { name: true, canonicalPrice: true },
+      },
+      counterPricingMode: true,
+      counterUnitPrice: true,
+      options: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          label: true,
+          priceDelta: true,
+        },
+        orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+      },
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
@@ -148,7 +193,24 @@ async function resolvePackageConfigState(
   return {
     orderPackageId: input.orderPackageId,
     sessionTypeId: input.sessionTypeId,
-    activeConfigurations,
+    activeConfigurations: activeConfigurations.map((configuration) => ({
+      id: configuration.id,
+      code: configuration.code,
+      name: configuration.name,
+      required: configuration.required,
+      sortOrder: configuration.sortOrder,
+      inputType: configuration.inputType,
+      pricingMode: configuration.pricingMode,
+      financialBehavior: configuration.financialBehavior,
+      fixedPriceDelta: configuration.fixedPriceDelta,
+      linkedProductId: configuration.linkedProductId,
+      linkProductDisplay: configuration.linkProductDisplay,
+      linkedProductName: configuration.linkedProduct?.name ?? null,
+      linkedProductPrice: configuration.linkedProduct?.canonicalPrice ?? null,
+      counterPricingMode: configuration.counterPricingMode,
+      counterUnitPrice: configuration.counterUnitPrice,
+      options: configuration.options,
+    })),
     selections: input.selections,
     missingRequiredConfigurationCodes,
   };
