@@ -465,7 +465,7 @@ export async function openWorkspace(
             select: { id: true },
           })
           .catch(async (error: unknown) => {
-            if (!isUniqueConstraintError(error)) throw error;
+            if (!isOpenWorkspaceInvoiceUniqueConflict(error)) throw error;
             const concurrentExisting = await tx.adjustmentWorkspace.findFirst({
               where: { invoiceId, status: AdjustmentWorkspaceStatus.OPEN },
               select: { id: true },
@@ -1057,9 +1057,15 @@ function normalizedSessionConfigurationSelections(
         optionId: selection.optionId,
         numericValue: selection.numericValue,
         textValue: selection.textValue,
+        snapshotConfigurationCode: selection.snapshotConfigurationCode,
+        snapshotLabel: selection.snapshotLabel,
         snapshotOptionLabel: selection.snapshotOptionLabel,
         snapshotPriceDelta: selection.snapshotPriceDelta,
         snapshotFinancialBehavior: selection.snapshotFinancialBehavior,
+        snapshotInputType: selection.snapshotInputType,
+        snapshotPricingMode: selection.snapshotPricingMode,
+        snapshotLinkedProductId: selection.snapshotLinkedProductId,
+        snapshotLinkProductDisplay: selection.snapshotLinkProductDisplay,
       }))
       .sort((a, b) =>
         `${a.orderPackageId}:${a.configurationId}`.localeCompare(
@@ -2523,9 +2529,11 @@ function sessionConfigurationSelectionValuesMatch(
     base.optionId === proposed.optionId &&
     base.numericValue === proposed.numericValue &&
     base.textValue === proposed.textValue &&
+    base.snapshotConfigurationCode === proposed.snapshotConfigurationCode &&
     base.snapshotOptionLabel === proposed.snapshotOptionLabel &&
     base.snapshotLabel === proposed.snapshotLabel &&
     base.snapshotPriceDelta === proposed.snapshotPriceDelta &&
+    base.snapshotFinancialBehavior === proposed.snapshotFinancialBehavior &&
     base.snapshotPricingMode === proposed.snapshotPricingMode &&
     base.snapshotInputType === proposed.snapshotInputType &&
     base.snapshotLinkProductDisplay === proposed.snapshotLinkProductDisplay &&
@@ -2808,9 +2816,24 @@ function recordWorkspaceMetric(
   console.info(JSON.stringify({ metric, ...fields }));
 }
 
-function isUniqueConstraintError(error: unknown): boolean {
+function isOpenWorkspaceInvoiceUniqueConflict(error: unknown): boolean {
+  if (!isUniqueConstraintError(error)) return false;
+  return isOpenWorkspaceInvoiceTarget(error.meta?.target);
+}
+
+function isUniqueConstraintError(
+  error: unknown
+): error is Prisma.PrismaClientKnownRequestError {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002"
   );
+}
+
+function isOpenWorkspaceInvoiceTarget(target: unknown): boolean {
+  if (target === "adjustment_workspaces_invoiceId_open_key") return true;
+  if (Array.isArray(target)) {
+    return target.includes("invoice_id") || target.includes("invoiceId");
+  }
+  return false;
 }
