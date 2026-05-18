@@ -34,6 +34,32 @@ const MONEY_TOLERANCE_SQL = "0.001";
 
 export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefinition[] = [
   {
+    invariantId: "CENT-FCS-01",
+    name: "centralization.financial_case_summary.projector_parity",
+    severity: "MEDIUM",
+    affectedEntityType: "FinancialCase",
+    description:
+      "FinancialCaseSummary projectors must match legacy financial tab and locked sidebar derivations",
+    expected: "projector output value-equivalent to legacy derivation",
+    queryContext:
+      "active financial cases with FINAL invoices projected through FinancialCaseSummary",
+    run: async (tx) => {
+      const { checkFinancialCaseSummaryProjectorParity } = await import(
+        "@/modules/financial-cases/financial-case-summary.service"
+      );
+      const violations = await checkFinancialCaseSummaryProjectorParity(tx);
+
+      return violations.map((violation) => ({
+        entity_id: violation.financialCaseId,
+        affected_entity_ids: [
+          violation.financialCaseId,
+          ...(violation.orderId ? [violation.orderId] : []),
+        ],
+        actual: `${violation.projector}.${violation.field}: ${violation.actual}`,
+      }));
+    },
+  },
+  {
     invariantId: "INV-01",
     name: "payment-allocation-count",
     severity: "CRITICAL",
