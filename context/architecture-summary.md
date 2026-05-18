@@ -70,6 +70,8 @@ src/
 
 **Session Configuration Pricing Pipeline:** `src/modules/session-configurations/session-configuration-pricing.ts` is the canonical selection-to-money path for snapshotted order-package configuration selections. `createInvoiceForOrderWithClient` uses it to add both invoice-line and modifier-only deltas into draft final invoice totals, `buildInvoiceLineItems` uses its invoice-line drafts for locked invoice snapshots, and `getPOSWorkspace` exposes the same `sessionConfigurationTotal` for draft POS totals.
 
+**Session Configuration Selection Writes:** `src/modules/session-configurations/session-configuration-selection.service.ts` is the sole production writer for `OrderPackageSessionConfigurationSelection`, performing full per-package transactional diffs and refreshing all snapshot columns from live definitions on every insert/update.
+
 **Role permissions:**
 
 | Role | Access |

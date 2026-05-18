@@ -16,6 +16,7 @@ import { PageContainer } from "@/components/layout/page-container";
 import { ActivityTabContent } from "@/components/orders/activity-tab-content";
 import { DeliveryWorkflowForm } from "@/components/orders/delivery-workflow-form";
 import { EditingWorkflowForm } from "@/components/orders/editing-workflow-form";
+import { CreateOrderInvoiceForm } from "@/components/orders/create-order-invoice-form";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
@@ -52,7 +53,6 @@ import type {
   OrderSelectionWorkflow,
   OrderWorkflowStep,
 } from "@/modules/orders/order.types";
-import { createOrderInvoiceAction } from "./actions";
 
 const TAB_ITEMS = [
   ["overview", "Overview"],
@@ -208,12 +208,9 @@ export default async function OrderDetailPage(
                 </Link>
               </Button>
             ) : (
-              <form action={createOrderInvoiceAction.bind(null, order.id)}>
-                <Button type="submit" variant="outline">
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Create Invoice
-                </Button>
-              </form>
+              <div className="min-w-40">
+                <CreateOrderInvoiceForm orderId={order.id} variant="outline" />
+              </div>
             )}
           </div>
         </header>

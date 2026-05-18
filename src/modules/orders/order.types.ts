@@ -3,7 +3,12 @@ import type {
   InvoiceType,
   OrderSelectionStatus,
   OrderStatus,
+  SessionConfigurationFinancialBehavior,
+  SessionConfigurationInputType,
+  SessionConfigurationLinkProductDisplay,
+  SessionConfigurationPricingMode,
 } from "@prisma/client";
+import type { SelectionInput } from "@/modules/session-configurations/session-configuration-selection.schema";
 
 export type OrderStatusLabel =
   | "Active"
@@ -347,7 +352,49 @@ export interface POSPackageLine {
   upgradeDelta: number;
   upgradeDeltaLabel: string;
   packageOptions: POSPackageOption[];
+  sessionConfigurationSummary: SessionConfigurationSummaryEntry[];
+  sessionConfigurationSubtotal: number;
+  missingRequiredConfigurationCodes: string[];
+  availableConfigurations: POSAvailableSessionConfiguration[];
+  currentSelections: POSSessionConfigurationSelection[];
 }
+
+export interface SessionConfigurationSummaryEntry {
+  configurationId: string;
+  code: string;
+  label: string;
+  priceDelta: number;
+  financialBehavior: SessionConfigurationFinancialBehavior;
+  inputType: SessionConfigurationInputType;
+}
+
+export interface POSAvailableSessionConfiguration {
+  id: string;
+  code: string;
+  name: string;
+  required: boolean;
+  sortOrder: number;
+  inputType: SessionConfigurationInputType;
+  pricingMode: SessionConfigurationPricingMode;
+  financialBehavior: SessionConfigurationFinancialBehavior;
+  fixedPriceDelta: number | null;
+  linkedProductId: string | null;
+  linkedProductName: string | null;
+  linkedProductPrice: number | null;
+  linkProductDisplay: SessionConfigurationLinkProductDisplay | null;
+  counterUnitPrice: number | null;
+  options: {
+    id: string;
+    label: string;
+    priceDelta: number;
+  }[];
+}
+
+export type POSSessionConfigurationSelection = SelectionInput & {
+  selectionId: string;
+  snapshotLabel: string;
+  snapshotPriceDelta: number;
+};
 
 export interface POSPackage {
   id: string;

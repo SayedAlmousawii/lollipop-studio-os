@@ -28,6 +28,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { ConfigurationMissingRequiredBadge } from "@/components/session-configurations/configuration-missing-required-badge";
+import { ConfigurationSummaryChip } from "@/components/session-configurations/configuration-summary-chip";
+import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import {
   Select,
   SelectContent,
@@ -96,7 +99,33 @@ export function POSPackageComposition({
                   line={line}
                   handlers={handlers}
                 />
+                <ConfigureSessionPanel
+                  orderId={workspace.orderId}
+                  orderPackageId={line.id}
+                  packageName={line.currentPackage.name}
+                  sessionTypeName={line.sessionTypeName}
+                  availableConfigurations={line.availableConfigurations}
+                  currentSelections={line.currentSelections}
+                  missingRequiredConfigurationCodes={
+                    line.missingRequiredConfigurationCodes
+                  }
+                />
               </div>
+              {line.sessionConfigurationSummary.length > 0 ||
+              line.missingRequiredConfigurationCodes.length > 0 ? (
+                <div className="space-y-2">
+                  <ConfigurationSummaryChip
+                    summary={line.sessionConfigurationSummary}
+                    subtotal={line.sessionConfigurationSubtotal}
+                  />
+                  <ConfigurationMissingRequiredBadge
+                    missingRequiredConfigurationCodes={
+                      line.missingRequiredConfigurationCodes
+                    }
+                    availableConfigurations={line.availableConfigurations}
+                  />
+                </div>
+              ) : null}
 
               <div className="grid gap-3 md:grid-cols-2">
                 {line.packageItems.map((item) => (
