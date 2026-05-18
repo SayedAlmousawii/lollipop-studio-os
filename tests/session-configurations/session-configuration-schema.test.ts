@@ -4,7 +4,6 @@ import {
   SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 import { createSessionConfigurationSchema } from "@/modules/session-configurations/session-configuration.schema";
@@ -22,7 +21,6 @@ test("session configuration schema enforces cross-field invariants", () => {
     {
       pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
       linkedProductId: "",
-      linkProductDisplay: undefined,
     },
     "linkedProductId",
     /Linked product/
@@ -55,15 +53,6 @@ test("session configuration schema enforces cross-field invariants", () => {
     "pricingMode",
     /Tiered pricing/
   );
-  assertInvalid(
-    {
-      pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
-      linkedProductId: "product-1",
-      linkProductDisplay: SessionConfigurationLinkProductDisplay.MODIFIER_ONLY,
-    },
-    "linkProductDisplay",
-    /line items/
-  );
 });
 
 function assertInvalid(
@@ -81,7 +70,6 @@ function assertInvalid(
     sortOrder: 0,
     fixedPriceDelta: undefined,
     linkedProductId: undefined,
-    linkProductDisplay: undefined,
     counterPricingMode: undefined,
     counterUnitPrice: undefined,
     options: [],

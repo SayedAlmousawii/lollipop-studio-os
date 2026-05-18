@@ -161,6 +161,15 @@ const SALES_LINKED_FINANCIAL_DOCUMENT_TYPES = [
 const LOCKED_INVOICE_WORKSPACE_REQUIRED =
   "Locked invoices can only be changed through an Adjustment Workspace.";
 
+export class OrderAddOnOwnedBySessionConfigurationError extends Error {
+  constructor(configurationLabel: string) {
+    super(
+      `Remove ${configurationLabel} from Configure Session before deleting this add-on.`
+    );
+    this.name = "OrderAddOnOwnedBySessionConfigurationError";
+  }
+}
+
 function assertFinancialActorContext(actorContext: ActorContext): void {
   if (!actorContext.actorUserId || !actorContext.actorRole) {
     throw new Error("Missing actor context");
@@ -1626,6 +1635,24 @@ export async function removeOrderAddOn(
         });
         if (!addOn) {
           throw new Error("Selected add-on is not on this order");
+        }
+        const selectionOwner =
+          await tx.orderPackageSessionConfigurationSelection.findFirst({
+            where: { orderAddOnId: addOn.id },
+            select: { id: true, snapshotLabel: true },
+          });
+        if (selectionOwner) {
+          console.info(
+            JSON.stringify({
+              metric: "add_on.delete_blocked_by_session_configuration",
+              orderId,
+              orderAddOnId: addOn.id,
+              selectionId: selectionOwner.id,
+            })
+          );
+          throw new OrderAddOnOwnedBySessionConfigurationError(
+            selectionOwner.snapshotLabel
+          );
         }
 
         if (addOn.quantity > 1) {
@@ -3724,7 +3751,6 @@ function mapPOSPackageLines(input: {
           linkedProductId: configuration.linkedProductId,
           linkedProductName: configuration.linkedProductName,
           linkedProductPrice: configuration.linkedProductPrice?.toNumber() ?? null,
-          linkProductDisplay: configuration.linkProductDisplay,
           counterUnitPrice: configuration.counterUnitPrice?.toNumber() ?? null,
           options: configuration.options.map((option) => ({
             id: option.id,
@@ -5208,5 +5234,8 @@ function mapProductionQueueRow(row: ProductionQueueRow): ProductionQueueItem {
 }
 
 function shouldRetryOrderFinancialEditError(error: unknown): boolean {
-  return !(error instanceof PendingCreditNoteApprovalError);
+  return !(
+    error instanceof PendingCreditNoteApprovalError ||
+    error instanceof OrderAddOnOwnedBySessionConfigurationError
+  );
 }

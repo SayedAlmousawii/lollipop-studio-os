@@ -46,7 +46,6 @@ export type SessionConfigurationFormValues = {
   sortOrder: string;
   fixedPriceDelta: string;
   linkedProductId: string;
-  linkProductDisplay: string;
   counterPricingMode: string;
   counterUnitPrice: string;
   options: unknown[];
@@ -201,7 +200,6 @@ function sessionConfigurationFormValues(
     sortOrder: formValue(formData.get("sortOrder")),
     fixedPriceDelta: formValue(formData.get("fixedPriceDelta")),
     linkedProductId: formValue(formData.get("linkedProductId")),
-    linkProductDisplay: formValue(formData.get("linkProductDisplay")),
     counterPricingMode: formValue(formData.get("counterPricingMode")),
     counterUnitPrice: formValue(formData.get("counterUnitPrice")),
     options: parseOptions(formValue(formData.get("options"))),
@@ -251,7 +249,6 @@ function emptySessionConfigurationValues(): SessionConfigurationFormValues {
     sortOrder: "0",
     fixedPriceDelta: "",
     linkedProductId: "",
-    linkProductDisplay: "",
     counterPricingMode: "",
     counterUnitPrice: "",
     options: [],
@@ -268,7 +265,6 @@ function sessionConfigurationPayload(values: SessionConfigurationFormValues) {
     sortOrder: values.sortOrder,
     fixedPriceDelta: values.fixedPriceDelta,
     linkedProductId: values.linkedProductId,
-    linkProductDisplay: values.linkProductDisplay || undefined,
     counterPricingMode: values.counterPricingMode || undefined,
     counterUnitPrice: values.counterUnitPrice,
     options: values.options,

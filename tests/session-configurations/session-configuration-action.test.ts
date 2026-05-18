@@ -100,7 +100,6 @@ test("session configuration create action parses nested options and revalidates 
         sortOrder: 10,
         fixedPriceDelta: undefined,
         linkedProductId: undefined,
-        linkProductDisplay: undefined,
         counterPricingMode: undefined,
         counterUnitPrice: undefined,
         options: [

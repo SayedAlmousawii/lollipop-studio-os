@@ -132,7 +132,6 @@ function row(id: string, name: string, isActive: boolean) {
     fixedPriceDelta: null,
     linkedProductId: null,
     linkedProductName: null,
-    linkProductDisplay: null,
     counterPricingMode: null,
     counterUnitPrice: null,
     activeOptionCount: 0,

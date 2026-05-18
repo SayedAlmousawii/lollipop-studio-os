@@ -50,7 +50,7 @@ export type AdjustmentSessionConfigurationSelection = {
   snapshotInputType: "TOGGLE" | "SELECT" | "NUMBER" | "TEXT" | "COUNTER";
   snapshotPricingMode: "NONE" | "FIXED" | "TIERED" | "LINKED_PRODUCT";
   snapshotLinkedProductId: string | null;
-  snapshotLinkProductDisplay: "LINE_ITEM" | "MODIFIER_ONLY" | null;
+  orderAddOnId: string | null;
 };
 
 export type AdjustmentWorkspaceEdit =

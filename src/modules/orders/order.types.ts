@@ -5,7 +5,6 @@ import type {
   OrderStatus,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 import type { SelectionInput } from "@/modules/session-configurations/session-configuration-selection.schema";
@@ -388,7 +387,6 @@ export interface POSAvailableSessionConfiguration {
   linkedProductId: string | null;
   linkedProductName: string | null;
   linkedProductPrice: number | null;
-  linkProductDisplay: SessionConfigurationLinkProductDisplay | null;
   counterUnitPrice: number | null;
   options: {
     id: string;

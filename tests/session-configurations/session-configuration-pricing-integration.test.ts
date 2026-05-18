@@ -12,7 +12,6 @@ import {
   ProductCategory,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
   UserRole,
 } from "@prisma/client";
@@ -112,7 +111,6 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
           priceDelta: "4.000",
           pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
           inputType: SessionConfigurationInputType.TOGGLE,
-          linkProductDisplay: SessionConfigurationLinkProductDisplay.LINE_ITEM,
           linkedProductId: fixture.addOnProductId,
         });
         await insertSelection(db, {
@@ -123,7 +121,6 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
           priceDelta: "3.000",
           pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
           inputType: SessionConfigurationInputType.SELECT,
-          linkProductDisplay: SessionConfigurationLinkProductDisplay.MODIFIER_ONLY,
           linkedProductId: fixture.addOnProductId,
         });
 
@@ -160,12 +157,12 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
             snapshotPriceDelta: true,
             snapshotPricingMode: true,
             snapshotInputType: true,
-            snapshotLinkProductDisplay: true,
             snapshotLinkedProductId: true,
+            orderAddOnId: true,
             numericValue: true,
           },
         });
-        assert.equal(priceSelections(pricedSelections).totalDelta.toFixed(3), "19.000");
+        assert.equal(priceSelections(pricedSelections).totalDelta.toFixed(3), "12.000");
 
         const invoice = await db.$transaction((tx) =>
           createInvoiceForOrderWithClient(tx, fixture.orderId, {
@@ -204,7 +201,8 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
         );
 
         const workspace = await getPOSWorkspace(fixture.orderId);
-        assert.equal(workspace?.sessionConfigurationTotal, 19);
+        assert.equal(workspace?.sessionConfigurationTotal, 12);
+        assert.equal(workspace?.addOnTotal, 17);
 
         await closeInvoice(invoice.id, {
           actorUserId: fixture.managerUserId,
@@ -217,14 +215,10 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
           },
           orderBy: { sortOrder: "asc" },
         });
-        assert.equal(sessionConfigLines.length, 3);
+        assert.equal(sessionConfigLines.length, 1);
         assert.deepEqual(
           sessionConfigLines.map((line) => line.causeOrderEntityKind),
-          [
-            OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
-            OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
-            OrderEntityKind.SESSION_CONFIGURATION_SELECTION,
-          ]
+          [OrderEntityKind.SESSION_CONFIGURATION_SELECTION]
         );
         assert.equal(
           sessionConfigLines.some(
@@ -237,7 +231,17 @@ test("session configuration resolver, invoice pricing, and POS workspace integra
             where: {
               invoiceId: invoice.id,
               description: "Album Color",
-              lineType: InvoiceLineType.SESSION_CONFIGURATION,
+              lineType: InvoiceLineType.ADD_ON,
+            },
+          }),
+          1
+        );
+        assert.equal(
+          await db.invoiceLineItem.count({
+            where: {
+              invoiceId: invoice.id,
+              description: "Optional Cake",
+              lineType: InvoiceLineType.ADD_ON,
             },
           }),
           1
@@ -419,7 +423,6 @@ async function createFixture(
       isActive: true,
       sortOrder: 20,
       linkedProductId: addOnProduct.id,
-      linkProductDisplay: SessionConfigurationLinkProductDisplay.LINE_ITEM,
     },
   });
   const modifierConfig = await db.sessionConfiguration.create({
@@ -434,7 +437,6 @@ async function createFixture(
       isActive: true,
       sortOrder: 30,
       linkedProductId: addOnProduct.id,
-      linkProductDisplay: SessionConfigurationLinkProductDisplay.MODIFIER_ONLY,
     },
   });
 
@@ -459,10 +461,14 @@ async function insertSelection(
     priceDelta: string;
     pricingMode: SessionConfigurationPricingMode;
     inputType: SessionConfigurationInputType;
-    linkProductDisplay?: SessionConfigurationLinkProductDisplay | null;
     linkedProductId?: string | null;
   }
 ) {
+  const linkedAddOn =
+    input.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT &&
+    input.linkedProductId
+      ? await createLinkedSelectionAddOn(db, input)
+      : null;
   return db.orderPackageSessionConfigurationSelection.create({
     data: {
       orderPackageId: input.orderPackageId,
@@ -470,12 +476,40 @@ async function insertSelection(
       snapshotConfigurationCode: input.code,
       snapshotLabel: input.label,
       snapshotOptionLabel: null,
-      snapshotPriceDelta: new Prisma.Decimal(input.priceDelta),
+      snapshotPriceDelta: linkedAddOn
+        ? new Prisma.Decimal(0)
+        : new Prisma.Decimal(input.priceDelta),
       snapshotFinancialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
       snapshotInputType: input.inputType,
       snapshotPricingMode: input.pricingMode,
-      snapshotLinkProductDisplay: input.linkProductDisplay ?? null,
       snapshotLinkedProductId: input.linkedProductId ?? null,
+      orderAddOnId: linkedAddOn?.id ?? null,
     },
+  });
+}
+
+async function createLinkedSelectionAddOn(
+  db: typeof import("@/lib/db")["db"],
+  input: {
+    orderPackageId: string;
+    linkedProductId?: string | null;
+    label: string;
+    priceDelta: string;
+  }
+) {
+  const orderPackage = await db.orderPackage.findUniqueOrThrow({
+    where: { id: input.orderPackageId },
+    select: { orderId: true },
+  });
+  return db.orderAddOn.create({
+    data: {
+      orderId: orderPackage.orderId,
+      orderPackageId: input.orderPackageId,
+      productId: input.linkedProductId ?? "",
+      nameSnapshot: input.label,
+      priceSnapshot: new Prisma.Decimal(input.priceDelta),
+      quantity: 1,
+    },
+    select: { id: true },
   });
 }

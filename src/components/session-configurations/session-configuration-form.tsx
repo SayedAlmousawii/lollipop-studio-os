@@ -4,7 +4,6 @@ import {
   SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 import { useActionState, useMemo, useState } from "react";
@@ -352,27 +351,9 @@ function SessionConfigurationFields({
             </select>
             <FieldError messages={state.errors?.linkedProductId} />
           </div>
-          <div className="space-y-2">
-            <Label>Product display</Label>
-            <input
-              type="hidden"
-              name="linkProductDisplay"
-              value={SessionConfigurationLinkProductDisplay.LINE_ITEM}
-            />
-            <div className="flex h-10 items-center rounded-md border border-border bg-surface-soft px-3 text-sm text-text-secondary">
-              Line item
-            </div>
-            <p className="text-xs text-text-secondary">
-              Linked products are added to the invoice as line items.
-            </p>
-            <FieldError messages={state.errors?.linkProductDisplay} />
-          </div>
         </div>
       ) : (
-        <>
-          <input type="hidden" name="linkedProductId" value="" />
-          <input type="hidden" name="linkProductDisplay" value="" />
-        </>
+        <input type="hidden" name="linkedProductId" value="" />
       )}
 
       {inputType === SessionConfigurationInputType.COUNTER &&
@@ -516,10 +497,6 @@ function valuesFromConfiguration(
         ? ""
         : configuration.fixedPriceDelta.toFixed(3),
     linkedProductId: configuration.linkedProductId ?? "",
-    linkProductDisplay:
-      configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
-        ? SessionConfigurationLinkProductDisplay.LINE_ITEM
-        : configuration.linkProductDisplay ?? "",
     counterPricingMode: configuration.counterPricingMode ?? "",
     counterUnitPrice:
       configuration.counterUnitPrice === null
@@ -547,7 +524,6 @@ function emptyValues(): SessionConfigurationFormValues {
     sortOrder: "0",
     fixedPriceDelta: "",
     linkedProductId: "",
-    linkProductDisplay: "",
     counterPricingMode: "",
     counterUnitPrice: "",
     options: [],

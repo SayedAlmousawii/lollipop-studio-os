@@ -143,8 +143,11 @@ function buildPendingChangeRow(
       "Session Configuration";
     const selectionIds = [
       proposedSelection?.id,
+      proposedSelection?.orderAddOnId,
       baseSelection?.id,
+      baseSelection?.orderAddOnId,
       `pending:${edit.configurationId}`,
+      `pending:addon:${edit.configurationId}`,
     ].filter((value): value is string => Boolean(value));
     const displayValue = sessionConfigurationDesiredDisplay(
       edit.desired,
@@ -203,7 +206,8 @@ function sessionConfigurationAmount(
   return sumAmounts(
     lines?.filter(
       (line) =>
-        line.kind === "session_configuration" && selectionIdSet.has(line.refId)
+        (line.kind === "session_configuration" || line.kind === "addon") &&
+        selectionIdSet.has(line.refId)
     ) ?? []
   );
 }

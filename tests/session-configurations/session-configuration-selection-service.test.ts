@@ -13,7 +13,6 @@ import {
   SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
-  SessionConfigurationLinkProductDisplay,
   SessionConfigurationPricingMode,
   UserRole,
 } from "@prisma/client";
@@ -45,6 +44,10 @@ test("session configuration selection service writes full package sets with fres
 
     try {
       const { db } = await import("@/lib/db");
+      const {
+        OrderAddOnOwnedBySessionConfigurationError,
+        removeOrderAddOn,
+      } = await import("@/modules/orders/order.service");
       const {
         SessionConfigurationSelectionInputMismatchError,
         SessionConfigurationSelectionFinancialNotAllowedError,
@@ -169,13 +172,31 @@ test("session configuration selection service writes full package sets with fres
               configurationId: fixture.linkedConfigId,
             },
           },
-        });
+      });
       assert.equal(linkedSelection.snapshotLinkedProductId, fixture.productId);
-      assert.equal(
-        linkedSelection.snapshotLinkProductDisplay,
-        SessionConfigurationLinkProductDisplay.LINE_ITEM
+      assert.equal(linkedSelection.snapshotPriceDelta.toFixed(3), "0.000");
+      assert.ok(linkedSelection.orderAddOnId);
+      const linkedAddOn = await db.orderAddOn.findUniqueOrThrow({
+        where: { id: linkedSelection.orderAddOnId },
+      });
+      assert.equal(linkedAddOn.orderPackageId, fixture.orderPackageId);
+      assert.equal(linkedAddOn.productId, fixture.productId);
+      assert.equal(linkedAddOn.nameSnapshot, "Selection Cake");
+      assert.equal(linkedAddOn.priceSnapshot.toFixed(3), "8.000");
+      assert.equal(linkedAddOn.quantity, 1);
+      await assert.rejects(
+        () =>
+          removeOrderAddOn(
+            fixture.orderId,
+            { addOnId: linkedSelection.orderAddOnId ?? "" },
+            { actorUserId: managerActor.id, actorRole: managerActor.role }
+          ),
+        OrderAddOnOwnedBySessionConfigurationError
       );
-      assert.equal(linkedSelection.snapshotPriceDelta.toFixed(3), "8.000");
+      assert.equal(
+        await db.orderAddOn.count({ where: { id: linkedSelection.orderAddOnId } }),
+        1
+      );
 
       await writeOrderPackageSelections(
         fixture.orderPackageId,
@@ -197,6 +218,10 @@ test("session configuration selection service writes full package sets with fres
             },
           },
         });
+      assert.equal(
+        await db.orderAddOn.count({ where: { id: linkedSelection.orderAddOnId } }),
+        0
+      );
       assert.equal(selectSelection.snapshotOptionLabel, "Newborn");
       await db.sessionConfigurationOption.update({
         where: { id: fixture.selectOptionId },
@@ -523,7 +548,6 @@ async function createFixture(db: typeof import("@/lib/db")["db"]) {
       pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
       financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
       linkedProductId: product.id,
-      linkProductDisplay: SessionConfigurationLinkProductDisplay.LINE_ITEM,
       isActive: true,
     },
   });

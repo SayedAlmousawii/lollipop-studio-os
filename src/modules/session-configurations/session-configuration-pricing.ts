@@ -3,7 +3,6 @@ import {
   type InvoiceLineType,
   type OrderEntityKind,
   type SessionConfigurationInputType,
-  type SessionConfigurationLinkProductDisplay,
   type SessionConfigurationPricingMode,
 } from "@prisma/client";
 
@@ -15,8 +14,8 @@ export type PricedSelection = {
   snapshotPricingMode: SessionConfigurationPricingMode;
   snapshotInputType: SessionConfigurationInputType;
   snapshotOptionLabel: string | null;
-  snapshotLinkProductDisplay: SessionConfigurationLinkProductDisplay | null;
   snapshotLinkedProductId: string | null;
+  orderAddOnId?: string | null;
   numericValue: Prisma.Decimal | null;
 };
 
@@ -41,21 +40,16 @@ export class SessionConfigurationPricingError extends Error {
 export function priceSelections(selections: PricedSelection[]): {
   totalDelta: Prisma.Decimal;
   lineItems: SnapshotInvoiceLineItemDraft[];
-  nonLineDelta: Prisma.Decimal;
 } {
   const initial = {
     lineDelta: zeroMoney(),
     lineItems: [] as SnapshotInvoiceLineItemDraft[],
-    nonLineDelta: zeroMoney(),
   };
 
   const priced = selections.reduce((acc, selection) => {
     const result = priceSingleSelection(selection);
     if (result.lineDelta) {
       acc.lineDelta = acc.lineDelta.plus(result.lineDelta);
-    }
-    if (result.nonLineDelta) {
-      acc.nonLineDelta = acc.nonLineDelta.plus(result.nonLineDelta);
     }
     if (result.lineItem) {
       acc.lineItems.push(result.lineItem);
@@ -64,22 +58,19 @@ export function priceSelections(selections: PricedSelection[]): {
   }, initial);
 
   return {
-    totalDelta: priced.lineDelta.plus(priced.nonLineDelta),
+    totalDelta: priced.lineDelta,
     lineItems: priced.lineItems,
-    nonLineDelta: priced.nonLineDelta,
   };
 }
 
 export function priceSingleSelection(selection: PricedSelection): {
   lineDelta: Prisma.Decimal | null;
-  nonLineDelta: Prisma.Decimal | null;
   lineItem: SnapshotInvoiceLineItemDraft | null;
 } {
   switch (selection.snapshotPricingMode) {
     case "NONE":
       return {
         lineDelta: zeroMoney(),
-        nonLineDelta: zeroMoney(),
         lineItem: null,
       };
     case "FIXED":
@@ -95,15 +86,10 @@ export function priceSingleSelection(selection: PricedSelection): {
       }
       return createLineSelectionPrice(selection);
     case "LINKED_PRODUCT":
-      if (selection.snapshotLinkProductDisplay === "LINE_ITEM") {
-        return createLineSelectionPrice(selection);
-      }
-      if (selection.snapshotLinkProductDisplay === "MODIFIER_ONLY") {
-        return createLineSelectionPrice(selection);
-      }
-      throw new SessionConfigurationPricingError(
-        `Linked-product session configuration ${selection.snapshotConfigurationCode} is missing a display mode`
-      );
+      return {
+        lineDelta: zeroMoney(),
+        lineItem: null,
+      };
     default:
       throw new SessionConfigurationPricingError(
         `Unsupported session configuration pricing mode ${String(
@@ -115,12 +101,10 @@ export function priceSingleSelection(selection: PricedSelection): {
 
 function createLineSelectionPrice(selection: PricedSelection): {
   lineDelta: Prisma.Decimal;
-  nonLineDelta: Prisma.Decimal | null;
   lineItem: SnapshotInvoiceLineItemDraft;
 } {
   return {
     lineDelta: selection.snapshotPriceDelta,
-    nonLineDelta: null,
     lineItem: {
       lineType: "SESSION_CONFIGURATION",
       description: formatSelectionDescription(selection),
