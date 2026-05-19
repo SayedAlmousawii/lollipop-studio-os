@@ -277,6 +277,7 @@ function buttonVariantForIntent(
       return "default";
     case "secondary":
     case "warning":
+      // Button has no warning variant yet; keep warning actions visually secondary.
       return "outline";
     case "destructive":
       return "destructive";

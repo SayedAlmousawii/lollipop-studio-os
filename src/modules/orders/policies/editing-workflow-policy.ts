@@ -65,6 +65,7 @@ export const EDITING_WORKFLOW_MESSAGES = {
   orderDelivered: "Delivered orders cannot be moved through editing",
   noEditorOptions: "No editor users are available yet.",
   editorRequired: "Editor is required",
+  missingEditor: "Assign an editor before starting editing",
   selectionIncomplete: "Editing cannot start until selection is completed",
   basePaymentRequired:
     "Editing cannot start until base package payment is recorded",
@@ -146,7 +147,7 @@ export function assertEditingReadyToStartPolicy(
     throw new Error(EDITING_WORKFLOW_MESSAGES.finalBalanceRequired);
   }
   if (!input.assignedEditorId) {
-    throw new Error("Assign an editor before starting editing");
+    throw new Error(EDITING_WORKFLOW_MESSAGES.missingEditor);
   }
 }
 
@@ -273,7 +274,7 @@ function messageForBlocker(reason: EditingWorkflowBlockedReason): string {
     case "NO_EDITOR_OPTIONS":
       return EDITING_WORKFLOW_MESSAGES.noEditorOptions;
     case "MISSING_EDITOR":
-      return "Assign an editor before starting editing";
+      return EDITING_WORKFLOW_MESSAGES.missingEditor;
     case "SELECTION_INCOMPLETE":
       return EDITING_WORKFLOW_MESSAGES.selectionIncomplete;
     case "DEPOSIT_UNSETTLED":
