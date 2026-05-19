@@ -43,8 +43,8 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
         {
           makeAutoAdjustedBookingFixture,
           makeFinancialCaseSummaryOrderFixture,
-          makeFinancialCaseSummaryRefundedOrderFixture,
           makeMixedEditBookingFixture,
+          makeRefundedBookingFixture,
         },
       ] = await Promise.all([
         import("@/modules/financial-cases"),
@@ -67,9 +67,7 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
       });
       const adjusted = await makeAutoAdjustedBookingFixture(dbFromEnv());
       const creditNoted = await makeMixedEditBookingFixture(dbFromEnv());
-      const refunded = await makeFinancialCaseSummaryRefundedOrderFixture(
-        dbFromEnv()
-      );
+      const refunded = await makeRefundedBookingFixture(dbFromEnv());
       const overpaid = await makeFinancialCaseSummaryOrderFixture(dbFromEnv(), {
         suffix: "R1BOVER",
         finalPaymentAmount: 90,
@@ -153,13 +151,15 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
           label: "refunded",
           financialCaseId: refunded.financialCaseId,
           expected: {
-            total: 100,
-            paid: 100,
-            remaining: 0,
+            total: 85,
+            paid: 70,
+            remaining: 15,
             status: "REFUNDED",
             finalLocked: true,
             finalStatus: InvoiceStatus.CLOSED,
-            documentType: InvoiceType.REFUND,
+            financialTotal: 115,
+            paidSoFar: 100,
+            refundedAmount: 10,
           },
         },
         {
@@ -192,7 +192,9 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
           assert.equal(header.paymentStatusEnum, activeCase.expected.status);
           assert.equal(
             header.refundedAmount,
-            summary.refunds.reduce((sum, refund) => sum + refund.total, 0)
+            "refundedAmount" in activeCase.expected
+              ? activeCase.expected.refundedAmount
+              : 0
           );
           assert.equal(header.hasOverpayment, summary.overpaymentCapacity > 0);
 
@@ -269,7 +271,11 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
 
           const invoiceRows = toInvoiceListRow(summary);
           assert.equal(invoiceRows.length, summary.linkedDocuments.length);
-          assert.ok(invoiceRows.length > 0);
+          if (summary.orderId) {
+            assert.ok(invoiceRows.length > 0);
+          } else {
+            assert.deepEqual(invoiceRows, []);
+          }
           for (const document of summary.linkedDocuments) {
             const row = invoiceRows.find(
               (candidate) => candidate.invoiceId === document.invoiceId

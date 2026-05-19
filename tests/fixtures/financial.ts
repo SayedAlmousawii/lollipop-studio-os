@@ -1545,53 +1545,6 @@ export async function makeFinancialCaseSummaryOrderFixture(
   };
 }
 
-export async function makeFinancialCaseSummaryRefundedOrderFixture(
-  prisma: PrismaClient,
-  suffix = "REFR1B"
-): Promise<FinancialCaseSummaryOrderFixtureResult & { refundInvoiceId: string }> {
-  const fixture = await makeFinancialCaseSummaryOrderFixture(prisma, {
-    suffix,
-    finalPaymentAmount: 90,
-    finalRemainingAmount: 0,
-  });
-  if (!fixture.finalInvoiceId || !fixture.finalPaymentId) {
-    throw new Error("Refunded order fixture requires a final invoice and payment");
-  }
-
-  const manager = await prisma.user.upsert({
-    where: { email: `financial-case-summary-refund-${suffix}@example.com` },
-    update: {
-      name: "Financial Case Summary Refund Manager",
-      role: UserRole.MANAGER,
-      active: true,
-    },
-    create: {
-      name: "Financial Case Summary Refund Manager",
-      email: `financial-case-summary-refund-${suffix}@example.com`,
-      role: UserRole.MANAGER,
-      active: true,
-    },
-  });
-  const refund = await issueRefundWithPayment(
-    {
-      sourceInvoiceId: fixture.finalInvoiceId,
-      amount: new Prisma.Decimal(10),
-      reason: "R1b financial case projector refund fixture",
-      notes: "R1b financial case projector refund fixture",
-      createdByUserId: manager.id,
-      method: PaymentMethod.CASH,
-      refundOfPaymentId: fixture.finalPaymentId,
-      paidAt: new Date("2026-05-15T10:00:00.000Z"),
-    },
-    prisma
-  );
-
-  return {
-    ...fixture,
-    refundInvoiceId: refund.refundInvoiceId,
-  };
-}
-
 export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void> {
   await makeCashDepositBookingFixture(prisma);
   await makeAdjustedBookingFixture(prisma);
