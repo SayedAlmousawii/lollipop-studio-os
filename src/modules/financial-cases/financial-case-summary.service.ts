@@ -12,10 +12,6 @@ import {
   deriveLockedFinancialSidebarSummary,
   deriveSettlementPaidAmount,
 } from "@/modules/orders/order-settlement";
-import {
-  getLinkedFinancialDocumentsForOrder,
-  getPOSWorkspace,
-} from "@/modules/orders/order.service";
 import type { LinkedFinancialDocument } from "@/modules/orders/order.types";
 import { compareSummaryWithLegacy } from "./discrepancy-logger";
 import {
@@ -30,6 +26,7 @@ import type {
   FinancialCaseSummary,
   FinancialCaseSummaryInput,
 } from "./financial-case-summary.types";
+import type { OrdersTableRowProjection } from "./projections";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -162,6 +159,40 @@ export async function getFinancialCaseSummary(
       refunds: refunds.length,
     }),
   };
+}
+
+export async function getOrdersTableFinancialProjections(
+  orderIds: string[],
+  client: DbClient = db
+): Promise<Map<string, OrdersTableRowProjection | null>> {
+  const uniqueOrderIds = [...new Set(orderIds)];
+  if (uniqueOrderIds.length === 0) return new Map();
+
+  const rows = await client.order.findMany({
+    where: { id: { in: uniqueOrderIds } },
+    select: {
+      id: true,
+      booking: { select: { financialCase: { select: { id: true } } } },
+    },
+  });
+  const projections = await Promise.all(
+    rows.map(async (row) => {
+      const financialCaseId = row.booking.financialCase?.id ?? null;
+      if (!financialCaseId) return [row.id, null] as const;
+
+      const summary = await getFinancialCaseSummary({ financialCaseId }, client);
+      return [row.id, summary ? toOrdersTableRow(summary) : null] as const;
+    })
+  );
+  const projectionByOrderId = new Map<string, OrdersTableRowProjection | null>();
+  for (const orderId of uniqueOrderIds) {
+    projectionByOrderId.set(orderId, null);
+  }
+  for (const [orderId, projection] of projections) {
+    projectionByOrderId.set(orderId, projection);
+  }
+
+  return projectionByOrderId;
 }
 
 export async function checkFinancialCaseSummaryProjectorParity(
@@ -475,6 +506,9 @@ async function getLinkedFinancialDocumentsForOrderWithClient(
 }
 
 async function deriveLegacyLockedSummary(orderId: string, client: DbClient) {
+  const { getLinkedFinancialDocumentsForOrder, getPOSWorkspace } = await import(
+    "@/modules/orders/order.service"
+  );
   const [workspace, linkedDocuments] = await Promise.all([
     getPOSWorkspace(orderId, client),
     getLinkedFinancialDocumentsForOrder(orderId, client),

@@ -44,8 +44,10 @@ import {
 } from "@/modules/orders/order.service";
 import { getOrderActivityTimeline } from "@/modules/orders/order-activity.service";
 import {
+  FINANCIAL_CASE_PAYMENT_STATUS_LABELS,
   getFinancialCaseSummary,
   toFinancialTabBlock,
+  toOrderHeaderFinancial,
 } from "@/modules/financial-cases";
 import type {
   LinkedFinancialDocument,
@@ -105,6 +107,9 @@ export default async function OrderDetailPage(
   const financialSummary = financialCaseSummary
     ? toFinancialTabBlock(financialCaseSummary)
     : null;
+  const headerFinancial = financialCaseSummary
+    ? toOrderHeaderFinancial(financialCaseSummary)
+    : null;
   if (financialSummary && financialCaseSummary?.stage === "active") {
     console.info(
       JSON.stringify({
@@ -153,11 +158,17 @@ export default async function OrderDetailPage(
               value={order.finalPackageName}
               detail={`Original: ${order.originalPackageName}`}
             />
-            <OrderSettlementSummary summary={order.settlementSummary} />
+            <OrderSettlementSummary summary={headerFinancial} />
             <HeaderMetric
               label="Next action"
               value={order.nextAction}
-              detail={order.paymentStatus}
+              detail={
+                headerFinancial
+                  ? FINANCIAL_CASE_PAYMENT_STATUS_LABELS[
+                      headerFinancial.paymentStatusEnum
+                    ]
+                  : "Financial status unavailable"
+              }
             />
           </div>
 

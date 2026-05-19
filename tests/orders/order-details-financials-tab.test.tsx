@@ -5,15 +5,16 @@ import {
   InvoiceType,
   OrderSelectionStatus,
   OrderStatus,
-  Prisma,
 } from "@prisma/client";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { formatKD } from "@/components/financial";
 import { OrderDetailsFinancialsTab } from "@/components/financial/order-details-financials-tab";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
-import type { FinancialTabBlockProjection } from "@/modules/financial-cases";
-import { computeOrderSettlementSummary } from "@/modules/orders/order-settlement";
+import type {
+  FinancialTabBlockProjection,
+  OrderHeaderFinancialProjection,
+} from "@/modules/financial-cases";
 import type {
   LinkedFinancialDocument,
   POSWorkspace,
@@ -79,19 +80,22 @@ test("OrderDetailsFinancialsTab is read-only", () => {
   assert.doesNotMatch(markup, /Take Over/);
 });
 
-test("Order settlement header outstanding matches Financials tab remaining on fixture", () => {
+test("Order settlement header renders projector-shaped financial data", () => {
   const summary = financialSummaryFixture();
-  const settlementSummary = computeOrderSettlementSummary({
-    invoices: FIXTURE_INVOICE_DATA.map((fixture) =>
-      invoice(fixture.invoiceType, fixture.invoiceTotal, fixture.remainingAmount)
-    ),
-  });
+  const headerSummary: OrderHeaderFinancialProjection = {
+    totalOrderValue: summary.customerTotal,
+    paidAmount: summary.paidSoFar,
+    outstandingAmount: summary.remaining,
+    refundedAmount: 10,
+    hasOverpayment: false,
+    paymentStatusEnum: "PARTIAL",
+  };
   const markup = renderToStaticMarkup(
-    createElement(OrderSettlementSummary, { summary: settlementSummary })
+    createElement(OrderSettlementSummary, { summary: headerSummary })
   );
 
-  assert.equal(settlementSummary.outstandingAmount, summary.remaining);
   assert.match(markup, new RegExp(`${formatKD(summary.remaining)} outstanding`));
+  assert.match(markup, /Partially paid/);
 });
 
 function financialSummaryFixture(): FinancialTabBlockProjection {
@@ -212,18 +216,6 @@ function document(
     remainingAmount: fixture.remainingAmount,
     issuedAt: new Date("2026-05-17T10:00:00.000Z"),
     createdAt: new Date("2026-05-17T10:00:00.000Z"),
-  };
-}
-
-function invoice(
-  invoiceType: InvoiceType,
-  totalAmount: number,
-  remainingAmount: number
-) {
-  return {
-    invoiceType,
-    totalAmount: new Prisma.Decimal(totalAmount),
-    remainingAmount: new Prisma.Decimal(remainingAmount),
   };
 }
 

@@ -121,6 +121,7 @@ test("OrderSettlementSummary renders labels and formatted amounts", () => {
         outstandingAmount: 130,
         refundedAmount: 50,
         hasOverpayment: false,
+        paymentStatusEnum: "PARTIAL",
       },
     })
   );
@@ -130,6 +131,18 @@ test("OrderSettlementSummary renders labels and formatted amounts", () => {
   assert.match(markup, /Paid 100\.000 KD/);
   assert.match(markup, /Total 230\.000 KD/);
   assert.match(markup, /Refunded 50\.000 KD/);
+  assert.match(markup, /Partially paid/);
+});
+
+test("OrderSettlementSummary renders explicit empty state without fallback totals", () => {
+  const markup = renderToStaticMarkup(
+    createElement(OrderSettlementSummary, {
+      summary: null,
+    })
+  );
+
+  assert.match(markup, /No active financial case/);
+  assert.match(markup, /Paid —/);
 });
 
 test("derivePaymentSummary aggregates final and finalized adjustment settlement amounts", async (t) => {

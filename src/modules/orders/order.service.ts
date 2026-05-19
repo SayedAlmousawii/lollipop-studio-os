@@ -31,6 +31,10 @@ import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import {
+  getOrdersTableFinancialProjections,
+  type OrdersTableRowProjection,
+} from "@/modules/financial-cases";
+import {
   invoiceLockSnapshotSelect,
   recordInvoiceLockSnapshot,
 } from "@/modules/invoices/invoice-lock.service";
@@ -259,8 +263,12 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
     () => fetchOrders(filters),
     "Failed to fetch orders"
   );
+  const financialByOrderId = await withRetry(
+    () => getOrdersTableFinancialProjections(rows.map((row) => row.id)),
+    "Failed to fetch order table financial projections"
+  );
 
-  return rows.map(mapOrderRow);
+  return rows.map((row) => mapOrderRow(row, financialByOrderId.get(row.id) ?? null));
 }
 
 export async function getOrdersByCustomerId(
@@ -2988,7 +2996,10 @@ function fetchOrderByIdWithClient(
   });
 }
 
-function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
+function mapOrderRow(
+  row: OrderRow | OrderDetailRow,
+  financial: OrdersTableRowProjection | null = null
+): Order {
   const invoiceSummary = summarizeInvoices(row.invoices);
   const settlementSummary = computeOrderSettlementSummary({
     invoices: getOrderSettlementInvoices(row),
@@ -3007,6 +3018,7 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     totalAmount: formatMoney(new Prisma.Decimal(settlementSummary.totalOrderValue)),
     paidAmount: formatMoney(new Prisma.Decimal(settlementSummary.paidAmount)),
     remainingAmount: formatMoney(new Prisma.Decimal(settlementSummary.outstandingAmount)),
+    financial,
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
