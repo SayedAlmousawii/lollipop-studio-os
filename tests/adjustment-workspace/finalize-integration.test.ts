@@ -18,6 +18,7 @@ import {
   type PrismaClient,
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
+import { formatMoney } from "@/lib/formatting/money";
 import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
@@ -475,6 +476,216 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace projects staged edits into POS m
   );
 });
 
+test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equivalence for representative edits", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "r7b-pos-equivalence"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const basePackageItemId = await firstPackageItemId(db, fixtures.basePackageId);
+  const upgradePackageItem = await db.packageItem.findFirstOrThrow({
+    where: { packageId: fixtures.upgradePackageId },
+    select: {
+      productId: true,
+      priceSnapshot: true,
+      product: { select: { name: true } },
+    },
+  });
+  const [originalItemBasePrice, upgradeProduct, downgradeProductId] =
+    await Promise.all([
+      db.packageItem
+        .findUniqueOrThrow({
+          where: { id: basePackageItemId },
+          select: { priceSnapshot: true },
+        })
+        .then((item) => item.priceSnapshot.toNumber()),
+      db.product.findUniqueOrThrow({
+        where: { id: upgradeProductId },
+        select: { canonicalPrice: true },
+      }),
+      createDeliverableProduct(
+        db,
+        "r7b-downgrade-product",
+        "R7b Downgrade Frame",
+        "30.000"
+      ),
+    ]);
+  assert.ok(originalItemBasePrice > 0);
+  const upgradeDelta = Number(
+    upgradeProduct.canonicalPrice.minus(originalItemBasePrice).toFixed(3)
+  );
+  const expectedUpgradePrice = Number(
+    (originalItemBasePrice + upgradeDelta).toFixed(3)
+  );
+  const expectedDowngradePrice = 30;
+  assert.ok(expectedDowngradePrice < originalItemBasePrice);
+  const existingAddOn = await db.orderAddOn.create({
+    data: {
+      orderId: workflow.orderId,
+      orderPackageId,
+      productId: fixtures.zeroPriceAddOnProductId,
+      nameSnapshot: "Phase B Existing Remove Add-on",
+      priceSnapshot: new Prisma.Decimal("0.000"),
+      quantity: 1,
+    },
+    select: { id: true },
+  });
+  const { workspaceId } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "equiv-tier",
+        op: "change_package_tier",
+        orderPackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+      {
+        id: "equiv-photos",
+        op: "change_selected_photo_count",
+        orderPackageId,
+        selectedPhotoCount: 18,
+        extraDigitalCount: 2,
+        extraPrintCount: 1,
+      },
+      {
+        id: "equiv-add-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 1,
+      },
+      {
+        id: "equiv-remove-addon",
+        op: "remove_line",
+        targetLineId: `addon:${existingAddOn.id}`,
+      },
+    ]
+  );
+
+  const derived = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    workspaceId
+  );
+  assert.ok(derived);
+  const publicFields = pickAdapterPublicFields(derived);
+
+  assert.deepEqual(publicFields, {
+    packageLines: [
+      {
+        currentPackage: {
+          id: fixtures.upgradePackageId,
+          name: "Phase B Upgrade Package",
+          price: 600,
+          priceLabel: formatMoney(600),
+        },
+        extraDigitalCount: 2,
+        extraPrintCount: 1,
+        extraPhotoTotal: 16,
+        packageItems: [
+          {
+            productId: upgradePackageItem.productId,
+            productName: upgradePackageItem.product.name,
+            priceSnapshot: upgradePackageItem.priceSnapshot.toNumber(),
+            priceSnapshotLabel: formatMoney(upgradePackageItem.priceSnapshot),
+          },
+        ],
+      },
+    ],
+    addOns: [
+      {
+        productId: fixtures.addOnProductId,
+        name: "Phase B Add-on",
+        price: 50,
+        priceLabel: formatMoney(50),
+      },
+    ],
+    totals: {
+      rawDeliverableTotal: upgradePackageItem.priceSnapshot.toNumber(),
+      includedPhotoCount: 15,
+      selectedPhotoCount: 18,
+      extraPhotoCount: 3,
+      extraPhotoTotal: 16,
+      addOnTotal: 50,
+      sessionConfigurationTotal: 0,
+    },
+  });
+
+  const upgradeWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "r7b-pos-upgrade-equivalence"
+  );
+  const { workspaceId: upgradeWorkspaceId } = await stageWorkspaceEdits(
+    services,
+    upgradeWorkflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "equiv-upgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId: await firstOrderPackageId(db, upgradeWorkflow.orderId),
+        packageItemId: basePackageItemId,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const upgraded = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    upgradeWorkspaceId
+  );
+  assert.ok(upgraded);
+  const upgradedItem = upgraded.packageLines[0]?.packageItems[0];
+  assert.equal(upgradedItem?.priceSnapshot, expectedUpgradePrice);
+  assert.equal(
+    upgradedItem?.priceSnapshotLabel,
+    formatMoney(expectedUpgradePrice),
+    "upgraded package item label must match the legacy Decimal formatter output"
+  );
+  assert.equal(upgraded.rawDeliverableTotal, expectedUpgradePrice);
+
+  const downgradeWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "r7b-pos-downgrade-equivalence"
+  );
+  const { workspaceId: downgradeWorkspaceId } = await stageWorkspaceEdits(
+    services,
+    downgradeWorkflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "equiv-downgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId: await firstOrderPackageId(db, downgradeWorkflow.orderId),
+        packageItemId: basePackageItemId,
+        toProductId: downgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const downgraded = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    downgradeWorkspaceId
+  );
+  assert.ok(downgraded);
+  const downgradedItem = downgraded.packageLines[0]?.packageItems[0];
+  assert.equal(downgradedItem?.productId, downgradeProductId);
+  assert.equal(downgradedItem?.priceSnapshot, expectedDowngradePrice);
+  assert.equal(
+    downgradedItem?.priceSnapshotLabel,
+    formatMoney(expectedDowngradePrice)
+  );
+  assert.equal(downgraded.rawDeliverableTotal, expectedDowngradePrice);
+});
+
 test("finalizeWorkspace emits no ADJ when selected-photo edits return to baseline", async () => {
   const {
     db,
@@ -786,4 +997,47 @@ async function createDeliverableProduct(
     select: { id: true },
   });
   return product.id;
+}
+
+function pickAdapterPublicFields(
+  workspace: Awaited<
+    ReturnType<WorkspaceServices["derivePOSWorkspaceFromAdjustmentWorkspace"]>
+  > extends infer Workspace
+    ? NonNullable<Workspace>
+    : never
+) {
+  return {
+    packageLines: workspace.packageLines.map((line) => ({
+      currentPackage: {
+        id: line.currentPackage.id,
+        name: line.currentPackage.name,
+        price: line.currentPackage.price,
+        priceLabel: line.currentPackage.priceLabel,
+      },
+      extraDigitalCount: line.extraDigitalCount,
+      extraPrintCount: line.extraPrintCount,
+      extraPhotoTotal: line.extraPhotoTotal,
+      packageItems: line.packageItems.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        priceSnapshot: item.priceSnapshot,
+        priceSnapshotLabel: item.priceSnapshotLabel,
+      })),
+    })),
+    addOns: workspace.addOns.map((addOn) => ({
+      productId: addOn.productId,
+      name: addOn.name,
+      price: addOn.price,
+      priceLabel: addOn.priceLabel,
+    })),
+    totals: {
+      rawDeliverableTotal: workspace.rawDeliverableTotal,
+      includedPhotoCount: workspace.includedPhotoCount,
+      selectedPhotoCount: workspace.selectedPhotoCount,
+      extraPhotoCount: workspace.extraPhotoCount,
+      extraPhotoTotal: workspace.extraPhotoTotal,
+      addOnTotal: workspace.addOnTotal,
+      sessionConfigurationTotal: workspace.sessionConfigurationTotal,
+    },
+  };
 }

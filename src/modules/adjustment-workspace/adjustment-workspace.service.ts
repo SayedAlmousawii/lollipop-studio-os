@@ -28,6 +28,14 @@ import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { recordInvoiceLockSnapshot } from "@/modules/invoices/invoice-lock.service";
 import { generateInvoiceNumber } from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
+import {
+  getPendingAdjustmentOrderCompositionViewModel,
+  toLockedPOSComposition,
+} from "@/modules/orders/composition";
+import type {
+  LockedPOSCompositionProjection,
+  POSCompositionPackageLineProjection,
+} from "@/modules/orders/composition";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import { derivePaymentSummary } from "@/modules/orders/order-settlement";
 import {
@@ -220,15 +228,16 @@ export async function getAdjustmentWorkspaceCatalog() {
 export async function derivePOSWorkspaceFromAdjustmentWorkspace(
   workspaceId: string
 ): Promise<POSWorkspace | null> {
-  const workspace = await getAdjustmentWorkspaceView(workspaceId);
-  if (!workspace) return null;
+  const compositionModel =
+    await getPendingAdjustmentOrderCompositionViewModel(workspaceId);
+  if (!compositionModel) return null;
 
-  const posWorkspace = await getPOSWorkspace(workspace.orderId);
+  const posWorkspace = await getPOSWorkspace(compositionModel.orderId);
   if (!posWorkspace) return null;
 
-  const proposedLines = workspace.proposal.proposed.lines;
-  const proposedPackageRefs = proposedLines.flatMap((line) =>
-    line.kind === "package" ? [line.refId] : []
+  const composition = toLockedPOSComposition(compositionModel);
+  const proposedPackageRefs = composition.packageLines.map(
+    (line) => line.packageId
   );
   const packageRows = await db.package.findMany({
     where: { id: { in: proposedPackageRefs } },
@@ -252,10 +261,10 @@ export async function derivePOSWorkspaceFromAdjustmentWorkspace(
   });
   const packagesById = new Map(packageRows.map((row) => [row.id, row]));
   const packageLines = posWorkspace.packageLines.map((line) =>
-    derivePOSPackageLine(line, proposedLines, packagesById)
+    derivePOSPackageLineFromComposition(line, composition, packagesById)
   );
   const packageItems = packageLines.flatMap((line) => line.packageItems);
-  const addOns = derivePOSAddOns(proposedLines);
+  const addOns = derivePOSAddOnsFromComposition(composition);
   const extraPhotoTotal = packageLines.reduce(
     (sum, line) => sum + line.extraPhotoTotal,
     0
@@ -1333,7 +1342,24 @@ async function captureCurrentOrderComposition(
     include: {
       packages: {
         include: {
-          package: { select: { id: true, name: true, price: true, photoCount: true } },
+          package: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              photoCount: true,
+              items: {
+                select: {
+                  id: true,
+                  productId: true,
+                  quantity: true,
+                  priceSnapshot: true,
+                  product: { select: { name: true } },
+                },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
+            },
+          },
           sessionConfigurationSelections: {
             select: {
               id: true,
@@ -1397,6 +1423,22 @@ async function captureCurrentOrderComposition(
         unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.package.price,
       })
     );
+    for (const item of orderPackage.package.items) {
+      // Keep package deliverable prices available to composition projectors without
+      // adding them to invoice-level package totals.
+      lines.push({
+        ...makeLine({
+          lineId: `${packageItemUpgradeLineId(orderPackage.id, item.id)}:base`,
+          kind: "item",
+          refId: item.productId,
+          label: item.product.name,
+          quantity: item.quantity,
+          unitPrice: item.priceSnapshot,
+        }),
+        lineTotalGross: "0.000",
+        lineTotalNet: "0.000",
+      });
+    }
     for (const mediaType of [MediaType.DIGITAL, MediaType.PRINT] as const) {
       const quantity =
         mediaType === MediaType.DIGITAL
@@ -1773,9 +1815,9 @@ function parseBaseSnapshot(value: Prisma.JsonValue): AdjustmentBaseSnapshot {
   return value as unknown as AdjustmentBaseSnapshot;
 }
 
-function derivePOSPackageLine(
+function derivePOSPackageLineFromComposition(
   line: POSPackageLine,
-  proposedLines: AdjustmentCompositionLine[],
+  composition: LockedPOSCompositionProjection,
   packagesById: Map<
     string,
     {
@@ -1794,38 +1836,26 @@ function derivePOSPackageLine(
     }
   >
 ): POSPackageLine {
-  const proposedPackageLine = proposedLines.find(
-    (proposedLine) =>
-      proposedLine.kind === "package" &&
-      proposedLine.lineId === `package:${line.id}`
+  const projectedLine = composition.packageLines.find(
+    (candidate) => candidate.orderPackageId === line.id
   );
-  const packageRow = proposedPackageLine
-    ? packagesById.get(proposedPackageLine.refId)
-    : undefined;
+  if (!projectedLine) return line;
+
+  const packageRow = packagesById.get(projectedLine.packageId);
   const currentPackage = packageRow
     ? mapDerivedPOSPackage(packageRow)
-    : proposedPackageLine
+    : projectedLine
       ? {
           ...line.currentPackage,
-          id: proposedPackageLine.refId,
-          name: proposedPackageLine.label,
-          price: Number(proposedPackageLine.unitPrice),
-          priceLabel: formatMoney(decimal(proposedPackageLine.unitPrice)),
+          id: projectedLine.packageId,
+          name: projectedLine.packageName,
+          price: projectedLine.packagePrice,
+          priceLabel: formatMoney(projectedLine.packagePrice),
         }
       : line.currentPackage;
   const includedPhotoCount = packageRow?.photoCount ?? line.includedPhotoCount;
-  const extraDigitalCount = positiveLineQuantity(
-    proposedLines.find(
-      (proposedLine) =>
-        proposedLine.lineId === extraPhotoLineId(line.id, MediaType.DIGITAL)
-    )
-  );
-  const extraPrintCount = positiveLineQuantity(
-    proposedLines.find(
-      (proposedLine) =>
-        proposedLine.lineId === extraPhotoLineId(line.id, MediaType.PRINT)
-    )
-  );
+  const extraDigitalCount = Math.max(projectedLine.extraDigitalCount, 0);
+  const extraPrintCount = Math.max(projectedLine.extraPrintCount, 0);
   const extraPhotoCount = extraDigitalCount + extraPrintCount;
   const extraPhotoTotal =
     extraDigitalCount * line.extraDigitalUnitPrice +
@@ -1834,7 +1864,7 @@ function derivePOSPackageLine(
   const packageItems = (packageRow
     ? packageRow.items.map(mapDerivedPOSPackageItem)
     : line.packageItems
-  ).map((item) => derivePOSPackageItem(line.id, item, proposedLines));
+  ).map((item) => derivePOSPackageItemFromComposition(projectedLine, item));
   const upgradeDelta = currentPackage.price - line.originalPackage.price;
 
   return {
@@ -1854,27 +1884,24 @@ function derivePOSPackageLine(
   };
 }
 
-function derivePOSPackageItem(
-  orderPackageId: string,
-  item: POSPackageItem,
-  proposedLines: AdjustmentCompositionLine[]
+function derivePOSPackageItemFromComposition(
+  projectedLine: POSCompositionPackageLineProjection,
+  item: POSPackageItem
 ): POSPackageItem {
-  const upgradeLine = proposedLines.find(
-    (line) =>
-      line.kind === "item" &&
-      line.lineId === packageItemUpgradeLineId(orderPackageId, item.id)
+  const projectedItem = projectedLine.packageItems.find(
+    (candidate) => candidate.id === item.id
   );
-  if (!upgradeLine) return item;
+  if (!projectedItem || projectedItem.productId === item.productId) return item;
+
+  const priceSnapshot = Number(projectedItem.unitAmount.toFixed(3));
 
   return {
     ...item,
-    productId: upgradeLine.refId,
-    productName: labelAfterUpgradePrefix(upgradeLine.label) ?? upgradeLine.label,
-    quantity: Math.abs(upgradeLine.quantity),
-    priceSnapshot: item.priceSnapshot + Number(upgradeLine.unitPrice),
-    priceSnapshotLabel: formatMoney(
-      new Prisma.Decimal(item.priceSnapshot).plus(upgradeLine.unitPrice)
-    ),
+    productId: projectedItem.productId ?? item.productId,
+    productName: projectedItem.productName,
+    quantity: Math.abs(projectedItem.quantity),
+    priceSnapshot,
+    priceSnapshotLabel: formatMoney(priceSnapshot),
   };
 }
 
@@ -1893,19 +1920,21 @@ function derivePOSPackageOptions(
   });
 }
 
-function derivePOSAddOns(proposedLines: AdjustmentCompositionLine[]): POSAddOn[] {
-  return proposedLines
-    .filter((line) => line.kind === "addon" && line.quantity > 0)
+function derivePOSAddOnsFromComposition(
+  composition: LockedPOSCompositionProjection
+): POSAddOn[] {
+  return composition.addOns
+    .filter((line) => line.quantity > 0)
     .flatMap((line) => {
       const entries: POSAddOn[] = [];
       for (let index = 0; index < line.quantity; index += 1) {
         entries.push({
-          id: line.quantity === 1 ? line.lineId : `${line.lineId}-${index + 1}`,
-          addOnRowId: line.lineId,
-          productId: line.refId,
-          name: line.label,
-          price: Number(line.unitPrice),
-          priceLabel: formatMoney(decimal(line.unitPrice)),
+          id: line.quantity === 1 ? line.id : `${line.id}-${index + 1}`,
+          addOnRowId: line.orderAddOnId ?? line.id,
+          productId: line.productId,
+          name: line.name,
+          price: line.unitAmount,
+          priceLabel: formatMoney(line.unitAmount),
         });
       }
       return entries;
@@ -1945,18 +1974,6 @@ function mapDerivedPOSPackageItem(row: {
     priceSnapshot: row.priceSnapshot.toNumber(),
     priceSnapshotLabel: formatMoney(row.priceSnapshot),
   };
-}
-
-function positiveLineQuantity(
-  line: AdjustmentCompositionLine | undefined
-): number {
-  return Math.max(line?.quantity ?? 0, 0);
-}
-
-function labelAfterUpgradePrefix(label: string): string | null {
-  const separator = " to ";
-  const index = label.lastIndexOf(separator);
-  return index >= 0 ? label.slice(index + separator.length) : null;
 }
 
 function parsePendingChanges(value: Prisma.JsonValue): AdjustmentPendingChanges {
