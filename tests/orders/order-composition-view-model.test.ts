@@ -505,7 +505,155 @@ test("R7b projectors expose raw POS, overview, and production composition DTOs",
 
   const production = composition().toProductionDeliverables(model);
   assert.equal(production.summaryLabel, "1 package item · 1 paid add-on");
+  assert.equal(production.includedPhotoCount, 10);
+  assert.equal(production.extraPhotoCount, 3);
   assert.deepEqual(production.rows.map((row) => row.label), ["Album", "USB"]);
+});
+
+test("R11 operational configuration projector filters operational selections and maps input values", () => {
+  const workspace = posWorkspaceFixture();
+  workspace.packageLines[0]!.sessionConfigurationSummary = [
+    {
+      configurationId: "financial-config",
+      code: "FINANCIAL",
+      label: "Financial config",
+      optionLabel: "Gold",
+      numericValue: null,
+      textValue: null,
+      priceDelta: 8,
+      financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+      inputType: SessionConfigurationInputType.SELECT,
+    },
+    {
+      configurationId: "toggle-config",
+      code: "TOGGLE",
+      label: "Hair fan",
+      optionLabel: null,
+      numericValue: null,
+      textValue: null,
+      priceDelta: 0,
+      financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+      inputType: SessionConfigurationInputType.TOGGLE,
+    },
+    {
+      configurationId: "select-config",
+      code: "SELECT",
+      label: "Room",
+      optionLabel: "VIP Room",
+      numericValue: null,
+      textValue: null,
+      priceDelta: 0,
+      financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+      inputType: SessionConfigurationInputType.SELECT,
+    },
+    {
+      configurationId: "number-config",
+      code: "NUMBER",
+      label: "Assistants",
+      optionLabel: null,
+      numericValue: "2",
+      textValue: null,
+      priceDelta: 0,
+      financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+      inputType: SessionConfigurationInputType.NUMBER,
+    },
+    {
+      configurationId: "counter-config",
+      code: "COUNTER",
+      label: "Outfit changes",
+      optionLabel: null,
+      numericValue: "4",
+      textValue: null,
+      priceDelta: 0,
+      financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+      inputType: SessionConfigurationInputType.COUNTER,
+    },
+    {
+      configurationId: "text-config",
+      code: "TEXT",
+      label: "Staff notes",
+      optionLabel: null,
+      numericValue: null,
+      textValue: "Prepare white backdrop",
+      priceDelta: 0,
+      financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+      inputType: SessionConfigurationInputType.TEXT,
+    },
+    {
+      configurationId: "blank-select-config",
+      code: "BLANK_SELECT",
+      label: "Blank select",
+      optionLabel: null,
+      numericValue: null,
+      textValue: null,
+      priceDelta: 0,
+      financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+      inputType: SessionConfigurationInputType.SELECT,
+    },
+  ];
+
+  const projection = composition().toOperationalConfigurationsDisplay(workspace);
+
+  assert.deepEqual(projection, [
+    {
+      packageName: "Current Package",
+      sessionTypeName: "Portrait",
+      operationalSelections: [
+        { configName: "Hair fan", valueDisplay: "Enabled" },
+        { configName: "Room", valueDisplay: "VIP Room" },
+        { configName: "Assistants", valueDisplay: "2" },
+        { configName: "Outfit changes", valueDisplay: "4" },
+        { configName: "Staff notes", valueDisplay: "Prepare white backdrop" },
+      ],
+    },
+  ]);
+  assert.deepEqual(composition().toOperationalConfigurationsDisplay(null), []);
+});
+
+test("R11 empty composition projection helpers return stable order-scoped DTOs", () => {
+  assert.deepEqual(
+    composition().emptyOverviewCompositionProjection({
+      orderId: "order-empty",
+      jobNumber: "JOB-EMPTY",
+    }),
+    {
+      orderId: "order-empty",
+      jobNumber: "JOB-EMPTY",
+      summary: {
+        packageCount: 0,
+        includedPhotoCount: 0,
+        selectedPhotoCount: 0,
+        extraPhotoCount: 0,
+        selectedPhotosLabel: "—",
+      },
+      packageLines: [],
+      addOns: [],
+      sessionConfigurations: [],
+      totals: {
+        packageBaseTotal: 0,
+        packageUpgradeDeltaTotal: 0,
+        deliverablesTotal: 0,
+        addOnTotal: 0,
+        extraPhotoTotal: 0,
+        sessionConfigurationTotal: 0,
+        netCompositionTotal: 0,
+      },
+    }
+  );
+  assert.deepEqual(
+    composition().emptyProductionDeliverablesProjection({
+      orderId: "order-empty",
+      jobNumber: "JOB-EMPTY",
+    }),
+    {
+      orderId: "order-empty",
+      jobNumber: "JOB-EMPTY",
+      summaryLabel: "No structured deliverables",
+      includedPhotoCount: 0,
+      extraPhotoCount: 0,
+      rows: [],
+    }
+  );
 });
 
 test("R8c overview and production projectors cover multi-package composition rows", () => {
@@ -573,6 +721,8 @@ test("R8c overview and production projectors cover multi-package composition row
 
   const production = composition().toProductionDeliverables(model);
   assert.equal(production.summaryLabel, "3 package items · 2 paid add-ons");
+  assert.equal(production.includedPhotoCount, 18);
+  assert.equal(production.extraPhotoCount, 6);
   assert.deepEqual(
     production.rows.map((row) => ({
       label: row.label,
@@ -840,7 +990,7 @@ test("R8c order detail page consumes overview and production projector DTOs", ()
     join(process.cwd(), "app/orders/[orderId]/page.tsx"),
     "utf8"
   );
-  const overviewBody = functionBody(source, "OverviewTab", "deriveOperationalPackageLines");
+  const overviewBody = functionBody(source, "OverviewTab", "PackageLineList");
   const productionBody = functionBody(source, "ProductionTab", "DeliveryTab");
 
   assert.match(source, /getOrderCompositionViewModel/);
@@ -857,8 +1007,33 @@ test("R8c order detail page consumes overview and production projector DTOs", ()
   assert.doesNotMatch(overviewBody, /order\.includedPhotoCount/);
   assert.doesNotMatch(overviewBody, /order\.extraPhotoCount/);
   assert.match(productionBody, /deliverables\.summaryLabel/);
+  assert.match(productionBody, /deliverables\.includedPhotoCount/);
+  assert.match(productionBody, /deliverables\.extraPhotoCount/);
   assert.doesNotMatch(productionBody, /order\.packageItems/);
   assert.doesNotMatch(productionBody, /order\.paidAddOns/);
+  assert.doesNotMatch(productionBody, /order\.includedPhotoCount/);
+  assert.doesNotMatch(productionBody, /order\.extraPhotoCount/);
+});
+
+test("R11 order detail page does not reintroduce page-local projection helpers", () => {
+  const source = readFileSync(
+    join(process.cwd(), "app/orders/[orderId]/page.tsx"),
+    "utf8"
+  );
+  const forbiddenDeclarations = [
+    "deriveOperationalPackageLines",
+    "valueDisplayForOperationalSelection",
+    "emptyOverviewComposition",
+    "emptyProductionDeliverables",
+  ];
+
+  for (const declaration of forbiddenDeclarations) {
+    assert.doesNotMatch(
+      source,
+      new RegExp(`function\\s+${declaration}\\b`),
+      `${declaration} must stay out of order detail page`
+    );
+  }
 });
 
 function posWorkspaceFixture(): POSWorkspace {

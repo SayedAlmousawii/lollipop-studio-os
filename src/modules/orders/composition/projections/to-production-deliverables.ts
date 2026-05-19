@@ -14,8 +14,24 @@ export type ProductionDeliverablesProjection = {
   orderId: string;
   jobNumber: string;
   summaryLabel: string;
+  includedPhotoCount: number;
+  extraPhotoCount: number;
   rows: ProductionDeliverableRowProjection[];
 };
+
+export function emptyProductionDeliverablesProjection(input: {
+  orderId: string;
+  jobNumber: string;
+}): ProductionDeliverablesProjection {
+  return {
+    orderId: input.orderId,
+    jobNumber: input.jobNumber,
+    summaryLabel: "No structured deliverables",
+    includedPhotoCount: 0,
+    extraPhotoCount: 0,
+    rows: [],
+  };
+}
 
 export function toProductionDeliverables(
   model: OrderCompositionViewModel
@@ -54,6 +70,14 @@ export function toProductionDeliverables(
       quantity: line.quantity,
     }));
   const rows = [...deliverableRows, ...addOnRows];
+  const includedPhotoCount = model.effectiveComposition.packageLines.reduce(
+    (sum, line) => sum + line.includedPhotoCount,
+    0
+  );
+  const extraPhotoCount = model.effectiveComposition.packageLines.reduce(
+    (sum, line) => sum + line.extraPhotoCount,
+    0
+  );
 
   return {
     orderId: model.orderId,
@@ -62,6 +86,8 @@ export function toProductionDeliverables(
       packageItemQuantity: totalQuantity(deliverableRows),
       addOnQuantity: totalQuantity(addOnRows),
     }),
+    includedPhotoCount,
+    extraPhotoCount,
     rows,
   };
 }
