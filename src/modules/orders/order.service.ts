@@ -128,6 +128,8 @@ export {
   deriveSettlementPaidAmount,
 } from "./order-settlement";
 
+type DbClient = typeof db | Prisma.TransactionClient;
+
 const ORDER_STATUS_FILTERS = new Set<OrderStatusFilter>([
   "ACTIVE",
   "WAITING_SELECTION",
@@ -321,13 +323,14 @@ export async function getOrderById(orderId: string): Promise<OrderDetail | null>
 }
 
 export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
-  orderId: string
+  orderId: string,
+  client: DbClient = db
 ): Promise<POSWorkspace | null> {
   const [order, packageRows, productRows, addOnCatalogRows, extraPhotoPricingRows] =
     await withRetry(
       () =>
         Promise.all([
-          db.order.findUnique({
+          client.order.findUnique({
             where: { id: orderId },
             include: {
               customer: { select: { name: true, phone: true } },
@@ -437,7 +440,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
               },
             },
           }),
-          db.package.findMany({
+          client.package.findMany({
             where: { isActive: true },
             select: {
               id: true,
@@ -449,17 +452,17 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
             },
             orderBy: { price: "asc" },
           }),
-          db.product.findMany({
+          client.product.findMany({
             where: { isActive: true, isPackageDeliverable: true },
             select: { id: true, name: true, category: true, canonicalPrice: true },
             orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
           }),
-          db.product.findMany({
+          client.product.findMany({
             where: { isActive: true, isAddOn: true },
             select: { id: true, name: true, category: true, canonicalPrice: true },
             orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
           }),
-          db.sessionTypeExtraPhotoPricing.findMany({
+          client.sessionTypeExtraPhotoPricing.findMany({
             select: { sessionTypeId: true, mediaType: true, unitPrice: true },
           }),
         ]),
@@ -469,7 +472,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
   if (!order) return null;
 
   const resolvedSessionConfigurations = await withRetry(
-    () => resolveOrderSessionConfigurations(db, order.id),
+    () => resolveOrderSessionConfigurations(client, order.id),
     "Failed to fetch POS session configurations"
   );
   const resolvedConfigurationsByPackageId = new Map(
@@ -593,11 +596,12 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
 });
 
 export async function getLinkedFinancialDocumentsForOrder(
-  orderId: string
+  orderId: string,
+  client: DbClient = db
 ): Promise<LinkedFinancialDocument[]> {
   const invoices = await withRetry(
     async () => {
-      const order = await db.order.findUnique({
+      const order = await client.order.findUnique({
         where: { id: orderId },
         select: {
           bookingId: true,
@@ -612,7 +616,7 @@ export async function getLinkedFinancialDocumentsForOrder(
 
       const financialCaseId = order.booking.financialCase?.id ?? null;
 
-      return db.invoice.findMany({
+      return client.invoice.findMany({
         where: {
           invoiceType: { in: [...SALES_LINKED_FINANCIAL_DOCUMENT_TYPES] },
           OR: [

@@ -12,6 +12,10 @@ import {
   deriveLockedFinancialSidebarSummary,
   deriveSettlementPaidAmount,
 } from "@/modules/orders/order-settlement";
+import {
+  getLinkedFinancialDocumentsForOrder,
+  getPOSWorkspace,
+} from "@/modules/orders/order.service";
 import type { LinkedFinancialDocument } from "@/modules/orders/order.types";
 import { compareSummaryWithLegacy } from "./discrepancy-logger";
 import {
@@ -19,7 +23,6 @@ import {
   toSalesSidebarLocked,
 } from "./projections";
 import type {
-  FinancialCaseActiveSummary,
   FinancialCaseInvoiceSummary,
   FinancialCasePaymentStatus,
   FinancialCaseSummary,
@@ -192,7 +195,11 @@ export async function checkFinancialCaseSummaryProjectorParity(
     if (!summary || summary.stage !== "active") continue;
     if (!summary.orderId) continue;
 
-    const legacyDerivation = deriveLegacyLockedSummary(summary);
+    const legacyDerivation = await deriveLegacyLockedSummary(
+      summary.orderId,
+      client
+    );
+    if (!legacyDerivation) continue;
     for (const projector of [
       ["toFinancialTabBlock", toFinancialTabBlock(summary)],
       ["toSalesSidebarLocked", toSalesSidebarLocked(summary)],
@@ -383,14 +390,20 @@ async function getLinkedFinancialDocumentsForOrderWithClient(
   }));
 }
 
-function deriveLegacyLockedSummary(summary: FinancialCaseActiveSummary) {
+async function deriveLegacyLockedSummary(orderId: string, client: DbClient) {
+  const [workspace, linkedDocuments] = await Promise.all([
+    getPOSWorkspace(orderId, client),
+    getLinkedFinancialDocumentsForOrder(orderId, client),
+  ]);
+  if (!workspace?.invoice) return null;
+
   return deriveLockedFinancialSidebarSummary({
     finalInvoice: {
-      totalAmount: summary.finalInvoice.total,
-      remainingAmount: summary.finalInvoice.remaining,
-      depositPaidAmount: summary.finalInvoice.depositPaidAmount,
+      totalAmount: workspace.invoice.invoiceTotal,
+      remainingAmount: workspace.invoice.remainingAmount,
+      depositPaidAmount: workspace.invoice.depositPaidAmount,
     },
-    finalizedAdjustments: summary.linkedDocuments
+    finalizedAdjustments: linkedDocuments
       .filter(
         (document) =>
           document.invoiceType === "ADJUSTMENT" &&
@@ -400,7 +413,7 @@ function deriveLegacyLockedSummary(summary: FinancialCaseActiveSummary) {
         totalAmount: document.invoiceTotal,
         remainingAmount: document.remainingAmount,
       })),
-    orderId: summary.orderId ?? undefined,
+    orderId,
   });
 }
 
