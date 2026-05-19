@@ -98,7 +98,7 @@ import {
   assertProductionReadyForPickupPolicy,
   assertProductionWorkflowWritablePolicy,
   buildProductionWorkflowPolicy,
-  PRODUCTION_WORKFLOW_MESSAGES,
+  guardCodeForProductionReadyError,
   type BuildProductionWorkflowPolicyInput,
 } from "./policies/production-workflow-policy";
 import type {
@@ -4481,11 +4481,10 @@ function resolveProductionUpdate(
         assertProductionReadyForPickupPolicy(buildProductionPolicyContext(order));
       } catch (err) {
         if (!(err instanceof Error)) throw err;
-        const guardCode =
-          err.message === PRODUCTION_WORKFLOW_MESSAGES.editingIncompleteGuard
-            ? "EDITING_INCOMPLETE"
-            : "ALBUM_DESIGN_INCOMPLETE";
-        throw new WorkflowGuardError(guardCode, err.message);
+        throw new WorkflowGuardError(
+          guardCodeForProductionReadyError(err.message),
+          err.message
+        );
       }
       return {
         orderData: {

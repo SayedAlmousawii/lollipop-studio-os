@@ -9,6 +9,7 @@ import {
   ORDER_PRODUCTION_SECTION_STATUS_LABELS,
   ORDER_WORKFLOW_TRANSITIONS,
 } from "@/modules/orders/order.constants";
+import type { WorkflowGuardErrorCode } from "@/modules/orders/order.errors";
 import type { UpdateOrderProductionWorkflowInput } from "@/modules/orders/order.schema";
 
 export type WorkflowActionIntent =
@@ -266,6 +267,18 @@ export function assertProductionReadyForPickupPolicy(
   if (hasBlockingAssemblyDependency(input)) {
     throw new Error(PRODUCTION_WORKFLOW_MESSAGES.readinessAssemblyBlocked);
   }
+}
+
+export function guardCodeForProductionReadyError(
+  message: string
+): Extract<WorkflowGuardErrorCode, "EDITING_INCOMPLETE" | "ALBUM_DESIGN_INCOMPLETE"> {
+  if (message === PRODUCTION_WORKFLOW_MESSAGES.editingIncompleteGuard) {
+    return "EDITING_INCOMPLETE";
+  }
+  if (message === PRODUCTION_WORKFLOW_MESSAGES.readinessAssemblyBlocked) {
+    return "ALBUM_DESIGN_INCOMPLETE";
+  }
+  throw new Error(`Unexpected production readiness guard message: ${message}`);
 }
 
 function buildProductionWorkflowSection(

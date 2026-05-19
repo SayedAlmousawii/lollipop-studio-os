@@ -13,6 +13,7 @@ import {
   assertProductionReadyForPickupPolicy,
   assertProductionWorkflowWritablePolicy,
   buildProductionWorkflowPolicy,
+  guardCodeForProductionReadyError,
   PRODUCTION_WORKFLOW_MESSAGES,
   type BuildProductionWorkflowPolicyInput,
   type ProductionWorkflowActionKey,
@@ -208,6 +209,28 @@ test("R10c production policy guard helpers align with service guard messages", (
         assemblyStatus: OrderProductionSectionStatus.IN_PROGRESS,
       }),
     { message: PRODUCTION_WORKFLOW_MESSAGES.readinessAssemblyBlocked }
+  );
+});
+
+test("R10c production readiness guard-code mapping is explicit", () => {
+  assert.equal(
+    guardCodeForProductionReadyError(
+      PRODUCTION_WORKFLOW_MESSAGES.editingIncompleteGuard
+    ),
+    "EDITING_INCOMPLETE"
+  );
+  assert.equal(
+    guardCodeForProductionReadyError(
+      PRODUCTION_WORKFLOW_MESSAGES.readinessAssemblyBlocked
+    ),
+    "ALBUM_DESIGN_INCOMPLETE"
+  );
+  assert.throws(
+    () => guardCodeForProductionReadyError("Unexpected readiness condition"),
+    {
+      message:
+        "Unexpected production readiness guard message: Unexpected readiness condition",
+    }
   );
 });
 
