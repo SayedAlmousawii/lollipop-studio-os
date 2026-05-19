@@ -2,20 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { InvoiceType, PaymentType } from "@prisma/client";
+import { PaymentType } from "@prisma/client";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import { parseMoneyInput } from "@/lib/formatting/money";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
 } from "@/lib/permissions";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
-import { getInvoiceById } from "@/modules/invoices/invoice.service";
 import { applyEdit } from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { adjustmentWorkspaceEditSchema } from "@/modules/adjustment-workspace/adjustment-workspace.schema";
 import { SessionConfigurationRequiredSelectionMissingError } from "@/modules/session-configurations/session-configuration-resolver";
 import {
+  formatMissingSessionConfigurationMessage,
+  resolveConfigureSessionRoute,
   SessionConfigurationSelectionConfigurationNotFoundError,
   SessionConfigurationSelectionFinancialNotAllowedError,
   SessionConfigurationSelectionInputMismatchError,
@@ -26,7 +25,13 @@ import {
 } from "@/modules/session-configurations/session-configuration-selection.service";
 import { writeSelectionsPayloadSchema } from "@/modules/session-configurations/session-configuration-selection.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
-import { recordPayment } from "@/modules/payments/payment.service";
+import {
+  recordUpgradePaymentForOrder,
+  UpgradePaymentInvoiceNotFoundError,
+  UpgradePaymentInvoiceOrderMismatchError,
+  UpgradePaymentNoOutstandingBalanceError,
+  UpgradePaymentOutstandingBalanceChangedError,
+} from "@/modules/payments/payment.service";
 import {
   updateOrderDeliveryWorkflowSchema,
   updateOrderEditingWorkflowSchema,
@@ -93,7 +98,7 @@ export async function createOrderInvoiceAction(
       );
       return {
         errors: {
-          _global: [await missingSessionConfigurationMessage(error)],
+          _global: [await formatMissingSessionConfigurationMessage(error)],
         },
       };
     }
@@ -319,108 +324,6 @@ function messageForConfigureSessionError(error: unknown): string {
     : "Unable to save session configuration.";
 }
 
-async function resolveConfigureSessionRoute(
-  orderId: string,
-  orderPackageId: string,
-  configurationIds: string[]
-): Promise<{
-  locked: boolean;
-  financialConfigurationIds: Set<string>;
-  operationalConfigurationIds: Set<string>;
-  configurationNameById: Map<string, string>;
-}> {
-  const orderPackage = await db.orderPackage.findUnique({
-    where: { id: orderPackageId },
-    select: {
-      orderId: true,
-      sessionTypeId: true,
-      order: {
-        select: {
-          invoices: {
-            where: {
-              parentInvoiceId: null,
-              invoiceType: InvoiceType.FINAL,
-            },
-            select: { isLocked: true },
-            orderBy: { createdAt: "asc" },
-            take: 1,
-          },
-        },
-      },
-    },
-  });
-  if (!orderPackage || orderPackage.orderId !== orderId) {
-    throw new SessionConfigurationSelectionConfigurationNotFoundError();
-  }
-
-  const configurations = await db.sessionConfiguration.findMany({
-    where: {
-      id: { in: [...new Set(configurationIds)] },
-      sessionTypeId: orderPackage.sessionTypeId,
-      isActive: true,
-    },
-    select: { id: true, name: true, financialBehavior: true },
-  });
-  const financialConfigurationIds = new Set(
-    configurations
-      .filter((configuration) => configuration.financialBehavior === "FINANCIAL")
-      .map((configuration) => configuration.id)
-  );
-  const operationalConfigurationIds = new Set(
-    configurations
-      .filter((configuration) => configuration.financialBehavior === "OPERATIONAL")
-      .map((configuration) => configuration.id)
-  );
-  const configurationNameById = new Map(
-    configurations.map((configuration) => [configuration.id, configuration.name])
-  );
-
-  return {
-    locked: orderPackage.order.invoices[0]?.isLocked === true,
-    financialConfigurationIds,
-    operationalConfigurationIds,
-    configurationNameById,
-  };
-}
-
-async function missingSessionConfigurationMessage(
-  error: SessionConfigurationRequiredSelectionMissingError
-): Promise<string> {
-  const missingCodes = [
-    ...new Set(error.details.flatMap((detail) => detail.missingConfigurationCodes)),
-  ];
-  const configurations = await db.sessionConfiguration.findMany({
-    where: { code: { in: missingCodes } },
-    select: { code: true, name: true },
-  });
-  const nameByCode = new Map(
-    configurations.map((configuration) => [
-      configuration.code,
-      configuration.name,
-    ])
-  );
-  const packageIds = error.details.map((detail) => detail.orderPackageId);
-  const packages = await db.orderPackage.findMany({
-    where: { id: { in: packageIds } },
-    select: {
-      id: true,
-      package: { select: { name: true } },
-    },
-  });
-  const packageNameById = new Map(
-    packages.map((orderPackage) => [orderPackage.id, orderPackage.package.name])
-  );
-  const missingLabels = error.details.map((detail) => {
-    const names = detail.missingConfigurationCodes.map(
-      (code) => nameByCode.get(code) ?? code
-    );
-    const packageName = packageNameById.get(detail.orderPackageId);
-    return packageName ? `${names.join(", ")} (${packageName})` : names.join(", ");
-  });
-
-  return `Configure the missing session settings before generating the invoice: ${missingLabels.join("; ")}.`;
-}
-
 export async function recordUpgradePaymentAction(
   orderId: string,
   invoiceId: string,
@@ -442,41 +345,38 @@ export async function recordUpgradePaymentAction(
 
   try {
     const appUser = await requireCurrentAppUserPermission(PERMISSIONS.PAYMENT_CREATE);
-    const invoice = await getInvoiceById(invoiceId);
-    if (!invoice) {
+    await recordUpgradePaymentForOrder(
+      { orderId, invoiceId, payment: parsed.data },
+      { actorUserId: appUser.id, actorRole: appUser.role }
+    );
+  } catch (error) {
+    if (error instanceof Error && "digest" in error) throw error;
+    if (error instanceof UpgradePaymentInvoiceNotFoundError) {
       return { errors: { _global: ["Invoice not found."] } };
     }
-    if (invoice.orderId !== orderId) {
+    if (error instanceof UpgradePaymentInvoiceOrderMismatchError) {
       return {
         errors: {
           _global: ["Invoice does not belong to this order."],
         },
       };
     }
-
-    const serverAmount = parseMoneyInput(invoice.remainingAmount);
-    if (!Number.isFinite(serverAmount) || serverAmount <= 0) {
+    if (error instanceof UpgradePaymentNoOutstandingBalanceError) {
       return {
         errors: {
           _global: ["No outstanding balance remains on this invoice."],
         },
       };
     }
-
-    if (parsed.data.amount.toFixed(3) !== serverAmount.toFixed(3)) {
+    if (error instanceof UpgradePaymentOutstandingBalanceChangedError) {
       return {
         errors: {
-          _global: ["Outstanding balance changed. Please reopen the payment dialog and try again."],
+          _global: [
+            "Outstanding balance changed. Please reopen the payment dialog and try again.",
+          ],
         },
       };
     }
-
-    await recordPayment(invoice.id, { ...parsed.data, amount: serverAmount }, {
-      actorUserId: appUser.id,
-      actorRole: appUser.role,
-    });
-  } catch (error) {
-    if (error instanceof Error && "digest" in error) throw error;
     const message =
       error instanceof Error ? error.message : "Unable to record upgrade payment";
     return { errors: { _global: [message] } };

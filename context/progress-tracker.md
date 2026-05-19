@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- R4 complete: money display and form/input parsing are centralized through `src/lib/formatting/money.ts`; local KD formatter helpers and UI formatted-money parsing are removed from targeted R4 surfaces. Next: R5 (move direct DB reads out of server actions and pages).
+- R5 complete: direct `@/lib/db` imports are removed from app-layer order actions and the new-booking page; route/missing-configuration lookups, upgrade-payment validation, and booking form data loading now run through service helpers. Next: R6 (remove discrepancy loggers, declare financial swap complete).
 - **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 - **Active roadmap:** `context/reviews/centralization-roadmap.md`. R0 (Context Reconciliation & Cleanup Gate) is complete: main docs are canonical, `*-summary.md` files archived, `AGENTS.md` default reads updated, Canonical Architecture Standards + Canonical Read Layer sections live in `architecture-context.md`.
 - **Session Configurations subsystem complete (Features 88–94):** schema, admin CRUD, pricing engine, configure panel, post-lock routing, invoice display, linked-product retrofit as selection-owned `OrderAddOn` rows.
@@ -65,6 +65,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **100 R5** — Removed direct app/component DB imports by moving configure-session routing, missing-session-setting messages, upgrade-payment outstanding-balance validation, and new-booking page data loading into service helpers; added a service-only DB access regression guard.
 - **99 R4** — Centralized KD formatting, signed money display, and money-input parsing in `src/lib/formatting/money.ts`; migrated targeted UI/action/service display call sites and added formatter plus regression guard tests.
 - **98 R3b** — Booking page financial readout now consumes `toBookingPageFinancial`; confirmed booking-stage and checked-in active-stage displays use canonical FinancialCase projection data, and the legacy package remaining balance label is removed.
 - **98 R3a** — Order header and orders table financial readouts now consume `FinancialCaseSummary` projectors; orders-table projection loading is batched; R3b booking-page swap remains next.

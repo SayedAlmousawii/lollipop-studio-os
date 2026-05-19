@@ -31,7 +31,12 @@ import {
 import { createOrderFromBookingWithClient } from "@/modules/orders/order.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
-import { findOrCreateCustomerByPhone } from "@/modules/customers/customer.service";
+import {
+  findOrCreateCustomerByPhone,
+  getCustomerPhoneLookupById,
+} from "@/modules/customers/customer.service";
+import { getActiveStudioDepartments } from "@/modules/departments/studio-department.service";
+import { getPackages } from "@/modules/packages/package.service";
 import type { Booking } from "@/components/bookings/bookings-table";
 import type { BookingStatus as BookingStatusLabel } from "@/components/bookings/booking-status-badge";
 import type { PaymentStatus } from "@/components/bookings/payment-status-badge";
@@ -75,6 +80,27 @@ export interface BookingFilterOption {
   id: string;
   name: string;
 }
+
+export type NewBookingPackageOption = {
+  id: string;
+  name: string;
+  price: string;
+  durationMinutes: number;
+  departmentId: string;
+  departmentName: string;
+  sessionTypeId: string;
+  sessionTypeName: string;
+  packageFamilyId: string;
+  packageFamilyName: string;
+};
+
+export type NewBookingPageData = {
+  packages: NewBookingPackageOption[];
+  photographers: BookingPhotographerOption[];
+  departments: Awaited<ReturnType<typeof getActiveStudioDepartments>>;
+  initialCustomerPhone?: string;
+  recommendedPhotographer: RecommendedPhotographer;
+};
 
 export interface EditableBooking {
   id: string;
@@ -357,6 +383,48 @@ export async function getRecommendedPhotographer(
   }
 
   return recommendation?.photographer ?? null;
+}
+
+export async function getNewBookingPageData(input: {
+  customerId?: string | string[];
+}): Promise<NewBookingPageData> {
+  const requestedCustomerId = Array.isArray(input.customerId)
+    ? input.customerId[0]
+    : input.customerId;
+  const normalizedCustomerId = requestedCustomerId?.trim() || undefined;
+  const [initialCustomer, allPackages, photographers, departments] =
+    await Promise.all([
+      normalizedCustomerId
+        ? getCustomerPhoneLookupById(normalizedCustomerId).catch(() => null)
+        : Promise.resolve(null),
+      getPackages({ activeTaxonomyOnly: true }),
+      getAssignablePhotographers(),
+      getActiveStudioDepartments(),
+    ]);
+  const recommendedPhotographer = initialCustomer
+    ? await getRecommendedPhotographer(initialCustomer.id)
+    : null;
+
+  return {
+    packages: allPackages
+      .filter((p) => p.status === "Active")
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        price: p.price,
+        durationMinutes: p.durationMinutes,
+        departmentId: p.departmentId,
+        departmentName: p.departmentName,
+        sessionTypeId: p.sessionTypeId,
+        sessionTypeName: p.sessionTypeName,
+        packageFamilyId: p.packageFamilyId,
+        packageFamilyName: p.packageFamilyName,
+      })),
+    photographers,
+    departments,
+    initialCustomerPhone: initialCustomer?.phone,
+    recommendedPhotographer,
+  };
 }
 
 export async function createBookingInDb(

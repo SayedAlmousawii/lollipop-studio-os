@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
+import type { SessionConfigurationRequiredSelectionMissingError } from "./session-configuration-resolver";
 import type { SelectionInput } from "./session-configuration-selection.schema";
 
 export type SessionConfigurationActor = Pick<CurrentAppUser, "id" | "role">;
@@ -120,6 +121,115 @@ export class SessionConfigurationSelectionInputMismatchError extends Error {
     super("Selected value does not match the configuration input type.");
     this.name = "SessionConfigurationSelectionInputMismatchError";
   }
+}
+
+export type ConfigureSessionRoute = {
+  locked: boolean;
+  financialConfigurationIds: Set<string>;
+  operationalConfigurationIds: Set<string>;
+  configurationNameById: Map<string, string>;
+};
+
+export async function resolveConfigureSessionRoute(
+  orderId: string,
+  orderPackageId: string,
+  configurationIds: string[]
+): Promise<ConfigureSessionRoute> {
+  const orderPackage = await db.orderPackage.findUnique({
+    where: { id: orderPackageId },
+    select: {
+      orderId: true,
+      sessionTypeId: true,
+      order: {
+        select: {
+          invoices: {
+            where: {
+              parentInvoiceId: null,
+              invoiceType: InvoiceType.FINAL,
+            },
+            select: { isLocked: true },
+            orderBy: { createdAt: "asc" },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+  if (!orderPackage || orderPackage.orderId !== orderId) {
+    throw new SessionConfigurationSelectionConfigurationNotFoundError();
+  }
+
+  const configurations = await db.sessionConfiguration.findMany({
+    where: {
+      id: { in: [...new Set(configurationIds)] },
+      sessionTypeId: orderPackage.sessionTypeId,
+      isActive: true,
+    },
+    select: { id: true, name: true, financialBehavior: true },
+  });
+  const financialConfigurationIds = new Set(
+    configurations
+      .filter((configuration) => configuration.financialBehavior === "FINANCIAL")
+      .map((configuration) => configuration.id)
+  );
+  const operationalConfigurationIds = new Set(
+    configurations
+      .filter((configuration) => configuration.financialBehavior === "OPERATIONAL")
+      .map((configuration) => configuration.id)
+  );
+  const configurationNameById = new Map(
+    configurations.map((configuration) => [configuration.id, configuration.name])
+  );
+
+  return {
+    locked: orderPackage.order.invoices[0]?.isLocked === true,
+    financialConfigurationIds,
+    operationalConfigurationIds,
+    configurationNameById,
+  };
+}
+
+export async function formatMissingSessionConfigurationMessage(
+  errorOrDetails:
+    | SessionConfigurationRequiredSelectionMissingError
+    | SessionConfigurationRequiredSelectionMissingError["details"]
+): Promise<string> {
+  const details = Array.isArray(errorOrDetails)
+    ? errorOrDetails
+    : errorOrDetails.details;
+  const missingCodes = [
+    ...new Set(details.flatMap((detail) => detail.missingConfigurationCodes)),
+  ];
+  const configurations = await db.sessionConfiguration.findMany({
+    where: { code: { in: missingCodes } },
+    select: { code: true, name: true },
+  });
+  const nameByCode = new Map(
+    configurations.map((configuration) => [
+      configuration.code,
+      configuration.name,
+    ])
+  );
+  const packageIds = details.map((detail) => detail.orderPackageId);
+  const packages = await db.orderPackage.findMany({
+    where: { id: { in: packageIds } },
+    select: {
+      id: true,
+      package: { select: { name: true } },
+    },
+  });
+  const packageNameById = new Map(
+    packages.map((orderPackage) => [orderPackage.id, orderPackage.package.name])
+  );
+  const missingLabels = details.map((detail) => {
+    const names = detail.missingConfigurationCodes.map(
+      (code) => nameByCode.get(code) ?? code
+    );
+    const packageName = packageNameById.get(detail.orderPackageId);
+    return packageName ? `${names.join(", ")} (${packageName})` : names.join(", ");
+  });
+
+  return `Configure the missing session settings before generating the invoice: ${missingLabels.join("; ")}.`;
 }
 
 export async function writeOrderPackageSelections(
