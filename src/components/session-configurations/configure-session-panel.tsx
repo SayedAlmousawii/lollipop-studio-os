@@ -101,7 +101,7 @@ export function ConfigureSessionPanel({
         (configuration) =>
           mode.kind === "draft" ||
           mode.kind === "adjustment" ||
-          policyForConfiguration(configuration, editPolicies).canEditDirectly
+          policyForConfiguration(configuration, editPolicies).isInteractive
       )
       .map((configuration) => configuration.id)
   );
@@ -234,7 +234,7 @@ export function ConfigureSessionPanel({
               const isMissing = missingCodes.has(configuration.code);
               const isFinancialLocked =
                 mode.kind === "locked" &&
-                !policyForConfiguration(configuration, editPolicies).canEditDirectly;
+                !policyForConfiguration(configuration, editPolicies).isInteractive;
               const currentSelection =
                 currentSelectionByConfigurationId.get(configuration.id) ?? null;
 

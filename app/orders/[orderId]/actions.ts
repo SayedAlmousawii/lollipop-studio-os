@@ -153,49 +153,39 @@ export async function configureSessionAction(
       parsed.data.orderPackageId,
       parsed.data.selections.map((selection) => selection.configurationId)
     );
+    const financialSelections = parsed.data.selections.filter((selection) =>
+      route.financialConfigurationIds.has(selection.configurationId)
+    );
+    const selectedFinancialEdit = financialSelections.length > 0;
+    const policy = buildOrderEditModePolicy({
+      orderId,
+      mode: route.locked ? "locked" : "draft",
+      orderStatus: route.orderStatus,
+      finalInvoiceIsLocked: route.locked,
+      openAdjustmentWorkspaceId: route.openAdjustmentWorkspaceId,
+      editKind: selectedFinancialEdit
+        ? ORDER_EDIT_KIND.SESSION_CONFIGURATION_FINANCIAL_EDIT
+        : ORDER_EDIT_KIND.SESSION_CONFIGURATION_OPERATIONAL_EDIT,
+      affectedConfigurationNames: financialSelections.map(
+        (selection) =>
+          route.configurationNameById.get(selection.configurationId) ??
+          "Session configuration"
+      ),
+    });
+
+    if (!policy.canEditDirectly) {
+      return {
+        errors: {
+          _global: [policy.userFacingMessage],
+        },
+        adjustmentWorkspaceHref: policy.routeTarget?.href,
+      };
+    }
+
     if (route.locked) {
-      const financialSelections = parsed.data.selections.filter((selection) =>
-        route.financialConfigurationIds.has(selection.configurationId)
-      );
-      if (financialSelections.length > 0) {
-        const affectedNames = financialSelections.map(
-          (selection) =>
-            route.configurationNameById.get(selection.configurationId) ??
-            "Session configuration"
-        );
-        const policy = buildOrderEditModePolicy({
-          orderId,
-          mode: "locked",
-          orderStatus: route.orderStatus,
-          finalInvoiceIsLocked: route.locked,
-          openAdjustmentWorkspaceId: route.openAdjustmentWorkspaceId,
-          editKind: ORDER_EDIT_KIND.SESSION_CONFIGURATION_FINANCIAL_EDIT,
-          affectedConfigurationNames: affectedNames,
-        });
-        return {
-          errors: {
-            _global: [policy.userFacingMessage],
-          },
-          adjustmentWorkspaceHref: policy.routeTarget?.href,
-        };
-      }
       const operationalSelections = parsed.data.selections.filter((selection) =>
         route.operationalConfigurationIds.has(selection.configurationId)
       );
-      const policy = buildOrderEditModePolicy({
-        orderId,
-        mode: "locked",
-        orderStatus: route.orderStatus,
-        finalInvoiceIsLocked: route.locked,
-        openAdjustmentWorkspaceId: route.openAdjustmentWorkspaceId,
-        editKind: ORDER_EDIT_KIND.SESSION_CONFIGURATION_OPERATIONAL_EDIT,
-      });
-      if (!policy.canEditDirectly) {
-        return {
-          errors: { _global: [policy.userFacingMessage] },
-          adjustmentWorkspaceHref: policy.routeTarget?.href,
-        };
-      }
       await writeOrderPackageSelections(
         parsed.data.orderPackageId,
         operationalSelections,

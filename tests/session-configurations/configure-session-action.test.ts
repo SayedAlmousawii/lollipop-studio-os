@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import Module from "node:module";
 import test from "node:test";
 import { OrderStatus, UserRole } from "@prisma/client";
+import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 
 type ModuleLoader = (
   request: string,
@@ -91,10 +92,28 @@ test("configure session action parses JSON selections and maps locked errors", a
                 operationalConfigurationIds: new Set<string>(),
                 configurationNameById: new Map([["config-1", "Keepsake Box"]]),
               }
+            : orderPackageId === "locked-open-financial-package"
+              ? {
+                  locked: true,
+                  orderStatus: OrderStatus.WAITING_SELECTION,
+                  openAdjustmentWorkspaceId: "workspace-1",
+                  financialConfigurationIds: new Set(["config-1"]),
+                  operationalConfigurationIds: new Set<string>(),
+                  configurationNameById: new Map([["config-1", "Keepsake Box"]]),
+                }
             : orderPackageId === "locked-operational-package"
               ? {
                   locked: true,
                   orderStatus: OrderStatus.WAITING_SELECTION,
+                  openAdjustmentWorkspaceId: null,
+                  financialConfigurationIds: new Set<string>(),
+                  operationalConfigurationIds: new Set(["config-1"]),
+                  configurationNameById: new Map([["config-1", "Pose"]]),
+                }
+            : orderPackageId === "delivered-package"
+              ? {
+                  locked: false,
+                  orderStatus: OrderStatus.DELIVERED,
                   openAdjustmentWorkspaceId: null,
                   financialConfigurationIds: new Set<string>(),
                   operationalConfigurationIds: new Set(["config-1"]),
@@ -166,6 +185,40 @@ test("configure session action parses JSON selections and maps locked errors", a
     assert.equal(
       lockedFinancial.adjustmentWorkspaceHref,
       "/orders/order-1/adjustment-workspace"
+    );
+
+    const lockedOpenFinancial = await configureSessionAction(
+      "order-1",
+      {},
+      formData({
+        orderPackageId: "locked-open-financial-package",
+        selections: JSON.stringify([
+          { configurationId: "config-1", kind: "toggle" },
+        ]),
+      })
+    );
+    assert.equal(
+      lockedOpenFinancial.errors?._global?.[0],
+      ORDER_EDIT_MODE_MESSAGES.openWorkspace
+    );
+    assert.equal(
+      lockedOpenFinancial.adjustmentWorkspaceHref,
+      "/orders/order-1/adjustment-workspace"
+    );
+
+    const delivered = await configureSessionAction(
+      "order-1",
+      {},
+      formData({
+        orderPackageId: "delivered-package",
+        selections: JSON.stringify([
+          { configurationId: "config-1", kind: "toggle" },
+        ]),
+      })
+    );
+    assert.equal(
+      delivered.errors?._global?.[0],
+      ORDER_EDIT_MODE_MESSAGES.deliveredOrder
     );
 
     const lockedOperational = await configureSessionAction(

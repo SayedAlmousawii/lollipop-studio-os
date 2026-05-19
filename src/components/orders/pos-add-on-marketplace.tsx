@@ -161,7 +161,7 @@ function QuickAddDialog({
       quantity: 1,
     })
   );
-  const disabled = categoryOptions.length === 0 || !canUsePolicy(policy);
+  const disabled = categoryOptions.length === 0 || !policy.isInteractive;
 
   return (
     <Dialog>
@@ -258,7 +258,7 @@ function CatalogCard({
           <input type="hidden" name="productId" value={item.id} />
           <SubmitButton
             label={added ? "Add Another" : "Add"}
-            disabled={!canUsePolicy(policies.addAddOn)}
+            disabled={!policies.addAddOn.isInteractive}
           />
           <GlobalError messages={addState.errors?._global} />
         </form>
@@ -270,7 +270,7 @@ function CatalogCard({
                 label="Remove One"
                 variant="ghost"
                 icon="trash"
-                disabled={!canUsePolicy(policies.removeAddOn)}
+                disabled={!policies.removeAddOn.isInteractive}
               />
               <GlobalError messages={removeState.errors?._global} />
             </form>
@@ -356,7 +356,7 @@ function CurrentAddOnRow({
           <>
             <form action={formAction} className="space-y-2">
               <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
-              <SubmitIconButton disabled={!canUsePolicy(removePolicy)} />
+              <SubmitIconButton disabled={!removePolicy.isInteractive} />
             </form>
             {handlers.shouldPromptInlineApproval ? (
               <ReductiveEditApprovalModal
@@ -429,10 +429,6 @@ function PolicyNotice({ policy }: { policy: OrderEditModePolicy }) {
       {policy.userFacingMessage}
     </div>
   );
-}
-
-function canUsePolicy(policy: OrderEditModePolicy): boolean {
-  return policy.canEditDirectly || policy.mode === "adjustment";
 }
 
 function SubmitButton({

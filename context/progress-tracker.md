@@ -66,6 +66,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **104 R9 review fixes** — Added policy-owned interactivity/open-workspace fields, moved configure-session write gating before all direct writes, and covered locked POS/open-workspace/staged-context regressions.
 - **104 R9** — Added centralized `OrderEditModePolicy` and wired POS package/photo/add-on sidebars plus configure-session routing/messages to policy DTOs with locked/open-workspace and guard-message regression coverage.
 - **103 R8c follow-up** — Order detail now falls back gracefully when composition projection data is unavailable and avoids contradictory empty deliverable UI.
 - **103 R8c** — Swapped order detail overview package/deliverable/add-on/session-configuration readouts and production deliverable summaries onto R7 composition projectors, with regression coverage against legacy composition DTO reads.

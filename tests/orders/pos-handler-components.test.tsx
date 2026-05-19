@@ -19,6 +19,7 @@ import type {
 import {
   buildPOSAddOnEditPolicies,
   buildPOSPackageCompositionEditPolicies,
+  ORDER_EDIT_MODE_MESSAGES,
   orderEditModeContextFromWorkspace,
   type POSAddOnEditPolicies,
   type POSPackageCompositionEditPolicies,
@@ -112,6 +113,58 @@ test("POS handler components render the stable sales DOM labels from handler pro
     assert.match(markup, /Commercial Actions/);
     assert.match(markup, /Add-On Marketplace/);
     assert.match(markup, /Current add-ons/);
+  });
+});
+
+test("R9 POS handler components render locked notices from policy fixtures", async () => {
+  await withPOSComponentStubs(async () => {
+    const { POSPackageComposition, POSPhotoCountCard } =
+      await loadPackageComponents();
+    const { POSAddOnMarketplace } = await loadAddOnComponents();
+    const workspace = lockedPOSWorkspaceFixture();
+    const composition = buildDraftPOSCompositionFixture(workspace);
+    const packagePolicies = buildPackagePolicies(workspace);
+    const addOnPolicies = buildAddOnPolicies(workspace);
+    const compositionHandlers = {
+      changePackageTier: async () => ({ ok: true }),
+      upgradePackageItem: async () => ({ ok: true }),
+      changeSelectedPhotoCount: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSCompositionHandlers;
+    const addOnHandlers = {
+      addAddOn: async () => ({ ok: true }),
+      removeAddOn: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSAddOnHandlers;
+
+    const packageMarkup = renderToStaticMarkup(
+      createElement(POSPackageComposition, {
+        workspace,
+        composition,
+        handlers: compositionHandlers,
+        editPolicies: packagePolicies,
+      })
+    );
+    const photoMarkup = renderToStaticMarkup(
+      createElement(POSPhotoCountCard, {
+        workspace,
+        composition,
+        handlers: compositionHandlers,
+        editPolicies: packagePolicies,
+      })
+    );
+    const addOnMarkup = renderToStaticMarkup(
+      createElement(POSAddOnMarketplace, {
+        workspace,
+        marketplace: toPOSAddOnMarketplace(composition),
+        handlers: addOnHandlers,
+        editPolicies: addOnPolicies,
+      })
+    );
+
+    assert.match(packageMarkup, new RegExp(ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS));
+    assert.match(photoMarkup, new RegExp(ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS));
+    assert.match(addOnMarkup, new RegExp(ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS));
   });
 });
 
@@ -605,6 +658,31 @@ function buildPOSWorkspaceFixture(): POSWorkspace {
     adjustmentInvoices: [],
     paidAdjustmentInvoices: [],
     aggregateOutstanding: 0,
+  };
+}
+
+function lockedPOSWorkspaceFixture(): POSWorkspace {
+  return {
+    ...buildPOSWorkspaceFixture(),
+    invoice: {
+      invoiceId: "invoice-final",
+      financialCaseId: "financial-case-1",
+      invoiceNumber: "INV-FINAL",
+      invoiceType: "FINAL",
+      invoiceStatus: "Closed",
+      isLocked: true,
+      renderMode: "COMPUTED",
+      packageBaseTotal: 100,
+      bundleAdjustment: 0,
+      addOnTotal: 20,
+      extraPhotoTotal: 6,
+      invoiceTotal: 126,
+      paidAmount: 126,
+      depositInvoiceNumber: null,
+      depositPaidAmount: 0,
+      remainingAmount: 0,
+      lineItems: [],
+    },
   };
 }
 

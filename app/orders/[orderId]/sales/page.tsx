@@ -128,7 +128,6 @@ export default async function SalesPage(
             composition={currentComposition}
             packageLines={workspace.packageLines}
             orderId={workspace.orderId}
-            workspaceIsOpen={Boolean(openWorkspace)}
             editPolicies={packageEditPolicies}
           />
         </main>
@@ -358,13 +357,11 @@ function LockedCompositionView({
   composition,
   packageLines,
   orderId,
-  workspaceIsOpen,
   editPolicies,
 }: {
   composition: ReturnType<typeof toCurrentCompositionCard>;
   packageLines: POSWorkspace["packageLines"];
   orderId: string;
-  workspaceIsOpen: boolean;
   editPolicies: ReturnType<typeof buildPOSPackageCompositionEditPolicies>;
 }) {
   console.info(
@@ -380,14 +377,19 @@ function LockedCompositionView({
       <ConfigureSessionPanel
         key={JSON.stringify({
           id: line.id,
-          workspaceIsOpen,
+          openWorkspaceIsActive:
+            editPolicies.sessionConfigurationFinancialEdit.openWorkspaceIsActive,
           currentSelections: line.currentSelections,
         })}
         orderId={orderId}
         orderPackageId={line.id}
         packageName={line.currentPackage.name}
         sessionTypeName={line.sessionTypeName}
-        mode={{ kind: "locked", workspaceIsOpen }}
+        mode={{
+          kind: "locked",
+          workspaceIsOpen:
+            editPolicies.sessionConfigurationFinancialEdit.openWorkspaceIsActive,
+        }}
         editPolicies={{
           operational: editPolicies.sessionConfigurationOperationalEdit,
           financial: editPolicies.sessionConfigurationFinancialEdit,

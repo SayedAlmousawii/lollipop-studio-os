@@ -173,13 +173,13 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                                   workspaceLine.id
                                 ] ?? {},
                             }
-                          : editPolicies.sessionConfigurationFinancialEdit.mode === "locked"
+                          : editPolicies.sessionConfigurationFinancialEdit
+                                .shouldOpenAdjustmentWorkspace
                             ? {
                                 kind: "locked",
                                 workspaceIsOpen:
                                   editPolicies.sessionConfigurationFinancialEdit
-                                    .blockedReason ===
-                                  "OPEN_WORKSPACE_REQUIRES_WORKSPACE",
+                                    .openWorkspaceIsActive,
                               }
                             : { kind: "draft" }
                       }
@@ -332,7 +332,7 @@ function POSPhotoLineForm({
     extraPrintCount: line.extraPrintCount,
   });
   const preview = readProjectedPhotoPreview(draft, line);
-  const canSubmit = canUsePolicy(policy);
+  const canSubmit = policy.isInteractive;
   function commitDraft(nextDraft: PhotoLineDraft) {
     if (!canSubmit) return;
     const resolved = readProjectedPhotoPayload(nextDraft, line.includedPhotoCount);
@@ -793,7 +793,7 @@ function PackageUpgradeDialog({
     })
   );
   const packageSelectId = `packageId-${line.id}`;
-  const canSubmit = canUsePolicy(policy);
+  const canSubmit = policy.isInteractive;
 
   return (
     <Dialog>
@@ -937,7 +937,7 @@ function ItemUpgradeDialog({
       quantity: item.quantity,
     })
   );
-  const disabled = options.length === 0 || !canUsePolicy(policy);
+  const disabled = options.length === 0 || !policy.isInteractive;
 
   return (
     <Dialog>
@@ -1082,10 +1082,6 @@ function PolicyNotice({ policy }: { policy: OrderEditModePolicy }) {
       {policy.userFacingMessage}
     </div>
   );
-}
-
-function canUsePolicy(policy: OrderEditModePolicy): boolean {
-  return policy.canEditDirectly || policy.mode === "adjustment";
 }
 
 function MoneyLine({

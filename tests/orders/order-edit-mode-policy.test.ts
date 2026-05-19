@@ -26,7 +26,9 @@ test("OrderEditModePolicy allows unlocked sales edits directly", () => {
 
   assert.equal(policy.mode, "draft");
   assert.equal(policy.canEditDirectly, true);
+  assert.equal(policy.isInteractive, true);
   assert.equal(policy.shouldOpenAdjustmentWorkspace, false);
+  assert.equal(policy.openWorkspaceIsActive, false);
   assert.equal(policy.requiresManagerApproval, false);
   assert.equal(policy.blockedReason, null);
 });
@@ -40,6 +42,7 @@ test("OrderEditModePolicy marks direct reductive sales edits as manager-approval
   });
 
   assert.equal(policy.canEditDirectly, true);
+  assert.equal(policy.isInteractive, true);
   assert.equal(policy.requiresManagerApproval, true);
   assert.equal(
     policy.userFacingMessage,
@@ -63,7 +66,9 @@ test("OrderEditModePolicy routes locked sales composition edits to workspace", (
     });
 
     assert.equal(policy.canEditDirectly, false);
+    assert.equal(policy.isInteractive, false);
     assert.equal(policy.shouldOpenAdjustmentWorkspace, true);
+    assert.equal(policy.openWorkspaceIsActive, false);
     assert.equal(policy.requiresManagerApproval, false);
     assert.equal(policy.blockedReason, "LOCKED_DIRECT_POS_REQUIRES_WORKSPACE");
     assert.equal(policy.routeTarget?.href, "/orders/order-1/adjustment-workspace");
@@ -81,6 +86,8 @@ test("OrderEditModePolicy uses open-workspace messaging for locked sales", () =>
   });
 
   assert.equal(policy.shouldOpenAdjustmentWorkspace, true);
+  assert.equal(policy.isInteractive, false);
+  assert.equal(policy.openWorkspaceIsActive, true);
   assert.equal(policy.blockedReason, "OPEN_WORKSPACE_REQUIRES_WORKSPACE");
   assert.equal(policy.userFacingMessage, ORDER_EDIT_MODE_MESSAGES.openWorkspace);
 });
@@ -105,8 +112,10 @@ test("OrderEditModePolicy distinguishes operational and financial locked configu
   });
 
   assert.equal(operational.canEditDirectly, true);
+  assert.equal(operational.isInteractive, true);
   assert.equal(operational.shouldOpenAdjustmentWorkspace, false);
   assert.equal(financial.canEditDirectly, false);
+  assert.equal(financial.isInteractive, false);
   assert.equal(financial.shouldOpenAdjustmentWorkspace, true);
   assert.equal(financial.userFacingMessage, "Edit Keepsake Box in the Adjustment Workspace.");
 });
@@ -121,6 +130,7 @@ test("OrderEditModePolicy treats adjustment workspace edits as staged edits", ()
   });
 
   assert.equal(policy.canEditDirectly, false);
+  assert.equal(policy.isInteractive, true);
   assert.equal(policy.shouldOpenAdjustmentWorkspace, false);
   assert.equal(policy.requiresManagerApproval, false);
   assert.equal(policy.blockedReason, null);
@@ -137,6 +147,7 @@ test("OrderEditModePolicy blocks delivered orders before edit-mode routing", () 
   });
 
   assert.equal(policy.canEditDirectly, false);
+  assert.equal(policy.isInteractive, false);
   assert.equal(policy.shouldOpenAdjustmentWorkspace, false);
   assert.equal(policy.blockedReason, "ORDER_DELIVERED");
   assert.equal(policy.userFacingMessage, ORDER_EDIT_MODE_MESSAGES.deliveredOrder);

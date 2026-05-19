@@ -22,6 +22,7 @@ import type {
   AdjustmentWorkspaceView,
 } from "@/modules/adjustment-workspace/adjustment-workspace.types";
 import type { HandlerResult } from "@/modules/orders/pos-handlers.types";
+import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 
 const addLineFormSchema = adjustmentWorkspaceVersionSchema.extend({
   kind: z.enum(["item", "addon"]),
@@ -653,6 +654,13 @@ function zodHandlerError(error: z.ZodError): HandlerResult {
 }
 
 function handlerError(error: unknown): HandlerResult {
+  if (error instanceof Error && error.message === "Workspace not found") {
+    return {
+      ok: false,
+      errors: { _global: [ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS] },
+    };
+  }
+
   const message =
     error instanceof Error && error.message.trim()
       ? error.message

@@ -29,8 +29,10 @@ export type OrderEditModePolicy = {
   mode: OrderEditMode;
   editKind: OrderEditKind;
   canEditDirectly: boolean;
+  isInteractive: boolean;
   shouldOpenAdjustmentWorkspace: boolean;
   requiresManagerApproval: boolean;
+  openWorkspaceIsActive: boolean;
   blockedReason: OrderEditBlockedReason | null;
   routeTarget: OrderEditRouteTarget | null;
   userFacingMessage: string;
@@ -95,8 +97,10 @@ export function buildOrderEditModePolicy(
       mode: input.mode,
       editKind: input.editKind,
       canEditDirectly: false,
+      isInteractive: false,
       shouldOpenAdjustmentWorkspace: false,
       requiresManagerApproval: false,
+      openWorkspaceIsActive: false,
       blockedReason: "ORDER_DELIVERED",
       routeTarget: null,
       userFacingMessage: ORDER_EDIT_MODE_MESSAGES.deliveredOrder,
@@ -108,8 +112,10 @@ export function buildOrderEditModePolicy(
       mode: input.mode,
       editKind: input.editKind,
       canEditDirectly: false,
+      isInteractive: true,
       shouldOpenAdjustmentWorkspace: false,
       requiresManagerApproval: false,
+      openWorkspaceIsActive: false,
       blockedReason: null,
       routeTarget: null,
       userFacingMessage: ORDER_EDIT_MODE_MESSAGES.adjustmentWorkspace,
@@ -122,8 +128,10 @@ export function buildOrderEditModePolicy(
         mode: "locked",
         editKind: input.editKind,
         canEditDirectly: true,
+        isInteractive: true,
         shouldOpenAdjustmentWorkspace: false,
         requiresManagerApproval: false,
+        openWorkspaceIsActive: false,
         blockedReason: null,
         routeTarget: null,
         userFacingMessage:
@@ -135,8 +143,10 @@ export function buildOrderEditModePolicy(
       mode: "locked",
       editKind: input.editKind,
       canEditDirectly: false,
+      isInteractive: false,
       shouldOpenAdjustmentWorkspace: true,
       requiresManagerApproval: false,
+      openWorkspaceIsActive: hasOpenWorkspace,
       blockedReason: hasOpenWorkspace
         ? "OPEN_WORKSPACE_REQUIRES_WORKSPACE"
         : "LOCKED_DIRECT_POS_REQUIRES_WORKSPACE",
@@ -152,8 +162,10 @@ export function buildOrderEditModePolicy(
     mode: "draft",
     editKind: input.editKind,
     canEditDirectly: true,
+    isInteractive: true,
     shouldOpenAdjustmentWorkspace: false,
     requiresManagerApproval: isDirectReductiveEdit(input.editKind),
+    openWorkspaceIsActive: false,
     blockedReason: null,
     routeTarget: null,
     userFacingMessage: isDirectReductiveEdit(input.editKind)
