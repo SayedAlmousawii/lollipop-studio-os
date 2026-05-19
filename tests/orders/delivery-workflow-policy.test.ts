@@ -163,6 +163,10 @@ test("R10d delivery guard helpers align with service guard messages and codes", 
     { message: DELIVERY_WORKFLOW_MESSAGES.orderCancelled }
   );
   assert.throws(
+    () => assertDeliveryWorkflowWritablePolicy(OrderStatus.DELIVERED),
+    { message: DELIVERY_WORKFLOW_MESSAGES.orderDelivered }
+  );
+  assert.throws(
     () =>
       assertDeliveryNotificationReadyPolicy({
         deliveryStatus: OrderDeliveryStatus.NOT_READY,
