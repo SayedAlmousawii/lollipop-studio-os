@@ -18,10 +18,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type {
-  OrderProductionAction,
-  OrderProductionSection,
   OrderProductionWorkflow,
 } from "@/modules/orders/order.types";
+import type {
+  ProductionWorkflowAction,
+  ProductionWorkflowActionKey,
+  ProductionWorkflowSectionKey,
+  ProductionWorkflowSectionPolicy,
+  WorkflowActionIntent,
+} from "@/modules/orders/policies/production-workflow-policy";
 
 interface ProductionWorkflowFormProps {
   production: OrderProductionWorkflow;
@@ -32,6 +37,7 @@ export function ProductionWorkflowForm({ production }: ProductionWorkflowFormPro
     updateProductionWorkflowAction.bind(null, production.orderId),
     {}
   );
+  const readyAction = production.workflowPolicy.finalReadinessAction;
 
   return (
     <form action={formAction} className="space-y-4">
@@ -41,9 +47,9 @@ export function ProductionWorkflowForm({ production }: ProductionWorkflowFormPro
         </p>
       ) : null}
 
-      {production.readinessWarning ? (
+      {production.workflowPolicy.readinessWarning ? (
         <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
-          {production.readinessWarning}
+          {production.workflowPolicy.readinessWarning}
         </p>
       ) : null}
 
@@ -65,22 +71,22 @@ export function ProductionWorkflowForm({ production }: ProductionWorkflowFormPro
             />
             <div className="flex justify-end pt-2">
               <ProductionSubmitButton
-                action="markProductionReadyForPickup"
-                disabled={!production.canMarkReadyForPickup}
+                action={readyAction.key}
+                disabled={readyAction.disabled}
+                intent={readyAction.intent}
               >
                 <Truck className="h-4 w-4" />
-                Ready for pickup
+                {readyAction.label}
               </ProductionSubmitButton>
             </div>
           </CardContent>
         </Card>
 
         <div className="grid gap-4 md:grid-cols-2">
-          {production.sections.map((section) => (
+          {production.workflowPolicy.sections.map((section) => (
             <ProductionSectionCard
               key={section.key}
               section={section}
-              disabled={!production.canUpdateProduction}
             />
           ))}
         </div>
@@ -91,10 +97,8 @@ export function ProductionWorkflowForm({ production }: ProductionWorkflowFormPro
 
 function ProductionSectionCard({
   section,
-  disabled,
 }: {
-  section: OrderProductionSection;
-  disabled: boolean;
+  section: ProductionWorkflowSectionPolicy;
 }) {
   return (
     <Card>
@@ -107,11 +111,15 @@ function ProductionSectionCard({
       <CardContent className="space-y-3">
         <p className="text-sm text-text-secondary">{section.description}</p>
         <ReadOnlyMetric label="Status" value={section.status} />
-        {section.action && section.actionLabel ? (
+        {section.action ? (
           <div className="flex justify-end">
-            <ProductionSubmitButton action={section.action} disabled={disabled}>
+            <ProductionSubmitButton
+              action={section.action.key}
+              disabled={section.action.disabled}
+              intent={section.action.intent}
+            >
               {buttonIcon(section.action)}
-              {section.actionLabel}
+              {section.action.label}
             </ProductionSubmitButton>
           </div>
         ) : null}
@@ -124,14 +132,22 @@ function ProductionSubmitButton({
   action,
   children,
   disabled,
+  intent,
 }: {
-  action: OrderProductionAction;
+  action: ProductionWorkflowActionKey;
   children: React.ReactNode;
   disabled: boolean;
+  intent: WorkflowActionIntent;
 }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" name="action" value={action} disabled={disabled || pending}>
+    <Button
+      type="submit"
+      name="action"
+      value={action}
+      variant={buttonVariantForIntent(intent)}
+      disabled={disabled || pending}
+    >
       {pending ? "Saving..." : children}
     </Button>
   );
@@ -146,7 +162,7 @@ function ReadOnlyMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function sectionIcon(section: OrderProductionSection["key"]) {
+function sectionIcon(section: ProductionWorkflowSectionKey) {
   switch (section) {
     case "printing":
     case "framedPrints":
@@ -162,8 +178,9 @@ function sectionIcon(section: OrderProductionSection["key"]) {
   }
 }
 
-function buttonIcon(action: OrderProductionAction) {
-  switch (action) {
+function buttonIcon(action: ProductionWorkflowAction | ProductionWorkflowActionKey) {
+  const actionKey = typeof action === "string" ? action : action.key;
+  switch (actionKey) {
     case "markAlbumDesignStarted":
     case "markAssemblyStarted":
     case "markVendorInProgress":
@@ -176,5 +193,19 @@ function buttonIcon(action: OrderProductionAction) {
     case "markVendorCompleted":
     case "markPrintsReady":
       return <CheckCircle2 className="h-4 w-4" />;
+  }
+}
+
+function buttonVariantForIntent(
+  intent: WorkflowActionIntent
+): "default" | "outline" | "destructive" {
+  switch (intent) {
+    case "primary":
+      return "default";
+    case "secondary":
+    case "warning":
+      return "outline";
+    case "destructive":
+      return "destructive";
   }
 }

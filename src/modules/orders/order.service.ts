@@ -57,7 +57,6 @@ import {
 import {
   ORDER_DELIVERY_STATUS_LABELS,
   ORDER_EDITING_STATUS_LABELS,
-  ORDER_PRODUCTION_SECTION_STATUS_LABELS,
   ORDER_PRODUCTION_STATUS_LABELS,
   ORDER_SELECTION_STATUS_LABELS,
   ORDER_WORKFLOW_TRANSITIONS,
@@ -94,6 +93,14 @@ import {
   buildEditingWorkflowPolicy,
   type EditingWorkflowActionKey,
 } from "./policies/editing-workflow-policy";
+import {
+  assertProductionAssemblyDependencyPolicy,
+  assertProductionReadyForPickupPolicy,
+  assertProductionWorkflowWritablePolicy,
+  buildProductionWorkflowPolicy,
+  guardCodeForProductionReadyError,
+  type BuildProductionWorkflowPolicyInput,
+} from "./policies/production-workflow-policy";
 import type {
   EditingQueueItem,
   InvoiceStatusFilter,
@@ -120,8 +127,6 @@ import type {
   POSProductOption,
   POSWorkspace,
   PackageItemDisplay,
-  OrderProductionAction,
-  OrderProductionSection,
   ProductionQueueItem,
   OrderProductionWorkflow,
   OrderSelectionWorkflow,
@@ -4282,11 +4287,17 @@ type DeliveryWorkflowUpdate = {
 };
 
 function mapOrderProductionWorkflow(order: ProductionOrderState): OrderProductionWorkflow {
-  const canUpdateProduction =
-    order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.DELIVERED;
-  const productionStatus = getProductionStatus(order);
+  const policy = buildProductionWorkflowPolicy(buildProductionPolicyContext(order));
+  const productionStatus = policy.productionStatus;
   const readyAt = order.productionJob?.readyForPickupAt ?? null;
-  const sections = buildProductionSections(order, canUpdateProduction);
+  const sections = policy.sections.map((section) => ({
+    key: section.key,
+    title: section.title,
+    description: section.description,
+    status: section.status,
+    action: section.action?.key ?? null,
+    actionLabel: section.action?.label ?? null,
+  }));
 
   return {
     orderId: order.id,
@@ -4294,160 +4305,29 @@ function mapOrderProductionWorkflow(order: ProductionOrderState): OrderProductio
     deliveryStatus: ORDER_DELIVERY_STATUS_LABELS[order.deliveryStatus],
     editingStatus: ORDER_EDITING_STATUS_LABELS[order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED],
     readyAt: readyAt ? formatDateTime(readyAt) : null,
-    readinessWarning: resolveProductionReadinessWarning(order),
-    canUpdateProduction,
-    canMarkReadyForPickup:
-      canUpdateProduction &&
-      productionStatus !== OrderProductionStatus.READY_FOR_PICKUP &&
-      productionStatus !== OrderProductionStatus.COMPLETED &&
-      (order.editingJob?.status === OrderEditingStatus.APPROVED ||
-        order.editingJob?.status === OrderEditingStatus.COMPLETED),
+    readinessWarning: policy.readinessWarning,
+    canUpdateProduction: policy.canUpdateProduction,
+    canMarkReadyForPickup: policy.canMarkReadyForPickup,
+    workflowPolicy: policy,
     sections,
   };
 }
 
-function buildProductionSections(
-  order: ProductionOrderState,
-  canUpdateProduction: boolean
-): OrderProductionSection[] {
-  return [
-    productionSection({
-      key: "albumDesign",
-      title: "Album Design",
-      description: "Layout and customer album design preparation.",
-      status: getProductionSectionStatus(order.productionJob, "albumDesignStatus"),
-      startAction: "markAlbumDesignStarted",
-      completeAction: "markAlbumDesignCompleted",
-      canUpdateProduction,
-    }),
-    productionSection({
-      key: "printing",
-      title: "Printing",
-      description: "Album pages and print items sent to production.",
-      status: getProductionSectionStatus(order.productionJob, "printingStatus"),
-      startAction: "markSentToPrint",
-      completeAction: "markPrintsReady",
-      startLabel: "Send to print",
-      completeLabel: "Prints ready",
-      canUpdateProduction,
-    }),
-    productionSection({
-      key: "assembly",
-      title: "Album Assembly",
-      description: "Final album build, binding, and finishing.",
-      status: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
-      startAction: "markAssemblyStarted",
-      completeAction: "markAssemblyCompleted",
-      canUpdateProduction:
-        canUpdateProduction &&
-        getProductionSectionStatus(order.productionJob, "albumDesignStatus") ===
-          OrderProductionSectionStatus.COMPLETED,
-    }),
-    productionSection({
-      key: "vendor",
-      title: "Vendor / Outsource",
-      description: "Outsourced production work and vendor handoff.",
-      status: getProductionSectionStatus(order.productionJob, "vendorStatus"),
-      startAction: "markVendorInProgress",
-      completeAction: "markVendorCompleted",
-      startLabel: "Vendor in progress",
-      completeLabel: "Vendor complete",
-      canUpdateProduction,
-    }),
-    productionSection({
-      key: "framedPrints",
-      title: "Framed Prints",
-      description: "Frames, enlargements, and standalone print deliverables.",
-      status: getProductionSectionStatus(order.productionJob, "framedPrintsStatus"),
-      startAction: null,
-      completeAction: "markPrintsReady",
-      completeLabel: "Prints ready",
-      canUpdateProduction,
-    }),
-    {
-      key: "finalReadiness",
-      title: "Final Production Readiness",
-      description: "Final production check before pickup handoff.",
-      status: ORDER_PRODUCTION_SECTION_STATUS_LABELS[
-        getProductionSectionStatus(order.productionJob, "finalStatus")
-      ],
-      action:
-        canUpdateProduction &&
-        getProductionStatus(order) !== OrderProductionStatus.READY_FOR_PICKUP &&
-        getProductionStatus(order) !== OrderProductionStatus.COMPLETED
-          ? "markProductionReadyForPickup"
-          : null,
-      actionLabel:
-        canUpdateProduction &&
-        getProductionStatus(order) !== OrderProductionStatus.READY_FOR_PICKUP &&
-        getProductionStatus(order) !== OrderProductionStatus.COMPLETED
-          ? "Ready for pickup"
-          : null,
-    },
-  ];
-}
-
-function productionSection(input: {
-  key: OrderProductionSection["key"];
-  title: string;
-  description: string;
-  status: OrderProductionSectionStatus;
-  startAction: OrderProductionAction | null;
-  completeAction: OrderProductionAction;
-  startLabel?: string;
-  completeLabel?: string;
-  canUpdateProduction: boolean;
-}): OrderProductionSection {
-  const action =
-    input.canUpdateProduction && input.status === OrderProductionSectionStatus.NOT_STARTED
-      ? input.startAction
-      : input.canUpdateProduction && input.status === OrderProductionSectionStatus.IN_PROGRESS
-        ? input.completeAction
-        : null;
-  const actionLabel =
-    input.status === OrderProductionSectionStatus.NOT_STARTED
-      ? input.startLabel ?? "Start"
-      : input.status === OrderProductionSectionStatus.IN_PROGRESS
-        ? input.completeLabel ?? "Complete"
-        : null;
-
+function buildProductionPolicyContext(
+  order: ProductionOrderState
+): BuildProductionWorkflowPolicyInput {
   return {
-    key: input.key,
-    title: input.title,
-    description: input.description,
-    status: ORDER_PRODUCTION_SECTION_STATUS_LABELS[input.status],
-    action,
-    actionLabel: action ? actionLabel : null,
+    orderStatus: order.status,
+    editingStatus: order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED,
+    productionStatus: getProductionStatus(order),
+    deliveryStatus: order.deliveryStatus,
+    albumDesignStatus: getProductionSectionStatus(order.productionJob, "albumDesignStatus"),
+    printingStatus: getProductionSectionStatus(order.productionJob, "printingStatus"),
+    assemblyStatus: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
+    vendorStatus: getProductionSectionStatus(order.productionJob, "vendorStatus"),
+    framedPrintsStatus: getProductionSectionStatus(order.productionJob, "framedPrintsStatus"),
+    finalStatus: getProductionSectionStatus(order.productionJob, "finalStatus"),
   };
-}
-
-function resolveProductionReadinessWarning(order: ProductionOrderState): string | null {
-  const editingStatus = order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
-  if (
-    editingStatus !== OrderEditingStatus.APPROVED &&
-    editingStatus !== OrderEditingStatus.COMPLETED
-  ) {
-    return "Editing must be approved or completed before production can be marked ready for pickup.";
-  }
-
-  if (
-    getProductionSectionStatus(order.productionJob, "assemblyStatus") !==
-      OrderProductionSectionStatus.NOT_STARTED &&
-    getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
-      OrderProductionSectionStatus.COMPLETED
-  ) {
-    return "Album assembly is in progress but album design is not yet completed. Complete album design first.";
-  }
-
-  const productionStatus = getProductionStatus(order);
-  if (
-    productionStatus === OrderProductionStatus.READY_FOR_PICKUP &&
-    hasIncompleteProductionSections(order)
-  ) {
-    return "Production is marked ready while one or more section checks are still open.";
-  }
-
-  return null;
 }
 
 function hasIncompleteProductionSections(order: ProductionOrderState): boolean {
@@ -4461,12 +4341,7 @@ function hasIncompleteProductionSections(order: ProductionOrderState): boolean {
 }
 
 function assertProductionWorkflowWritable(status: OrderStatus): void {
-  if (status === OrderStatus.CANCELLED) {
-    throw new Error("Cancelled orders cannot be moved through production");
-  }
-  if (status === OrderStatus.DELIVERED) {
-    throw new Error("Delivered orders cannot be moved through production");
-  }
+  assertProductionWorkflowWritablePolicy(status);
 }
 
 function resolveAdvancedSelectionStatus(
@@ -4523,14 +4398,10 @@ function resolveProductionUpdate(
         description: "Production was marked sent to print.",
       });
     case "markAssemblyStarted": {
-      if (
-        getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
-        OrderProductionSectionStatus.COMPLETED
-      ) {
-        throw new Error(
-          "Album assembly cannot be started until album design is completed"
-        );
-      }
+      assertProductionAssemblyDependencyPolicy(
+        buildProductionPolicyContext(order),
+        "markAssemblyStarted"
+      );
       return productionSectionUpdate(order, {
         field: "assemblyStatus",
         previousStatus: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
@@ -4541,14 +4412,10 @@ function resolveProductionUpdate(
       });
     }
     case "markAssemblyCompleted": {
-      if (
-        getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
-        OrderProductionSectionStatus.COMPLETED
-      ) {
-        throw new Error(
-          "Album assembly cannot be completed until album design is completed"
-        );
-      }
+      assertProductionAssemblyDependencyPolicy(
+        buildProductionPolicyContext(order),
+        "markAssemblyCompleted"
+      );
       return productionSectionUpdate(order, {
         field: "assemblyStatus",
         previousStatus: getProductionSectionStatus(order.productionJob, "assemblyStatus"),
@@ -4610,25 +4477,13 @@ function resolveProductionUpdate(
         },
       };
     case "markProductionReadyForPickup": {
-      const editingStatus = order.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
-      if (
-        editingStatus !== OrderEditingStatus.APPROVED &&
-        editingStatus !== OrderEditingStatus.COMPLETED
-      ) {
+      try {
+        assertProductionReadyForPickupPolicy(buildProductionPolicyContext(order));
+      } catch (err) {
+        if (!(err instanceof Error)) throw err;
         throw new WorkflowGuardError(
-          "EDITING_INCOMPLETE",
-          "Production cannot be marked ready for pickup until editing is approved or completed"
-        );
-      }
-      if (
-        getProductionSectionStatus(order.productionJob, "assemblyStatus") !==
-          OrderProductionSectionStatus.NOT_STARTED &&
-        getProductionSectionStatus(order.productionJob, "albumDesignStatus") !==
-          OrderProductionSectionStatus.COMPLETED
-      ) {
-        throw new WorkflowGuardError(
-          "ALBUM_DESIGN_INCOMPLETE",
-          "Album design must be completed before assembly can contribute to production readiness"
+          guardCodeForProductionReadyError(err.message),
+          err.message
         );
       }
       return {
