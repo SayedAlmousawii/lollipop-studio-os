@@ -23,6 +23,7 @@ export type FinancialCaseDepositInvoiceSummary = {
   invoiceNumber: string;
   total: number;
   status: InvoiceStatus;
+  isLocked: boolean;
   paidAmount: number;
 };
 
@@ -46,6 +47,7 @@ export type FinancialCaseActiveSummary = {
   financialCaseId: string;
   orderId: string | null;
   bookingId: string;
+  depositInvoice: FinancialCaseDepositInvoiceSummary | null;
   finalInvoice: FinancialCaseFinalInvoiceSummary;
   finalizedAdjustments: FinancialCaseInvoiceSummary[];
   creditNotes: FinancialCaseInvoiceSummary[];

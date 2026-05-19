@@ -1307,6 +1307,8 @@ export async function makeFinancialCaseSummaryOrderFixture(
     finalTotal?: number;
     finalPaymentAmount?: number;
     finalRemainingAmount?: number;
+    finalStatus?: InvoiceStatus;
+    finalIsLocked?: boolean;
   }
 ): Promise<FinancialCaseSummaryOrderFixtureResult> {
   const createJob = options.createJob ?? true;
@@ -1318,6 +1320,8 @@ export async function makeFinancialCaseSummaryOrderFixture(
   const finalRemainingAmount = new Prisma.Decimal(
     options.finalRemainingAmount ?? 0
   );
+  const finalStatus = options.finalStatus ?? InvoiceStatus.CLOSED;
+  const finalIsLocked = options.finalIsLocked ?? true;
   const suffix = options.suffix;
 
   const department = await prisma.studioDepartment.create({
@@ -1484,10 +1488,13 @@ export async function makeFinancialCaseSummaryOrderFixture(
       totalAmount: finalTotal,
       paidAmount: finalPaymentAmount,
       remainingAmount: finalRemainingAmount,
-      status: InvoiceStatus.CLOSED,
-      isLocked: true,
+      status: finalStatus,
+      isLocked: finalIsLocked,
       issuedAt: new Date("2026-05-15T09:00:00.000Z"),
-      closedAt: new Date("2026-05-15T09:15:00.000Z"),
+      closedAt:
+        finalStatus === InvoiceStatus.CLOSED
+          ? new Date("2026-05-15T09:15:00.000Z")
+          : null,
     },
   });
   await prisma.invoiceLineItem.create({
