@@ -19,14 +19,18 @@ import {
 import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  getEffectiveCompositionForInvoice,
   getOpenWorkspaceForInvoice,
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
-import { buildCompositionView } from "@/modules/composition-view/composition-view.model";
 import {
   getFinancialCaseSummary,
   toSalesSidebarLocked,
 } from "@/modules/financial-cases";
+import {
+  getDraftOrderCompositionViewModel,
+  getLockedOrderCompositionViewModel,
+  toCurrentCompositionCard,
+  toDraftPOSComposition,
+} from "@/modules/orders/composition";
 import {
   getLinkedFinancialDocumentsForOrder,
   getPOSWorkspace,
@@ -51,16 +55,22 @@ export default async function SalesPage(
 
   if (workspace.invoice?.isLocked) {
     const [
-      effectiveComposition,
+      compositionModel,
       openWorkspace,
       linkedDocuments,
       financialCaseSummary,
     ] = await Promise.all([
-      getEffectiveCompositionForInvoice(workspace.invoice.invoiceId),
+      getLockedOrderCompositionViewModel({
+        invoiceId: workspace.invoice.invoiceId,
+      }),
       getOpenWorkspaceForInvoice(workspace.invoice.invoiceId),
       getLinkedFinancialDocumentsForOrder(workspace.orderId),
       getFinancialCaseSummary({ orderId: workspace.orderId }),
     ]);
+    const currentComposition = toCurrentCompositionCard(compositionModel, {
+      mode: "locked",
+      source: "effective",
+    });
     const financialSummary = financialCaseSummary
       ? toSalesSidebarLocked(financialCaseSummary)
       : null;
@@ -99,7 +109,7 @@ export default async function SalesPage(
       <div className={styles.salesGrid}>
         <main className="space-y-5">
           <LockedCompositionView
-            effectiveComposition={effectiveComposition}
+            composition={currentComposition}
             packageLines={workspace.packageLines}
             orderId={workspace.orderId}
             workspaceIsOpen={Boolean(openWorkspace)}
@@ -130,6 +140,9 @@ export default async function SalesPage(
     );
   }
 
+  const compositionModel = await getDraftOrderCompositionViewModel(orderId);
+  if (!compositionModel) notFound();
+  const draftComposition = toDraftPOSComposition(compositionModel);
   const compositionHandlers = createPOSCompositionHandlers(orderId, workspace);
   const addOnHandlers = createPOSAddOnHandlers(orderId);
 
@@ -138,10 +151,12 @@ export default async function SalesPage(
       <main className="space-y-5">
         <POSPackageComposition
           workspace={workspace}
+          composition={draftComposition}
           handlers={compositionHandlers}
         />
         <POSPhotoCountCard
           workspace={workspace}
+          composition={draftComposition}
           handlers={compositionHandlers}
         />
         <POSAddOnMarketplace
@@ -151,6 +166,7 @@ export default async function SalesPage(
       </main>
       <FinancialSidebarDraft
         workspace={workspace}
+        composition={draftComposition}
         className={styles.financialSidebar}
       />
     </div>
@@ -305,12 +321,12 @@ function normalizeActionErrors(
 }
 
 function LockedCompositionView({
-  effectiveComposition,
+  composition,
   packageLines,
   orderId,
   workspaceIsOpen,
 }: {
-  effectiveComposition: Awaited<ReturnType<typeof getEffectiveCompositionForInvoice>>;
+  composition: ReturnType<typeof toCurrentCompositionCard>;
   packageLines: POSWorkspace["packageLines"];
   orderId: string;
   workspaceIsOpen: boolean;
@@ -344,11 +360,7 @@ function LockedCompositionView({
 
   return (
     <CurrentCompositionCard
-      view={buildCompositionView({
-        lines: effectiveComposition.lines,
-        totals: effectiveComposition.totals,
-        mode: "locked",
-      })}
+      view={composition}
       rowActions={rowActions}
     />
   );

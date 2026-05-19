@@ -9,6 +9,15 @@ export {
   type POSCompositionTotalsProjection,
 } from "./to-draft-pos-composition";
 export {
+  createProjectedPhotoDraft,
+  PHOTO_BILLING_MODE_OPTIONS,
+  readProjectedPhotoPayload,
+  readProjectedPhotoPreview,
+  type PhotoBillingMode,
+  type PhotoLineDraft,
+  type PhotoPayload,
+} from "./photo-line-draft";
+export {
   toLockedPOSComposition,
   type LockedPOSCompositionProjection,
 } from "./to-locked-pos-composition";

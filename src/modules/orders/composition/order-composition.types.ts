@@ -57,6 +57,8 @@ export type CompositionPackageLine = CompositionLine & {
   extraDigitalCount: number;
   extraPrintCount: number;
   extraPhotoCount: number;
+  extraDigitalUnitPrice: number;
+  extraPrintUnitPrice: number;
   upgradeDelta: number;
   packageItems: CompositionLine[];
 };

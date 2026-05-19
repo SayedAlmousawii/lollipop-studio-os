@@ -28,6 +28,8 @@ export type POSCompositionPackageLineProjection = {
   extraDigitalCount: number;
   extraPrintCount: number;
   extraPhotoCount: number;
+  extraDigitalUnitPrice: number;
+  extraPrintUnitPrice: number;
   extraPhotoTotal: number;
   packageSubtotal: number;
   upgradeDelta: number;
@@ -122,6 +124,8 @@ export function toPOSCompositionProjection(
       extraDigitalCount,
       extraPrintCount,
       extraPhotoCount,
+      extraDigitalUnitPrice: line.extraDigitalUnitPrice,
+      extraPrintUnitPrice: line.extraPrintUnitPrice,
       extraPhotoTotal,
       packageSubtotal: roundMoney(line.totalAmount + extraPhotoTotal),
       upgradeDelta: line.upgradeDelta,
@@ -179,6 +183,8 @@ function projectablePackageLines(
       extraDigitalCount: 0,
       extraPrintCount: 0,
       extraPhotoCount: 0,
+      extraDigitalUnitPrice: 0,
+      extraPrintUnitPrice: 0,
       upgradeDelta: 0,
       packageItems: [],
     });

@@ -13,6 +13,10 @@ export {
   toOverviewTab,
   toPOSCompositionProjection,
   toProductionDeliverables,
+  createProjectedPhotoDraft,
+  PHOTO_BILLING_MODE_OPTIONS,
+  readProjectedPhotoPayload,
+  readProjectedPhotoPreview,
 } from "./projections";
 export type {
   CompositionDisplayKind,
@@ -38,6 +42,9 @@ export type {
   POSCompositionPackageLineProjection,
   POSCompositionSessionConfigurationProjection,
   POSCompositionTotalsProjection,
+  PhotoBillingMode,
+  PhotoLineDraft,
+  PhotoPayload,
   ProductionDeliverableRowProjection,
   ProductionDeliverablesProjection,
 } from "./projections";

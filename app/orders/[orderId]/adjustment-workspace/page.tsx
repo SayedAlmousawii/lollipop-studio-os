@@ -15,7 +15,6 @@ import {
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
 import type { PendingSessionConfigurationOverlay } from "@/components/session-configurations/configure-session-panel";
-import { buildCompositionView } from "@/modules/composition-view/composition-view.model";
 import {
   derivePendingAdjustmentPreview,
   derivePOSWorkspaceFromAdjustmentWorkspace,
@@ -25,6 +24,11 @@ import {
 import { buildPendingChangesView } from "@/modules/adjustment-workspace/pending-changes-view";
 import type { PendingChangeRow } from "@/modules/adjustment-workspace/pending-changes-view";
 import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
+import {
+  getPendingAdjustmentOrderCompositionViewModel,
+  toCurrentCompositionCard,
+  toLockedPOSComposition,
+} from "@/modules/orders/composition";
 import {
   cancelAdjustmentWorkspaceAction,
   removeWorkspaceEditAction,
@@ -45,12 +49,15 @@ export default async function AdjustmentWorkspacePage(
   ]);
   if (!openWorkspace) redirect(`/orders/${orderId}/sales`);
 
-  const [workspace, derivedPOSWorkspace, financialPreview] = await Promise.all([
+  const [workspace, derivedPOSWorkspace, financialPreview, compositionModel] = await Promise.all([
     getAdjustmentWorkspaceView(openWorkspace.id),
     derivePOSWorkspaceFromAdjustmentWorkspace(openWorkspace.id),
     derivePendingAdjustmentPreview(openWorkspace.id),
+    getPendingAdjustmentOrderCompositionViewModel(openWorkspace.id),
   ]);
-  if (!workspace || !derivedPOSWorkspace || !financialPreview) notFound();
+  if (!workspace || !derivedPOSWorkspace || !financialPreview || !compositionModel) {
+    notFound();
+  }
 
   const isManager = appUser.role === "ADMIN" || appUser.role === "MANAGER";
   const isOwner = workspace.currentOwnerUserId === appUser.id;
@@ -63,10 +70,10 @@ export default async function AdjustmentWorkspacePage(
     orderId,
     workspace.id
   );
-  const previewComposition = buildCompositionView({
-    lines: workspace.proposal.proposed.lines,
-    totals: workspace.proposal.proposed.totals,
+  const posComposition = toLockedPOSComposition(compositionModel);
+  const previewComposition = toCurrentCompositionCard(compositionModel, {
     mode: "adjustment",
+    source: "pending",
   });
   const pendingChanges = buildPendingChangesView(workspace.pendingChanges.edits, {
     base: workspace.baseSnapshot,
@@ -155,6 +162,7 @@ export default async function AdjustmentWorkspacePage(
                 </div>
                 <POSPackageComposition
                   workspace={derivedPOSWorkspace}
+                  composition={posComposition}
                   handlers={compositionHandlers}
                   configurePanelMode="adjustment"
                   workspaceId={workspace.id}
@@ -163,6 +171,7 @@ export default async function AdjustmentWorkspacePage(
                 />
                 <POSPhotoCountCard
                   workspace={derivedPOSWorkspace}
+                  composition={posComposition}
                   handlers={compositionHandlers}
                 />
                 <POSAddOnMarketplace

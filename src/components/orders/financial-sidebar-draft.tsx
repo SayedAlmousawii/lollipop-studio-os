@@ -6,6 +6,7 @@ import { CreateOrderInvoiceForm } from "@/components/orders/create-order-invoice
 import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
 import { MoneyRow } from "@/components/financial";
 import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
+import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 import { AdjustmentInvoiceBlock } from "./financial-sidebar-adjustment-blocks";
 import {
@@ -15,24 +16,20 @@ import {
 
 export function FinancialSidebarDraft({
   workspace,
+  composition,
   className,
 }: {
   workspace: POSWorkspace;
+  composition: DraftPOSCompositionProjection;
   className?: string;
 }) {
   const invoice = workspace.invoice;
-  const packageAmount =
-    workspace.packageLines.reduce(
-      (sum, line) => sum + line.currentPackage.price,
-      0
-    );
-  const extraPhotoAmount = workspace.extraPhotoTotal;
-  const totalAmount =
-    invoice?.invoiceTotal ??
-    packageAmount +
-      extraPhotoAmount +
-      workspace.addOnTotal +
-      workspace.sessionConfigurationTotal;
+  const extraPhotoAmount = composition.totals.extraPhotoTotal;
+  const totalAmount = invoice?.invoiceTotal ?? composition.totals.netCompositionTotal;
+  const extraPhotoCount = composition.packageLines.reduce(
+    (sum, line) => sum + line.extraPhotoCount,
+    0
+  );
 
   return (
     <aside className={className}>
@@ -92,12 +89,12 @@ export function FinancialSidebarDraft({
               ))
             ) : (
               <>
-                {workspace.packageLines.length > 0 ? (
-                  workspace.packageLines.map((line) => (
+                {composition.packageLines.length > 0 ? (
+                  composition.packageLines.map((line) => (
                     <MoneyRow
                       key={line.id}
-                      label={`Package (${line.currentPackage.name})`}
-                      value={formatMoney(line.currentPackage.price)}
+                      label={`Package (${line.packageName})`}
+                      value={formatMoney(line.packagePrice)}
                     />
                   ))
                 ) : null}
@@ -110,19 +107,24 @@ export function FinancialSidebarDraft({
                 ) : null}
                 {extraPhotoAmount > 0 ? (
                   <MoneyRow
-                    label={`Extra photos total (${workspace.extraPhotoCount})`}
+                    label={`Extra photos total (${extraPhotoCount})`}
                     value={formatMoney(extraPhotoAmount)}
                   />
                 ) : null}
-                {workspace.addOns.map((addOn) => (
-                  <MoneyRow key={addOn.id} label={addOn.name} value={addOn.priceLabel} />
-                ))}
-                {workspace.sessionConfigurationTotal !== 0 ? (
+                {composition.addOns.map((addOn) => (
                   <MoneyRow
-                    label="Session configuration fees"
-                    value={formatMoney(workspace.sessionConfigurationTotal)}
+                    key={addOn.id}
+                    label={addOn.name}
+                    value={formatMoney(addOn.totalAmount)}
                   />
-                ) : null}
+                ))}
+                {composition.sessionConfigurations.map((configuration) => (
+                  <MoneyRow
+                    key={configuration.id}
+                    label={configuration.label}
+                    value={formatMoney(configuration.priceDelta)}
+                  />
+                ))}
               </>
             )}
             {invoice?.renderMode === "SNAPSHOT" && invoice.depositPaidAmount ? (

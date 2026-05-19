@@ -6,6 +6,7 @@ import { OrderSelectionStatus, OrderStatus } from "@prisma/client";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 import type {
   POSAddOnHandlers,
@@ -21,10 +22,12 @@ type ModuleLoader = (
 type PackageComponents = {
   POSPackageComposition: ComponentType<{
     workspace: POSWorkspace;
+    composition: DraftPOSCompositionProjection;
     handlers: POSCompositionHandlers;
   }>;
   POSPhotoCountCard: ComponentType<{
     workspace: POSWorkspace;
+    composition: DraftPOSCompositionProjection;
     handlers: POSCompositionHandlers;
   }>;
 };
@@ -74,6 +77,7 @@ test("POS handler components render the stable sales DOM labels from handler pro
       packageExports;
     const { POSAddOnMarketplace } = addOnExports;
     const workspace = buildPOSWorkspaceFixture();
+    const composition = buildDraftPOSCompositionFixture(workspace);
     const compositionHandlers = {
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
@@ -92,10 +96,12 @@ test("POS handler components render the stable sales DOM labels from handler pro
         null,
         createElement(POSPackageComposition, {
           workspace,
+          composition,
           handlers: compositionHandlers,
         }),
         createElement(POSPhotoCountCard, {
           workspace,
+          composition,
           handlers: compositionHandlers,
         }),
         createElement(POSAddOnMarketplace, {
@@ -108,6 +114,9 @@ test("POS handler components render the stable sales DOM labels from handler pro
     assert.match(markup, /Package Composition/);
     assert.match(markup, /Upgrade Package/);
     assert.match(markup, /Selected Photos/);
+    assert.match(markup, /Classic/);
+    assert.match(markup, /2 extras · Print · 6.000 KD/);
+    assert.match(markup, /Digital 0 x 2.000 KD · Print 2 x 3.000 KD · Total 6.000 KD/);
     assert.match(markup, /Autosaves on blur or mode change/);
     assert.match(markup, /Commercial Actions/);
     assert.match(markup, /Add-On Marketplace/);
@@ -132,6 +141,33 @@ test("POS composition components do not import sales server actions directly", (
     ),
     false
   );
+});
+
+test("R8a POS package component keeps photo draft helpers out of the client component", () => {
+  const source = readFileSync(
+    "src/components/orders/pos-package-composition.tsx",
+    "utf8"
+  );
+
+  for (const helperName of [
+    "buildPhotoLineDraft",
+    "resolveBillingMode",
+    "getPhotoLinePreview",
+    "resolvePhotoPayload",
+  ]) {
+    assert.doesNotMatch(source, new RegExp(helperName));
+  }
+});
+
+test("R8a sales and adjustment pages consume composition projectors instead of buildCompositionView", () => {
+  for (const filePath of [
+    "app/orders/[orderId]/sales/page.tsx",
+    "app/orders/[orderId]/adjustment-workspace/page.tsx",
+  ]) {
+    const source = readFileSync(filePath, "utf8");
+    assert.doesNotMatch(source, /buildCompositionView/);
+    assert.match(source, /toCurrentCompositionCard/);
+  }
 });
 
 function hasImportFrom(filePath: string, modulePath: string): boolean {
@@ -282,5 +318,72 @@ function buildPOSWorkspaceFixture(): POSWorkspace {
     adjustmentInvoices: [],
     paidAdjustmentInvoices: [],
     aggregateOutstanding: 0,
+  };
+}
+
+function buildDraftPOSCompositionFixture(
+  workspace: POSWorkspace
+): DraftPOSCompositionProjection {
+  return {
+    orderId: workspace.orderId,
+    jobNumber: workspace.jobNumber,
+    sourceState: "draft",
+    packageLines: workspace.packageLines.map((line) => ({
+      id: `package:${line.id}`,
+      orderPackageId: line.id,
+      packageId: line.currentPackage.id,
+      packageName: line.currentPackage.name,
+      packagePrice: line.currentPackage.price,
+      sessionTypeId: line.sessionTypeId,
+      sessionTypeName: line.sessionTypeName,
+      includedPhotoCount: line.includedPhotoCount,
+      selectedPhotoCount: line.selectedPhotoCount,
+      extraDigitalCount: line.extraDigitalCount,
+      extraPrintCount: line.extraPrintCount,
+      extraPhotoCount: line.extraPhotoCount,
+      extraDigitalUnitPrice: line.extraDigitalUnitPrice,
+      extraPrintUnitPrice: line.extraPrintUnitPrice,
+      extraPhotoTotal: line.extraPhotoTotal,
+      packageSubtotal: line.packageSubtotal,
+      upgradeDelta: line.upgradeDelta,
+      packageItems: line.packageItems.map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        productName: item.productName,
+        category: item.category,
+        quantity: item.quantity,
+        unitAmount: item.priceSnapshot,
+        totalAmount: item.priceSnapshot * item.quantity,
+      })),
+    })),
+    addOns: workspace.addOns.map((addOn) => ({
+      id: `addon:${addOn.id}`,
+      orderAddOnId: addOn.addOnRowId,
+      productId: addOn.productId,
+      name: addOn.name,
+      quantity: 1,
+      unitAmount: addOn.price,
+      totalAmount: addOn.price,
+    })),
+    sessionConfigurations: [],
+    totals: {
+      packageBaseTotal: workspace.packageLines.reduce(
+        (sum, line) => sum + line.currentPackage.price,
+        0
+      ),
+      packageUpgradeDeltaTotal: 0,
+      deliverablesTotal: workspace.rawDeliverableTotal,
+      addOnTotal: workspace.addOnTotal,
+      extraPhotoTotal: workspace.extraPhotoTotal,
+      sessionConfigurationTotal: workspace.sessionConfigurationTotal,
+      netCompositionTotal:
+        workspace.packageLines.reduce(
+          (sum, line) => sum + line.currentPackage.price,
+          0
+        ) +
+        workspace.addOnTotal +
+        workspace.extraPhotoTotal +
+        workspace.sessionConfigurationTotal,
+    },
   };
 }
