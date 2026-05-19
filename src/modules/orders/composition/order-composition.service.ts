@@ -94,19 +94,24 @@ export async function getPendingAdjustmentOrderCompositionViewModel(
 ): Promise<OrderCompositionViewModel | null> {
   const workspace = await getAdjustmentWorkspaceView(workspaceId);
   if (!workspace) return null;
-  const metadataContext = await loadMetadataContextForEdits(workspace.pendingChanges.edits);
-  const baseComposition = buildCompositionSnapshotFromAdjustmentSnapshot(
-    workspace.baseSnapshot,
-    { metadataContext }
+  const [metadataContext, posWorkspace] = await Promise.all([
+    loadMetadataContextForEdits(workspace.pendingChanges.edits),
+    getPOSWorkspace(workspace.orderId),
+  ]);
+  const baseComposition = applyPOSPhotoUnitPrices(
+    buildCompositionSnapshotFromAdjustmentSnapshot(workspace.baseSnapshot, {
+      metadataContext,
+    }),
+    posWorkspace
   );
-  const pendingAdjustmentComposition = buildCompositionSnapshotFromAdjustmentSnapshot(
-    workspace.proposal.proposed,
-    {
+  const pendingAdjustmentComposition = applyPOSPhotoUnitPrices(
+    buildCompositionSnapshotFromAdjustmentSnapshot(workspace.proposal.proposed, {
       baseSnapshot: workspace.baseSnapshot,
       edits: workspace.pendingChanges.edits,
       adjustmentLines: workspace.proposal.deltas,
       metadataContext,
-    }
+    }),
+    posWorkspace
   );
 
   return {
@@ -273,6 +278,8 @@ function mapPOSPackageLine(line: POSPackageLine): CompositionPackageLine {
     extraDigitalCount: line.extraDigitalCount,
     extraPrintCount: line.extraPrintCount,
     extraPhotoCount: line.extraPhotoCount,
+    extraDigitalUnitPrice: line.extraDigitalUnitPrice,
+    extraPrintUnitPrice: line.extraPrintUnitPrice,
     upgradeDelta: roundMoney(line.upgradeDelta),
     packageItems,
   };
@@ -729,8 +736,33 @@ function toCompositionPackageLine(line: CompositionLine): CompositionPackageLine
     extraDigitalCount: 0,
     extraPrintCount: 0,
     extraPhotoCount: 0,
+    extraDigitalUnitPrice: 0,
+    extraPrintUnitPrice: 0,
     upgradeDelta: 0,
     packageItems: [],
+  };
+}
+
+function applyPOSPhotoUnitPrices(
+  snapshot: CompositionSnapshot,
+  workspace: POSWorkspace | null
+): CompositionSnapshot {
+  if (!workspace) return snapshot;
+  const lineByOrderPackageId = new Map(
+    workspace.packageLines.map((line) => [line.id, line])
+  );
+
+  return {
+    ...snapshot,
+    packageLines: snapshot.packageLines.map((line) => {
+      const source = lineByOrderPackageId.get(line.orderPackageId);
+      if (!source) return line;
+      return {
+        ...line,
+        extraDigitalUnitPrice: source.extraDigitalUnitPrice,
+        extraPrintUnitPrice: source.extraPrintUnitPrice,
+      };
+    }),
   };
 }
 

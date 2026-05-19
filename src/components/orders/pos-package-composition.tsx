@@ -43,10 +43,20 @@ import {
 } from "@/components/ui/select";
 import type {
   POSPackageLine,
-  POSPackageItem,
   POSProductOption,
   POSWorkspace,
 } from "@/modules/orders/order.types";
+import {
+  createProjectedPhotoDraft,
+  PHOTO_BILLING_MODE_OPTIONS,
+  readProjectedPhotoPayload,
+  readProjectedPhotoPreview,
+  type DraftPOSCompositionProjection,
+  type PhotoLineDraft,
+  type PhotoPayload,
+  type POSCompositionPackageItemProjection,
+  type POSCompositionPackageLineProjection,
+} from "@/modules/orders/composition/projections";
 import type {
   HandlerResult,
   POSCompositionHandlers,
@@ -56,6 +66,7 @@ import { formatMoney } from "@/lib/formatting/money";
 
 type POSPackageCompositionBaseProps = {
   workspace: POSWorkspace;
+  composition: DraftPOSCompositionProjection;
   handlers: POSCompositionHandlers;
 };
 
@@ -77,7 +88,7 @@ type POSPackageCompositionProps =
     });
 
 export function POSPackageComposition(props: POSPackageCompositionProps) {
-  const { workspace, handlers } = props;
+  const { workspace, composition, handlers } = props;
   const configurePanelMode = props.configurePanelMode ?? "auto";
   const adjustmentPanelContext =
     props.configurePanelMode === "adjustment"
@@ -88,11 +99,10 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
         }
       : null;
   const locked = workspace.invoice?.isLocked ?? false;
-  const packagePriceTotal =
-    workspace.packageLines.reduce(
-      (sum, line) => sum + line.currentPackage.price,
-      0
-    );
+  const workspaceLineById = new Map(
+    workspace.packageLines.map((line) => [line.id, line])
+  );
+  const packagePriceTotal = composition.totals.packageBaseTotal;
 
   return (
     <Card id="package-composition">
@@ -111,69 +121,81 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
         ) : null}
 
         <div className="space-y-4">
-          {workspace.packageLines.map((line) => (
+          {composition.packageLines.map((line) => {
+            const workspaceLine = workspaceLineById.get(line.orderPackageId);
+            if (process.env.NODE_ENV !== "production" && !workspaceLine) {
+              console.error(
+                `[POSPackageComposition] projected line ${line.orderPackageId} has no matching workspace line`
+              );
+            }
+            return (
             <div key={line.id} className="space-y-4 rounded-md border border-border p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="font-medium text-text-primary">
-                    {line.currentPackage.name}
+                    {line.packageName}
                   </p>
                   <p className="text-sm text-text-secondary">
-                    {line.sessionTypeName} · {line.includedPhotoCount} included photos · {line.currentPackage.priceLabel}
+                    {line.sessionTypeName} · {line.includedPhotoCount} included photos · {formatMoney(line.packagePrice)}
                   </p>
                 </div>
-                <PackageUpgradeDialog
-                  orderId={workspace.orderId}
-                  line={line}
-                  handlers={handlers}
-                />
-                <ConfigureSessionPanel
-                  key={configureSessionPanelKey({
-                    mode: configurePanelMode,
-                    line,
-                    workspaceVersion:
-                      adjustmentPanelContext?.workspaceVersion,
-                    pendingOverlay:
-                      adjustmentPanelContext?.pendingOverlayByOrderPackageId[
-                        line.id
-                      ],
-                  })}
-                  orderId={workspace.orderId}
-                  orderPackageId={line.id}
-                  packageName={line.currentPackage.name}
-                  sessionTypeName={line.sessionTypeName}
-                  mode={
-                    configurePanelMode === "adjustment" && adjustmentPanelContext
-                      ? {
-                          kind: "adjustment",
-                          workspaceId: adjustmentPanelContext.workspaceId,
-                          workspaceVersion:
-                            adjustmentPanelContext.workspaceVersion,
-                          pendingOverlay:
-                            adjustmentPanelContext.pendingOverlayByOrderPackageId[
-                              line.id
-                            ] ?? {},
-                        }
-                      : locked
-                        ? { kind: "locked", workspaceIsOpen: false }
-                        : { kind: "draft" }
-                  }
-                  availableConfigurations={line.availableConfigurations}
-                  currentSelections={line.currentSelections}
-                />
+                {workspaceLine ? (
+                  <>
+                    <PackageUpgradeDialog
+                      orderId={workspace.orderId}
+                      line={workspaceLine}
+                      handlers={handlers}
+                    />
+                    <ConfigureSessionPanel
+                      key={configureSessionPanelKey({
+                        mode: configurePanelMode,
+                        line: workspaceLine,
+                        workspaceVersion:
+                          adjustmentPanelContext?.workspaceVersion,
+                        pendingOverlay:
+                          adjustmentPanelContext?.pendingOverlayByOrderPackageId[
+                            workspaceLine.id
+                          ],
+                      })}
+                      orderId={workspace.orderId}
+                      orderPackageId={workspaceLine.id}
+                      packageName={line.packageName}
+                      sessionTypeName={line.sessionTypeName ?? workspaceLine.sessionTypeName}
+                      mode={
+                        configurePanelMode === "adjustment" && adjustmentPanelContext
+                          ? {
+                              kind: "adjustment",
+                              workspaceId: adjustmentPanelContext.workspaceId,
+                              workspaceVersion:
+                                adjustmentPanelContext.workspaceVersion,
+                              pendingOverlay:
+                                adjustmentPanelContext.pendingOverlayByOrderPackageId[
+                                  workspaceLine.id
+                                ] ?? {},
+                            }
+                          : locked
+                            ? { kind: "locked", workspaceIsOpen: false }
+                            : { kind: "draft" }
+                      }
+                      availableConfigurations={workspaceLine.availableConfigurations}
+                      currentSelections={workspaceLine.currentSelections}
+                    />
+                  </>
+                ) : null}
               </div>
-              {line.sessionConfigurationSummary.length > 0 ||
-              line.missingRequiredConfigurationCodes.length > 0 ? (
+              {workspaceLine &&
+              (workspaceLine.sessionConfigurationSummary.length > 0 ||
+                workspaceLine.missingRequiredConfigurationCodes.length > 0) ? (
                 <div className="space-y-2">
                   <ConfigurationSummaryChip
-                    summary={line.sessionConfigurationSummary}
-                    subtotal={line.sessionConfigurationSubtotal}
+                    summary={workspaceLine.sessionConfigurationSummary}
+                    subtotal={workspaceLine.sessionConfigurationSubtotal}
                   />
                   <ConfigurationMissingRequiredBadge
                     missingRequiredConfigurationCodes={
-                      line.missingRequiredConfigurationCodes
+                      workspaceLine.missingRequiredConfigurationCodes
                     }
-                    availableConfigurations={line.availableConfigurations}
+                    availableConfigurations={workspaceLine.availableConfigurations}
                   />
                 </div>
               ) : null}
@@ -184,7 +206,7 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                     key={item.id}
                     item={item}
                     orderId={workspace.orderId}
-                    orderPackageId={line.id}
+                    orderPackageId={line.orderPackageId}
                     productOptions={workspace.productOptions}
                     handlers={handlers}
                   />
@@ -196,8 +218,9 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                 ) : null}
               </div>
             </div>
-          ))}
-          {workspace.packageLines.length === 0 ? (
+          );
+          })}
+          {composition.packageLines.length === 0 ? (
             <div className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
               Structured package deliverables will appear here when available.
             </div>
@@ -233,6 +256,7 @@ function configureSessionPanelKey(input: {
 
 export function POSPhotoCountCard({
   workspace,
+  composition,
   handlers,
 }: POSPackageCompositionBaseProps) {
   const locked = workspace.invoice?.isLocked ?? false;
@@ -250,7 +274,7 @@ export function POSPhotoCountCard({
           </div>
         ) : null}
         <div className="space-y-4">
-          {workspace.packageLines.map((line) => (
+          {composition.packageLines.map((line) => (
             <POSPhotoLineForm
               key={`${line.id}:${line.selectedPhotoCount}:${line.extraDigitalCount}:${line.extraPrintCount}`}
               orderId={workspace.orderId}
@@ -270,7 +294,7 @@ function POSPhotoLineForm({
   handlers,
 }: {
   orderId: string;
-  line: POSPackageLine;
+  line: POSCompositionPackageLineProjection;
   handlers: POSCompositionHandlers;
 }) {
   const [state, formAction, pending] = useHandlerAction(
@@ -282,7 +306,7 @@ function POSPhotoLineForm({
       extraPrintCount: formDataNumber(formData, "extraPrintCount"),
     })
   );
-  const [draft, setDraft] = useState(() => buildPhotoLineDraft(line));
+  const [draft, setDraft] = useState(() => createProjectedPhotoDraft(line));
   const [clientErrors, setClientErrors] = useState<POSMutationActionState["errors"]>({});
   const [approvalPayload, setApprovalPayload] =
     useState<PhotoPayload | null>(null);
@@ -296,9 +320,9 @@ function POSPhotoLineForm({
     extraDigitalCount: line.extraDigitalCount,
     extraPrintCount: line.extraPrintCount,
   });
-  const preview = getPhotoLinePreview(draft, line);
+  const preview = readProjectedPhotoPreview(draft, line);
   function commitDraft(nextDraft: PhotoLineDraft) {
-    const resolved = resolvePhotoPayload(nextDraft, line.includedPhotoCount);
+    const resolved = readProjectedPhotoPayload(nextDraft, line.includedPhotoCount);
     if (resolved.errors) {
       setClientErrors(resolved.errors);
       return;
@@ -343,7 +367,7 @@ function POSPhotoLineForm({
         action={formAction}
         className="space-y-4 rounded-md border border-border bg-surface-soft p-4"
       >
-      <input type="hidden" name="orderPackageId" value={line.id} />
+      <input type="hidden" name="orderPackageId" value={line.orderPackageId} />
       <input
         ref={selectedHiddenInputRef}
         type="hidden"
@@ -369,7 +393,7 @@ function POSPhotoLineForm({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">
             <p className="text-base font-semibold leading-none text-text-primary">
-              {line.currentPackage.name}
+              {line.packageName}
             </p>
             <Badge
               variant="secondary"
@@ -387,11 +411,11 @@ function POSPhotoLineForm({
       <div className="border-t border-border/80 pt-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
           <div className="min-w-0 flex-[1.2] space-y-2.5">
-            <Label htmlFor={`selectedPhotoCount-${line.id}`}>Selected</Label>
+            <Label htmlFor={`selectedPhotoCount-${line.orderPackageId}`}>Selected</Label>
             <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center">
               <div className="w-full lg:max-w-[15rem]">
                 <Input
-                  id={`selectedPhotoCount-${line.id}`}
+                  id={`selectedPhotoCount-${line.orderPackageId}`}
                   type="number"
                   min={line.includedPhotoCount}
                   step={1}
@@ -449,7 +473,7 @@ function POSPhotoLineForm({
                         checked={checked}
                         className="sr-only"
                         disabled={pending}
-                        name={`billingMode-${line.id}`}
+                        name={`billingMode-${line.orderPackageId}`}
                         type="radio"
                         value={option.value}
                         onChange={() => {
@@ -480,14 +504,14 @@ function POSPhotoLineForm({
               <div className="flex-[0.9] space-y-2">
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor={`splitDigitalCount-${line.id}`}>Digital allocation</Label>
+                    <Label htmlFor={`splitDigitalCount-${line.orderPackageId}`}>Digital allocation</Label>
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-info/10 text-info">
                         <Monitor className="h-4 w-4" />
                       </div>
                       <div className="w-full max-w-[7rem]">
                         <Input
-                          id={`splitDigitalCount-${line.id}`}
+                          id={`splitDigitalCount-${line.orderPackageId}`}
                           type="number"
                           min={0}
                           max={preview.extraCount}
@@ -519,14 +543,14 @@ function POSPhotoLineForm({
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor={`splitPrintCount-${line.id}`}>Print allocation</Label>
+                    <Label htmlFor={`splitPrintCount-${line.orderPackageId}`}>Print allocation</Label>
                     <div className="flex items-center gap-2">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent">
                         <Printer className="h-4 w-4" />
                       </div>
                       <div className="w-full max-w-[7rem]">
                         <Input
-                          id={`splitPrintCount-${line.id}`}
+                          id={`splitPrintCount-${line.orderPackageId}`}
                           type="number"
                           min={0}
                           max={preview.extraCount}
@@ -595,7 +619,7 @@ function POSPhotoLineForm({
           action="update-selected-photo-count"
           approval={state.payload}
           hiddenFields={[
-            { name: "orderPackageId", value: line.id },
+            { name: "orderPackageId", value: line.orderPackageId },
             {
               name: "selectedPhotoCount",
               value: approvalPayload?.selectedPhotoCount ?? line.selectedPhotoCount,
@@ -615,49 +639,9 @@ function POSPhotoLineForm({
   );
 }
 
-const PHOTO_BILLING_MODE_OPTIONS = [
-  { value: "DIGITAL", label: "Digital" },
-  { value: "PRINT", label: "Print" },
-  { value: "SPLIT", label: "Split" },
-] as const;
-
-type PhotoBillingMode = (typeof PHOTO_BILLING_MODE_OPTIONS)[number]["value"];
-
-interface PhotoLineDraft {
-  selectedPhotoCount: string;
-  billingMode: PhotoBillingMode;
-  splitDigitalCount: string;
-  splitPrintCount: string;
-}
-
-type PhotoPayload = {
-  selectedPhotoCount: number;
-  extraDigitalCount: number;
-  extraPrintCount: number;
-};
-
-function buildPhotoLineDraft(line: POSPackageLine): PhotoLineDraft {
-  return {
-    selectedPhotoCount: String(line.selectedPhotoCount),
-    billingMode: resolveBillingMode(line),
-    splitDigitalCount: String(line.extraDigitalCount),
-    splitPrintCount: String(line.extraPrintCount),
-  };
-}
-
-function resolveBillingMode(line: POSPackageLine): PhotoBillingMode {
-  if (line.extraDigitalCount > 0 && line.extraPrintCount > 0) {
-    return "SPLIT";
-  }
-  if (line.extraPrintCount > 0) {
-    return "PRINT";
-  }
-  return "DIGITAL";
-}
-
 function applyBillingModeChange(
   draft: PhotoLineDraft,
-  billingMode: PhotoBillingMode,
+  billingMode: PhotoLineDraft["billingMode"],
   extraCount: number
 ): PhotoLineDraft {
   if (billingMode === "DIGITAL") {
@@ -683,42 +667,6 @@ function applyBillingModeChange(
     billingMode,
     splitDigitalCount: "0",
     splitPrintCount: String(extraCount),
-  };
-}
-
-function getPhotoLinePreview(draft: PhotoLineDraft, line: POSPackageLine) {
-  const selectedPhotoCount = parseDraftCount(draft.selectedPhotoCount) ?? 0;
-  const extraCount = Math.max(selectedPhotoCount - line.includedPhotoCount, 0);
-  const resolved = resolvePhotoPayload(draft, line.includedPhotoCount);
-  const extraDigitalCount = resolved.payload?.extraDigitalCount ?? 0;
-  const extraPrintCount = resolved.payload?.extraPrintCount ?? 0;
-  const extraPhotoTotal =
-    extraDigitalCount * line.extraDigitalUnitPrice +
-    extraPrintCount * line.extraPrintUnitPrice;
-  const activeModeLabel =
-    extraCount === 0
-      ? "No extras"
-      : draft.billingMode === "DIGITAL"
-        ? "Digital"
-        : draft.billingMode === "PRINT"
-          ? "Print"
-          : "Split";
-  const allocationStatus =
-    draft.billingMode !== "SPLIT" || extraCount === 0
-      ? ""
-      : `Split keeps ${extraCount} extras allocated across digital and print.`;
-
-  return {
-    extraCount,
-    allocationStatus,
-    compactSummary:
-      extraCount === 0
-        ? "No extra-photo charges"
-        : `${extraCount} ${extraCount === 1 ? "extra" : "extras"} · ${activeModeLabel} · ${formatMoney(extraPhotoTotal)}`,
-    detailSummary:
-      extraCount === 0
-        ? "No digital or print extras are saved for this line."
-        : `Digital ${extraDigitalCount} x ${formatMoney(line.extraDigitalUnitPrice)} · Print ${extraPrintCount} x ${formatMoney(line.extraPrintUnitPrice)} · Total ${formatMoney(extraPhotoTotal)}`,
   };
 }
 
@@ -779,92 +727,6 @@ function normalizeAllocationInput(value: string, extraCount: number): string {
   }
 
   return String(Math.min(parsed, extraCount));
-}
-
-function resolvePhotoPayload(
-  draft: PhotoLineDraft,
-  includedPhotoCount: number
-): {
-  payload?: {
-    selectedPhotoCount: number;
-    extraDigitalCount: number;
-    extraPrintCount: number;
-  };
-  errors?: POSMutationActionState["errors"];
-} {
-  const selectedPhotoCount = parseDraftCount(draft.selectedPhotoCount);
-  if (selectedPhotoCount === null) {
-    return {
-      errors: { selectedPhotoCount: ["Selected photos are required"] },
-    };
-  }
-  if (selectedPhotoCount < includedPhotoCount) {
-    return {
-      errors: {
-        selectedPhotoCount: [
-          `Selected photos cannot be below the ${includedPhotoCount} included photos`,
-        ],
-      },
-    };
-  }
-
-  const extraCount = Math.max(selectedPhotoCount - includedPhotoCount, 0);
-  if (extraCount === 0) {
-    return {
-      payload: {
-        selectedPhotoCount,
-        extraDigitalCount: 0,
-        extraPrintCount: 0,
-      },
-    };
-  }
-
-  if (draft.billingMode === "DIGITAL") {
-    return {
-      payload: {
-        selectedPhotoCount,
-        extraDigitalCount: extraCount,
-        extraPrintCount: 0,
-      },
-    };
-  }
-
-  if (draft.billingMode === "PRINT") {
-    return {
-      payload: {
-        selectedPhotoCount,
-        extraDigitalCount: 0,
-        extraPrintCount: extraCount,
-      },
-    };
-  }
-
-  const extraDigitalCount = parseDraftCount(draft.splitDigitalCount);
-  const extraPrintCount = parseDraftCount(draft.splitPrintCount);
-  if (extraDigitalCount === null || extraPrintCount === null) {
-    return {
-      errors: {
-        extraDigitalCount: ["Split allocations are required for both media types"],
-      },
-    };
-  }
-  if (extraDigitalCount + extraPrintCount !== extraCount) {
-    return {
-      errors: {
-        extraDigitalCount: [
-          `Split allocations must total ${extraCount} derived extra photos`,
-        ],
-      },
-    };
-  }
-
-  return {
-    payload: {
-      selectedPhotoCount,
-      extraDigitalCount,
-      extraPrintCount,
-    },
-  };
 }
 
 function parseDraftCount(value: string): number | null {
@@ -980,7 +842,7 @@ function DeliverableCard({
   productOptions,
   handlers,
 }: {
-  item: POSPackageItem;
+  item: POSCompositionPackageItemProjection;
   orderId: string;
   orderPackageId: string;
   productOptions: POSProductOption[];
@@ -999,14 +861,16 @@ function DeliverableCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-text-primary">{item.productName}</p>
-          <p className="mt-1 text-xs uppercase text-text-muted">{item.category}</p>
+          <p className="mt-1 text-xs uppercase text-text-muted">
+            {item.category ?? "Item"}
+          </p>
         </div>
         <Badge variant="outline" className="rounded-md">
           {item.quantity}x
         </Badge>
       </div>
       <p className="mt-3 text-sm text-text-secondary">
-        {item.quantity}x · {item.priceSnapshotLabel}
+        {item.quantity}x · {formatMoney(item.unitAmount)}
       </p>
       <ItemUpgradeDialog
         orderId={orderId}
@@ -1028,7 +892,7 @@ function ItemUpgradeDialog({
 }: {
   orderId: string;
   orderPackageId: string;
-  item: POSPackageItem;
+  item: POSCompositionPackageItemProjection;
   options: POSProductOption[];
   handlers: POSCompositionHandlers;
 }) {
@@ -1062,7 +926,7 @@ function ItemUpgradeDialog({
         <DialogHeader>
           <DialogTitle>Upgrade {item.productName}</DialogTitle>
           <DialogDescription>
-            Select another {item.category.toLowerCase()} product. The price difference is recorded on the order.
+            Select another {(item.category ?? "item").toLowerCase()} product. The price difference is recorded on the order.
           </DialogDescription>
         </DialogHeader>
         <form action={formAction} className="space-y-4">
