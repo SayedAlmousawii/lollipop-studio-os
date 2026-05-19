@@ -30,10 +30,8 @@ import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
-import {
-  getOrdersTableFinancialProjections,
-  type OrdersTableRowProjection,
-} from "@/modules/financial-cases";
+import { getOrdersTableFinancialProjections } from "@/modules/financial-cases/orders-table-projections.service";
+import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import {
   invoiceLockSnapshotSelect,
   recordInvoiceLockSnapshot,
@@ -264,7 +262,7 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
     "Failed to fetch orders"
   );
   const financialByOrderId = await withRetry(
-    () => getOrdersTableFinancialProjections(rows.map((row) => row.id)),
+    () => getOrdersTableFinancialProjections({ orderIds: rows.map((row) => row.id) }),
     "Failed to fetch order table financial projections"
   );
 

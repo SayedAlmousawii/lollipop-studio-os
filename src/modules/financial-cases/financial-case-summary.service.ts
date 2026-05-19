@@ -7,6 +7,7 @@ import {
   computeCreditNoteCapacityForFinal,
   computeOverpaymentCapacity,
 } from "@/modules/invoices/invoice.service";
+import { deriveFinancialCasePaymentStatus } from "./financial-case-payment-status";
 import {
   computeOrderSettlementSummary,
   deriveLockedFinancialSidebarSummary,
@@ -22,11 +23,9 @@ import {
 } from "./projections";
 import type {
   FinancialCaseInvoiceSummary,
-  FinancialCasePaymentStatus,
   FinancialCaseSummary,
   FinancialCaseSummaryInput,
 } from "./financial-case-summary.types";
-import type { OrdersTableRowProjection } from "./projections";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -152,47 +151,13 @@ export async function getFinancialCaseSummary(
       await computeCreditNoteCapacityForFinal(finalInvoice.id, client)
     ).toNumber(),
     linkedDocuments,
-    paymentStatusEnum: derivePaymentStatusEnum({
+    paymentStatusEnum: deriveFinancialCasePaymentStatus({
       settlementSummary,
       effectivePaid: effectivePaid.toNumber(),
       customerTotal: lockedSummary.customerTotal,
       refunds: refunds.length,
     }),
   };
-}
-
-export async function getOrdersTableFinancialProjections(
-  orderIds: string[],
-  client: DbClient = db
-): Promise<Map<string, OrdersTableRowProjection | null>> {
-  const uniqueOrderIds = [...new Set(orderIds)];
-  if (uniqueOrderIds.length === 0) return new Map();
-
-  const rows = await client.order.findMany({
-    where: { id: { in: uniqueOrderIds } },
-    select: {
-      id: true,
-      booking: { select: { financialCase: { select: { id: true } } } },
-    },
-  });
-  const projections = await Promise.all(
-    rows.map(async (row) => {
-      const financialCaseId = row.booking.financialCase?.id ?? null;
-      if (!financialCaseId) return [row.id, null] as const;
-
-      const summary = await getFinancialCaseSummary({ financialCaseId }, client);
-      return [row.id, summary ? toOrdersTableRow(summary) : null] as const;
-    })
-  );
-  const projectionByOrderId = new Map<string, OrdersTableRowProjection | null>();
-  for (const orderId of uniqueOrderIds) {
-    projectionByOrderId.set(orderId, null);
-  }
-  for (const [orderId, projection] of projections) {
-    projectionByOrderId.set(orderId, projection);
-  }
-
-  return projectionByOrderId;
 }
 
 export async function checkFinancialCaseSummaryProjectorParity(
@@ -550,24 +515,4 @@ async function deriveLegacySettlementSummary(
   if (invoices.length === 0) return null;
 
   return computeOrderSettlementSummary({ invoices });
-}
-
-function derivePaymentStatusEnum(input: {
-  settlementSummary: ReturnType<typeof computeOrderSettlementSummary>;
-  effectivePaid: number;
-  customerTotal: number;
-  refunds: number;
-}): FinancialCasePaymentStatus {
-  if (input.refunds > 0) return "REFUNDED";
-  if (
-    input.settlementSummary.hasOverpayment ||
-    input.effectivePaid - input.customerTotal > 0.0005
-  ) {
-    return "OVERPAID";
-  }
-  if (input.customerTotal > 0 && input.settlementSummary.outstandingAmount <= 0.0005) {
-    return "PAID";
-  }
-  if (input.effectivePaid <= 0.0005) return "UNPAID";
-  return "PARTIAL";
 }
