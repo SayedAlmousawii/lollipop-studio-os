@@ -38,6 +38,10 @@ test("R10a booking policy exposes destructive confirmed booking status actions",
     status: BookingStatus.CONFIRMED,
     depositPaid: true,
   });
+  const unpaidPolicy = buildBookingWorkflowPolicy({
+    status: BookingStatus.CONFIRMED,
+    depositPaid: false,
+  });
 
   assert.deepEqual(
     policy.actions.map((action) => action.key),
@@ -58,6 +62,7 @@ test("R10a booking policy exposes destructive confirmed booking status actions",
       BOOKING_WORKFLOW_MESSAGES.cancelConfirmation,
     ]
   );
+  assert.deepEqual(unpaidPolicy.actions, policy.actions);
 });
 
 test("R10a booking policy exposes terminal empty states", () => {
@@ -111,6 +116,8 @@ test("R10a BookingStatusActions renders from policy instead of local action maps
 
   assert.doesNotMatch(componentSource, /STATUS_ACTIONS/);
   assert.doesNotMatch(componentSource, /nextStatus === ["']CONFIRMED["']/);
+  assert.doesNotMatch(componentSource, /isDestructive/);
   assert.match(componentSource, /policy\.actions/);
+  assert.match(componentSource, /filter\(\(action\) => action\.available\)/);
   assert.match(serviceSource, /assertBookingStatusTransitionAllowed/);
 });

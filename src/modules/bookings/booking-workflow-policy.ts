@@ -10,13 +10,6 @@ export type BookingWorkflowActionKey =
   | "record_no_show"
   | "cancel_booking";
 
-export type BookingWorkflowBlockedReason =
-  | "CONFIRMATION_HANDLED_BY_DEPOSIT"
-  | "BOOKING_ALREADY_CHECKED_IN"
-  | "BOOKING_CANCELLED"
-  | "BOOKING_NO_SHOW"
-  | "NO_STATUS_ACTIONS";
-
 export type BookingWorkflowAction = {
   key: BookingWorkflowActionKey;
   label: string;
@@ -58,7 +51,6 @@ export const BOOKING_WORKFLOW_MESSAGES = {
   checkedIn: "Checked-in bookings no longer have booking status actions.",
   cancelled: "Cancelled bookings have no further status actions.",
   noShow: "No-show bookings have no further status actions.",
-  noStatusActions: "No booking status actions are currently available.",
   noShowConfirmation: "Mark this booking as a no-show?",
   cancelConfirmation: "Cancel this booking?",
 } as const;

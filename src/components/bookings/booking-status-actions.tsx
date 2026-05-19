@@ -30,7 +30,7 @@ export function BookingStatusActions({
     UpdateBookingStatusActionState,
     FormData
   >(updateBookingStatusAction, {});
-  const actions = policy.actions;
+  const actions = policy.actions.filter((action) => action.available);
 
   if (actions.length === 0) {
     if (!showEmptyState || !policy.emptyStateMessage) return null;
@@ -83,7 +83,6 @@ function StatusSubmitButton({
   confirmationMessage: string | null;
 }) {
   const { pending } = useFormStatus();
-  const isDestructive = action.intent === "destructive";
 
   return (
     <button
@@ -91,11 +90,7 @@ function StatusSubmitButton({
       disabled={pending || disabled}
       title={action.blockedReason ?? undefined}
       onClick={(event) => {
-        if (
-          isDestructive &&
-          confirmationMessage &&
-          !window.confirm(confirmationMessage)
-        ) {
+        if (confirmationMessage && !window.confirm(confirmationMessage)) {
           event.preventDefault();
         }
       }}
