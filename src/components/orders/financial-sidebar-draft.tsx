@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CreateOrderInvoiceForm } from "@/components/orders/create-order-invoice-form";
 import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-dialog";
-import { MoneyRow, formatKD } from "@/components/financial";
+import { MoneyRow } from "@/components/financial";
+import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 import { AdjustmentInvoiceBlock } from "./financial-sidebar-adjustment-blocks";
 import {
@@ -96,7 +97,7 @@ export function FinancialSidebarDraft({
                     <MoneyRow
                       key={line.id}
                       label={`Package (${line.currentPackage.name})`}
-                      value={formatKD(line.currentPackage.price)}
+                      value={formatMoney(line.currentPackage.price)}
                     />
                   ))
                 ) : null}
@@ -104,13 +105,13 @@ export function FinancialSidebarDraft({
                 !(invoice.renderMode === "SNAPSHOT" && invoice.lineItems.length === 0) ? (
                   <MoneyRow
                     label={`Deposit${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
-                    value={`-${formatKD(invoice.depositPaidAmount)}`}
+                    value={formatSignedMoney(-invoice.depositPaidAmount)}
                   />
                 ) : null}
                 {extraPhotoAmount > 0 ? (
                   <MoneyRow
                     label={`Extra photos total (${workspace.extraPhotoCount})`}
-                    value={formatKD(extraPhotoAmount)}
+                    value={formatMoney(extraPhotoAmount)}
                   />
                 ) : null}
                 {workspace.addOns.map((addOn) => (
@@ -119,7 +120,7 @@ export function FinancialSidebarDraft({
                 {workspace.sessionConfigurationTotal !== 0 ? (
                   <MoneyRow
                     label="Session configuration fees"
-                    value={formatKD(workspace.sessionConfigurationTotal)}
+                    value={formatMoney(workspace.sessionConfigurationTotal)}
                   />
                 ) : null}
               </>
@@ -127,20 +128,20 @@ export function FinancialSidebarDraft({
             {invoice?.renderMode === "SNAPSHOT" && invoice.depositPaidAmount ? (
               <MoneyRow
                 label={`Deposit${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
-                value={`-${formatKD(invoice.depositPaidAmount)}`}
+                value={formatSignedMoney(-invoice.depositPaidAmount)}
               />
             ) : null}
             <MoneyRow
               label={invoice ? "Final invoice total" : "Preview total"}
-              value={formatKD(totalAmount)}
+              value={formatMoney(totalAmount)}
               strong
             />
           </div>
 
           {invoice ? (
             <div className="space-y-2 border-t border-border pt-4">
-              <MoneyRow label="Paid" value={formatKD(invoice.paidAmount)} />
-              <MoneyRow label="Remaining balance" value={formatKD(invoice.remainingAmount)} strong />
+              <MoneyRow label="Paid" value={formatMoney(invoice.paidAmount)} />
+              <MoneyRow label="Remaining balance" value={formatMoney(invoice.remainingAmount)} strong />
             </div>
           ) : null}
 
@@ -180,7 +181,7 @@ export function FinancialSidebarDraft({
             <div className="border-t border-border pt-4">
               <MoneyRow
                 label="Outstanding total"
-                value={formatKD(workspace.aggregateOutstanding)}
+                value={formatMoney(workspace.aggregateOutstanding)}
                 strong
               />
             </div>

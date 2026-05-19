@@ -1,5 +1,9 @@
 import { BookingStatus, OrderStatus, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import {
+  formatMoney as formatPrice,
+  formatSignedMoney,
+} from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { createPackageSchema, updatePackageSchema } from "./package.schema";
 import type {
@@ -657,7 +661,7 @@ function mapPackageWithItems(
     sessionTypeName: row.packageFamily.sessionType.name,
     departmentId: row.packageFamily.sessionType.department.id,
     departmentName: row.packageFamily.sessionType.department.name,
-    bundleAdjustment: formatSignedPrice(row.bundleAdjustment),
+    bundleAdjustment: formatSignedMoney(row.bundleAdjustment, { signDisplay: "always" }),
     bundleAdjustmentValue: row.bundleAdjustment.toNumber(),
     bookingCount: row._count.bookingPackages,
     orderCount: row._count.orderPackages,
@@ -706,15 +710,6 @@ function summarizePackageDeliverables(row: {
 
 function decimal(value: number): Prisma.Decimal {
   return new Prisma.Decimal(value.toFixed(3));
-}
-
-function formatPrice(value: { toFixed(dp: number): string }): string {
-  return value.toFixed(3) + " KD";
-}
-
-function formatSignedPrice(value: Prisma.Decimal): string {
-  const sign = value.isNegative() ? "-" : "+";
-  return `${sign}${value.abs().toFixed(3)} KD`;
 }
 
 interface ResolvedPackageItem {

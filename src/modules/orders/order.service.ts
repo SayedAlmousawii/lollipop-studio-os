@@ -23,6 +23,7 @@ import type { ActorContext } from "@/lib/auth/actor-context";
 import { PERMISSIONS } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
+import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
@@ -3373,10 +3374,6 @@ function formatDateInput(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function formatMoney(value: { toFixed(dp: number): string }): string {
-  return `${value.toFixed(3)} KD`;
-}
-
 function formatCount(value: number | null): string {
   return value === null ? "—" : String(value);
 }
@@ -4019,10 +4016,6 @@ function mapPackageItemDisplays(
     unitPrice: formatMoney(row.priceSnapshot),
     lineTotal: formatMoney(row.priceSnapshot.mul(row.quantity)),
   }));
-}
-
-function formatSignedMoney(value: Prisma.Decimal): string {
-  return `${value.greaterThan(0) ? "+" : ""}${formatMoney(value)}`;
 }
 
 function mapOrderEditingWorkflow(

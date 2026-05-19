@@ -52,6 +52,7 @@ import type {
   POSCompositionHandlers,
   POSMutationActionState,
 } from "@/modules/orders/pos-handlers.types";
+import { formatMoney } from "@/lib/formatting/money";
 
 type POSPackageCompositionBaseProps = {
   workspace: POSWorkspace;
@@ -206,7 +207,7 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
         <div className="space-y-2 border-t border-border pt-4 text-sm">
           <MoneyLine
             label="Package price"
-            value={formatKD(packagePriceTotal)}
+            value={formatMoney(packagePriceTotal)}
             strong
           />
         </div>
@@ -713,11 +714,11 @@ function getPhotoLinePreview(draft: PhotoLineDraft, line: POSPackageLine) {
     compactSummary:
       extraCount === 0
         ? "No extra-photo charges"
-        : `${extraCount} ${extraCount === 1 ? "extra" : "extras"} · ${activeModeLabel} · ${formatKD(extraPhotoTotal)}`,
+        : `${extraCount} ${extraCount === 1 ? "extra" : "extras"} · ${activeModeLabel} · ${formatMoney(extraPhotoTotal)}`,
     detailSummary:
       extraCount === 0
         ? "No digital or print extras are saved for this line."
-        : `Digital ${extraDigitalCount} x ${formatKD(line.extraDigitalUnitPrice)} · Print ${extraPrintCount} x ${formatKD(line.extraPrintUnitPrice)} · Total ${formatKD(extraPhotoTotal)}`,
+        : `Digital ${extraDigitalCount} x ${formatMoney(line.extraDigitalUnitPrice)} · Print ${extraPrintCount} x ${formatMoney(line.extraPrintUnitPrice)} · Total ${formatMoney(extraPhotoTotal)}`,
   };
 }
 
@@ -1202,8 +1203,4 @@ function GlobalError({ messages }: { messages?: string[] }) {
       {messages[0]}
     </p>
   );
-}
-
-function formatKD(value: number): string {
-  return `${value.toFixed(3)} KD`;
 }

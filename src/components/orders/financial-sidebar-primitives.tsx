@@ -1,4 +1,5 @@
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import { formatMoney } from "@/lib/formatting/money";
 
 export function AdjustmentInvoiceSummary({
   invoice,
@@ -10,7 +11,7 @@ export function AdjustmentInvoiceSummary({
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="font-medium text-text-primary">{invoice.invoiceNumber}</span>
         <span className="tabular-nums text-text-secondary">
-          {formatKD(invoice.invoiceTotal)}
+          {formatMoney(invoice.invoiceTotal)}
         </span>
       </div>
     </div>
@@ -54,8 +55,4 @@ export function MoneyRow({
       <span className="tabular-nums">{value}</span>
     </div>
   );
-}
-
-export function formatKD(value: number): string {
-  return `${value.toFixed(3)} KD`;
 }

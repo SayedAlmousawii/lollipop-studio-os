@@ -1,8 +1,6 @@
 import { Badge } from "@/components/ui/badge";
-import {
-  MoneyRow,
-  formatKD,
-} from "@/components/orders/financial-sidebar-primitives";
+import { MoneyRow } from "@/components/orders/financial-sidebar-primitives";
+import { formatMoney } from "@/lib/formatting/money";
 import type { LockedFinancialSidebarSummary } from "./financial-types";
 
 export function FinancialPaymentSummary({
@@ -26,19 +24,19 @@ export function FinancialPaymentSummary({
       <div className="space-y-2">
         <MoneyRow
           label="Customer Total"
-          value={formatKD(summary.customerTotal)}
+          value={formatMoney(summary.customerTotal)}
           strong
         />
-        <MoneyRow label="Paid So Far" value={formatKD(summary.paidSoFar)} />
+        <MoneyRow label="Paid So Far" value={formatMoney(summary.paidSoFar)} />
         {summary.includesDeposit > 0 ? (
           <div className="flex items-center justify-between gap-3 pl-4 text-xs text-text-muted">
             <span>Includes Deposit</span>
             <span className="tabular-nums">
-              {formatKD(summary.includesDeposit)}
+              {formatMoney(summary.includesDeposit)}
             </span>
           </div>
         ) : null}
-        <MoneyRow label="Remaining" value={formatKD(summary.remaining)} strong />
+        <MoneyRow label="Remaining" value={formatMoney(summary.remaining)} strong />
       </div>
     </section>
   );

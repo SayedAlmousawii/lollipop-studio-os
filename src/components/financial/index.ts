@@ -1,11 +1,7 @@
-export {
-  MoneyRow,
-  formatKD,
-} from "@/components/orders/financial-sidebar-primitives";
+export { MoneyRow } from "@/components/orders/financial-sidebar-primitives";
 export {
   formatEnumLabel,
   formatSignedDocumentAmount,
-  formatSignedKD,
 } from "./financial-format";
 export { FinancialLinkedDocuments } from "./financial-linked-documents";
 export { FinancialPaymentSummary } from "./financial-payment-summary";

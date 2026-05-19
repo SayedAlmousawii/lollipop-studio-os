@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, RotateCcw, X } from "lucide-react";
 import { requireCurrentAppUser } from "@/lib/auth";
+import { formatSignedMoney } from "@/lib/formatting/money";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -251,7 +252,7 @@ function PendingChangesBlock({
                   <p className="font-medium text-text-primary">{row.label}</p>
                   <p className="mt-1 text-text-secondary">
                     {row.description}
-                    {row.amount !== 0 ? ` (${formatSignedKD(row.amount)})` : ""}
+                    {row.amount !== 0 ? ` (${formatSignedMoney(row.amount)})` : ""}
                   </p>
                 </div>
                 {canEdit ? (
@@ -362,15 +363,8 @@ function SummaryAmount({
             : "text-text-primary"
         }`}
       >
-        {formatSignedKD(value)}
+        {formatSignedMoney(value)}
       </p>
     </div>
   );
-}
-
-function formatSignedKD(value: number) {
-  const formatted = `${Math.abs(value).toFixed(3)} KD`;
-  if (value > 0) return `+${formatted}`;
-  if (value < 0) return `-${formatted}`;
-  return "0.000 KD";
 }

@@ -8,7 +8,7 @@ import {
 } from "@prisma/client";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { formatKD } from "@/components/financial";
+import { formatMoney } from "@/lib/formatting/money";
 import { OrderDetailsFinancialsTab } from "@/components/financial/order-details-financials-tab";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
 import type {
@@ -61,9 +61,9 @@ test("OrderDetailsFinancialsTab displays summary values from projector-shaped da
     })
   );
 
-  assert.match(markup, new RegExp(`Customer Total[\\s\\S]*${formatKD(summary.customerTotal)}`));
-  assert.match(markup, new RegExp(`Paid So Far[\\s\\S]*${formatKD(summary.paidSoFar)}`));
-  assert.match(markup, new RegExp(`Remaining[\\s\\S]*${formatKD(summary.remaining)}`));
+  assert.match(markup, new RegExp(`Customer Total[\\s\\S]*${escapeRegExp(formatMoney(summary.customerTotal))}`));
+  assert.match(markup, new RegExp(`Paid So Far[\\s\\S]*${escapeRegExp(formatMoney(summary.paidSoFar))}`));
+  assert.match(markup, new RegExp(`Remaining[\\s\\S]*${escapeRegExp(formatMoney(summary.remaining))}`));
 });
 
 test("OrderDetailsFinancialsTab is read-only", () => {
@@ -94,7 +94,7 @@ test("Order settlement header renders projector-shaped financial data", () => {
     createElement(OrderSettlementSummary, { summary: headerSummary })
   );
 
-  assert.match(markup, new RegExp(`${formatKD(summary.remaining)} outstanding`));
+  assert.match(markup, new RegExp(`${escapeRegExp(formatMoney(summary.remaining))} outstanding`));
   assert.match(markup, /Partially paid/);
 });
 
@@ -108,6 +108,10 @@ function financialSummaryFixture(): FinancialTabBlockProjection {
     totalAdjustments: 40,
     finalTotal: 270,
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function workspaceFixture(): POSWorkspace {

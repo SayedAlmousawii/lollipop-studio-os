@@ -5,8 +5,8 @@ import type { POSWorkspace } from "@/modules/orders/order.types";
 import {
   InvoiceLineRow,
   MoneyRow,
-  formatKD,
 } from "./financial-sidebar-primitives";
+import { formatMoney } from "@/lib/formatting/money";
 
 export function AdjustmentInvoiceBlock({
   invoice,
@@ -48,11 +48,11 @@ export function AdjustmentInvoiceBlock({
         ))}
       </div>
       <div className="space-y-1 border-t border-border pt-3">
-        <MoneyRow label="Total" value={formatKD(invoice.invoiceTotal)} />
-        <MoneyRow label="Paid" value={formatKD(invoice.paidAmount)} />
+        <MoneyRow label="Total" value={formatMoney(invoice.invoiceTotal)} />
+        <MoneyRow label="Paid" value={formatMoney(invoice.paidAmount)} />
         <MoneyRow
           label="Remaining"
-          value={formatKD(invoice.remainingAmount)}
+          value={formatMoney(invoice.remainingAmount)}
           strong
         />
       </div>

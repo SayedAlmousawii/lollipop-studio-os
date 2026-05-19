@@ -5,6 +5,7 @@ import { SectionHeader } from "@/components/dashboard/section-header";
 import { ScheduleItem } from "@/components/dashboard/schedule-item";
 import { ActivityItem } from "@/components/dashboard/activity-item";
 import { PhoneSalesSearch } from "@/components/dashboard/phone-sales-search";
+import { formatMoney } from "@/lib/formatting/money";
 import { getDashboardData } from "@/modules/dashboard/dashboard.service";
 
 export default async function DashboardPage() {
@@ -24,8 +25,8 @@ export default async function DashboardPage() {
             />
             <StatCard
               title="Revenue Today"
-              value={`KD ${stats.revenueToday.toLocaleString()}`}
-              subtext={`KD ${stats.revenueReceivedToday.toLocaleString()} received · KD ${stats.revenueRefundedToday.toLocaleString()} refunded`}
+              value={formatMoney(stats.revenueToday)}
+              subtext={`${formatMoney(stats.revenueReceivedToday)} received · ${formatMoney(stats.revenueRefundedToday)} refunded`}
               icon={<DollarSign size={18} />}
             />
             <StatCard
