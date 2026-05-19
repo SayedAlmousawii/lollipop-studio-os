@@ -20,6 +20,8 @@ import type { LinkedFinancialDocument } from "@/modules/orders/order.types";
 import { compareSummaryWithLegacy } from "./discrepancy-logger";
 import {
   toFinancialTabBlock,
+  toOrderHeaderFinancial,
+  toOrdersTableRow,
   toSalesSidebarLocked,
 } from "./projections";
 import type {
@@ -65,11 +67,7 @@ export async function getFinancialCaseSummary(
       bookingId: financialCase.bookingId,
       depositInvoice: depositInvoice
         ? {
-            id: depositInvoice.id,
-            invoiceNumber: depositInvoice.invoiceNumber,
-            total: depositInvoice.totalAmount.toNumber(),
-            status: depositInvoice.status,
-            paidAmount: deriveSettlementPaidAmount(depositInvoice).toNumber(),
+            ...mapDepositInvoiceSummary(depositInvoice),
           }
         : null,
       depositPaid: depositInvoice
@@ -133,6 +131,9 @@ export async function getFinancialCaseSummary(
     financialCaseId: financialCase.id,
     orderId,
     bookingId: financialCase.bookingId,
+    depositInvoice: depositInvoice
+      ? mapDepositInvoiceSummary(depositInvoice)
+      : null,
     finalInvoice: {
       ...mapInvoiceSummary(finalInvoice),
       depositPaidAmount: depositInvoice?.paidAmount.toNumber() ?? 0,
@@ -169,7 +170,11 @@ export async function checkFinancialCaseSummaryProjectorParity(
   Array<{
     financialCaseId: string;
     orderId: string | null;
-    projector: "toFinancialTabBlock" | "toSalesSidebarLocked";
+    projector:
+      | "toFinancialTabBlock"
+      | "toSalesSidebarLocked"
+      | "toOrderHeaderFinancial"
+      | "toOrdersTableRow";
     field: string;
     actual: string;
   }>
@@ -182,7 +187,11 @@ export async function checkFinancialCaseSummaryProjectorParity(
   const violations: Array<{
     financialCaseId: string;
     orderId: string | null;
-    projector: "toFinancialTabBlock" | "toSalesSidebarLocked";
+    projector:
+      | "toFinancialTabBlock"
+      | "toSalesSidebarLocked"
+      | "toOrderHeaderFinancial"
+      | "toOrdersTableRow";
     field: string;
     actual: string;
   }> = [];
@@ -206,6 +215,70 @@ export async function checkFinancialCaseSummaryProjectorParity(
     ] as const) {
       const discrepancies = compareSummaryWithLegacy(
         legacyDerivation,
+        projector[1],
+        {
+          context: {
+            financialCaseId: summary.financialCaseId,
+            orderId: summary.orderId,
+            projector: projector[0],
+          },
+        }
+      );
+
+      violations.push(
+        ...discrepancies.map((discrepancy) => ({
+          financialCaseId: summary.financialCaseId,
+          orderId: summary.orderId,
+          projector: projector[0],
+          field: discrepancy.field,
+          actual:
+            discrepancy.delta === undefined
+              ? `legacy=${String(discrepancy.legacyValue)}, projector=${String(
+                  discrepancy.projectorValue
+                )}`
+              : `legacy=${String(discrepancy.legacyValue)}, projector=${String(
+                  discrepancy.projectorValue
+                )}, delta=${discrepancy.delta.toFixed(6)}`,
+        }))
+      );
+    }
+
+    const settlementSummary = await deriveLegacySettlementSummary(
+      summary.financialCaseId,
+      client
+    );
+    if (!settlementSummary) continue;
+    const headerProjection = toOrderHeaderFinancial(summary);
+    const tableProjection = toOrdersTableRow(summary);
+
+    for (const projector of [
+      [
+        "toOrderHeaderFinancial",
+        {
+          totalOrderValue: headerProjection?.totalOrderValue,
+          outstandingAmount: headerProjection?.outstandingAmount,
+        },
+      ],
+      [
+        "toOrdersTableRow",
+        {
+          totalAmount: tableProjection?.totalAmount,
+          remainingAmount: tableProjection?.remainingAmount,
+        },
+      ],
+    ] as const) {
+      const legacyComparable =
+        projector[0] === "toOrderHeaderFinancial"
+          ? {
+              totalOrderValue: settlementSummary.totalOrderValue,
+              outstandingAmount: settlementSummary.outstandingAmount,
+            }
+          : {
+              totalAmount: settlementSummary.totalOrderValue,
+              remainingAmount: settlementSummary.outstandingAmount,
+            };
+      const discrepancies = compareSummaryWithLegacy(
+        legacyComparable,
         projector[1],
         {
           context: {
@@ -308,6 +381,17 @@ function mapInvoiceSummary(
     remaining: invoice.remainingAmount.toNumber(),
     status: invoice.status,
     isLocked: invoice.isLocked,
+  };
+}
+
+function mapDepositInvoiceSummary(invoice: CaseRow["invoices"][number]) {
+  return {
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    total: invoice.totalAmount.toNumber(),
+    status: invoice.status,
+    isLocked: invoice.isLocked,
+    paidAmount: deriveSettlementPaidAmount(invoice).toNumber(),
   };
 }
 
@@ -415,6 +499,23 @@ async function deriveLegacyLockedSummary(orderId: string, client: DbClient) {
       })),
     orderId,
   });
+}
+
+async function deriveLegacySettlementSummary(
+  financialCaseId: string,
+  client: DbClient
+) {
+  const invoices = await client.invoice.findMany({
+    where: { financialCaseId },
+    select: {
+      invoiceType: true,
+      totalAmount: true,
+      remainingAmount: true,
+    },
+  });
+  if (invoices.length === 0) return null;
+
+  return computeOrderSettlementSummary({ invoices });
 }
 
 function derivePaymentStatusEnum(input: {
