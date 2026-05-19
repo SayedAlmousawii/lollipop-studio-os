@@ -31,6 +31,11 @@ import {
   toPOSAddOnMarketplace,
 } from "@/modules/orders/composition";
 import {
+  buildPOSAddOnEditPolicies,
+  buildPOSPackageCompositionEditPolicies,
+  orderEditModeContextFromWorkspace,
+} from "@/modules/orders/policies/edit-mode-policy";
+import {
   cancelAdjustmentWorkspaceAction,
   removeWorkspaceEditAction,
   takeOverAdjustmentWorkspaceAction,
@@ -73,6 +78,16 @@ export default async function AdjustmentWorkspacePage(
   );
   const posComposition = toLockedPOSComposition(compositionModel);
   const addOnMarketplace = toPOSAddOnMarketplace(posComposition);
+  const editPolicyContext = orderEditModeContextFromWorkspace({
+    orderId: derivedPOSWorkspace.orderId,
+    orderStatus: derivedPOSWorkspace.orderStatusRaw,
+    finalInvoiceIsLocked: derivedPOSWorkspace.invoice?.isLocked ?? false,
+    openAdjustmentWorkspaceId: workspace.id,
+    persistenceContext: "adjustment",
+  });
+  const packageEditPolicies =
+    buildPOSPackageCompositionEditPolicies(editPolicyContext);
+  const addOnEditPolicies = buildPOSAddOnEditPolicies(editPolicyContext);
   const previewComposition = toCurrentCompositionCard(compositionModel, {
     mode: "adjustment",
     source: "pending",
@@ -166,6 +181,7 @@ export default async function AdjustmentWorkspacePage(
                   workspace={derivedPOSWorkspace}
                   composition={posComposition}
                   handlers={compositionHandlers}
+                  editPolicies={packageEditPolicies}
                   configurePanelMode="adjustment"
                   workspaceId={workspace.id}
                   workspaceVersion={workspace.version}
@@ -175,11 +191,13 @@ export default async function AdjustmentWorkspacePage(
                   workspace={derivedPOSWorkspace}
                   composition={posComposition}
                   handlers={compositionHandlers}
+                  editPolicies={packageEditPolicies}
                 />
                 <POSAddOnMarketplace
                   workspace={derivedPOSWorkspace}
                   marketplace={addOnMarketplace}
                   handlers={addOnHandlers}
+                  editPolicies={addOnEditPolicies}
                 />
               </section>
             ) : null}

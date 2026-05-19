@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import Module from "node:module";
 import test from "node:test";
-import { UserRole } from "@prisma/client";
+import { OrderStatus, UserRole } from "@prisma/client";
 
 type ModuleLoader = (
   request: string,
@@ -14,6 +14,7 @@ const originalModuleLoad = moduleWithLoader._load;
 
 test("configure session action parses JSON selections and maps locked errors", async () => {
   let writtenInput: unknown = null;
+  let writeOptions: unknown = null;
   const revalidatedPaths: string[] = [];
   class LockedError extends Error {}
 
@@ -84,12 +85,25 @@ test("configure session action parses JSON selections and maps locked errors", a
           orderPackageId === "locked-financial-package"
             ? {
                 locked: true,
+                orderStatus: OrderStatus.WAITING_SELECTION,
+                openAdjustmentWorkspaceId: null,
                 financialConfigurationIds: new Set(["config-1"]),
                 operationalConfigurationIds: new Set<string>(),
                 configurationNameById: new Map([["config-1", "Keepsake Box"]]),
               }
+            : orderPackageId === "locked-operational-package"
+              ? {
+                  locked: true,
+                  orderStatus: OrderStatus.WAITING_SELECTION,
+                  openAdjustmentWorkspaceId: null,
+                  financialConfigurationIds: new Set<string>(),
+                  operationalConfigurationIds: new Set(["config-1"]),
+                  configurationNameById: new Map([["config-1", "Pose"]]),
+                }
             : {
                 locked: false,
+                orderStatus: OrderStatus.WAITING_SELECTION,
+                openAdjustmentWorkspaceId: null,
                 financialConfigurationIds: new Set<string>(),
                 operationalConfigurationIds: new Set(["config-1"]),
                 configurationNameById: new Map([["config-1", "Pose"]]),
@@ -102,9 +116,12 @@ test("configure session action parses JSON selections and maps locked errors", a
         SessionConfigurationSelectionPostLockMisuseError: class extends Error {},
         writeOrderPackageSelections: async (
           orderPackageId: string,
-          selections: unknown
+          selections: unknown,
+          _actor: unknown,
+          options: unknown
         ) => {
           writtenInput = { orderPackageId, selections };
+          writeOptions = options;
           if (orderPackageId === "locked-package") throw new LockedError();
           return { orderPackageId, writtenSelectionIds: [] };
         },
@@ -151,6 +168,26 @@ test("configure session action parses JSON selections and maps locked errors", a
       "/orders/order-1/adjustment-workspace"
     );
 
+    const lockedOperational = await configureSessionAction(
+      "order-1",
+      {},
+      formData({
+        orderPackageId: "locked-operational-package",
+        selections: JSON.stringify([
+          { configurationId: "config-1", kind: "toggle" },
+        ]),
+      })
+    );
+    assert.deepEqual(lockedOperational, {});
+    assert.deepEqual(writtenInput, {
+      orderPackageId: "locked-operational-package",
+      selections: [{ configurationId: "config-1", kind: "toggle" }],
+    });
+    assert.deepEqual(writeOptions, {
+      allowPostLock: true,
+      postLockAudit: { actorUserId: "staff-user" },
+    });
+
     const locked = await configureSessionAction(
       "order-1",
       {},
@@ -161,7 +198,7 @@ test("configure session action parses JSON selections and maps locked errors", a
     );
     assert.equal(
       locked.errors?._global?.[0],
-      "Order is locked. Edit configurations through the Adjustment Workspace."
+      "Locked invoices can only be changed through an Adjustment Workspace."
     );
   } finally {
     moduleWithLoader._load = originalModuleLoad;

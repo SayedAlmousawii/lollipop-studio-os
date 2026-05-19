@@ -6,6 +6,11 @@ import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections";
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import {
+  buildPOSFinancialSidebarEditPolicies,
+  orderEditModeContextFromWorkspace,
+  type POSFinancialSidebarEditPolicies,
+} from "@/modules/orders/policies/edit-mode-policy";
 
 type ModuleLoader = (
   request: string,
@@ -16,6 +21,7 @@ type ModuleLoader = (
 type FinancialSidebarDraftComponent = ComponentType<{
   workspace: POSWorkspace;
   composition: DraftPOSCompositionProjection;
+  editPolicies: POSFinancialSidebarEditPolicies;
 }>;
 
 const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
@@ -26,6 +32,7 @@ test("FinancialSidebarDraft renders draft commercial rows from the composition p
     createElement(FinancialSidebarDraft, {
       workspace: workspaceFixture(),
       composition: compositionFixture(),
+      editPolicies: financialPolicies(workspaceFixture()),
     })
   );
 
@@ -66,6 +73,7 @@ test("FinancialSidebarDraft renders locked order from composition projection", a
     createElement(FinancialSidebarDraft, {
       workspace: lockedWorkspace,
       composition: { ...compositionFixture(), sourceState: "locked" },
+      editPolicies: financialPolicies(lockedWorkspace),
     })
   );
 
@@ -102,6 +110,17 @@ async function loadFinancialSidebarDraft(): Promise<FinancialSidebarDraftCompone
   } finally {
     moduleWithLoader._load = originalModuleLoad;
   }
+}
+
+function financialPolicies(workspace: POSWorkspace): POSFinancialSidebarEditPolicies {
+  return buildPOSFinancialSidebarEditPolicies(
+    orderEditModeContextFromWorkspace({
+      orderId: workspace.orderId,
+      orderStatus: workspace.orderStatusRaw,
+      finalInvoiceIsLocked: workspace.invoice?.isLocked ?? false,
+      persistenceContext: "sales",
+    })
+  );
 }
 
 function workspaceFixture(): POSWorkspace {

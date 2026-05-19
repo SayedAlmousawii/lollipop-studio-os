@@ -1,7 +1,9 @@
 import {
   AuditAction,
   AuditEntityType,
+  AdjustmentWorkspaceStatus,
   InvoiceType,
+  OrderStatus,
   Prisma,
   SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
@@ -125,6 +127,8 @@ export class SessionConfigurationSelectionInputMismatchError extends Error {
 
 export type ConfigureSessionRoute = {
   locked: boolean;
+  orderStatus: OrderStatus;
+  openAdjustmentWorkspaceId: string | null;
   financialConfigurationIds: Set<string>;
   operationalConfigurationIds: Set<string>;
   configurationNameById: Map<string, string>;
@@ -142,6 +146,7 @@ export async function resolveConfigureSessionRoute(
       sessionTypeId: true,
       order: {
         select: {
+          status: true,
           invoices: {
             where: {
               parentInvoiceId: null,
@@ -149,6 +154,11 @@ export async function resolveConfigureSessionRoute(
             },
             select: { isLocked: true },
             orderBy: { createdAt: "asc" },
+            take: 1,
+          },
+          adjustmentWorkspaces: {
+            where: { status: AdjustmentWorkspaceStatus.OPEN },
+            select: { id: true },
             take: 1,
           },
         },
@@ -183,6 +193,9 @@ export async function resolveConfigureSessionRoute(
 
   return {
     locked: orderPackage.order.invoices[0]?.isLocked === true,
+    orderStatus: orderPackage.order.status,
+    openAdjustmentWorkspaceId:
+      orderPackage.order.adjustmentWorkspaces[0]?.id ?? null,
     financialConfigurationIds,
     operationalConfigurationIds,
     configurationNameById,

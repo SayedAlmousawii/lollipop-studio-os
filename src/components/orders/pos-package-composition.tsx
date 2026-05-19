@@ -62,12 +62,17 @@ import type {
   POSCompositionHandlers,
   POSMutationActionState,
 } from "@/modules/orders/pos-handlers.types";
+import type {
+  OrderEditModePolicy,
+  POSPackageCompositionEditPolicies,
+} from "@/modules/orders/policies/edit-mode-policy";
 import { formatMoney } from "@/lib/formatting/money";
 
 type POSPackageCompositionBaseProps = {
   workspace: POSWorkspace;
   composition: DraftPOSCompositionProjection;
   handlers: POSCompositionHandlers;
+  editPolicies: POSPackageCompositionEditPolicies;
 };
 
 type POSPackageCompositionProps =
@@ -88,7 +93,7 @@ type POSPackageCompositionProps =
     });
 
 export function POSPackageComposition(props: POSPackageCompositionProps) {
-  const { workspace, composition, handlers } = props;
+  const { workspace, composition, handlers, editPolicies } = props;
   const configurePanelMode = props.configurePanelMode ?? "auto";
   const adjustmentPanelContext =
     props.configurePanelMode === "adjustment"
@@ -98,7 +103,6 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
           pendingOverlayByOrderPackageId: props.pendingOverlayByOrderPackageId,
         }
       : null;
-  const locked = workspace.invoice?.isLocked ?? false;
   const workspaceLineById = new Map(
     workspace.packageLines.map((line) => [line.id, line])
   );
@@ -113,12 +117,7 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {locked ? (
-          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-            Invoice is locked. Additions issue adjustments; reductions require manager confirmation for a credit note.
-          </div>
-        ) : null}
+        <PolicyNotice policy={editPolicies.packageTierChange} />
 
         <div className="space-y-4">
           {composition.packageLines.map((line) => {
@@ -145,6 +144,7 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                       orderId={workspace.orderId}
                       line={workspaceLine}
                       handlers={handlers}
+                      policy={editPolicies.packageTierChange}
                     />
                     <ConfigureSessionPanel
                       key={configureSessionPanelKey({
@@ -173,10 +173,21 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                                   workspaceLine.id
                                 ] ?? {},
                             }
-                          : locked
-                            ? { kind: "locked", workspaceIsOpen: false }
+                          : editPolicies.sessionConfigurationFinancialEdit.mode === "locked"
+                            ? {
+                                kind: "locked",
+                                workspaceIsOpen:
+                                  editPolicies.sessionConfigurationFinancialEdit
+                                    .blockedReason ===
+                                  "OPEN_WORKSPACE_REQUIRES_WORKSPACE",
+                              }
                             : { kind: "draft" }
                       }
+                      editPolicies={{
+                        operational:
+                          editPolicies.sessionConfigurationOperationalEdit,
+                        financial: editPolicies.sessionConfigurationFinancialEdit,
+                      }}
                       availableConfigurations={workspaceLine.availableConfigurations}
                       currentSelections={workspaceLine.currentSelections}
                     />
@@ -209,6 +220,7 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                     orderPackageId={line.orderPackageId}
                     productOptions={workspace.productOptions}
                     handlers={handlers}
+                    policy={editPolicies.packageItemUpgrade}
                   />
                 ))}
                 {line.packageItems.length === 0 ? (
@@ -258,8 +270,9 @@ export function POSPhotoCountCard({
   workspace,
   composition,
   handlers,
+  editPolicies,
 }: POSPackageCompositionBaseProps) {
-  const locked = workspace.invoice?.isLocked ?? false;
+  const policy = editPolicies.selectedPhotoCountChange;
 
   return (
     <Card>
@@ -267,12 +280,7 @@ export function POSPhotoCountCard({
         <CardTitle className="text-base">Selected Photos</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {locked ? (
-          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
-            <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-            Invoice is locked. Added extras issue adjustments; reductions require manager confirmation for a credit note.
-          </div>
-        ) : null}
+        <PolicyNotice policy={policy} />
         <div className="space-y-4">
           {composition.packageLines.map((line) => (
             <POSPhotoLineForm
@@ -280,6 +288,7 @@ export function POSPhotoCountCard({
               orderId={workspace.orderId}
               line={line}
               handlers={handlers}
+              policy={policy}
             />
           ))}
         </div>
@@ -292,10 +301,12 @@ function POSPhotoLineForm({
   orderId,
   line,
   handlers,
+  policy,
 }: {
   orderId: string;
   line: POSCompositionPackageLineProjection;
   handlers: POSCompositionHandlers;
+  policy: OrderEditModePolicy;
 }) {
   const [state, formAction, pending] = useHandlerAction(
     handlers.changeSelectedPhotoCount,
@@ -321,7 +332,9 @@ function POSPhotoLineForm({
     extraPrintCount: line.extraPrintCount,
   });
   const preview = readProjectedPhotoPreview(draft, line);
+  const canSubmit = canUsePolicy(policy);
   function commitDraft(nextDraft: PhotoLineDraft) {
+    if (!canSubmit) return;
     const resolved = readProjectedPhotoPayload(nextDraft, line.includedPhotoCount);
     if (resolved.errors) {
       setClientErrors(resolved.errors);
@@ -420,7 +433,7 @@ function POSPhotoLineForm({
                   min={line.includedPhotoCount}
                   step={1}
                   value={draft.selectedPhotoCount}
-                  disabled={pending}
+                  disabled={pending || !canSubmit}
                   onChange={(event) => {
                     setDraft((current) =>
                       syncDraftForSelectedPhotoChange(
@@ -472,7 +485,7 @@ function POSPhotoLineForm({
                       <input
                         checked={checked}
                         className="sr-only"
-                        disabled={pending}
+                        disabled={pending || !canSubmit}
                         name={`billingMode-${line.orderPackageId}`}
                         type="radio"
                         value={option.value}
@@ -517,7 +530,7 @@ function POSPhotoLineForm({
                           max={preview.extraCount}
                           step={1}
                           value={draft.splitDigitalCount}
-                          disabled={pending}
+                          disabled={pending || !canSubmit}
                           onChange={(event) => {
                             setDraft((current) =>
                               applySplitAllocationChange(
@@ -556,7 +569,7 @@ function POSPhotoLineForm({
                           max={preview.extraCount}
                           step={1}
                           value={draft.splitPrintCount}
-                          disabled={pending}
+                          disabled={pending || !canSubmit}
                           onChange={(event) => {
                             setDraft((current) =>
                               applySplitAllocationChange(
@@ -762,10 +775,12 @@ function PackageUpgradeDialog({
   orderId,
   line,
   handlers,
+  policy,
 }: {
   orderId: string;
   line: POSPackageLine;
   handlers: POSCompositionHandlers;
+  policy: OrderEditModePolicy;
 }) {
   const [selectedPackageId, setSelectedPackageId] = useState(
     line.currentPackage.id ?? line.packageOptions[0]?.id ?? ""
@@ -778,11 +793,15 @@ function PackageUpgradeDialog({
     })
   );
   const packageSelectId = `packageId-${line.id}`;
+  const canSubmit = canUsePolicy(policy);
 
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" disabled={line.packageOptions.length === 0}>
+        <Button
+          variant="outline"
+          disabled={line.packageOptions.length === 0 || !canSubmit}
+        >
           <ArrowRightLeft className="h-4 w-4" />
           Upgrade Package
         </Button>
@@ -799,7 +818,11 @@ function PackageUpgradeDialog({
           <input type="hidden" name="packageId" value={selectedPackageId} />
           <div className="space-y-2">
             <Label htmlFor={packageSelectId}>Package</Label>
-            <Select value={selectedPackageId} onValueChange={setSelectedPackageId}>
+            <Select
+              value={selectedPackageId}
+              onValueChange={setSelectedPackageId}
+              disabled={!canSubmit}
+            >
               <SelectTrigger id={packageSelectId}>
                 <SelectValue placeholder="Select package..." />
               </SelectTrigger>
@@ -816,7 +839,10 @@ function PackageUpgradeDialog({
           </div>
           <GlobalError messages={state.errors?._global} />
           <DialogFooter>
-            <SubmitButton label="Update Package" disabled={!selectedPackageId} />
+            <SubmitButton
+              label="Update Package"
+              disabled={!selectedPackageId || !canSubmit}
+            />
           </DialogFooter>
         </form>
         {handlers.shouldPromptInlineApproval ? (
@@ -841,12 +867,14 @@ function DeliverableCard({
   orderPackageId,
   productOptions,
   handlers,
+  policy,
 }: {
   item: POSCompositionPackageItemProjection;
   orderId: string;
   orderPackageId: string;
   productOptions: POSProductOption[];
   handlers: POSCompositionHandlers;
+  policy: OrderEditModePolicy;
 }) {
   const replacementOptions = useMemo(
     () =>
@@ -878,6 +906,7 @@ function DeliverableCard({
         item={item}
         options={replacementOptions}
         handlers={handlers}
+        policy={policy}
       />
     </div>
   );
@@ -889,12 +918,14 @@ function ItemUpgradeDialog({
   item,
   options,
   handlers,
+  policy,
 }: {
   orderId: string;
   orderPackageId: string;
   item: POSCompositionPackageItemProjection;
   options: POSProductOption[];
   handlers: POSCompositionHandlers;
+  policy: OrderEditModePolicy;
 }) {
   const [selectedProductId, setSelectedProductId] = useState(options[0]?.id ?? "");
   const [state, formAction] = useHandlerAction(
@@ -906,7 +937,7 @@ function ItemUpgradeDialog({
       quantity: item.quantity,
     })
   );
-  const disabled = options.length === 0;
+  const disabled = options.length === 0 || !canUsePolicy(policy);
 
   return (
     <Dialog>
@@ -935,7 +966,11 @@ function ItemUpgradeDialog({
           <input type="hidden" name="newProductId" value={selectedProductId} />
           <div className="space-y-2">
             <Label htmlFor={`newProductId-${item.id}`}>Replacement product</Label>
-            <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+            <Select
+              value={selectedProductId}
+              onValueChange={setSelectedProductId}
+              disabled={disabled}
+            >
               <SelectTrigger id={`newProductId-${item.id}`}>
                 <SelectValue placeholder="Select product..." />
               </SelectTrigger>
@@ -1036,6 +1071,21 @@ function SubmitButton({
       {pending ? "Saving..." : label}
     </Button>
   );
+}
+
+function PolicyNotice({ policy }: { policy: OrderEditModePolicy }) {
+  if (!policy.blockedReason) return null;
+
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
+      <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+      {policy.userFacingMessage}
+    </div>
+  );
+}
+
+function canUsePolicy(policy: OrderEditModePolicy): boolean {
+  return policy.canEditDirectly || policy.mode === "adjustment";
 }
 
 function MoneyLine({

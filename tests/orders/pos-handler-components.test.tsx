@@ -16,6 +16,13 @@ import type {
   POSAddOnHandlers,
   POSCompositionHandlers,
 } from "@/modules/orders/pos-handlers.types";
+import {
+  buildPOSAddOnEditPolicies,
+  buildPOSPackageCompositionEditPolicies,
+  orderEditModeContextFromWorkspace,
+  type POSAddOnEditPolicies,
+  type POSPackageCompositionEditPolicies,
+} from "@/modules/orders/policies/edit-mode-policy";
 
 type ModuleLoader = (
   request: string,
@@ -28,11 +35,13 @@ type PackageComponents = {
     workspace: POSWorkspace;
     composition: DraftPOSCompositionProjection;
     handlers: POSCompositionHandlers;
+    editPolicies: POSPackageCompositionEditPolicies;
   }>;
   POSPhotoCountCard: ComponentType<{
     workspace: POSWorkspace;
     composition: DraftPOSCompositionProjection;
     handlers: POSCompositionHandlers;
+    editPolicies: POSPackageCompositionEditPolicies;
   }>;
 };
 
@@ -41,6 +50,7 @@ type AddOnComponents = {
     workspace: POSWorkspace;
     marketplace: POSAddOnMarketplaceProjection;
     handlers: POSAddOnHandlers;
+    editPolicies: POSAddOnEditPolicies;
   }>;
 };
 
@@ -53,6 +63,8 @@ test("POS handler components render the stable sales DOM labels from handler pro
     const { POSAddOnMarketplace } = await loadAddOnComponents();
     const workspace = buildPOSWorkspaceFixture();
     const composition = buildDraftPOSCompositionFixture(workspace);
+    const packagePolicies = buildPackagePolicies(workspace);
+    const addOnPolicies = buildAddOnPolicies(workspace);
     const compositionHandlers = {
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
@@ -73,16 +85,19 @@ test("POS handler components render the stable sales DOM labels from handler pro
           workspace,
           composition,
           handlers: compositionHandlers,
+          editPolicies: packagePolicies,
         }),
         createElement(POSPhotoCountCard, {
           workspace,
           composition,
           handlers: compositionHandlers,
+          editPolicies: packagePolicies,
         }),
         createElement(POSAddOnMarketplace, {
           workspace,
           marketplace: toPOSAddOnMarketplace(composition),
           handlers: addOnHandlers,
+          editPolicies: addOnPolicies,
         })
       )
     );
@@ -105,6 +120,7 @@ test("R8b POS add-on marketplace renders current add-ons and catalog badges from
     const { POSAddOnMarketplace } = await loadAddOnComponents();
     const workspace = buildPOSWorkspaceFixture();
     const composition = duplicateAndLegacyAddOnCompositionFixture(workspace);
+    const editPolicies = buildAddOnPolicies(workspace);
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
@@ -116,6 +132,7 @@ test("R8b POS add-on marketplace renders current add-ons and catalog badges from
         workspace,
         marketplace: toPOSAddOnMarketplace(composition),
         handlers,
+        editPolicies,
       })
     );
 
@@ -149,6 +166,7 @@ test("R8b POS add-on marketplace keeps empty catalog and current-row empty state
         workspace,
         marketplace: toPOSAddOnMarketplace(composition),
         handlers,
+        editPolicies: buildAddOnPolicies(workspace),
       })
     );
 
@@ -187,6 +205,7 @@ test("R8b POS add-on marketplace displays null-target current rows without remov
         workspace,
         marketplace: toPOSAddOnMarketplace(composition),
         handlers,
+        editPolicies: buildAddOnPolicies(workspace),
       })
     );
 
@@ -226,6 +245,7 @@ test("R8b POS add-on marketplace removes projected current row target", async ()
         workspace,
         marketplace: toPOSAddOnMarketplace(composition),
         handlers,
+        editPolicies: buildAddOnPolicies(workspace),
       })
     );
 
@@ -252,6 +272,7 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
         workspace,
         composition,
         handlers,
+        editPolicies: buildPackagePolicies(workspace, "adjustment"),
       })
     );
 
@@ -280,6 +301,7 @@ test("POSPackageComposition renders package-item upgrade row from projection", a
         workspace,
         composition,
         handlers,
+        editPolicies: buildPackagePolicies(workspace),
       })
     );
 
@@ -343,6 +365,20 @@ test("R8b add-on marketplace does not derive current state from POSWorkspace add
   assert.doesNotMatch(source, /addOnCountsByProductId/);
 });
 
+test("R9 POS components do not reintroduce local locked edit-mode notice copy", () => {
+  for (const filePath of [
+    "src/components/orders/financial-sidebar-draft.tsx",
+    "src/components/orders/pos-package-composition.tsx",
+    "src/components/orders/pos-add-on-marketplace.tsx",
+  ]) {
+    const source = readFileSync(filePath, "utf8");
+    assert.doesNotMatch(source, /future adjustment flow/i);
+    assert.doesNotMatch(source, /Invoice is locked\./);
+    assert.doesNotMatch(source, /Additions issue adjustments/);
+    assert.doesNotMatch(source, /Added extras issue adjustments/);
+  }
+});
+
 function hasImportFrom(filePath: string, modulePath: string): boolean {
   const sourceFile = ts.createSourceFile(
     filePath,
@@ -370,6 +406,34 @@ function hasImportFrom(filePath: string, modulePath: string): boolean {
   return found;
 }
 
+function buildPackagePolicies(
+  workspace: POSWorkspace,
+  persistenceContext: "sales" | "adjustment" = "sales"
+): POSPackageCompositionEditPolicies {
+  return buildPOSPackageCompositionEditPolicies(
+    orderEditModeContextFromWorkspace({
+      orderId: workspace.orderId,
+      orderStatus: workspace.orderStatusRaw,
+      finalInvoiceIsLocked: workspace.invoice?.isLocked ?? false,
+      persistenceContext,
+    })
+  );
+}
+
+function buildAddOnPolicies(
+  workspace: POSWorkspace,
+  persistenceContext: "sales" | "adjustment" = "sales"
+): POSAddOnEditPolicies {
+  return buildPOSAddOnEditPolicies(
+    orderEditModeContextFromWorkspace({
+      orderId: workspace.orderId,
+      orderStatus: workspace.orderStatusRaw,
+      finalInvoiceIsLocked: workspace.invoice?.isLocked ?? false,
+      persistenceContext,
+    })
+  );
+}
+
 async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> {
   const originalModuleLoad = moduleWithLoader._load;
   // The approval modal is statically imported and still owns the sales approval action.
@@ -382,6 +446,12 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     if (request === "@/app/orders/[orderId]/sales/actions") {
       return {
         confirmReductiveEditWithApproval: async () => ({ kind: "success" }),
+      };
+    }
+    if (request === "@/app/orders/[orderId]/actions") {
+      return {
+        applySessionConfigurationWorkspaceEditAction: async () => ({ version: 1 }),
+        configureSessionAction: async () => ({}),
       };
     }
     return originalModuleLoad.call(this, request, parent, isMain);

@@ -88,6 +88,7 @@ import {
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
 import { getOrderTotalSelectedPhotoCount } from "./order.utils";
+import { ORDER_EDIT_MODE_MESSAGES } from "./policies/edit-mode-policy";
 import type {
   EditingQueueItem,
   InvoiceStatusFilter,
@@ -164,7 +165,7 @@ const SALES_LINKED_FINANCIAL_DOCUMENT_TYPES = [
   InvoiceType.CREDIT_NOTE,
 ] as const;
 const LOCKED_INVOICE_WORKSPACE_REQUIRED =
-  "Locked invoices can only be changed through an Adjustment Workspace.";
+  ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS;
 
 export class OrderAddOnOwnedBySessionConfigurationError extends Error {
   constructor(configurationLabel: string) {

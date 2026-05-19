@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- R8 complete: order overview and production deliverable readouts now consume the R7 composition overview/production projectors. R9 `OrderEditModePolicy` is next.
+- R9 complete: POS/configure-session edit-mode messaging and routing now consume `OrderEditModePolicy`; R10 workflow policy builders are next.
 - **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 - **Active roadmap:** `context/reviews/centralization-roadmap.md`. R0 (Context Reconciliation & Cleanup Gate) is complete: main docs are canonical, `*-summary.md` files archived, `AGENTS.md` default reads updated, Canonical Architecture Standards + Canonical Read Layer sections live in `architecture-context.md`.
 - **Session Configurations subsystem complete (Features 88–94):** schema, admin CRUD, pricing engine, configure panel, post-lock routing, invoice display, linked-product retrofit as selection-owned `OrderAddOn` rows.
@@ -30,6 +30,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 ### POS / orders / composition
 - POS is the canonical writable workspace for order package changes, selected photos, add-ons, invoice preview, and final payment. The legacy edit order route redirects there; order detail selection is read-only.
 - Shared POS components that may mount in multiple persistence contexts use handler props from `src/modules/orders/pos-handlers.types.ts`. Sales passes commit-through server-action adapters with inline reductive approval enabled; AdjustmentWorkspace passes staged-edit adapters with inline approval disabled, finalize-time approval preserved.
+- `OrderEditModePolicy` is the centralized source for draft, locked, adjustment, direct-write, Adjustment Workspace route, blocked-message, and manager-approval edit affordances across POS and configure-session surfaces.
 - `derivePOSWorkspaceFromAdjustmentWorkspace()` is the canonical bridge for rendering staged post-lock edits through POS modules without mutating the locked invoice or reusing sales commit-through.
 - Locked POS operational edits stay direct/audited; locked POS financial edits route to workspace; open workspaces disable locked direct edits.
 - Multi-package is the only package model: `BookingPackage` and `OrderPackage` are the source of truth.
@@ -65,6 +66,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **104 R9** — Added centralized `OrderEditModePolicy` and wired POS package/photo/add-on sidebars plus configure-session routing/messages to policy DTOs with locked/open-workspace and guard-message regression coverage.
 - **103 R8c follow-up** — Order detail now falls back gracefully when composition projection data is unavailable and avoids contradictory empty deliverable UI.
 - **103 R8c** — Swapped order detail overview package/deliverable/add-on/session-configuration readouts and production deliverable summaries onto R7 composition projectors, with regression coverage against legacy composition DTO reads.
 - **103 R8b** — Swapped POS add-on marketplace current rows, product counts, Added badges, and removal targets onto a pure composition marketplace projection while preserving catalog and handler behavior.

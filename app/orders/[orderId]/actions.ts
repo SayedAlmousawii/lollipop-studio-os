@@ -43,6 +43,11 @@ import {
   updateOrderProductionWorkflow,
 } from "@/modules/orders/order.service";
 import {
+  buildOrderEditModePolicy,
+  ORDER_EDIT_MODE_MESSAGES,
+  ORDER_EDIT_KIND,
+} from "@/modules/orders/policies/edit-mode-policy";
+import {
   WorkflowGuardError,
   type WorkflowGuardErrorCode,
 } from "@/modules/orders/order.errors";
@@ -158,18 +163,39 @@ export async function configureSessionAction(
             route.configurationNameById.get(selection.configurationId) ??
             "Session configuration"
         );
+        const policy = buildOrderEditModePolicy({
+          orderId,
+          mode: "locked",
+          orderStatus: route.orderStatus,
+          finalInvoiceIsLocked: route.locked,
+          openAdjustmentWorkspaceId: route.openAdjustmentWorkspaceId,
+          editKind: ORDER_EDIT_KIND.SESSION_CONFIGURATION_FINANCIAL_EDIT,
+          affectedConfigurationNames: affectedNames,
+        });
         return {
           errors: {
-            _global: [
-              `Edit ${[...new Set(affectedNames)].join(", ")} in the Adjustment Workspace.`,
-            ],
+            _global: [policy.userFacingMessage],
           },
-          adjustmentWorkspaceHref: `/orders/${orderId}/adjustment-workspace`,
+          adjustmentWorkspaceHref: policy.routeTarget?.href,
         };
       }
       const operationalSelections = parsed.data.selections.filter((selection) =>
         route.operationalConfigurationIds.has(selection.configurationId)
       );
+      const policy = buildOrderEditModePolicy({
+        orderId,
+        mode: "locked",
+        orderStatus: route.orderStatus,
+        finalInvoiceIsLocked: route.locked,
+        openAdjustmentWorkspaceId: route.openAdjustmentWorkspaceId,
+        editKind: ORDER_EDIT_KIND.SESSION_CONFIGURATION_OPERATIONAL_EDIT,
+      });
+      if (!policy.canEditDirectly) {
+        return {
+          errors: { _global: [policy.userFacingMessage] },
+          adjustmentWorkspaceHref: policy.routeTarget?.href,
+        };
+      }
       await writeOrderPackageSelections(
         parsed.data.orderPackageId,
         operationalSelections,
@@ -299,7 +325,7 @@ function parseJsonPayload(
 
 function messageForConfigureSessionError(error: unknown): string {
   if (error instanceof SessionConfigurationSelectionLockedError) {
-    return "Order is locked. Edit configurations through the Adjustment Workspace.";
+    return ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS;
   }
   if (error instanceof SessionConfigurationSelectionPostLockMisuseError) {
     return "Order lock state changed. Refresh and try again.";

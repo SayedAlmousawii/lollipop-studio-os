@@ -36,6 +36,12 @@ import {
   getLinkedFinancialDocumentsForOrder,
   getPOSWorkspace,
 } from "@/modules/orders/order.service";
+import {
+  buildPOSAddOnEditPolicies,
+  buildPOSFinancialSidebarEditPolicies,
+  buildPOSPackageCompositionEditPolicies,
+  orderEditModeContextFromWorkspace,
+} from "@/modules/orders/policies/edit-mode-policy";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 import type {
   HandlerResult,
@@ -72,6 +78,15 @@ export default async function SalesPage(
       mode: "locked",
       source: "effective",
     });
+    const lockedPolicyContext = orderEditModeContextFromWorkspace({
+      orderId: workspace.orderId,
+      orderStatus: workspace.orderStatusRaw,
+      finalInvoiceIsLocked: true,
+      openAdjustmentWorkspaceId: openWorkspace?.id ?? null,
+      persistenceContext: "sales",
+    });
+    const packageEditPolicies =
+      buildPOSPackageCompositionEditPolicies(lockedPolicyContext);
     const financialSummary = financialCaseSummary
       ? toSalesSidebarLocked(financialCaseSummary)
       : null;
@@ -114,6 +129,7 @@ export default async function SalesPage(
             packageLines={workspace.packageLines}
             orderId={workspace.orderId}
             workspaceIsOpen={Boolean(openWorkspace)}
+            editPolicies={packageEditPolicies}
           />
         </main>
         {financialSummary ? (
@@ -145,6 +161,17 @@ export default async function SalesPage(
   if (!compositionModel) notFound();
   const draftComposition = toDraftPOSComposition(compositionModel);
   const addOnMarketplace = toPOSAddOnMarketplace(draftComposition);
+  const draftPolicyContext = orderEditModeContextFromWorkspace({
+    orderId: workspace.orderId,
+    orderStatus: workspace.orderStatusRaw,
+    finalInvoiceIsLocked: workspace.invoice?.isLocked ?? false,
+    persistenceContext: "sales",
+  });
+  const packageEditPolicies =
+    buildPOSPackageCompositionEditPolicies(draftPolicyContext);
+  const addOnEditPolicies = buildPOSAddOnEditPolicies(draftPolicyContext);
+  const financialSidebarPolicies =
+    buildPOSFinancialSidebarEditPolicies(draftPolicyContext);
   const compositionHandlers = createPOSCompositionHandlers(orderId, workspace);
   const addOnHandlers = createPOSAddOnHandlers(orderId);
 
@@ -155,21 +182,25 @@ export default async function SalesPage(
           workspace={workspace}
           composition={draftComposition}
           handlers={compositionHandlers}
+          editPolicies={packageEditPolicies}
         />
         <POSPhotoCountCard
           workspace={workspace}
           composition={draftComposition}
           handlers={compositionHandlers}
+          editPolicies={packageEditPolicies}
         />
         <POSAddOnMarketplace
           workspace={workspace}
           marketplace={addOnMarketplace}
           handlers={addOnHandlers}
+          editPolicies={addOnEditPolicies}
         />
       </main>
       <FinancialSidebarDraft
         workspace={workspace}
         composition={draftComposition}
+        editPolicies={financialSidebarPolicies}
         className={styles.financialSidebar}
       />
     </div>
@@ -328,11 +359,13 @@ function LockedCompositionView({
   packageLines,
   orderId,
   workspaceIsOpen,
+  editPolicies,
 }: {
   composition: ReturnType<typeof toCurrentCompositionCard>;
   packageLines: POSWorkspace["packageLines"];
   orderId: string;
   workspaceIsOpen: boolean;
+  editPolicies: ReturnType<typeof buildPOSPackageCompositionEditPolicies>;
 }) {
   console.info(
     JSON.stringify({
@@ -355,6 +388,10 @@ function LockedCompositionView({
         packageName={line.currentPackage.name}
         sessionTypeName={line.sessionTypeName}
         mode={{ kind: "locked", workspaceIsOpen }}
+        editPolicies={{
+          operational: editPolicies.sessionConfigurationOperationalEdit,
+          financial: editPolicies.sessionConfigurationFinancialEdit,
+        }}
         availableConfigurations={line.availableConfigurations}
         currentSelections={line.currentSelections}
       />,
