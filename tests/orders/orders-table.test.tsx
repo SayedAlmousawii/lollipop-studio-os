@@ -14,6 +14,7 @@ test("OrdersTable renders canonical financial projection amounts and status", ()
             totalAmount: 230,
             paidAmount: 100,
             remainingAmount: 130,
+            invoiceStatus: "PARTIAL",
             paymentStatusEnum: "PARTIAL",
           },
         }),

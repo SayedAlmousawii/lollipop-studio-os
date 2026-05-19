@@ -1,3 +1,4 @@
+import type { InvoiceStatus } from "@prisma/client";
 import type {
   FinancialCasePaymentStatus,
   FinancialCaseSummary,
@@ -7,6 +8,7 @@ export type OrdersTableRowProjection = {
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
+  invoiceStatus: InvoiceStatus;
   paymentStatusEnum: FinancialCasePaymentStatus;
 };
 
@@ -21,6 +23,7 @@ export function toOrdersTableRow(
     totalAmount,
     paidAmount: Math.max(totalAmount - remainingAmount, 0),
     remainingAmount,
+    invoiceStatus: summary.finalInvoice.status,
     paymentStatusEnum: summary.paymentStatusEnum,
   };
 }

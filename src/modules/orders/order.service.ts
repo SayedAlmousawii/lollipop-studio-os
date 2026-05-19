@@ -316,8 +316,28 @@ export async function getOrdersByCustomerId(
     () => fetchOrdersByCustomerId(customerId, sanitizedLimit),
     "Failed to fetch customer orders"
   );
+  let financialByOrderId = new Map<string, OrdersTableRowProjection | null>();
+  try {
+    financialByOrderId = await withRetry(
+      () =>
+        getOrdersTableFinancialProjections({
+          orderIds: rows.map((row) => row.id),
+        }),
+      "Failed to fetch customer order financial projections"
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        metric: "orders.customer_history_financial_projection.failed",
+        orderCount: rows.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
 
-  return rows.map(mapCustomerOrderHistoryRow);
+  return rows.map((row) =>
+    mapCustomerOrderHistoryRow(row, financialByOrderId.get(row.id) ?? null)
+  );
 }
 
 export async function getOrderFilterEditorOptions(): Promise<OrderEditorOption[]> {
@@ -3056,7 +3076,7 @@ function mapOrderRow(
     originalPackageName: formatOrderPackageNames(row.packages),
     finalPackageName: formatOrderPackageNames(row.packages),
     orderStatus: mapOrderStatus(row.status),
-    invoiceStatus: invoiceSummary.status,
+    invoiceStatus: financial ? mapInvoiceStatus(financial.invoiceStatus) : "No Invoice",
     paymentStatus: invoiceSummary.paymentStatus,
     totalAmount: formatMoney(new Prisma.Decimal(settlementSummary.totalOrderValue)),
     paidAmount: formatMoney(new Prisma.Decimal(settlementSummary.paidAmount)),
@@ -3098,7 +3118,8 @@ function formatOrderPackageNames(
 }
 
 function mapCustomerOrderHistoryRow(
-  row: CustomerOrderHistoryRow
+  row: CustomerOrderHistoryRow,
+  financial: OrdersTableRowProjection | null = null
 ): CustomerOrderHistoryItem {
   const invoiceSummary = summarizeInvoices(row.invoices);
 
@@ -3108,7 +3129,7 @@ function mapCustomerOrderHistoryRow(
     sessionDate: formatDate(row.booking.sessionDate),
     packageName: formatOrderPackageNames(row.packages),
     orderStatus: mapOrderStatus(row.status),
-    invoiceStatus: invoiceSummary.status,
+    invoiceStatus: financial ? mapInvoiceStatus(financial.invoiceStatus) : "No Invoice",
     paymentStatus: invoiceSummary.paymentStatus,
   };
 }
