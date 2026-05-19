@@ -29,6 +29,11 @@ import {
 } from "@/components/ui/select";
 import { RecordUpgradePaymentDialog } from "@/components/orders/record-upgrade-payment-dialog";
 import type { OrderEditingWorkflow } from "@/modules/orders/order.types";
+import type {
+  EditingWorkflowAction,
+  EditingWorkflowActionKey,
+  WorkflowActionIntent,
+} from "@/modules/orders/policies/editing-workflow-policy";
 
 interface EditingWorkflowFormProps {
   editing: OrderEditingWorkflow;
@@ -46,7 +51,7 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
     updateEditingWorkflowAction.bind(null, editing.orderId),
     {}
   );
-  const hasEditors = editing.editorOptions.length > 0;
+  const assignAction = getEditingAction(editing, "assignEditor");
 
   return (
     <form action={formAction} className="space-y-4">
@@ -96,7 +101,7 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
                 <Select
                   value={selectedEditorId}
                   onValueChange={setSelectedEditorId}
-                  disabled={!hasEditors || !editing.canAssignEditor}
+                  disabled={assignAction.disabled}
                 >
                   <SelectTrigger
                     id="assignedEditorId"
@@ -125,12 +130,12 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
                   value={estimatedEditingCompletionAt}
                   onChange={(value) => setEstimatedEditingCompletionAt(value ?? "")}
                   placeholder="Select date"
-                  className={`w-full ${!editing.canAssignEditor ? "pointer-events-none opacity-50" : ""}`}
+                  className={`w-full ${assignAction.disabled ? "pointer-events-none opacity-50" : ""}`}
                 />
               </div>
-              {!hasEditors ? (
+              {assignAction.blockedReason === "NO_EDITOR_OPTIONS" ? (
                 <p className="text-sm text-text-secondary md:col-span-2">
-                  No editor users are available yet.
+                  {assignAction.blockerMessages[0]}
                 </p>
               ) : null}
             </CardContent>
@@ -193,38 +198,17 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
           </Card>
 
           <div className="flex flex-wrap justify-end gap-2">
-            <EditingSubmitButton
-              action="assignEditor"
-              disabled={!hasEditors || !editing.canAssignEditor}
-              variant="outline"
-            >
-              <UserPen className="h-4 w-4" />
-              Assign
-            </EditingSubmitButton>
-            <EditingSubmitButton action="markStarted" disabled={!editing.canMarkStarted}>
-              <CirclePlay className="h-4 w-4" />
-              Start
-            </EditingSubmitButton>
-            <EditingSubmitButton
-              action="requestRevision"
-              disabled={!editing.canRequestRevision}
-              variant="outline"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Revision
-            </EditingSubmitButton>
-            <EditingSubmitButton action="markComplete" disabled={!editing.canMarkComplete}>
-              <ClipboardCheck className="h-4 w-4" />
-              Complete
-            </EditingSubmitButton>
-            <EditingSubmitButton action="markApproved" disabled={!editing.canMarkApproved}>
-              <CheckCircle2 className="h-4 w-4" />
-              Approve
-            </EditingSubmitButton>
-            <EditingSubmitButton action="sendToProduction" disabled={!editing.canSendToProduction}>
-              <Forward className="h-4 w-4" />
-              Production
-            </EditingSubmitButton>
+            {editing.workflowPolicy.actions.map((action) => (
+              <EditingSubmitButton
+                key={action.key}
+                action={action.key}
+                disabled={action.disabled}
+                intent={action.intent}
+              >
+                {iconForAction(action.key)}
+                {action.label}
+              </EditingSubmitButton>
+            ))}
           </div>
         </div>
       </div>
@@ -232,16 +216,44 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
   );
 }
 
+function getEditingAction(
+  editing: OrderEditingWorkflow,
+  key: EditingWorkflowActionKey
+): EditingWorkflowAction {
+  const action = editing.workflowPolicy.actions.find((item) => item.key === key);
+  if (!action) {
+    throw new Error(`Missing editing workflow action: ${key}`);
+  }
+  return action;
+}
+
+function iconForAction(action: EditingWorkflowActionKey) {
+  switch (action) {
+    case "assignEditor":
+      return <UserPen className="h-4 w-4" />;
+    case "markStarted":
+      return <CirclePlay className="h-4 w-4" />;
+    case "requestRevision":
+      return <RotateCcw className="h-4 w-4" />;
+    case "markComplete":
+      return <ClipboardCheck className="h-4 w-4" />;
+    case "markApproved":
+      return <CheckCircle2 className="h-4 w-4" />;
+    case "sendToProduction":
+      return <Forward className="h-4 w-4" />;
+  }
+}
+
 function EditingSubmitButton({
   action,
   children,
   disabled,
-  variant,
+  intent,
 }: {
   action: string;
   children: React.ReactNode;
   disabled: boolean;
-  variant?: "default" | "outline";
+  intent: WorkflowActionIntent;
 }) {
   const { pending } = useFormStatus();
   return (
@@ -249,12 +261,27 @@ function EditingSubmitButton({
       type="submit"
       name="action"
       value={action}
-      variant={variant}
+      variant={buttonVariantForIntent(intent)}
       disabled={disabled || pending}
     >
       {pending ? "Saving..." : children}
     </Button>
   );
+}
+
+function buttonVariantForIntent(
+  intent: WorkflowActionIntent
+): "default" | "outline" | "destructive" {
+  switch (intent) {
+    case "primary":
+      return "default";
+    case "secondary":
+    case "warning":
+      // Button has no warning variant yet; keep warning actions visually secondary.
+      return "outline";
+    case "destructive":
+      return "destructive";
+  }
 }
 
 function ReadOnlyMetric({ label, value }: { label: string; value: string }) {

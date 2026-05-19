@@ -89,6 +89,11 @@ import {
 } from "./order.schema";
 import { getOrderTotalSelectedPhotoCount } from "./order.utils";
 import { ORDER_EDIT_MODE_MESSAGES } from "./policies/edit-mode-policy";
+import {
+  assertEditingReadyToStartPolicy,
+  buildEditingWorkflowPolicy,
+  type EditingWorkflowActionKey,
+} from "./policies/editing-workflow-policy";
 import type {
   EditingQueueItem,
   InvoiceStatusFilter,
@@ -4022,6 +4027,7 @@ function mapPackageItemDisplays(
 function mapOrderEditingWorkflow(
   order: {
     id: string;
+    status: OrderStatus;
     selectionStatus: OrderSelectionStatus;
     editingJob: {
       assignedEditorId: string | null;
@@ -4080,6 +4086,15 @@ function mapOrderEditingWorkflow(
   );
   const productionStatus =
     order.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
+  const workflowPolicy = buildEditingWorkflowPolicy({
+    orderStatus: order.status,
+    selectionStatus: order.selectionStatus,
+    editingStatus,
+    assignedEditorId,
+    hasEditorOptions: editors.length > 0,
+    basePaymentVerified,
+    hasOutstandingBalance: outstandingBalance.gt(0),
+  });
 
   return {
     orderId: order.id,
@@ -4116,24 +4131,22 @@ function mapOrderEditingWorkflow(
     outstandingBalanceLabel: outstandingBalance.gt(0)
       ? formatMoney(outstandingBalance)
       : null,
-    canAssignEditor: editingStatus !== OrderEditingStatus.COMPLETED,
-    canMarkStarted:
-      basePaymentVerified &&
-      outstandingBalance.lte(0) &&
-      order.selectionStatus === OrderSelectionStatus.COMPLETED &&
-      Boolean(assignedEditorId) &&
-      (
-        editingStatus === OrderEditingStatus.ASSIGNED ||
-        editingStatus === OrderEditingStatus.REVISION_REQUESTED
-      ),
-    canRequestRevision: editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
-    canMarkComplete:
-      editingStatus === OrderEditingStatus.IN_PROGRESS ||
-      editingStatus === OrderEditingStatus.REVISION_REQUESTED,
-    canMarkApproved: editingStatus === OrderEditingStatus.AWAITING_APPROVAL,
-    canSendToProduction: editingStatus === OrderEditingStatus.APPROVED,
+    canAssignEditor: actionAvailable(workflowPolicy, "assignEditor"),
+    canMarkStarted: actionAvailable(workflowPolicy, "markStarted"),
+    canRequestRevision: actionAvailable(workflowPolicy, "requestRevision"),
+    canMarkComplete: actionAvailable(workflowPolicy, "markComplete"),
+    canMarkApproved: actionAvailable(workflowPolicy, "markApproved"),
+    canSendToProduction: actionAvailable(workflowPolicy, "sendToProduction"),
+    workflowPolicy,
     editorOptions: editors,
   };
+}
+
+function actionAvailable(
+  policy: ReturnType<typeof buildEditingWorkflowPolicy>,
+  key: EditingWorkflowActionKey
+): boolean {
+  return policy.actions.some((action) => action.key === key && action.available);
 }
 
 function resolveRevisionState(
@@ -5031,18 +5044,12 @@ function assertEditingReadyToStart(
   basePaymentVerified: boolean,
   outstandingBalance: Prisma.Decimal
 ): void {
-  if (order.selectionStatus !== OrderSelectionStatus.COMPLETED) {
-    throw new Error("Editing cannot start until selection is completed");
-  }
-  if (!basePaymentVerified) {
-    throw new Error("Editing cannot start until base package payment is recorded");
-  }
-  if (outstandingBalance.gt(0)) {
-    throw new Error("Editing cannot start until the outstanding invoice balance is paid");
-  }
-  if (!order.assignedEditorId) {
-    throw new Error("Assign an editor before starting editing");
-  }
+  assertEditingReadyToStartPolicy({
+    selectionStatus: order.selectionStatus,
+    assignedEditorId: order.assignedEditorId,
+    basePaymentVerified,
+    hasOutstandingBalance: outstandingBalance.gt(0),
+  });
 }
 
 async function recordEditingStatusActivity(

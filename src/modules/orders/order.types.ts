@@ -8,6 +8,7 @@ import type {
   SessionConfigurationPricingMode,
 } from "@prisma/client";
 import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
+import type { EditingWorkflowPolicy } from "@/modules/orders/policies/editing-workflow-policy";
 import type { SelectionInput } from "@/modules/session-configurations/session-configuration-selection.schema";
 
 export type OrderStatusLabel =
@@ -170,6 +171,7 @@ export interface OrderEditingWorkflow {
   canMarkComplete: boolean;
   canMarkApproved: boolean;
   canSendToProduction: boolean;
+  workflowPolicy: EditingWorkflowPolicy;
   editorOptions: OrderEditorOption[];
 }
 
