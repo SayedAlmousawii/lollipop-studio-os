@@ -26,16 +26,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type {
-  POSAddOn,
   POSAddOnCatalogItem,
   POSProductOption,
   POSWorkspace,
 } from "@/modules/orders/order.types";
 import type {
+  POSAddOnMarketplaceCurrentAddOnProjection,
+  POSAddOnMarketplaceProductStateProjection,
+  POSAddOnMarketplaceProjection,
+} from "@/modules/orders/composition/projections";
+import type {
   HandlerResult,
   POSAddOnHandlers,
   POSMutationActionState,
 } from "@/modules/orders/pos-handlers.types";
+import { formatMoney } from "@/lib/formatting/money";
 
 const QUICK_ACTIONS: Array<{ label: string; category: string }> = [
   { label: "Add Album", category: "ALBUM" },
@@ -46,25 +51,19 @@ const QUICK_ACTIONS: Array<{ label: string; category: string }> = [
 
 interface POSAddOnMarketplaceProps {
   workspace: POSWorkspace;
+  marketplace: POSAddOnMarketplaceProjection;
   handlers: POSAddOnHandlers;
 }
 
 export function POSAddOnMarketplace({
   workspace,
+  marketplace,
   handlers,
 }: POSAddOnMarketplaceProps) {
   const locked = workspace.invoice?.isLocked ?? false;
-  const addedProductIds = new Set(
-    workspace.addOns.flatMap((addOn) => (addOn.productId ? [addOn.productId] : []))
+  const productStateById = new Map(
+    marketplace.productStates.map((state) => [state.productId, state])
   );
-  const addOnCountsByProductId = new Map<string, number>();
-  for (const addOn of workspace.addOns) {
-    if (!addOn.productId) continue;
-    addOnCountsByProductId.set(
-      addOn.productId,
-      (addOnCountsByProductId.get(addOn.productId) ?? 0) + 1
-    );
-  }
 
   return (
     <div className="space-y-5">
@@ -107,9 +106,7 @@ export function POSAddOnMarketplace({
                   key={item.id}
                   orderId={workspace.orderId}
                   item={item}
-                  addOn={workspace.addOns.find((current) => current.productId === item.id)}
-                  added={addedProductIds.has(item.id)}
-                  count={addOnCountsByProductId.get(item.id) ?? 0}
+                  productState={productStateById.get(item.id) ?? null}
                   handlers={handlers}
                 />
               ))}
@@ -122,7 +119,7 @@ export function POSAddOnMarketplace({
 
           <CurrentAddOns
             orderId={workspace.orderId}
-            addOns={workspace.addOns}
+            addOns={marketplace.currentAddOns}
             handlers={handlers}
           />
         </CardContent>
@@ -202,18 +199,16 @@ function QuickAddDialog({
 function CatalogCard({
   orderId,
   item,
-  addOn,
-  added,
-  count,
+  productState,
   handlers,
 }: {
   orderId: string;
   item: POSAddOnCatalogItem;
-  addOn?: POSAddOn;
-  added: boolean;
-  count: number;
+  productState: POSAddOnMarketplaceProductStateProjection | null;
   handlers: POSAddOnHandlers;
 }) {
+  const added = Boolean(productState);
+  const removalOrderAddOnId = productState?.removalOrderAddOnId ?? null;
   const [addState, addAction] = useHandlerAction(
     handlers.addAddOn,
     (formData) => ({
@@ -235,7 +230,7 @@ function CatalogCard({
           <p className="text-sm font-medium text-text-primary">{item.name}</p>
           {added ? (
             <Badge variant="outline" className="rounded-md">
-              Added x{count}
+              Added x{productState?.count ?? 0}
             </Badge>
           ) : null}
         </div>
@@ -248,10 +243,10 @@ function CatalogCard({
           <SubmitButton label={added ? "Add Another" : "Add"} />
           <GlobalError messages={addState.errors?._global} />
         </form>
-        {added && addOn ? (
+        {added && removalOrderAddOnId ? (
           <>
             <form action={removeAction} className="space-y-2">
-              <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
+              <input type="hidden" name="addOnId" value={removalOrderAddOnId} />
               <SubmitButton label="Remove One" variant="ghost" icon="trash" />
               <GlobalError messages={removeState.errors?._global} />
             </form>
@@ -260,7 +255,7 @@ function CatalogCard({
                 orderId={orderId}
                 action="remove-add-on"
                 approval={removeState.payload}
-                hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
+                hiddenFields={[{ name: "addOnId", value: removalOrderAddOnId }]}
               />
             ) : null}
           </>
@@ -276,7 +271,7 @@ function CurrentAddOns({
   handlers,
 }: {
   orderId: string;
-  addOns: POSAddOn[];
+  addOns: POSAddOnMarketplaceCurrentAddOnProjection[];
   handlers: POSAddOnHandlers;
 }) {
   return (
@@ -308,7 +303,7 @@ function CurrentAddOnRow({
   handlers,
 }: {
   orderId: string;
-  addOn: POSAddOn;
+  addOn: POSAddOnMarketplaceCurrentAddOnProjection;
   handlers: POSAddOnHandlers;
 }) {
   const [state, formAction] = useHandlerAction(
@@ -325,18 +320,24 @@ function CurrentAddOnRow({
         <GlobalError messages={state.errors?._global} />
       </div>
       <div className="flex items-center gap-2">
-        <span className="font-medium tabular-nums text-text-primary">{addOn.priceLabel}</span>
-        <form action={formAction} className="space-y-2">
-          <input type="hidden" name="addOnId" value={addOn.addOnRowId} />
-          <SubmitIconButton />
-        </form>
-        {handlers.shouldPromptInlineApproval ? (
-          <ReductiveEditApprovalModal
-            orderId={orderId}
-            action="remove-add-on"
-            approval={state.payload}
-            hiddenFields={[{ name: "addOnId", value: addOn.addOnRowId }]}
-          />
+        <span className="font-medium tabular-nums text-text-primary">
+          {formatMoney(addOn.unitAmount)}
+        </span>
+        {addOn.orderAddOnId ? (
+          <>
+            <form action={formAction} className="space-y-2">
+              <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
+              <SubmitIconButton />
+            </form>
+            {handlers.shouldPromptInlineApproval ? (
+              <ReductiveEditApprovalModal
+                orderId={orderId}
+                action="remove-add-on"
+                approval={state.payload}
+                hiddenFields={[{ name: "addOnId", value: addOn.orderAddOnId }]}
+              />
+            ) : null}
+          </>
         ) : null}
       </div>
     </div>
