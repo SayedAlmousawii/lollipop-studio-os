@@ -434,6 +434,42 @@ test("pending adjustment metadata covers every composition-affecting edit op wit
   assert.equal(sessionConfiguration?.metadata.displayKind, "sessionConfiguration");
   assert.equal(sessionConfiguration?.metadata.fromLabel, "Blue");
   assert.equal(sessionConfiguration?.metadata.toLabel, "Gold");
+
+  const selectedPhotoChange = snapshot.adjustmentLines.find(
+    (line) => line.metadata.adjustmentEditId === "edit-photos"
+  );
+  const selectedPhotoEdit = edits.find((edit) => edit.id === "edit-photos");
+  assert.equal(
+    selectedPhotoChange?.metadata.toLabel,
+    selectedPhotoEdit?.op === "change_selected_photo_count"
+      ? String(selectedPhotoEdit.selectedPhotoCount)
+      : undefined
+  );
+  if (selectedPhotoChange?.metadata.fromLabel) {
+    assert.notEqual(selectedPhotoChange.metadata.fromLabel, "1");
+  }
+});
+
+test("unclassified adjustment line falls back to displayKind 'line' and is not dropped", () => {
+  const snapshot = composition().buildCompositionSnapshotFromAdjustmentSnapshot({
+    capturedAt: "2026-05-19T00:00:00.000Z",
+    lines: [
+      adjustmentLine({
+        lineId: "manual-credit-line",
+        kind: "item",
+        refId: "manual-credit",
+        label: "Manual Credit",
+        unitPrice: "-5.000",
+        lineTotalNet: "-5.000",
+      }),
+    ],
+    totals: totals("-5.000"),
+  });
+
+  const line = snapshot.lines.find((row) => row.id === "manual-credit-line");
+  assert.ok(line);
+  assert.equal(line.metadata.displayKind, "line");
+  assert.equal(line.metadata.sourceKind, "packageItem");
 });
 
 test("new composition module does not introduce label-derived swap parsing", () => {

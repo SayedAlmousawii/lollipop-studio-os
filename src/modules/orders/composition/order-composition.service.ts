@@ -854,11 +854,23 @@ function selectedPhotoCountFromBase(
   const packageLine = snapshot.lines.find(
     (line) => line.lineId === `package:${orderPackageId}`
   );
-  if (!packageLine) return undefined;
-  const extraCount = snapshot.lines
-    .filter((line) => line.lineId.includes(`extra-photo:${orderPackageId}:`))
-    .reduce((sum, line) => sum + Math.max(line.quantity, 0), 0);
-  return String(packageLine.quantity + extraCount);
+  return selectedPhotoCountFromMetadata(packageLine);
+}
+
+function selectedPhotoCountFromMetadata(
+  line: AdjustmentCompositionLine | undefined
+): string | undefined {
+  const metadata = line?.refMetadata as
+    | (AdjustmentCompositionLine["refMetadata"] & {
+        selectedPhotoCount?: unknown;
+      })
+    | undefined;
+  const selectedPhotoCount = metadata?.selectedPhotoCount;
+  if (typeof selectedPhotoCount === "number") return String(selectedPhotoCount);
+  if (typeof selectedPhotoCount === "string" && selectedPhotoCount.trim()) {
+    return selectedPhotoCount;
+  }
+  return undefined;
 }
 
 function sessionConfigurationLineMatches(
@@ -979,10 +991,7 @@ function mediaTypeFromLineId(lineId: string): MediaType | undefined {
 }
 
 function isExtraPhotoLine(line: AdjustmentCompositionLine): boolean {
-  return (
-    line.lineId.startsWith("extra-photo:") ||
-    line.refId.startsWith("Extra photos - ")
-  );
+  return line.lineId.startsWith("extra-photo:");
 }
 
 function extraPhotoLineId(orderPackageId: string, mediaType: MediaType): string {
