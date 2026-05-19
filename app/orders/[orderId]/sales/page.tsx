@@ -17,6 +17,7 @@ import {
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
 import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   getEffectiveCompositionForInvoice,
   getOpenWorkspaceForInvoice,
@@ -72,7 +73,7 @@ export default async function SalesPage(
           invoiceId: workspace.invoice.invoiceId,
         })
       );
-    } else {
+    } else if (financialCaseSummary?.stage === "active") {
       console.error(
         JSON.stringify({
           metric: "sales_page.locked.financial_projection_missing",
@@ -80,6 +81,16 @@ export default async function SalesPage(
           invoiceId: workspace.invoice.invoiceId,
           financialCaseId: financialCaseSummary?.financialCaseId ?? null,
           stage: financialCaseSummary?.stage ?? null,
+        })
+      );
+    } else if (financialCaseSummary) {
+      console.info(
+        JSON.stringify({
+          metric: "sales_page.locked.inactive_stage",
+          orderId: workspace.orderId,
+          invoiceId: workspace.invoice.invoiceId,
+          financialCaseId: financialCaseSummary.financialCaseId,
+          stage: financialCaseSummary.stage,
         })
       );
     }
@@ -104,7 +115,17 @@ export default async function SalesPage(
             isManager={appUser.role === "ADMIN" || appUser.role === "MANAGER"}
             className={styles.financialSidebar}
           />
-        ) : null}
+        ) : (
+          <aside className={styles.financialSidebar}>
+            <Card className="border-danger/30">
+              <CardContent className="p-5">
+                <p className="text-sm text-text-secondary">
+                  Financial summary unavailable. Please refresh or contact an administrator.
+                </p>
+              </CardContent>
+            </Card>
+          </aside>
+        )}
       </div>
     );
   }
