@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const R12_DEPOSIT_DEDUP_REMOVED = false;
+const R12_DEPOSIT_DEDUP_REMOVED = true;
 
 const ROOT = process.cwd();
 
