@@ -1,6 +1,7 @@
 import { MediaType, Prisma } from "@prisma/client";
 import type { CurrentAppUser } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { formatMoney as formatPrice } from "@/lib/formatting/money";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -202,8 +203,4 @@ function priceMapForSessionType(
     prices.set(row.mediaType, row.unitPrice);
   }
   return prices;
-}
-
-function formatPrice(value: Prisma.Decimal): string {
-  return value.toFixed(3) + " KD";
 }

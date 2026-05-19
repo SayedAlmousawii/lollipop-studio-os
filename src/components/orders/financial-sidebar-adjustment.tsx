@@ -11,7 +11,8 @@ import type {
 import {
   finalizeAdjustmentWorkspaceAction,
 } from "@/app/orders/[orderId]/adjustment-workspace/actions";
-import { MoneyRow, formatKD } from "./financial-sidebar-primitives";
+import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
+import { MoneyRow } from "./financial-sidebar-primitives";
 
 export function FinancialSidebarAdjustment({
   orderId,
@@ -51,19 +52,19 @@ export function FinancialSidebarAdjustment({
             <div className="space-y-2">
               <MoneyRow
                 label="Base Locked Total"
-                value={formatKD(preview.baseLockedTotal)}
+                value={formatMoney(preview.baseLockedTotal)}
               />
               <MoneyRow
                 label="Pending Additions"
-                value={formatSignedKD(preview.pendingAdditions)}
+                value={formatSignedMoney(preview.pendingAdditions)}
               />
               <MoneyRow
                 label="Pending Reductions"
-                value={formatSignedKD(preview.pendingReductions)}
+                value={formatSignedMoney(preview.pendingReductions)}
               />
               <MoneyRow
                 label="Pending Net Adjustment"
-                value={formatSignedKD(preview.pendingNet)}
+                value={formatSignedMoney(preview.pendingNet)}
                 strong
               />
             </div>
@@ -174,13 +175,6 @@ function FinalizeAdjustmentForm({
       ) : null}
     </form>
   );
-}
-
-function formatSignedKD(value: number): string {
-  const formatted = formatKD(Math.abs(value));
-  if (value > 0) return `+${formatted}`;
-  if (value < 0) return `-${formatted}`;
-  return formatKD(0);
 }
 
 function formatEnumLabel(value: string): string {

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatSignedMoney, parseMoneyInput } from "@/lib/formatting/money";
 import type { PackageTaxonomyOptions } from "@/modules/packages/package.types";
 import type {
   GroupedProductOptions,
@@ -240,7 +241,7 @@ export function PackageForm({
               Bundle adjustment
             </span>
             <span className="text-sm font-semibold text-text-primary">
-              {formatSignedMoney(bundleAdjustment)}
+              {formatSignedMoney(bundleAdjustment, { signDisplay: "always" })}
             </span>
           </div>
         </div>
@@ -687,16 +688,10 @@ function calculateBundleAdjustment(
 }
 
 function parseMoney(value: string): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseMoneyInput(value);
 }
 
 function parseWholeNumber(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
-}
-
-function formatSignedMoney(value: number): string {
-  const sign = value < 0 ? "-" : "+";
-  return `${sign}${Math.abs(value).toFixed(3)} KD`;
 }

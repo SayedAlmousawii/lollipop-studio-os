@@ -19,6 +19,7 @@ import {
 import type { ActorContext } from "@/lib/auth";
 import { assertActorPermission } from "@/lib/auth/assert-actor-permission";
 import { db } from "@/lib/db";
+import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import { PERMISSIONS } from "@/lib/permissions";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
@@ -1848,7 +1849,7 @@ function derivePOSPackageLine(
     extraPhotoTotal,
     packageSubtotal: currentPackage.price + extraPhotoTotal,
     upgradeDelta,
-    upgradeDeltaLabel: formatSignedNumber(upgradeDelta),
+    upgradeDeltaLabel: formatSignedMoney(upgradeDelta),
     packageOptions: derivePOSPackageOptions(line.packageOptions, currentPackage),
   };
 }
@@ -1887,7 +1888,7 @@ function derivePOSPackageOptions(
       ...option,
       isCurrentPackage: option.id === currentPackage.id,
       upgradeDelta,
-      upgradeDeltaLabel: formatSignedNumber(upgradeDelta),
+      upgradeDeltaLabel: formatSignedMoney(upgradeDelta),
     };
   });
 }
@@ -1956,13 +1957,6 @@ function labelAfterUpgradePrefix(label: string): string | null {
   const separator = " to ";
   const index = label.lastIndexOf(separator);
   return index >= 0 ? label.slice(index + separator.length) : null;
-}
-
-function formatSignedNumber(value: number): string {
-  const formatted = `${Math.abs(value).toFixed(3)} KD`;
-  if (value > 0) return `+${formatted}`;
-  if (value < 0) return `-${formatted}`;
-  return formatted;
 }
 
 function parsePendingChanges(value: Prisma.JsonValue): AdjustmentPendingChanges {
@@ -2933,10 +2927,6 @@ function assertWorkspaceOwnerOrManager(
 
 function isRecord(value: Prisma.JsonValue): value is Record<string, Prisma.JsonValue> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function formatMoney(value: Prisma.Decimal): string {
-  return `${value.toFixed(3)} KD`;
 }
 
 function recordWorkspaceMetric(

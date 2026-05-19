@@ -1,5 +1,6 @@
 import { Prisma, ProductCategory } from "@prisma/client";
 import { db } from "@/lib/db";
+import { formatMoney as formatPrice } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { PRODUCT_CATEGORY_LABELS, PRODUCT_CATEGORY_OPTIONS } from "./product.constants";
 import { createProductSchema, updateProductSchema } from "./product.schema";
@@ -207,8 +208,4 @@ export async function archiveProduct(id: string): Promise<void> {
 
 function decimal(value: number): Prisma.Decimal {
   return new Prisma.Decimal(value.toFixed(3));
-}
-
-function formatPrice(value: { toFixed(dp: number): string }): string {
-  return value.toFixed(3) + " KD";
 }

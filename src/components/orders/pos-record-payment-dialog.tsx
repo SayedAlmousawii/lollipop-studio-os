@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TimePicker } from "@/components/ui/time-picker";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { formatMoney } from "@/lib/formatting/money";
 import type { POSInvoiceSummary } from "@/modules/orders/order.types";
 
 interface POSRecordPaymentDialogProps {
@@ -357,9 +358,9 @@ function InvoiceSummary({
         </Badge>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-3">
-        <SummaryAmount label="Total" value={formatKD(invoice.invoiceTotal)} />
-        <SummaryAmount label="Paid" value={formatKD(invoice.paidAmount)} />
-        <SummaryAmount label="Remaining" value={formatKD(invoice.remainingAmount)} strong />
+        <SummaryAmount label="Total" value={formatMoney(invoice.invoiceTotal)} />
+        <SummaryAmount label="Paid" value={formatMoney(invoice.paidAmount)} />
+        <SummaryAmount label="Remaining" value={formatMoney(invoice.remainingAmount)} strong />
       </div>
     </div>
   );
@@ -448,10 +449,6 @@ function FieldError({
       {messages[0]}
     </p>
   );
-}
-
-function formatKD(value: number): string {
-  return `${value.toFixed(3)} KD`;
 }
 
 function formatDateInput(value: Date): string {

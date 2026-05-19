@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { formatMoney } from "@/lib/formatting/money";
 import type { PendingCreditNoteApprovalPayload } from "@/app/orders/[orderId]/sales/actions";
 
 type CreditNoteApprovalFormProps = {
@@ -37,7 +38,7 @@ export function CreditNoteApprovalForm({
             Manager confirmation required
           </p>
           <p>
-            Removing these items will issue a {formatKD(reductionTotal)} credit
+            Removing these items will issue a {formatMoney(reductionTotal)} credit
             note. A manager must authorize the reduction before it is saved.
           </p>
         </div>
@@ -53,7 +54,7 @@ export function CreditNoteApprovalForm({
               {reduction.lineName}
               <span className="text-text-secondary"> · {formatReason(reduction.reason)}</span>
             </span>
-            <span className="shrink-0 tabular-nums">{reduction.amount} KD</span>
+            <span className="shrink-0 tabular-nums">{formatMoney(reduction.amount)}</span>
           </div>
         ))}
         {approval.adjustmentLines.length > 0 ? (
@@ -66,7 +67,7 @@ export function CreditNoteApprovalForm({
               >
                 <span className="min-w-0 truncate">{line.description}</span>
                 <span className="shrink-0 tabular-nums">
-                  {line.quantity} x {line.unitPrice} KD
+                  {line.quantity} x {formatMoney(line.unitPrice)}
                 </span>
               </div>
             ))}
@@ -118,10 +119,6 @@ function ConfirmReductionButton() {
       {pending ? "Confirming..." : "Confirm Reduction"}
     </Button>
   );
-}
-
-function formatKD(value: number): string {
-  return `${value.toFixed(3)} KD`;
 }
 
 function formatReason(reason: string): string {

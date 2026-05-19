@@ -1,5 +1,5 @@
 import type { LinkedFinancialDocument } from "@/modules/orders/order.types";
-import { formatKD } from "@/components/orders/financial-sidebar-primitives";
+import { formatSignedMoney } from "@/lib/formatting/money";
 
 export function formatSignedDocumentAmount(
   document: LinkedFinancialDocument
@@ -8,13 +8,7 @@ export function formatSignedDocumentAmount(
     document.invoiceType === "REFUND" || document.invoiceType === "CREDIT_NOTE"
       ? -document.invoiceTotal
       : document.invoiceTotal;
-  return formatSignedKD(amount);
-}
-
-export function formatSignedKD(value: number): string {
-  if (value > 0) return `+${formatKD(value)}`;
-  if (value < 0) return `-${formatKD(Math.abs(value))}`;
-  return formatKD(value);
+  return formatSignedMoney(amount);
 }
 
 export function formatEnumLabel(value: string): string {

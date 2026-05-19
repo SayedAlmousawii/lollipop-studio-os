@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { formatMoney } from "@/lib/formatting/money";
 import type { SessionConfigurationSummaryEntry } from "@/modules/orders/order.types";
 
 export function ConfigurationSummaryChip({
@@ -19,14 +20,10 @@ export function ConfigurationSummaryChip({
       {subtotal !== 0 ? (
         <div>
           <Badge variant="outline" className="rounded-md border-accent/30 text-accent">
-            Added Fees: {formatKD(subtotal)}
+            Added Fees: {formatMoney(subtotal)}
           </Badge>
         </div>
       ) : null}
     </div>
   );
-}
-
-function formatKD(value: number): string {
-  return `${value.toFixed(3)} KD`;
 }

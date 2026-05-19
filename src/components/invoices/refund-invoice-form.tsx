@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { moneyInputValue } from "@/lib/invoices/refund-utils";
+import { formatMoneyInputValue } from "@/lib/formatting/money";
 
 type RefundFormAction = (formData: FormData) => void | Promise<void>;
 
@@ -27,7 +27,7 @@ export function RefundInvoiceForm({
   overpaymentCapacity,
   sourcePayments,
 }: RefundInvoiceFormProps) {
-  const capacityValue = moneyInputValue(overpaymentCapacity);
+  const capacityValue = formatMoneyInputValue(overpaymentCapacity);
   const [error, setError] = useState<string | null>(null);
 
   function validateAmountInput(amountInput: HTMLInputElement): string | null {

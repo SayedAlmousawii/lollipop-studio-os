@@ -14,6 +14,7 @@ import {
   applySessionConfigurationWorkspaceEditAction,
   configureSessionAction,
 } from "@/app/orders/[orderId]/actions";
+import { formatSignedMoney } from "@/lib/formatting/money";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -472,7 +473,7 @@ function previewFee(
     "numericValue" in selection ? new Prisma.Decimal(selection.numericValue) : null;
   if (configuration.pricingMode === "LINKED_PRODUCT") {
     const total = configuration.linkedProductPrice ?? 0;
-    return total === 0 ? null : `+${total.toFixed(3)} KD`;
+    return total === 0 ? null : formatSignedMoney(total);
   }
   const result = priceSingleSelection({
     id: configuration.id,
@@ -497,7 +498,7 @@ function previewFee(
   const total = (result.lineDelta ?? new Prisma.Decimal(0)).toNumber();
 
   if (total === 0) return null;
-  return `+${total.toFixed(3)} KD`;
+  return formatSignedMoney(total);
 }
 
 function GlobalErrors({ messages }: { messages?: string[] }) {

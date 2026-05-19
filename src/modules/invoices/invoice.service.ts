@@ -16,6 +16,7 @@ import {
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { formatMoney } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import {
@@ -1917,16 +1918,7 @@ function mapComputedInvoiceLineItem(
 }
 
 function formatComputedMoney(value: SnapshotInvoiceLineItem["unitPrice"]): string {
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "toFixed" in value &&
-    typeof value.toFixed === "function"
-  ) {
-    return formatMoney(value);
-  }
-
-  return `${Number(value).toFixed(3)} KD`;
+  return formatMoney(value);
 }
 
 export async function createAdjustmentInvoice(
@@ -2338,7 +2330,7 @@ async function createCreditNoteWithClient(
     const creditCapacity = await computeCreditNoteCapacityForFinal(target.id, client);
     if (totalAmount.greaterThan(creditCapacity)) {
       throw new Error(
-        `Credit note amount cannot exceed remaining credit capacity (${creditCapacity.toFixed(3)} KD)`
+        `Credit note amount cannot exceed remaining credit capacity (${formatMoney(creditCapacity)})`
       );
     }
   }
@@ -2454,7 +2446,7 @@ async function createCreditNoteWithClient(
       userId: input.createdByUserId,
       type: OrderActivityType.INVOICE_ADJUSTED,
       title: "Credit note issued",
-      description: `Credit note ${creditNote.invoiceNumber} issued against ${target.invoiceNumber}: ${totalAmount.toFixed(3)} KD for reason '${reason}'.`,
+      description: `Credit note ${creditNote.invoiceNumber} issued against ${target.invoiceNumber}: ${formatMoney(totalAmount)} for reason '${reason}'.`,
       metadata: {
         targetInvoiceId: target.id,
         targetInvoiceNumber: target.invoiceNumber,
@@ -2471,7 +2463,7 @@ async function createCreditNoteWithClient(
         userId: input.createdByUserId,
         type: OrderActivityType.INVOICE_ADJUSTED,
         title: "Refund available",
-        description: `FINAL ${target.invoiceNumber} is now overpaid by ${overpaidAmount.toFixed(3)} KD — refund available.`,
+        description: `FINAL ${target.invoiceNumber} is now overpaid by ${formatMoney(overpaidAmount)} — refund available.`,
         metadata: {
           targetInvoiceId: target.id,
           targetInvoiceNumber: target.invoiceNumber,
@@ -2608,7 +2600,7 @@ async function applyAdjustmentReversalsWithClient({
         userId: createdByUserId,
         type: OrderActivityType.INVOICE_ADJUSTED,
         title: "Adjustment reversal credit note issued",
-        description: `Credit note ${creditNote.invoiceNumber} reversed ${reversal.amount.toFixed(3)} KD from ${causingLine.invoice.invoiceNumber}.`,
+        description: `Credit note ${creditNote.invoiceNumber} reversed ${formatMoney(reversal.amount)} from ${causingLine.invoice.invoiceNumber}.`,
         metadata: {
           adjustmentInvoiceId: causingLine.invoice.id,
           adjustmentInvoiceLineId: causingLine.id,
@@ -2721,10 +2713,6 @@ function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {
     case InvoiceStatus.CLOSED:
       return "Closed";
   }
-}
-
-function formatMoney(value: { toFixed(dp: number): string }): string {
-  return `${value.toFixed(3)} KD`;
 }
 
 function computeDisplaySettledAmount(invoice: {

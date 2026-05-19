@@ -13,6 +13,7 @@ import { PaymentHistoryTable } from "@/components/invoices/payment-history-table
 import { RecordPaymentForm } from "@/components/invoices/record-payment-form";
 import { RefundInvoiceForm } from "@/components/invoices/refund-invoice-form";
 import { getCurrentAppUser } from "@/lib/auth";
+import { formatMoneyInputValue, parseMoneyInput } from "@/lib/formatting/money";
 import { shouldShowRefundForm } from "@/lib/invoices/refund-utils";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 import { getInvoiceById } from "@/modules/invoices/invoice.service";
@@ -48,7 +49,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
     invoice.isLocked &&
     invoice.invoiceType === "FINAL" &&
     invoice.creditNoteCapacity !== null &&
-    moneyInputValue(invoice.creditNoteCapacity) !== "0.000";
+    parseMoneyInput(invoice.creditNoteCapacity) > 0;
   const canIssueRefund =
     appUser !== null && hasPermission(appUser, PERMISSIONS.REFUND_ISSUE);
   const canRefundInvoice =
@@ -190,7 +191,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
                     <CreditNoteLineFields
                       index={0}
                       required
-                      max={moneyInputValue(invoice.creditNoteCapacity ?? "0.000 KD")}
+                      max={formatMoneyInputValue(invoice.creditNoteCapacity ?? "0.000 KD")}
                     />
                     <CreditNoteLineFields index={1} />
                     <CreditNoteLineFields index={2} />
@@ -406,10 +407,4 @@ function Field({
       />
     </div>
   );
-}
-
-function moneyInputValue(value: string): string {
-  const match = value.match(/-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/);
-  const parsedValue = Number(match?.[0].replace(/,/g, "") ?? 0);
-  return Number.isFinite(parsedValue) ? parsedValue.toFixed(3) : "0.000";
 }

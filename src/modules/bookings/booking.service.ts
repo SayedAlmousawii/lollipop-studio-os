@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { formatMoney as formatPrice } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
 import {
@@ -1597,10 +1598,6 @@ function dedupeAndSortDepositInvoices<
 
 function formatInputDate(date: Date): string {
   return date.toISOString().slice(0, 10);
-}
-
-function formatPrice(value: { toFixed(dp: number): string }): string {
-  return `${value.toFixed(3)} KD`;
 }
 
 function formatDuration(minutes: number): string {

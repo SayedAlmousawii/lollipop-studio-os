@@ -1,8 +1,5 @@
-import {
-  MoneyRow,
-  formatKD,
-} from "@/components/orders/financial-sidebar-primitives";
-import { formatSignedKD } from "./financial-format";
+import { MoneyRow } from "@/components/orders/financial-sidebar-primitives";
+import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import type { LockedFinancialSidebarSummary } from "./financial-types";
 
 export function FinancialTotalSource({
@@ -17,17 +14,17 @@ export function FinancialTotalSource({
       </p>
       <MoneyRow
         label="Final Invoice Total"
-        value={formatKD(summary.finalInvoiceTotal)}
+        value={formatMoney(summary.finalInvoiceTotal)}
       />
       {summary.totalAdjustments !== 0 ? (
         <MoneyRow
           label="Total Adjustments"
-          value={formatSignedKD(summary.totalAdjustments)}
+          value={formatSignedMoney(summary.totalAdjustments)}
         />
       ) : null}
       <MoneyRow
         label="Final Total / Customer Total"
-        value={formatKD(summary.finalTotal)}
+        value={formatMoney(summary.finalTotal)}
         strong
       />
     </section>

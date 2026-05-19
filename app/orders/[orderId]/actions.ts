@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { InvoiceType, PaymentType } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { parseMoneyInput } from "@/lib/formatting/money";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
@@ -453,7 +454,7 @@ export async function recordUpgradePaymentAction(
       };
     }
 
-    const serverAmount = Number(invoice.remainingAmount.replace(/[^\d.-]/g, ""));
+    const serverAmount = parseMoneyInput(invoice.remainingAmount);
     if (!Number.isFinite(serverAmount) || serverAmount <= 0) {
       return {
         errors: {
