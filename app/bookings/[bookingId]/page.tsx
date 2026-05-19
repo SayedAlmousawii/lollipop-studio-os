@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { BookingFinancialSection } from "@/components/bookings/booking-financial-section";
+import { BookingStatusActions } from "@/components/bookings/booking-status-actions";
 import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
 import { CheckInButton } from "@/components/bookings/check-in-button";
 import { DeletePendingBookingButton } from "@/components/bookings/delete-pending-booking-button";
@@ -122,6 +123,11 @@ export default async function BookingDetailPage(
           {booking.canDeletePending ? (
             <DeletePendingBookingButton bookingId={booking.id} />
           ) : null}
+          <BookingStatusActions
+            bookingId={booking.id}
+            policy={booking.workflowPolicy}
+            presentation="inline"
+          />
         </div>
 
         <Section title="Booking Summary">
