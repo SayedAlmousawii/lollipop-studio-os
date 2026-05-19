@@ -491,6 +491,25 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
   );
   const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
   const packageItemId = await firstPackageItemId(db, fixtures.upgradePackageId);
+  const [originalItemBasePrice, upgradeProduct] = await Promise.all([
+    db.packageItem
+      .findUniqueOrThrow({
+        where: { id: packageItemId },
+        select: { priceSnapshot: true },
+      })
+      .then((item) => item.priceSnapshot.toNumber()),
+    db.product.findUniqueOrThrow({
+      where: { id: upgradeProductId },
+      select: { canonicalPrice: true },
+    }),
+  ]);
+  assert.ok(originalItemBasePrice > 0);
+  const upgradeDelta = Number(
+    upgradeProduct.canonicalPrice.minus(originalItemBasePrice).toFixed(3)
+  );
+  const expectedUpgradePrice = Number(
+    (originalItemBasePrice + upgradeDelta).toFixed(3)
+  );
   const existingAddOn = await db.orderAddOn.create({
     data: {
       orderId: workflow.orderId,
@@ -566,8 +585,8 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
           {
             productId: upgradeProductId,
             productName: "83a Finalize Premium Frame",
-            priceSnapshot: 65,
-            priceSnapshotLabel: formatMoney(65),
+            priceSnapshot: expectedUpgradePrice,
+            priceSnapshotLabel: formatMoney(expectedUpgradePrice),
           },
         ],
       },
@@ -581,7 +600,7 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
       },
     ],
     totals: {
-      rawDeliverableTotal: 65,
+      rawDeliverableTotal: expectedUpgradePrice,
       includedPhotoCount: 15,
       selectedPhotoCount: 18,
       extraPhotoCount: 3,
@@ -591,8 +610,12 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
     },
   });
   assert.equal(
+    publicFields.packageLines[0]?.packageItems[0]?.priceSnapshot,
+    expectedUpgradePrice
+  );
+  assert.equal(
     publicFields.packageLines[0]?.packageItems[0]?.priceSnapshotLabel,
-    formatMoney(65),
+    formatMoney(expectedUpgradePrice),
     "upgraded package item label must match the legacy Decimal formatter output"
   );
 });

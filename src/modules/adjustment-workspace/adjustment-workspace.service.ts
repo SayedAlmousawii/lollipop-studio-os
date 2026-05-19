@@ -1860,9 +1860,7 @@ function derivePOSPackageItemFromComposition(
   );
   if (!projectedItem || projectedItem.productId === item.productId) return item;
 
-  const priceSnapshot = Number(
-    (item.priceSnapshot + projectedItem.unitAmount).toFixed(3)
-  );
+  const priceSnapshot = resolveProjectedPackageItemPrice(item, projectedItem);
 
   return {
     ...item,
@@ -1872,6 +1870,24 @@ function derivePOSPackageItemFromComposition(
     priceSnapshot,
     priceSnapshotLabel: formatMoney(priceSnapshot),
   };
+}
+
+function roundProjectedMoney(value: number): number {
+  return Number(value.toFixed(3));
+}
+
+function resolveProjectedPackageItemPrice(
+  item: POSPackageItem,
+  projectedItem: POSCompositionPackageLineProjection["packageItems"][number]
+): number {
+  const projectedUnitAmount = roundProjectedMoney(projectedItem.unitAmount);
+  const projectedLooksLikeDelta =
+    projectedItem.productId !== item.productId &&
+    Math.abs(projectedUnitAmount) < Math.abs(item.priceSnapshot);
+
+  return projectedLooksLikeDelta
+    ? roundProjectedMoney(item.priceSnapshot + projectedUnitAmount)
+    : projectedUnitAmount;
 }
 
 function derivePOSPackageOptions(

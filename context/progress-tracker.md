@@ -65,7 +65,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
-- **102 R7b** — Added pure OrderCompositionViewModel projectors for POS, current-composition, overview, and production deliverables; rewired the adjustment-workspace POS adapter through the canonical model/projector path with regression coverage.
+- **102 R7b** — Added pure OrderCompositionViewModel projectors for POS, current-composition, overview, and production deliverables; rewired the adjustment-workspace POS adapter through the canonical model/projector path with regression coverage for package-item upgrade pricing equivalence.
 - **102 R7a** — Added the read-only OrderCompositionViewModel core for draft, locked/effective, and pending-adjustment composition state with structured metadata and no new label-derived swap parsing path.
 - **101 R6** — Removed temporary FinancialCase discrepancy/parity logger and reconciliation invariant, refreshed the invariant catalog, and added static guards for projector purity plus removed-symbol regressions.
 - **100 R5** — Removed direct app/component DB imports by moving configure-session routing, missing-session-setting messages, upgrade-payment outstanding-balance validation, and new-booking page data loading into service helpers; added a service-only DB access regression guard.
