@@ -43,19 +43,27 @@ import {
   getOrderSelectionWorkflowById,
 } from "@/modules/orders/order.service";
 import { getOrderActivityTimeline } from "@/modules/orders/order-activity.service";
+import { formatMoney } from "@/lib/formatting/money";
 import {
   FINANCIAL_CASE_PAYMENT_STATUS_LABELS,
   getFinancialCaseSummary,
   toFinancialTabBlock,
   toOrderHeaderFinancial,
 } from "@/modules/financial-cases";
+import {
+  getOrderCompositionViewModel,
+  toOverviewTab,
+  toProductionDeliverables,
+  type OverviewCompositionProjection,
+  type POSCompositionPackageItemProjection,
+  type ProductionDeliverablesProjection,
+} from "@/modules/orders/composition";
 import type {
   LinkedFinancialDocument,
   OrderActivityPreviewItem,
   OrderDetail,
   OrderDeliveryWorkflow,
   OrderEditingWorkflow,
-  OrderAddOnDisplay,
   PackageItemDisplay,
   POSWorkspace,
   OrderProductionWorkflow,
@@ -87,6 +95,7 @@ export default async function OrderDetailPage(
     linkedDocuments,
     financialCaseSummary,
     activity,
+    compositionModel,
   ] = await Promise.all([
     getOrderHubById(orderId),
     getOrderSelectionWorkflowById(orderId),
@@ -97,12 +106,14 @@ export default async function OrderDetailPage(
     getLinkedFinancialDocumentsForOrder(orderId),
     getFinancialCaseSummary({ orderId }),
     getOrderActivityTimeline(orderId),
+    getOrderCompositionViewModel({ orderId }),
   ]);
   if (!order) notFound();
   if (!selection) notFound();
   if (!editing) notFound();
   if (!production) notFound();
   if (!delivery) notFound();
+  if (!compositionModel) notFound();
 
   const financialSummary = financialCaseSummary
     ? toFinancialTabBlock(financialCaseSummary)
@@ -110,6 +121,8 @@ export default async function OrderDetailPage(
   const headerFinancial = financialCaseSummary
     ? toOrderHeaderFinancial(financialCaseSummary)
     : null;
+  const overviewComposition = toOverviewTab(compositionModel);
+  const productionDeliverables = toProductionDeliverables(compositionModel);
   if (financialSummary && financialCaseSummary?.stage === "active") {
     console.info(
       JSON.stringify({
@@ -208,6 +221,7 @@ export default async function OrderDetailPage(
           <TabsContent value="overview" className="space-y-4">
             <OverviewTab
               order={order}
+              composition={overviewComposition}
               operationalPackageLines={deriveOperationalPackageLines(workspace)}
             />
           </TabsContent>
@@ -218,7 +232,11 @@ export default async function OrderDetailPage(
             <EditingTab editing={editing} order={order} />
           </TabsContent>
           <TabsContent value="production" className="space-y-4">
-            <ProductionTab production={production} order={order} />
+            <ProductionTab
+              production={production}
+              order={order}
+              deliverables={productionDeliverables}
+            />
           </TabsContent>
           <TabsContent value="delivery" className="space-y-4">
             <DeliveryTab delivery={delivery} order={order} />
@@ -242,9 +260,11 @@ export default async function OrderDetailPage(
 function ProductionTab({
   production,
   order,
+  deliverables,
 }: {
   production: OrderProductionWorkflow;
   order: OrderDetail;
+  deliverables: ProductionDeliverablesProjection;
 }) {
   return (
     <div className="space-y-4">
@@ -263,7 +283,7 @@ function ProductionTab({
               ["Production status", production.productionStatus],
               ["Delivery readiness", production.deliveryStatus],
               ["Ready for pickup", production.readyAt ?? "Not ready"],
-              ["Deliverables", formatDeliverablesSummary(order.packageItems, order.paidAddOns)],
+              ["Deliverables", deliverables.summaryLabel],
               ["Included photos", order.includedPhotoCount],
               ["Extra photos", order.extraPhotoCount],
             ]}
@@ -353,19 +373,13 @@ function EditingTab({
 
 function OverviewTab({
   order,
+  composition,
   operationalPackageLines,
 }: {
   order: OrderDetail;
+  composition: OverviewCompositionProjection;
   operationalPackageLines: OperationalConfigurationsPackageLine[];
 }) {
-  const selectedPhotoCountLabel =
-    order.selectedPhotoCount.trim().length > 0 ? order.selectedPhotoCount : "—";
-  const extraPhotoCountValue = Number.parseInt(order.extraPhotoCount, 10);
-  const selectedPhotosLabel =
-    Number.isFinite(extraPhotoCountValue) && extraPhotoCountValue > 0
-      ? `${selectedPhotoCountLabel} (${extraPhotoCountValue} extra)`
-      : selectedPhotoCountLabel;
-
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="space-y-4">
@@ -395,17 +409,18 @@ function OverviewTab({
           <CardContent className="space-y-5">
             <InfoGrid
               items={[
-                ["Packages", String(order.packageLines.length)],
-                ["Photo limit", order.includedPhotoCount],
-                ["Selected photos", selectedPhotosLabel],
+                ["Packages", String(composition.summary.packageCount)],
+                ["Photo limit", String(composition.summary.includedPhotoCount)],
+                ["Selected photos", composition.summary.selectedPhotosLabel],
                 ["Bundle adjustment", order.bundleAdjustment],
               ]}
             />
-            <PackageLineList lines={order.packageLines} />
+            <OverviewPackageLineList lines={composition.packageLines} />
             <OperationalConfigurationsBlock
               packageLines={operationalPackageLines}
             />
-            <AddOnList items={order.paidAddOns} />
+            <SessionConfigurationList items={composition.sessionConfigurations} />
+            <OverviewAddOnList items={composition.addOns} />
           </CardContent>
         </Card>
 
@@ -486,6 +501,56 @@ function PackageLineList({ lines }: { lines: OrderDetail["packageLines"] }) {
             </p>
           </div>
           <DeliverableList
+            title="Included"
+            items={line.packageItems}
+            emptyLabel="No structured package items have been added yet."
+            photoCountLabel={`${line.includedPhotoCount} Photos`}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OverviewPackageLineList({
+  lines,
+}: {
+  lines: OverviewCompositionProjection["packageLines"];
+}) {
+  if (lines.length === 0) {
+    return (
+      <p className="text-sm text-text-secondary">
+        No structured package lines have been added yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {lines.map((line) => (
+        <div
+          key={line.orderPackageId}
+          className="space-y-3 rounded-md border border-border bg-surface-soft p-3"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {line.packageName}
+              </p>
+              <p className="text-xs text-text-secondary">
+                {line.sessionTypeName ?? "—"} ·{" "}
+                {line.extraPhotoCount > 0
+                  ? `${line.extraPhotoCount} extra photo${
+                      line.extraPhotoCount === 1 ? "" : "s"
+                    }`
+                  : "No extra photos"}
+              </p>
+            </div>
+            <p className="text-xs text-text-secondary">
+              {line.selectedPhotoCount} selected · {line.extraPhotoCount} extra
+            </p>
+          </div>
+          <OverviewDeliverableList
             title="Included"
             items={line.packageItems}
             emptyLabel="No structured package items have been added yet."
@@ -625,7 +690,90 @@ function DeliverableList({
   );
 }
 
-function AddOnList({ items }: { items: OrderAddOnDisplay[] }) {
+function OverviewDeliverableList({
+  title,
+  items,
+  emptyLabel,
+  photoCountLabel,
+}: {
+  title: string;
+  items: POSCompositionPackageItemProjection[];
+  emptyLabel: string;
+  photoCountLabel: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium uppercase text-text-muted">{title}</p>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
+          >
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                {item.quantity}× {item.productName}
+              </p>
+              <p className="text-xs text-text-secondary">
+                {item.category ?? "Package item"} · {formatMoney(item.unitAmount)}
+              </p>
+            </div>
+            <p className="text-sm font-medium text-text-primary">
+              {formatMoney(item.totalAmount)}
+            </p>
+          </div>
+        ))}
+        <div className="rounded-md border border-border bg-surface-soft px-3 py-2">
+          <p className="text-sm font-medium text-text-primary">{photoCountLabel}</p>
+          <p className="text-xs text-text-secondary">Included photo selection</p>
+        </div>
+        {items.length === 0 ? (
+          <p className="text-sm text-text-secondary">{emptyLabel}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SessionConfigurationList({
+  items,
+}: {
+  items: OverviewCompositionProjection["sessionConfigurations"];
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium uppercase text-text-muted">
+        Session Configurations
+      </p>
+      <div className="space-y-2">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface-soft px-3 py-2"
+          >
+            <div>
+              <p className="text-sm font-medium text-text-primary">{item.label}</p>
+              <p className="text-xs text-text-secondary">
+                {item.optionLabel ?? item.numericValue ?? item.textValue ?? "Selected"}
+              </p>
+            </div>
+            <p className="text-sm font-medium text-text-primary">
+              {formatMoney(item.priceDelta)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OverviewAddOnList({
+  items,
+}: {
+  items: OverviewCompositionProjection["addOns"];
+}) {
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium uppercase text-text-muted">Paid Add-ons</p>
@@ -640,10 +788,12 @@ function AddOnList({ items }: { items: OrderAddOnDisplay[] }) {
                 <p className="text-sm font-medium text-text-primary">
                   {item.quantity}× {item.name}
                 </p>
-                <p className="text-xs text-text-secondary">{item.unitPrice}</p>
+                <p className="text-xs text-text-secondary">
+                  {formatMoney(item.unitAmount)}
+                </p>
               </div>
               <p className="text-sm font-medium text-text-primary">
-                {item.lineTotal}
+                {formatMoney(item.totalAmount)}
               </p>
             </div>
           ))}
@@ -653,18 +803,6 @@ function AddOnList({ items }: { items: OrderAddOnDisplay[] }) {
       )}
     </div>
   );
-}
-
-function formatDeliverablesSummary(
-  packageItems: PackageItemDisplay[],
-  paidAddOns: OrderAddOnDisplay[]
-): string {
-  const itemCount = packageItems.reduce((sum, item) => sum + item.quantity, 0);
-  const addOnCount = paidAddOns.reduce((sum, item) => sum + item.quantity, 0);
-  const parts = [];
-  if (itemCount > 0) parts.push(`${itemCount} package item${itemCount === 1 ? "" : "s"}`);
-  if (addOnCount > 0) parts.push(`${addOnCount} paid add-on${addOnCount === 1 ? "" : "s"}`);
-  return parts.length > 0 ? parts.join(" · ") : "No structured deliverables";
 }
 
 function RelatedRecords({ order }: { order: OrderDetail }) {

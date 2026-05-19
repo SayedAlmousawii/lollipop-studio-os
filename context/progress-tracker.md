@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- R8b complete: POS add-on marketplace current rows, product counts, Added badges, and removal targets now consume the R7 composition marketplace projection. R8c overview and production deliverable swaps are next.
+- R8 complete: order overview and production deliverable readouts now consume the R7 composition overview/production projectors. R9 `OrderEditModePolicy` is next.
 - **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 - **Active roadmap:** `context/reviews/centralization-roadmap.md`. R0 (Context Reconciliation & Cleanup Gate) is complete: main docs are canonical, `*-summary.md` files archived, `AGENTS.md` default reads updated, Canonical Architecture Standards + Canonical Read Layer sections live in `architecture-context.md`.
 - **Session Configurations subsystem complete (Features 88–94):** schema, admin CRUD, pricing engine, configure panel, post-lock routing, invoice display, linked-product retrofit as selection-owned `OrderAddOn` rows.
@@ -65,6 +65,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **103 R8c** — Swapped order detail overview package/deliverable/add-on/session-configuration readouts and production deliverable summaries onto R7 composition projectors, with regression coverage against legacy composition DTO reads.
 - **103 R8b** — Swapped POS add-on marketplace current rows, product counts, Added badges, and removal targets onto a pure composition marketplace projection while preserving catalog and handler behavior.
 - **103 R8a** — Swapped draft sidebar, POS package/photo composition, locked sales current composition, and adjustment preview cards onto R7 composition projectors; moved photo draft/preview payload helpers out of the client component with regression coverage.
 - **102 R7b** — Added pure OrderCompositionViewModel projectors for POS, current-composition, overview, and production deliverables; rewired the adjustment-workspace POS adapter through the canonical model/projector path with regression coverage for package-item upgrade and downgrade pricing equivalence.

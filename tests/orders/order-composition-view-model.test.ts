@@ -495,9 +495,155 @@ test("R7b projectors expose raw POS, overview, and production composition DTOs",
   const overview = composition().toOverviewTab(model);
   assert.equal(overview.packageLines[0]?.packageItems[0]?.productName, "Album");
   assert.equal(overview.sessionConfigurations[0]?.priceDelta, 8);
+  assert.deepEqual(overview.summary, {
+    packageCount: 1,
+    includedPhotoCount: 10,
+    selectedPhotoCount: 13,
+    extraPhotoCount: 3,
+    selectedPhotosLabel: "13 (3 extra)",
+  });
 
   const production = composition().toProductionDeliverables(model);
-  assert.deepEqual(production.rows.map((row) => row.label), ["Album"]);
+  assert.equal(production.summaryLabel, "1 package item · 1 paid add-on");
+  assert.deepEqual(production.rows.map((row) => row.label), ["Album", "USB"]);
+});
+
+test("R8c overview and production projectors cover multi-package composition rows", () => {
+  const effectiveComposition =
+    composition().buildCompositionSnapshotFromPOSWorkspace(
+      multiPackagePOSWorkspaceFixture()
+    );
+  const model = {
+    orderId: "order-1",
+    jobNumber: "JOB-1",
+    state: "draft" as const,
+    baseComposition: null,
+    effectiveComposition,
+    pendingAdjustmentComposition: null,
+    totals: effectiveComposition.totals,
+  };
+
+  const overview = composition().toOverviewTab(model);
+  assert.equal(overview.summary.packageCount, 2);
+  assert.equal(overview.summary.includedPhotoCount, 18);
+  assert.equal(overview.summary.selectedPhotoCount, 24);
+  assert.equal(overview.summary.extraPhotoCount, 6);
+  assert.equal(overview.summary.selectedPhotosLabel, "24 (6 extra)");
+  assert.deepEqual(
+    overview.packageLines.map((line) => ({
+      packageName: line.packageName,
+      itemNames: line.packageItems.map((item) => item.productName),
+      extraPhotoCount: line.extraPhotoCount,
+    })),
+    [
+      {
+        packageName: "Current Package",
+        itemNames: ["Album"],
+        extraPhotoCount: 3,
+      },
+      {
+        packageName: "Family Package",
+        itemNames: ["Canvas"],
+        extraPhotoCount: 3,
+      },
+    ]
+  );
+  assert.deepEqual(
+    overview.addOns.map((addOn) => ({
+      name: addOn.name,
+      quantity: addOn.quantity,
+      totalAmount: addOn.totalAmount,
+    })),
+    [
+      { name: "USB", quantity: 1, totalAmount: 12 },
+      { name: "Frame", quantity: 1, totalAmount: 18 },
+    ]
+  );
+  assert.deepEqual(
+    overview.sessionConfigurations.map((selection) => ({
+      label: selection.label,
+      optionLabel: selection.optionLabel,
+      priceDelta: selection.priceDelta,
+    })),
+    [
+      { label: "Backdrop", optionLabel: "Gold", priceDelta: 8 },
+      { label: "Location", optionLabel: "Outdoor", priceDelta: 15 },
+    ]
+  );
+
+  const production = composition().toProductionDeliverables(model);
+  assert.equal(production.summaryLabel, "3 package items · 2 paid add-ons");
+  assert.deepEqual(
+    production.rows.map((row) => ({
+      label: row.label,
+      quantity: row.quantity,
+      packageName: row.packageName,
+    })),
+    [
+      { label: "Album", quantity: 1, packageName: "Current Package" },
+      { label: "Canvas", quantity: 2, packageName: "Family Package" },
+      { label: "USB", quantity: 1, packageName: null },
+      { label: "Frame", quantity: 1, packageName: null },
+    ]
+  );
+});
+
+test("R8c production deliverables expose a no-structured-deliverable fallback", () => {
+  const effectiveComposition =
+    composition().buildCompositionSnapshotFromAdjustmentSnapshot({
+      capturedAt: "2026-05-19T00:00:00.000Z",
+      lines: [
+        adjustmentLine({
+          lineId: "package:op-empty",
+          kind: "package",
+          refId: "pkg-empty",
+          label: "Empty Package",
+          unitPrice: "100.000",
+          lineTotalNet: "100.000",
+        }),
+      ],
+      totals: totals("100.000"),
+    });
+  const model = {
+    orderId: "order-1",
+    jobNumber: "JOB-1",
+    state: "locked" as const,
+    baseComposition: effectiveComposition,
+    effectiveComposition,
+    pendingAdjustmentComposition: null,
+    totals: effectiveComposition.totals,
+  };
+
+  const production = composition().toProductionDeliverables(model);
+  assert.equal(production.summaryLabel, "No structured deliverables");
+  assert.deepEqual(production.rows, []);
+});
+
+test("R8c overview uses effective composition while an adjustment is pending", () => {
+  const baseComposition =
+    composition().buildCompositionSnapshotFromPOSWorkspace(posWorkspaceFixture());
+  const pendingAdjustmentComposition =
+    composition().buildCompositionSnapshotFromPOSWorkspace(
+      multiPackagePOSWorkspaceFixture()
+    );
+  const model = {
+    orderId: "order-1",
+    jobNumber: "JOB-1",
+    state: "adjustment" as const,
+    baseComposition,
+    effectiveComposition: baseComposition,
+    pendingAdjustmentComposition,
+    totals: pendingAdjustmentComposition.totals,
+  };
+
+  const overview = composition().toOverviewTab(model);
+  const production = composition().toProductionDeliverables(model);
+
+  assert.equal(overview.summary.packageCount, 1);
+  assert.deepEqual(overview.packageLines.map((line) => line.packageName), [
+    "Current Package",
+  ]);
+  assert.deepEqual(production.rows.map((row) => row.label), ["Album", "USB"]);
 });
 
 test("current composition card projector uses structured swap and upgrade metadata", () => {
@@ -689,6 +835,32 @@ test("adjustment POS adapter consumes the R7 model and projector path", () => {
   assert.doesNotMatch(body, /workspace\.proposal\.proposed\.lines/);
 });
 
+test("R8c order detail page consumes overview and production projector DTOs", () => {
+  const source = readFileSync(
+    join(process.cwd(), "app/orders/[orderId]/page.tsx"),
+    "utf8"
+  );
+  const overviewBody = functionBody(source, "OverviewTab", "deriveOperationalPackageLines");
+  const productionBody = functionBody(source, "ProductionTab", "DeliveryTab");
+
+  assert.match(source, /getOrderCompositionViewModel/);
+  assert.match(source, /toOverviewTab/);
+  assert.match(source, /toProductionDeliverables/);
+  assert.doesNotMatch(source, /formatDeliverablesSummary/);
+  assert.match(overviewBody, /composition\.packageLines/);
+  assert.match(overviewBody, /composition\.addOns/);
+  assert.match(overviewBody, /composition\.sessionConfigurations/);
+  assert.doesNotMatch(overviewBody, /order\.packageLines/);
+  assert.doesNotMatch(overviewBody, /order\.packageItems/);
+  assert.doesNotMatch(overviewBody, /order\.paidAddOns/);
+  assert.doesNotMatch(overviewBody, /order\.selectedPhotoCount/);
+  assert.doesNotMatch(overviewBody, /order\.includedPhotoCount/);
+  assert.doesNotMatch(overviewBody, /order\.extraPhotoCount/);
+  assert.match(productionBody, /deliverables\.summaryLabel/);
+  assert.doesNotMatch(productionBody, /order\.packageItems/);
+  assert.doesNotMatch(productionBody, /order\.paidAddOns/);
+});
+
 function posWorkspaceFixture(): POSWorkspace {
   return {
     orderId: "order-1",
@@ -790,6 +962,92 @@ function posWorkspaceFixture(): POSWorkspace {
   };
 }
 
+function multiPackagePOSWorkspaceFixture(): POSWorkspace {
+  const fixture = posWorkspaceFixture();
+  return {
+    ...fixture,
+    packageLines: [
+      ...fixture.packageLines,
+      {
+        ...fixture.packageLines[0]!,
+        id: "op-2",
+        sessionTypeId: "session-2",
+        sessionTypeName: "Family",
+        originalPackage: {
+          id: "pkg-family-original",
+          name: "Family Original",
+          price: 150,
+          priceLabel: "150.000 KD",
+          photoCount: 8,
+          bundleAdjustment: 0,
+        },
+        currentPackage: {
+          id: "pkg-family",
+          name: "Family Package",
+          price: 180,
+          priceLabel: "180.000 KD",
+          photoCount: 8,
+          bundleAdjustment: 0,
+        },
+        packageItems: [
+          {
+            id: "item-2",
+            productId: "prod-canvas",
+            productName: "Canvas",
+            category: "WALL_ART",
+            quantity: 2,
+            priceSnapshot: 20,
+            priceSnapshotLabel: "20.000 KD",
+          },
+        ],
+        includedPhotoCount: 8,
+        selectedPhotoCount: 11,
+        extraDigitalCount: 1,
+        extraPrintCount: 2,
+        extraPhotoCount: 3,
+        extraDigitalUnitPrice: 2,
+        extraPrintUnitPrice: 4,
+        extraPhotoTotal: 10,
+        packageSubtotal: 190,
+        upgradeDelta: 30,
+        upgradeDeltaLabel: "+30.000 KD",
+        sessionConfigurationSummary: [
+          {
+            configurationId: "config-2",
+            code: "LOCATION",
+            label: "Location",
+            optionLabel: "Outdoor",
+            numericValue: null,
+            textValue: null,
+            priceDelta: 15,
+            financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+            inputType: SessionConfigurationInputType.SELECT,
+          },
+        ],
+        sessionConfigurationSubtotal: 15,
+      },
+    ],
+    rawDeliverableTotal: 70,
+    includedPhotoCount: 18,
+    selectedPhotoCount: 24,
+    extraPhotoCount: 6,
+    extraPhotoTotal: 16,
+    addOns: [
+      ...fixture.addOns,
+      {
+        id: "addon-2",
+        addOnRowId: "addon-row-2",
+        productId: "prod-frame",
+        name: "Frame",
+        price: 18,
+        priceLabel: "18.000 KD",
+      },
+    ],
+    addOnTotal: 30,
+    sessionConfigurationTotal: 23,
+  };
+}
+
 function composition(): typeof import("@/modules/orders/composition") {
   assert.ok(compositionModule);
   return compositionModule;
@@ -845,4 +1103,16 @@ function walk(path: string): string[] {
   const stat = statSync(path);
   if (stat.isFile()) return [path];
   return readdirSync(path).flatMap((entry) => walk(join(path, entry)));
+}
+
+function functionBody(
+  source: string,
+  functionName: string,
+  nextFunctionName: string
+): string {
+  const start = source.indexOf(`function ${functionName}`);
+  const end = source.indexOf(`function ${nextFunctionName}`, start);
+  assert.notEqual(start, -1, `${functionName} must exist`);
+  assert.notEqual(end, -1, `${nextFunctionName} must follow ${functionName}`);
+  return source.slice(start, end);
 }
