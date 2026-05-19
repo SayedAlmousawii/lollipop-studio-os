@@ -22,6 +22,10 @@ import type {
   OrderDeliveryAction,
   OrderDeliveryWorkflow,
 } from "@/modules/orders/order.types";
+import type {
+  DeliveryWorkflowActionKey,
+  WorkflowActionIntent,
+} from "@/modules/orders/policies/delivery-workflow-policy";
 
 interface DeliveryWorkflowFormProps {
   delivery: OrderDeliveryWorkflow;
@@ -33,6 +37,7 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
     {}
   );
   const [allowOverride, setAllowOverride] = useState(false);
+  const { workflowPolicy } = delivery;
 
   return (
     <form action={formAction} className="space-y-4">
@@ -42,12 +47,12 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
         </p>
       ) : null}
 
-      {delivery.completionBlockers.length > 0 ? (
+      {workflowPolicy.blockers.length > 0 ? (
         <div className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
           <div className="flex items-start gap-2">
             <ShieldAlert className="mt-0.5 h-4 w-4" />
             <div className="space-y-1">
-              {delivery.completionBlockers.map((blocker) => (
+              {workflowPolicy.blockers.map((blocker) => (
                 <p key={blocker}>{blocker}</p>
               ))}
             </div>
@@ -111,7 +116,7 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                 </p>
               )}
 
-              {delivery.requiresPaymentOverride ? (
+              {workflowPolicy.paymentOverride.required ? (
                 <div className="space-y-3 rounded-md border border-border bg-surface-soft p-3">
                   <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
                     <input
@@ -121,16 +126,18 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                       checked={allowOverride}
                       onChange={(event) => setAllowOverride(event.target.checked)}
                     />
-                    Allow manager/admin payment override
+                    {workflowPolicy.paymentOverride.checkboxLabel}
                   </label>
                   {state.errorCode === "PAYMENT_OVERRIDE_NOT_ALLOWED" ? (
                     <div className="flex items-start gap-2 text-sm text-danger">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>Check the box above to authorize the payment override before recording pickup.</span>
+                      <span>{workflowPolicy.paymentOverride.notAllowedMessage}</span>
                     </div>
                   ) : null}
                   <div className="space-y-2">
-                    <Label htmlFor="overrideReason">Override reason</Label>
+                    <Label htmlFor="overrideReason">
+                      {workflowPolicy.paymentOverride.reasonLabel}
+                    </Label>
                     <Textarea
                       id="overrideReason"
                       name="overrideReason"
@@ -145,7 +152,11 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
                       }
                     />
                     {state.errorCode === "PAYMENT_OVERRIDE_REASON_MISSING" ? (
-                      <FieldError messages={["A reason is required when overriding payment — explain why pickup is being completed without full payment."]} />
+                      <FieldError
+                        messages={[
+                          workflowPolicy.paymentOverride.reasonRequiredMessage,
+                        ]}
+                      />
                     ) : (
                       <FieldError messages={state.errors?.overrideReason} />
                     )}
@@ -156,21 +167,17 @@ export function DeliveryWorkflowForm({ delivery }: DeliveryWorkflowFormProps) {
           </Card>
 
           <div className="flex flex-wrap justify-end gap-2">
-            <DeliverySubmitButton
-              action="recordCustomerNotification"
-              disabled={!delivery.canRecordNotification}
-              variant="outline"
-            >
-              <Bell className="h-4 w-4" />
-              Notify
-            </DeliverySubmitButton>
-            <DeliverySubmitButton
-              action="markPickedUp"
-              disabled={!delivery.canMarkPickedUp}
-            >
-              <ClipboardCheck className="h-4 w-4" />
-              Picked up
-            </DeliverySubmitButton>
+            {workflowPolicy.actions.map((action) => (
+              <DeliverySubmitButton
+                key={action.key}
+                action={action.key}
+                disabled={action.disabled}
+                intent={action.intent}
+              >
+                {iconForAction(action.key)}
+                {action.label}
+              </DeliverySubmitButton>
+            ))}
           </div>
         </div>
       </div>
@@ -182,12 +189,12 @@ function DeliverySubmitButton({
   action,
   children,
   disabled,
-  variant,
+  intent,
 }: {
   action: OrderDeliveryAction;
   children: React.ReactNode;
   disabled: boolean;
-  variant?: "default" | "outline";
+  intent: WorkflowActionIntent;
 }) {
   const { pending } = useFormStatus();
   return (
@@ -195,12 +202,35 @@ function DeliverySubmitButton({
       type="submit"
       name="action"
       value={action}
-      variant={variant}
+      variant={buttonVariantForIntent(intent)}
       disabled={disabled || pending}
     >
       {pending ? "Saving..." : children}
     </Button>
   );
+}
+
+function iconForAction(action: DeliveryWorkflowActionKey) {
+  switch (action) {
+    case "recordCustomerNotification":
+      return <Bell className="h-4 w-4" />;
+    case "markPickedUp":
+      return <ClipboardCheck className="h-4 w-4" />;
+  }
+}
+
+function buttonVariantForIntent(
+  intent: WorkflowActionIntent
+): "default" | "outline" | "destructive" {
+  switch (intent) {
+    case "primary":
+      return "default";
+    case "secondary":
+    case "warning":
+      return "outline";
+    case "destructive":
+      return "destructive";
+  }
 }
 
 function ReadOnlyMetric({ label, value }: { label: string; value: string }) {
