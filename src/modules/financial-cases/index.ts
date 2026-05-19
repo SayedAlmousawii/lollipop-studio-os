@@ -1,7 +1,4 @@
-export {
-  checkFinancialCaseSummaryProjectorParity,
-  getFinancialCaseSummary,
-} from "./financial-case-summary.service";
+export { getFinancialCaseSummary } from "./financial-case-summary.service";
 export { FINANCIAL_CASE_PAYMENT_STATUS_LABELS } from "./financial-case-summary.constants";
 export { getOrdersTableFinancialProjections } from "./orders-table-projections.service";
 export type {

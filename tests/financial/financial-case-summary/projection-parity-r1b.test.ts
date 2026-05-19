@@ -32,7 +32,6 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
       const [
         {
           getFinancialCaseSummary,
-          checkFinancialCaseSummaryProjectorParity,
           toBookingPageFinancial,
           toDraftSidebarFinancial,
           toInvoiceListRow,
@@ -302,29 +301,6 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
           }
         });
       }
-
-      await t.test("parity checker covers R1b header and table projectors", async () => {
-        const originalError = console.error;
-        const errorMessages: string[] = [];
-        console.error = (message?: unknown) => {
-          errorMessages.push(String(message));
-        };
-
-        try {
-          const violations = await checkFinancialCaseSummaryProjectorParity(
-            dbFromEnv()
-          );
-          assert.deepEqual(violations, []);
-          assert.deepEqual(
-            errorMessages.filter((message) =>
-              message.includes("centralization.financial_case_summary.discrepancy")
-            ),
-            []
-          );
-        } finally {
-          console.error = originalError;
-        }
-      });
     } finally {
       if (previousDatabaseUrl === undefined) {
         delete process.env.DATABASE_URL;

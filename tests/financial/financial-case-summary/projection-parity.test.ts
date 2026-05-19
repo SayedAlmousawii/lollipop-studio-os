@@ -22,63 +22,28 @@ after(() => {
   moduleWithLoader._load = originalModuleLoad;
 });
 
-const TOLERANCE = 0.0005;
-
-test("FinancialCaseSummary projectors match legacy locked derivations", async (t) => {
+test("FinancialCaseSummary financial tab and locked sales projectors expose canonical values", async (t) => {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
     const previousDatabaseUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = databaseUrl;
 
     try {
       const [
-        { getPOSWorkspace, getLinkedFinancialDocumentsForOrder },
-        { deriveLockedFinancialSidebarSummary },
+        { db },
         {
           getFinancialCaseSummary,
           toFinancialTabBlock,
           toSalesSidebarLocked,
-          checkFinancialCaseSummaryProjectorParity,
         },
-        {
-          makeAutoAdjustedBookingFixture,
-          makeFinancialCaseSummaryOrderFixture,
-          makeMixedEditBookingFixture,
-        },
+        { makeAutoAdjustedBookingFixture, makeFinancialCaseSummaryOrderFixture },
       ] = await Promise.all([
-        import("@/modules/orders/order.service"),
-        import("@/modules/orders/order-settlement"),
+        import("@/lib/db"),
         import("@/modules/financial-cases"),
         import("../../fixtures/financial"),
       ]);
 
-      const locked = await makeFinancialCaseSummaryOrderFixture(dbFromEnv(), {
-        suffix: "PARITY",
-      });
-      const adjusted = await makeAutoAdjustedBookingFixture(dbFromEnv());
-      const creditNoted = await makeMixedEditBookingFixture(dbFromEnv());
-      const cases = [
-        ["locked", locked.financialCaseId, locked.orderId],
-        ["locked adjusted", adjusted.financialCaseId, await resolveOrderId(adjusted.bookingId)],
-        ["credit noted", creditNoted.financialCaseId, await resolveOrderId(creditNoted.bookingId)],
-      ] as const;
-
-      for (const [label, financialCaseId, orderId] of cases) {
-        await t.test(label, async () => {
-          assert.ok(orderId, `${label} fixture should resolve to an order`);
-          const summary = await getFinancialCaseSummary({ financialCaseId });
-          assert.equal(summary?.stage, "active");
-
-          const legacy = await legacyLockedSummary(orderId);
-          const financialTab = toFinancialTabBlock(summary);
-          const salesSidebar = toSalesSidebarLocked(summary);
-
-          assertProjectionClose(financialTab, legacy);
-          assertProjectionClose(salesSidebar, legacy);
-        });
-      }
-
-      await t.test("booking-stage projectors return null", async () => {
-        const booking = await makeFinancialCaseSummaryOrderFixture(dbFromEnv(), {
+      await t.test("booking-stage summaries do not project active financial blocks", async () => {
+        const booking = await makeFinancialCaseSummaryOrderFixture(db, {
           suffix: "NOPROJ",
           createFinalInvoice: false,
         });
@@ -91,63 +56,47 @@ test("FinancialCaseSummary projectors match legacy locked derivations", async (t
         assert.equal(toSalesSidebarLocked(summary), null);
       });
 
-      await t.test("checker emits no discrepancies for clean fixtures", async () => {
-        const originalError = console.error;
-        const errorMessages: string[] = [];
-        console.error = (message?: unknown) => {
-          errorMessages.push(String(message));
-        };
+      await t.test("locked active summary projects settled totals", async () => {
+        const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "TABLOCK",
+        });
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
+        });
 
-        try {
-          const violations = await checkFinancialCaseSummaryProjectorParity(
-            dbFromEnv()
-          );
-          assert.deepEqual(violations, []);
-          assert.deepEqual(
-            errorMessages.filter((message) =>
-              message.includes("centralization.financial_case_summary.discrepancy")
-            ),
-            []
-          );
-        } finally {
-          console.error = originalError;
-        }
+        assert.equal(summary?.stage, "active");
+        const financialTab = toFinancialTabBlock(summary);
+        assert.deepEqual(financialTab, {
+          customerTotal: 100,
+          paidSoFar: 100,
+          includesDeposit: 20,
+          remaining: 0,
+          finalInvoiceTotal: 100,
+          totalAdjustments: 0,
+          finalTotal: 100,
+        });
+        assert.deepEqual(toSalesSidebarLocked(summary), financialTab);
       });
 
-      async function legacyLockedSummary(orderId: string) {
-        const [workspace, linkedDocuments] = await Promise.all([
-          getPOSWorkspace(orderId),
-          getLinkedFinancialDocumentsForOrder(orderId),
-        ]);
-        assert.ok(workspace?.invoice, "legacy surface requires a workspace invoice");
-
-        return deriveLockedFinancialSidebarSummary({
-          finalInvoice: {
-            totalAmount: workspace.invoice.invoiceTotal,
-            remainingAmount: workspace.invoice.remainingAmount,
-            depositPaidAmount: workspace.invoice.depositPaidAmount,
-          },
-          finalizedAdjustments: linkedDocuments
-            .filter(
-              (document) =>
-                document.invoiceType === "ADJUSTMENT" &&
-                document.invoiceStatus !== "DRAFT"
-            )
-            .map((document) => ({
-              totalAmount: document.invoiceTotal,
-              remainingAmount: document.remainingAmount,
-            })),
-          orderId,
+      await t.test("adjusted active summary includes finalized adjustment totals", async () => {
+        const fixture = await makeAutoAdjustedBookingFixture(db);
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
         });
-      }
 
-      async function resolveOrderId(bookingId: string): Promise<string | null> {
-        const order = await dbFromEnv().order.findUnique({
-          where: { bookingId },
-          select: { id: true },
+        assert.equal(summary?.stage, "active");
+        const financialTab = toFinancialTabBlock(summary);
+        assert.deepEqual(financialTab, {
+          customerTotal: 115,
+          paidSoFar: 100,
+          includesDeposit: 20,
+          remaining: 15,
+          finalInvoiceTotal: 100,
+          totalAdjustments: 15,
+          finalTotal: 115,
         });
-        return order?.id ?? null;
-      }
+        assert.deepEqual(toSalesSidebarLocked(summary), financialTab);
+      });
     } finally {
       if (previousDatabaseUrl === undefined) {
         delete process.env.DATABASE_URL;
@@ -157,24 +106,3 @@ test("FinancialCaseSummary projectors match legacy locked derivations", async (t
     }
   });
 });
-
-function assertProjectionClose(
-  actual: Record<string, number> | null,
-  expected: Record<string, number>
-) {
-  assert.ok(actual, "projector should return active projection");
-  for (const [field, expectedValue] of Object.entries(expected)) {
-    assert.ok(
-      Math.abs(actual[field] - expectedValue) <= TOLERANCE,
-      `${field}: expected ${expectedValue}, got ${actual[field]}`
-    );
-  }
-}
-
-function dbFromEnv() {
-  const globalForPrisma = globalThis as typeof globalThis & {
-    prisma?: import("@prisma/client").PrismaClient;
-  };
-  assert.ok(globalForPrisma.prisma, "expected Prisma client to be initialized");
-  return globalForPrisma.prisma;
-}

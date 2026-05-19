@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- R5 complete: direct `@/lib/db` imports are removed from app-layer order actions and the new-booking page; route/missing-configuration lookups, upgrade-payment validation, and booking form data loading now run through service helpers. Next: R6 (remove discrepancy loggers, declare financial swap complete).
+- R6 complete: temporary FinancialCase discrepancy/parity infrastructure is removed, `CENT-FCS-01` is retired from reconciliation/catalog docs, and the R1-R5 financial readout swap is locked in with static regression guards. Next: R7 (OrderCompositionViewModel).
 - **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 - **Active roadmap:** `context/reviews/centralization-roadmap.md`. R0 (Context Reconciliation & Cleanup Gate) is complete: main docs are canonical, `*-summary.md` files archived, `AGENTS.md` default reads updated, Canonical Architecture Standards + Canonical Read Layer sections live in `architecture-context.md`.
 - **Session Configurations subsystem complete (Features 88–94):** schema, admin CRUD, pricing engine, configure panel, post-lock routing, invoice display, linked-product retrofit as selection-owned `OrderAddOn` rows.
@@ -65,6 +65,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **101 R6** — Removed temporary FinancialCase discrepancy/parity logger and reconciliation invariant, refreshed the invariant catalog, and added static guards for projector purity plus removed-symbol regressions.
 - **100 R5** — Removed direct app/component DB imports by moving configure-session routing, missing-session-setting messages, upgrade-payment outstanding-balance validation, and new-booking page data loading into service helpers; added a service-only DB access regression guard.
 - **99 R4** — Centralized KD formatting, signed money display, and money-input parsing in `src/lib/formatting/money.ts`; migrated targeted UI/action/service display call sites and added formatter plus regression guard tests.
 - **98 R3b** — Booking page financial readout now consumes `toBookingPageFinancial`; confirmed booking-stage and checked-in active-stage displays use canonical FinancialCase projection data, and the legacy package remaining balance label is removed.
@@ -109,6 +110,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **73c** — Order add-on split: `OrderPackageItemUpgrade` separated from `OrderAddOn`.
 
 ## Open Follow-Ups
+- R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.
 - Fix remaining Phase C/F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, voucher redemption schema.
 - Configure production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, `RECONCILIATION_PING_URL`.
