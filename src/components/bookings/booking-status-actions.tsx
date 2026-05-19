@@ -1,80 +1,64 @@
 "use client";
 
 import { useActionState } from "react";
-import type { ReactNode } from "react";
 import { useFormStatus } from "react-dom";
-import type { BookingStatus as PrismaBookingStatus } from "@prisma/client";
 import {
   updateBookingStatusAction,
   type UpdateBookingStatusActionState,
 } from "@/app/bookings/actions";
 import { cn } from "@/lib/utils";
-import type { BookingStatus } from "./booking-status-badge";
-import type { PaymentStatus } from "./payment-status-badge";
+import type {
+  BookingWorkflowAction,
+  BookingWorkflowPolicy,
+  WorkflowActionIntent,
+} from "@/modules/bookings/booking-workflow-policy";
 
 interface BookingStatusActionsProps {
   bookingId: string;
-  status: BookingStatus;
-  depositStatus: PaymentStatus;
+  policy: BookingWorkflowPolicy;
+  presentation?: "dropdown" | "inline";
+  showEmptyState?: boolean;
 }
-
-const STATUS_ACTIONS: Partial<
-  Record<
-    BookingStatus,
-    {
-      label: string;
-      nextStatus: PrismaBookingStatus;
-      confirmationMessage?: string;
-      isDestructive?: boolean;
-    }[]
-  >
-> = {
-  Confirmed: [
-    {
-      label: "Record No-Show",
-      nextStatus: "NO_SHOW",
-      confirmationMessage: "Mark this booking as a no-show?",
-      isDestructive: true,
-    },
-    {
-      label: "Cancel Booking",
-      nextStatus: "CANCELLED",
-      confirmationMessage: "Cancel this booking?",
-      isDestructive: true,
-    },
-  ],
-};
 
 export function BookingStatusActions({
   bookingId,
-  status,
-  depositStatus,
+  policy,
+  presentation = "dropdown",
+  showEmptyState = false,
 }: BookingStatusActionsProps) {
   const [state, formAction] = useActionState<
     UpdateBookingStatusActionState,
     FormData
   >(updateBookingStatusAction, {});
-  const actions = STATUS_ACTIONS[status] ?? [];
+  const actions = policy.actions;
 
-  if (actions.length === 0) return null;
+  if (actions.length === 0) {
+    if (!showEmptyState || !policy.emptyStateMessage) return null;
+
+    return (
+      <p className="max-w-64 px-2 py-1 text-xs leading-5 text-text-secondary">
+        {policy.emptyStateMessage}
+      </p>
+    );
+  }
 
   return (
-    <div className="space-y-1">
+    <div
+      className={cn(
+        presentation === "inline" ? "flex flex-wrap gap-2" : "space-y-1"
+      )}
+    >
       {actions.map((action) => {
-        const depositRequired =
-          action.nextStatus === "CONFIRMED" && depositStatus !== "Paid";
-
         return (
-          <form action={formAction} key={action.nextStatus}>
+          <form action={formAction} key={action.key}>
             <input type="hidden" name="bookingId" value={bookingId} />
             <input type="hidden" name="nextStatus" value={action.nextStatus} />
             <StatusSubmitButton
-              disabled={depositRequired}
-              isDestructive={action.isDestructive ?? false}
+              action={action}
+              presentation={presentation}
+              disabled={action.disabled}
               confirmationMessage={action.confirmationMessage}
-            >
-              {action.label}
-            </StatusSubmitButton>
+            />
           </form>
         );
       })}
@@ -88,22 +72,24 @@ export function BookingStatusActions({
 }
 
 function StatusSubmitButton({
-  children,
+  action,
+  presentation,
   disabled,
-  isDestructive,
   confirmationMessage,
 }: {
-  children: ReactNode;
+  action: BookingWorkflowAction;
+  presentation: "dropdown" | "inline";
   disabled: boolean;
-  isDestructive: boolean;
-  confirmationMessage?: string;
+  confirmationMessage: string | null;
 }) {
   const { pending } = useFormStatus();
+  const isDestructive = action.intent === "destructive";
 
   return (
     <button
       type="submit"
       disabled={pending || disabled}
+      title={action.blockedReason ?? undefined}
       onClick={(event) => {
         if (
           isDestructive &&
@@ -114,11 +100,32 @@ function StatusSubmitButton({
         }
       }}
       className={cn(
-        "flex w-full select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50",
-        isDestructive ? "text-danger" : "text-text-primary"
+        presentation === "inline"
+          ? "inline-flex h-10 items-center justify-center rounded-md border px-4 py-2 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50"
+          : "flex w-full select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50",
+        intentClass(action.intent, presentation)
       )}
     >
-      {pending ? "Saving..." : children}
+      {pending ? "Saving..." : action.label}
     </button>
   );
+}
+
+function intentClass(
+  intent: WorkflowActionIntent,
+  presentation: "dropdown" | "inline"
+): string {
+  if (presentation === "inline") {
+    if (intent === "destructive") {
+      return "border-danger bg-surface text-danger hover:bg-danger-soft";
+    }
+    if (intent === "warning") {
+      return "border-warning bg-surface text-warning hover:bg-warning-soft";
+    }
+    return "border-border bg-surface text-text-primary hover:bg-surface-soft";
+  }
+
+  if (intent === "destructive") return "text-danger";
+  if (intent === "warning") return "text-warning";
+  return "text-text-primary";
 }

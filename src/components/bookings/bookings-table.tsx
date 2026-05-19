@@ -36,6 +36,7 @@ import type {
   BookingPhotographerOption,
   RecommendedPhotographer,
 } from "@/modules/bookings/booking.service";
+import type { BookingWorkflowPolicy } from "@/modules/bookings/booking-workflow-policy";
 
 export interface Booking {
   id: string;
@@ -48,6 +49,7 @@ export interface Booking {
   package: string;
   status: BookingStatus;
   paymentStatus: PaymentStatus;
+  workflowPolicy: BookingWorkflowPolicy;
   assignedPhotographerId: string;
   assignedPhotographerName: string;
   recommendedPhotographer: RecommendedPhotographer;
@@ -106,7 +108,9 @@ function TableRowWithActions({
   const canRecordDeposit =
     booking.status === "Pending" && booking.paymentStatus !== "Paid";
   const showStatusActions =
-    booking.canDeletePending || booking.canCheckIn || booking.status === "Confirmed";
+    booking.canDeletePending ||
+    booking.canCheckIn ||
+    booking.workflowPolicy.actions.length > 0;
 
   return (
     <TableRow className="border-border hover:bg-surface-soft">
@@ -191,8 +195,7 @@ function TableRowWithActions({
                 ) : null}
                 <BookingStatusActions
                   bookingId={booking.id}
-                  status={booking.status}
-                  depositStatus={booking.paymentStatus}
+                  policy={booking.workflowPolicy}
                 />
               </>
             ) : null}

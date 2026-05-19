@@ -53,6 +53,11 @@ import {
   type UpdateBookingStatusInput,
   type UpdateBookingInput,
 } from "./booking.schema";
+import {
+  assertBookingStatusTransitionAllowed,
+  buildBookingWorkflowPolicy,
+  type BookingWorkflowPolicy,
+} from "./booking-workflow-policy";
 
 export interface BookingPhotographerOption {
   id: string;
@@ -174,6 +179,7 @@ export interface BookingDetail {
   canDeletePending: boolean;
   canCheckIn: boolean;
   isCheckedIn: boolean;
+  workflowPolicy: BookingWorkflowPolicy;
   depositInvoice: {
     id: string;
     invoiceNumber: string;
@@ -186,14 +192,6 @@ export interface BookingDetail {
   totalDurationMinutes: number;
   totalDurationLabel: string;
 }
-
-const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
-  [BookingStatus.PENDING]: [BookingStatus.CONFIRMED],
-  [BookingStatus.CONFIRMED]: [BookingStatus.CANCELLED, BookingStatus.NO_SHOW],
-  [BookingStatus.CHECKED_IN]: [],
-  [BookingStatus.CANCELLED]: [],
-  [BookingStatus.NO_SHOW]: [],
-};
 
 const BOOKING_STATUS_FILTERS = new Set<BookingStatusFilter>([
   "PENDING",
@@ -280,6 +278,7 @@ export async function getBookings(
 
   return Promise.all(rows.map(async (row) => {
     const paymentStatus = mapDepositStatus(row.invoices);
+    const depositPaid = paymentStatus === "Paid";
     let recommendedPhotographer: RecommendedPhotographer = null;
     if (row.status === BookingStatus.CONFIRMED) {
       if (recommendedByCustomer.has(row.customerId)) {
@@ -310,11 +309,14 @@ export async function getBookings(
           : "—",
       status: mapBookingStatus(row.status),
       paymentStatus,
+      workflowPolicy: buildBookingWorkflowPolicy({
+        status: row.status,
+        depositPaid,
+      }),
       assignedPhotographerId: row.assignedPhotographer?.id ?? "",
       assignedPhotographerName: row.assignedPhotographer?.name ?? "—",
       recommendedPhotographer,
-      canDeletePending:
-        row.status === BookingStatus.PENDING && paymentStatus !== "Paid",
+      canDeletePending: row.status === BookingStatus.PENDING && !depositPaid,
       canCheckIn: row.status === BookingStatus.CONFIRMED,
     };
   }));
@@ -627,7 +629,7 @@ export async function updateBookingStatus(
           throw new Error("Booking not found");
         }
 
-        validateStatusTransition(booking.status, data.nextStatus);
+        assertBookingStatusTransitionAllowed(booking.status, data.nextStatus);
 
         if (
           data.nextStatus === BookingStatus.CONFIRMED &&
@@ -1227,17 +1229,6 @@ async function lockBookingForUpdate(
   `;
 }
 
-function validateStatusTransition(
-  currentStatus: BookingStatus,
-  nextStatus: BookingStatus
-): void {
-  if (!ALLOWED_STATUS_TRANSITIONS[currentStatus].includes(nextStatus)) {
-    throw new Error(
-      `Invalid booking status transition from ${formatEnum(currentStatus)} to ${formatEnum(nextStatus)}`
-    );
-  }
-}
-
 const editableBookingInclude = {
   customer: { select: { name: true, phone: true } },
   packages: {
@@ -1572,6 +1563,10 @@ function mapBookingDetail(
     canDeletePending: row.status === BookingStatus.PENDING && !hasDeposit,
     canCheckIn: row.status === BookingStatus.CONFIRMED,
     isCheckedIn: row.status === BookingStatus.CHECKED_IN,
+    workflowPolicy: buildBookingWorkflowPolicy({
+      status: row.status,
+      depositPaid: hasDeposit,
+    }),
     depositInvoice: depositInvoice
       ? {
           id: depositInvoice.id,
@@ -1680,14 +1675,6 @@ function formatDuration(minutes: number): string {
   }
 
   return `${minutes} minutes (${hours} hr ${remainingMinutes} min)`;
-}
-
-function formatEnum(value: string): string {
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function emptyToNull(value: string | null | undefined): string | null {
