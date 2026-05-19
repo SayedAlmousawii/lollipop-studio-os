@@ -24,35 +24,38 @@ const REMOVED_ORDER_FINANCIAL_SHIM = ["getOrder", "FinancialSummary"].join("");
 const PROJECTOR_FORBIDDEN_IMPORTS = [
   {
     label: "db client",
-    pattern: /from\s+["']@\/lib\/db["']/,
+    pattern: /(?:from\s+|import\s*(?:\(\s*)?)["']@\/lib\/db["']/,
   },
   {
     label: "summary service loader",
-    pattern: /from\s+["'][^"']*financial-case-summary\.service["']/,
+    pattern:
+      /(?:from\s+|import\s*(?:\(\s*)?)["'][^"']*financial-case-summary\.service["']/,
   },
   {
     label: "orders table service loader",
-    pattern: /from\s+["'][^"']*orders-table-projections\.service["']/,
+    pattern:
+      /(?:from\s+|import\s*(?:\(\s*)?)["'][^"']*orders-table-projections\.service["']/,
   },
   {
     label: "order settlement helper",
-    pattern: /from\s+["']@\/modules\/orders\/order-settlement["']/,
+    pattern:
+      /(?:from\s+|import\s*(?:\(\s*)?)["']@\/modules\/orders\/order-settlement["']/,
   },
   {
     label: "invoice module",
-    pattern: /from\s+["']@\/modules\/invoices\//,
+    pattern: /(?:from\s+|import\s*(?:\(\s*)?)["']@\/modules\/invoices\//,
   },
   {
     label: "payment module",
-    pattern: /from\s+["']@\/modules\/payments\//,
+    pattern: /(?:from\s+|import\s*(?:\(\s*)?)["']@\/modules\/payments\//,
   },
   {
     label: "financial reconciliation module",
-    pattern: /from\s+["']@\/modules\/financial\//,
+    pattern: /(?:from\s+|import\s*(?:\(\s*)?)["']@\/modules\/financial\//,
   },
   {
     label: "discrepancy logger",
-    pattern: /from\s+["'][^"']*discrepancy-logger["']/,
+    pattern: /(?:from\s+|import\s*(?:\(\s*)?)["'][^"']*discrepancy-logger["']/,
   },
 ];
 

@@ -29,21 +29,23 @@ test("FinancialCaseSummary financial tab and locked sales projectors expose cano
 
     try {
       const [
-        { db },
         {
           getFinancialCaseSummary,
           toFinancialTabBlock,
           toSalesSidebarLocked,
         },
-        { makeAutoAdjustedBookingFixture, makeFinancialCaseSummaryOrderFixture },
+        {
+          makeAutoAdjustedBookingFixture,
+          makeFinancialCaseSummaryOrderFixture,
+          makeMixedEditBookingFixture,
+        },
       ] = await Promise.all([
-        import("@/lib/db"),
         import("@/modules/financial-cases"),
         import("../../fixtures/financial"),
       ]);
 
       await t.test("booking-stage summaries do not project active financial blocks", async () => {
-        const booking = await makeFinancialCaseSummaryOrderFixture(db, {
+        const booking = await makeFinancialCaseSummaryOrderFixture(dbFromEnv(), {
           suffix: "NOPROJ",
           createFinalInvoice: false,
         });
@@ -57,7 +59,7 @@ test("FinancialCaseSummary financial tab and locked sales projectors expose cano
       });
 
       await t.test("locked active summary projects settled totals", async () => {
-        const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
+        const fixture = await makeFinancialCaseSummaryOrderFixture(dbFromEnv(), {
           suffix: "TABLOCK",
         });
         const summary = await getFinancialCaseSummary({
@@ -79,7 +81,7 @@ test("FinancialCaseSummary financial tab and locked sales projectors expose cano
       });
 
       await t.test("adjusted active summary includes finalized adjustment totals", async () => {
-        const fixture = await makeAutoAdjustedBookingFixture(db);
+        const fixture = await makeAutoAdjustedBookingFixture(dbFromEnv());
         const summary = await getFinancialCaseSummary({
           financialCaseId: fixture.financialCaseId,
         });
@@ -97,6 +99,26 @@ test("FinancialCaseSummary financial tab and locked sales projectors expose cano
         });
         assert.deepEqual(toSalesSidebarLocked(summary), financialTab);
       });
+
+      await t.test("credit-noted active summary includes credit note effect", async () => {
+        const fixture = await makeMixedEditBookingFixture(dbFromEnv());
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
+        });
+
+        assert.equal(summary?.stage, "active");
+        const financialTab = toFinancialTabBlock(summary);
+        assert.deepEqual(financialTab, {
+          customerTotal: 125,
+          paidSoFar: 110,
+          includesDeposit: 20,
+          remaining: 15,
+          finalInvoiceTotal: 110,
+          totalAdjustments: 15,
+          finalTotal: 125,
+        });
+        assert.deepEqual(toSalesSidebarLocked(summary), financialTab);
+      });
     } finally {
       if (previousDatabaseUrl === undefined) {
         delete process.env.DATABASE_URL;
@@ -106,3 +128,11 @@ test("FinancialCaseSummary financial tab and locked sales projectors expose cano
     }
   });
 });
+
+function dbFromEnv() {
+  const globalForPrisma = globalThis as typeof globalThis & {
+    prisma?: import("@prisma/client").PrismaClient;
+  };
+  assert.ok(globalForPrisma.prisma, "expected Prisma client to be initialized");
+  return globalForPrisma.prisma;
+}
