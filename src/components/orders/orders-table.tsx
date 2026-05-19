@@ -85,10 +85,20 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               <TableCell>
                 <InvoiceStatusBadge status={order.invoiceStatus} />
               </TableCell>
-              <TableCell className="text-sm text-text-primary">
+              <TableCell
+                className={cn(
+                  "text-sm",
+                  financial ? "text-text-primary" : "text-text-secondary"
+                )}
+              >
                 {financial ? formatMoney(financial.totalAmount) : "—"}
               </TableCell>
-              <TableCell className="text-sm text-success">
+              <TableCell
+                className={cn(
+                  "text-sm",
+                  financial ? "text-success" : "text-text-secondary"
+                )}
+              >
                 {financial ? formatMoney(financial.paidAmount) : "—"}
               </TableCell>
               <TableCell
@@ -111,7 +121,12 @@ export function OrdersTable({ orders }: OrdersTableProps) {
                     </div>
                   </div>
                 ) : (
-                  "No active financial case"
+                  <div className="space-y-0.5">
+                    <div>—</div>
+                    <div className="text-xs text-text-muted">
+                      No active financial case
+                    </div>
+                  </div>
                 )}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">

@@ -261,10 +261,24 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
     () => fetchOrders(filters),
     "Failed to fetch orders"
   );
-  const financialByOrderId = await withRetry(
-    () => getOrdersTableFinancialProjections({ orderIds: rows.map((row) => row.id) }),
-    "Failed to fetch order table financial projections"
-  );
+  let financialByOrderId = new Map<string, OrdersTableRowProjection | null>();
+  try {
+    financialByOrderId = await withRetry(
+      () =>
+        getOrdersTableFinancialProjections({
+          orderIds: rows.map((row) => row.id),
+        }),
+      "Failed to fetch order table financial projections"
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        metric: "orders.table_financial_projection.failed",
+        orderCount: rows.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
 
   return rows.map((row) => mapOrderRow(row, financialByOrderId.get(row.id) ?? null));
 }

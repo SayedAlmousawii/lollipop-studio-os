@@ -143,6 +143,9 @@ test("OrderSettlementSummary renders explicit empty state without fallback total
 
   assert.match(markup, /No active financial case/);
   assert.match(markup, /Paid —/);
+  assert.doesNotMatch(markup, /230\.000 KD/);
+  assert.doesNotMatch(markup, /100\.000 KD/);
+  assert.doesNotMatch(markup, /130\.000 KD/);
 });
 
 test("derivePaymentSummary aggregates final and finalized adjustment settlement amounts", async (t) => {

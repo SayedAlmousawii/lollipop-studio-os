@@ -25,9 +25,10 @@ test("OrdersTable renders canonical financial projection amounts and status", ()
   assert.match(markup, /100\.000 KD/);
   assert.match(markup, /130\.000 KD/);
   assert.match(markup, /Partially paid/);
+  assert.doesNotMatch(markup, /Pending/);
 });
 
-test("OrdersTable renders explicit missing financial case state", () => {
+test("OrdersTable renders explicit missing financial case placeholders", () => {
   const markup = renderToStaticMarkup(
     createElement(OrdersTable, {
       orders: [orderFixture({ financial: null })],
@@ -35,6 +36,8 @@ test("OrdersTable renders explicit missing financial case state", () => {
   );
 
   assert.match(markup, /No active financial case/);
+  assert.ok((markup.match(/—/g) ?? []).length >= 3);
+  assert.doesNotMatch(markup, /<td class="text-sm text-success">—<\/td>/);
 });
 
 function orderFixture(overrides: Pick<Order, "financial">): Order {
@@ -47,7 +50,7 @@ function orderFixture(overrides: Pick<Order, "financial">): Order {
     finalPackageName: "Classic",
     orderStatus: "Selection Completed",
     invoiceStatus: "Partial",
-    paymentStatus: "Partially paid",
+    paymentStatus: "Pending",
     totalAmount: "999.000 KD",
     paidAmount: "999.000 KD",
     remainingAmount: "999.000 KD",
