@@ -28,6 +28,7 @@ import {
   getPendingAdjustmentOrderCompositionViewModel,
   toCurrentCompositionCard,
   toLockedPOSComposition,
+  toPOSAddOnMarketplace,
 } from "@/modules/orders/composition";
 import {
   cancelAdjustmentWorkspaceAction,
@@ -71,6 +72,7 @@ export default async function AdjustmentWorkspacePage(
     workspace.id
   );
   const posComposition = toLockedPOSComposition(compositionModel);
+  const addOnMarketplace = toPOSAddOnMarketplace(posComposition);
   const previewComposition = toCurrentCompositionCard(compositionModel, {
     mode: "adjustment",
     source: "pending",
@@ -176,6 +178,7 @@ export default async function AdjustmentWorkspacePage(
                 />
                 <POSAddOnMarketplace
                   workspace={derivedPOSWorkspace}
+                  marketplace={addOnMarketplace}
                   handlers={addOnHandlers}
                 />
               </section>

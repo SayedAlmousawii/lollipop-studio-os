@@ -30,6 +30,7 @@ import {
   getLockedOrderCompositionViewModel,
   toCurrentCompositionCard,
   toDraftPOSComposition,
+  toPOSAddOnMarketplace,
 } from "@/modules/orders/composition";
 import {
   getLinkedFinancialDocumentsForOrder,
@@ -143,6 +144,7 @@ export default async function SalesPage(
   const compositionModel = await getDraftOrderCompositionViewModel(orderId);
   if (!compositionModel) notFound();
   const draftComposition = toDraftPOSComposition(compositionModel);
+  const addOnMarketplace = toPOSAddOnMarketplace(draftComposition);
   const compositionHandlers = createPOSCompositionHandlers(orderId, workspace);
   const addOnHandlers = createPOSAddOnHandlers(orderId);
 
@@ -161,6 +163,7 @@ export default async function SalesPage(
         />
         <POSAddOnMarketplace
           workspace={workspace}
+          marketplace={addOnMarketplace}
           handlers={addOnHandlers}
         />
       </main>

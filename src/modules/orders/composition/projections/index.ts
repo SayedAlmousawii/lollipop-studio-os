@@ -26,6 +26,12 @@ export {
   type CurrentCompositionCardProjection,
 } from "./to-current-composition-card";
 export {
+  toPOSAddOnMarketplace,
+  type POSAddOnMarketplaceCurrentAddOnProjection,
+  type POSAddOnMarketplaceProductStateProjection,
+  type POSAddOnMarketplaceProjection,
+} from "./to-pos-add-on-marketplace";
+export {
   toOverviewTab,
   type OverviewCompositionProjection,
 } from "./to-overview-tab";

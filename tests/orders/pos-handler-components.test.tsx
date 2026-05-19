@@ -6,7 +6,11 @@ import { OrderSelectionStatus, OrderStatus } from "@prisma/client";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
-import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections";
+import {
+  toPOSAddOnMarketplace,
+  type DraftPOSCompositionProjection,
+  type POSAddOnMarketplaceProjection,
+} from "@/modules/orders/composition/projections";
 import type { POSWorkspace } from "@/modules/orders/order.types";
 import type {
   POSAddOnHandlers,
@@ -35,6 +39,7 @@ type PackageComponents = {
 type AddOnComponents = {
   POSAddOnMarketplace: ComponentType<{
     workspace: POSWorkspace;
+    marketplace: POSAddOnMarketplaceProjection;
     handlers: POSAddOnHandlers;
   }>;
 };
@@ -76,6 +81,7 @@ test("POS handler components render the stable sales DOM labels from handler pro
         }),
         createElement(POSAddOnMarketplace, {
           workspace,
+          marketplace: toPOSAddOnMarketplace(composition),
           handlers: addOnHandlers,
         })
       )
@@ -91,6 +97,141 @@ test("POS handler components render the stable sales DOM labels from handler pro
     assert.match(markup, /Commercial Actions/);
     assert.match(markup, /Add-On Marketplace/);
     assert.match(markup, /Current add-ons/);
+  });
+});
+
+test("R8b POS add-on marketplace renders current add-ons and catalog badges from projection", async () => {
+  await withPOSComponentStubs(async () => {
+    const { POSAddOnMarketplace } = await loadAddOnComponents();
+    const workspace = buildPOSWorkspaceFixture();
+    const composition = duplicateAndLegacyAddOnCompositionFixture(workspace);
+    const handlers = {
+      addAddOn: async () => ({ ok: true }),
+      removeAddOn: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSAddOnHandlers;
+
+    const markup = renderToStaticMarkup(
+      createElement(POSAddOnMarketplace, {
+        workspace,
+        marketplace: toPOSAddOnMarketplace(composition),
+        handlers,
+      })
+    );
+
+    assert.match(markup, /Added x2/);
+    assert.match(markup, /Canvas/);
+    assert.match(markup, /Legacy manual add-on/);
+    assert.match(markup, /value="add-on-row-1"/);
+  });
+});
+
+test("R8b POS add-on marketplace keeps empty catalog and current-row empty states", async () => {
+  await withPOSComponentStubs(async () => {
+    const { POSAddOnMarketplace } = await loadAddOnComponents();
+    const workspace = {
+      ...buildPOSWorkspaceFixture(),
+      addOns: [],
+      addOnCatalog: [],
+    };
+    const composition = {
+      ...buildDraftPOSCompositionFixture(workspace),
+      addOns: [],
+    };
+    const handlers = {
+      addAddOn: async () => ({ ok: true }),
+      removeAddOn: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSAddOnHandlers;
+
+    const markup = renderToStaticMarkup(
+      createElement(POSAddOnMarketplace, {
+        workspace,
+        marketplace: toPOSAddOnMarketplace(composition),
+        handlers,
+      })
+    );
+
+    assert.match(markup, /No marketplace add-ons are configured yet/);
+    assert.match(markup, /No standalone add-ons are attached to this order yet/);
+  });
+});
+
+test("R8b POS add-on marketplace displays null-target current rows without removal", async () => {
+  await withPOSComponentStubs(async () => {
+    const { POSAddOnMarketplace } = await loadAddOnComponents();
+    const workspace = {
+      ...buildPOSWorkspaceFixture(),
+      addOns: [],
+      addOnCatalog: [],
+    };
+    const composition = currentAddOnCompositionFixture(workspace, [
+      {
+        id: "addon:null-target",
+        orderAddOnId: null,
+        productId: null,
+        name: "Projected manual add-on",
+        quantity: 1,
+        unitAmount: 7,
+        totalAmount: 7,
+      },
+    ]);
+    const handlers = {
+      addAddOn: async () => ({ ok: true }),
+      removeAddOn: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSAddOnHandlers;
+
+    const markup = renderToStaticMarkup(
+      createElement(POSAddOnMarketplace, {
+        workspace,
+        marketplace: toPOSAddOnMarketplace(composition),
+        handlers,
+      })
+    );
+
+    assert.match(markup, /Projected manual add-on/);
+    assert.doesNotMatch(markup, /aria-label="Remove add-on"/);
+    assert.doesNotMatch(markup, /name="addOnId"/);
+  });
+});
+
+test("R8b POS add-on marketplace removes projected current row target", async () => {
+  await withPOSComponentStubs(async () => {
+    const { POSAddOnMarketplace } = await loadAddOnComponents();
+    const workspace = {
+      ...buildPOSWorkspaceFixture(),
+      addOns: [],
+      addOnCatalog: [],
+    };
+    const composition = currentAddOnCompositionFixture(workspace, [
+      {
+        id: "addon:remove-target",
+        orderAddOnId: "remove-target-id",
+        productId: "product-canvas",
+        name: "Canvas",
+        quantity: 1,
+        unitAmount: 20,
+        totalAmount: 20,
+      },
+    ]);
+    const handlers = {
+      addAddOn: async () => ({ ok: true }),
+      removeAddOn: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSAddOnHandlers;
+
+    const markup = renderToStaticMarkup(
+      createElement(POSAddOnMarketplace, {
+        workspace,
+        marketplace: toPOSAddOnMarketplace(composition),
+        handlers,
+      })
+    );
+
+    assert.match(markup, /Canvas/);
+    assert.match(markup, /name="addOnId"/);
+    assert.match(markup, /value="remove-target-id"/);
   });
 });
 
@@ -190,6 +331,16 @@ test("R8a sales and adjustment pages consume composition projectors instead of b
     assert.doesNotMatch(source, /buildCompositionView/);
     assert.match(source, /toCurrentCompositionCard/);
   }
+});
+
+test("R8b add-on marketplace does not derive current state from POSWorkspace add-ons", () => {
+  const source = readFileSync(
+    "src/components/orders/pos-add-on-marketplace.tsx",
+    "utf8"
+  );
+
+  assert.doesNotMatch(source, /workspace\.addOns/);
+  assert.doesNotMatch(source, /addOnCountsByProductId/);
 });
 
 function hasImportFrom(filePath: string, modulePath: string): boolean {
@@ -505,6 +656,75 @@ function packageItemUpgradeCompositionFixture(
       ...composition.totals,
       packageUpgradeDeltaTotal: 15,
       deliverablesTotal: 90,
+    },
+  };
+}
+
+function duplicateAndLegacyAddOnCompositionFixture(
+  workspace: POSWorkspace
+): DraftPOSCompositionProjection {
+  const composition = buildDraftPOSCompositionFixture(workspace);
+  const addOns = [
+    {
+      id: "addon:canvas-1",
+      orderAddOnId: "add-on-row-1",
+      productId: "product-canvas",
+      name: "Canvas",
+      quantity: 1,
+      unitAmount: 20,
+      totalAmount: 20,
+    },
+    {
+      id: "addon:canvas-2",
+      orderAddOnId: "add-on-row-1",
+      productId: "product-canvas",
+      name: "Canvas",
+      quantity: 1,
+      unitAmount: 20,
+      totalAmount: 20,
+    },
+    {
+      id: "addon:legacy-manual",
+      orderAddOnId: "legacy-manual-row",
+      productId: null,
+      name: "Legacy manual add-on",
+      quantity: 1,
+      unitAmount: 5,
+      totalAmount: 5,
+    },
+  ];
+
+  return {
+    ...composition,
+    addOns,
+    totals: {
+      ...composition.totals,
+      addOnTotal: 45,
+      netCompositionTotal:
+        composition.totals.netCompositionTotal -
+        composition.totals.addOnTotal +
+        45,
+    },
+  };
+}
+
+function currentAddOnCompositionFixture(
+  workspace: POSWorkspace,
+  addOns: DraftPOSCompositionProjection["addOns"]
+): DraftPOSCompositionProjection {
+  const composition = buildDraftPOSCompositionFixture(workspace);
+  const addOnTotal = addOns.reduce((sum, addOn) => sum + addOn.totalAmount, 0);
+
+  return {
+    ...composition,
+    addOns,
+    totals: {
+      ...composition.totals,
+      addOnTotal,
+      netCompositionTotal:
+        composition.totals.netCompositionTotal -
+        composition.totals.addOnTotal +
+        addOnTotal,
     },
   };
 }
