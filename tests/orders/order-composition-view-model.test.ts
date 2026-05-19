@@ -472,6 +472,163 @@ test("unclassified adjustment line falls back to displayKind 'line' and is not d
   assert.equal(line.metadata.sourceKind, "packageItem");
 });
 
+test("R7b projectors expose raw POS, overview, and production composition DTOs", () => {
+  const effectiveComposition =
+    composition().buildCompositionSnapshotFromPOSWorkspace(posWorkspaceFixture());
+  const model = {
+    orderId: "order-1",
+    jobNumber: "JOB-1",
+    state: "draft" as const,
+    baseComposition: null,
+    effectiveComposition,
+    pendingAdjustmentComposition: null,
+    totals: effectiveComposition.totals,
+  };
+
+  const draftPOS = composition().toDraftPOSComposition(model);
+  assert.equal(draftPOS.packageLines[0]?.packageName, "Current Package");
+  assert.equal(draftPOS.packageLines[0]?.selectedPhotoCount, 13);
+  assert.equal(draftPOS.packageLines[0]?.extraDigitalCount, 3);
+  assert.equal(draftPOS.addOns[0]?.unitAmount, 12);
+  assert.equal(draftPOS.totals.netCompositionTotal, 151);
+
+  const overview = composition().toOverviewTab(model);
+  assert.equal(overview.packageLines[0]?.packageItems[0]?.productName, "Album");
+  assert.equal(overview.sessionConfigurations[0]?.priceDelta, 8);
+
+  const production = composition().toProductionDeliverables(model);
+  assert.deepEqual(production.rows.map((row) => row.label), ["Album"]);
+});
+
+test("current composition card projector uses structured swap and upgrade metadata", () => {
+  const base = adjustmentSnapshot({
+    lines: [
+      adjustmentLine({
+        lineId: "package:op-1",
+        kind: "package",
+        refId: "pkg-basic",
+        label: "Basic Package",
+        unitPrice: "100.000",
+        lineTotalNet: "100.000",
+      }),
+      adjustmentLine({
+        lineId: "item:op-1:item-album",
+        kind: "item",
+        refId: "prod-standard",
+        label: "Standard Album",
+        unitPrice: "20.000",
+        lineTotalNet: "20.000",
+      }),
+    ],
+  });
+  const proposed = adjustmentSnapshot({
+    lines: base.lines,
+  });
+  const pendingAdjustmentComposition =
+    composition().buildCompositionSnapshotFromAdjustmentSnapshot(proposed, {
+      baseSnapshot: base,
+      edits: [
+        {
+          id: "edit-tier",
+          op: "change_package_tier",
+          orderPackageId: "op-1",
+          toPackageRefId: "pkg-gold",
+        },
+        {
+          id: "edit-upgrade",
+          op: "upgrade_package_item",
+          orderPackageId: "op-1",
+          packageItemId: "item-album",
+          toProductId: "prod-premium",
+          quantity: 1,
+        },
+      ],
+      adjustmentLines: [
+        adjustmentLine({
+          lineId: "delta:package:pkg-basic",
+          kind: "package",
+          refId: "pkg-basic",
+          label: "Basic Package removal",
+          quantity: -1,
+          unitPrice: "100.000",
+          lineTotalNet: "-100.000",
+        }),
+        adjustmentLine({
+          lineId: "delta:package:pkg-gold",
+          kind: "package",
+          refId: "pkg-gold",
+          label: "Gold Package addition",
+          unitPrice: "150.000",
+          lineTotalNet: "150.000",
+        }),
+        adjustmentLine({
+          lineId: "item:op-1:item-album",
+          kind: "item",
+          refId: "prod-premium",
+          label: "Premium Album",
+          unitPrice: "15.000",
+          lineTotalNet: "15.000",
+        }),
+      ],
+      metadataContext: {
+        products: new Map([
+          ["prod-premium", { id: "prod-premium", name: "Premium Album" }],
+        ]),
+        packages: new Map([
+          ["pkg-basic", { id: "pkg-basic", name: "Basic Package" }],
+          ["pkg-gold", { id: "pkg-gold", name: "Gold Package" }],
+        ]),
+        packageItems: new Map([
+          [
+            "item-album",
+            {
+              id: "item-album",
+              productId: "prod-standard",
+              productName: "Standard Album",
+              categoryLabel: "Album",
+            },
+          ],
+        ]),
+      },
+    });
+  const model = {
+    orderId: "order-1",
+    jobNumber: "JOB-1",
+    state: "adjustment" as const,
+    baseComposition: composition().buildCompositionSnapshotFromAdjustmentSnapshot(base),
+    effectiveComposition: composition().buildCompositionSnapshotFromAdjustmentSnapshot(base),
+    pendingAdjustmentComposition,
+    totals: pendingAdjustmentComposition.totals,
+  };
+
+  const card = composition().toCurrentCompositionCard(model, {
+    source: "pendingDeltas",
+  });
+  assert.equal(card.mode, "adjustment");
+  assert.deepEqual(
+    card.rows.map((row) => ({
+      kind: row.kind,
+      from: row.delta?.from,
+      to: row.delta?.to,
+      amount: row.delta?.amount,
+    })),
+    [
+      {
+        kind: "swap",
+        from: "Basic Package",
+        to: "Gold Package",
+        amount: 50,
+      },
+      {
+        kind: "upgrade",
+        from: "Standard Album",
+        to: "Premium Album",
+        amount: 15,
+      },
+    ]
+  );
+});
+
 test("new composition module does not introduce label-derived swap parsing", () => {
   const violations = walk(join(process.cwd(), "src/modules/orders/composition"))
     .filter((filePath) => filePath.endsWith(".ts"))
@@ -488,6 +645,48 @@ test("new composition module does not introduce label-derived swap parsing", () 
     .map((filePath) => filePath.replace(`${process.cwd()}/`, ""));
 
   assert.deepEqual(violations, []);
+});
+
+test("R7b projector files stay pure", () => {
+  const violations = walk(
+    join(process.cwd(), "src/modules/orders/composition/projections")
+  )
+    .filter((filePath) => filePath.endsWith(".ts"))
+    .flatMap((filePath) => {
+      const source = readFileSync(filePath, "utf8");
+      const forbidden = [
+        "@/lib/db",
+        "@/components/",
+        "@/app/",
+        "app/",
+        "adjustment-workspace.service",
+        "order.service",
+        "server action",
+      ].filter((pattern) => source.includes(pattern));
+      return forbidden.map(
+        (pattern) => `${filePath.replace(`${process.cwd()}/`, "")}: ${pattern}`
+      );
+    });
+
+  assert.deepEqual(violations, []);
+});
+
+test("adjustment POS adapter consumes the R7 model and projector path", () => {
+  const source = readFileSync(
+    join(
+      process.cwd(),
+      "src/modules/adjustment-workspace/adjustment-workspace.service.ts"
+    ),
+    "utf8"
+  );
+  const body = source.slice(
+    source.indexOf("export async function derivePOSWorkspaceFromAdjustmentWorkspace"),
+    source.indexOf("export async function derivePendingAdjustmentPreview")
+  );
+
+  assert.match(body, /getPendingAdjustmentOrderCompositionViewModel/);
+  assert.match(body, /toLockedPOSComposition/);
+  assert.doesNotMatch(body, /workspace\.proposal\.proposed\.lines/);
 });
 
 function posWorkspaceFixture(): POSWorkspace {

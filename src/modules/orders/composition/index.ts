@@ -6,6 +6,14 @@ export {
   getOrderCompositionViewModel,
   getPendingAdjustmentOrderCompositionViewModel,
 } from "./order-composition.service";
+export {
+  toCurrentCompositionCard,
+  toDraftPOSComposition,
+  toLockedPOSComposition,
+  toOverviewTab,
+  toPOSCompositionProjection,
+  toProductionDeliverables,
+} from "./projections";
 export type {
   CompositionDisplayKind,
   CompositionDisplayMetadata,
@@ -20,3 +28,16 @@ export type {
   OrderCompositionState,
   OrderCompositionViewModel,
 } from "./order-composition.types";
+export type {
+  CurrentCompositionCardProjection,
+  DraftPOSCompositionProjection,
+  LockedPOSCompositionProjection,
+  OverviewCompositionProjection,
+  POSCompositionAddOnProjection,
+  POSCompositionPackageItemProjection,
+  POSCompositionPackageLineProjection,
+  POSCompositionSessionConfigurationProjection,
+  POSCompositionTotalsProjection,
+  ProductionDeliverableRowProjection,
+  ProductionDeliverablesProjection,
+} from "./projections";
