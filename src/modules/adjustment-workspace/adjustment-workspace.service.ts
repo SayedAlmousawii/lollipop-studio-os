@@ -1860,13 +1860,17 @@ function derivePOSPackageItemFromComposition(
   );
   if (!projectedItem || projectedItem.productId === item.productId) return item;
 
+  const priceSnapshot = Number(
+    (item.priceSnapshot + projectedItem.unitAmount).toFixed(3)
+  );
+
   return {
     ...item,
     productId: projectedItem.productId ?? item.productId,
     productName: projectedItem.productName,
     quantity: Math.abs(projectedItem.quantity),
-    priceSnapshot: projectedItem.unitAmount,
-    priceSnapshotLabel: formatMoney(projectedItem.unitAmount),
+    priceSnapshot,
+    priceSnapshotLabel: formatMoney(priceSnapshot),
   };
 }
 

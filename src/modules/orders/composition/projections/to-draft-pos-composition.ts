@@ -203,10 +203,12 @@ function projectPackageItems(
   );
 
   for (const line of snapshot.deliverables) {
+    if (line.metadata.displayKind === "upgrade") continue;
     if (line.metadata.orderPackageId !== orderPackageId) continue;
     itemById.set(line.metadata.packageItemId ?? line.id, projectPackageItem(line));
   }
 
+  const processedUpgradeItemIds = new Set<string>();
   for (const line of snapshot.lines) {
     if (
       line.metadata.displayKind !== "upgrade" ||
@@ -215,6 +217,8 @@ function projectPackageItems(
       continue;
     }
     const itemId = line.metadata.packageItemId ?? line.id;
+    if (processedUpgradeItemIds.has(itemId)) continue;
+    processedUpgradeItemIds.add(itemId);
     const baseItem = itemById.get(itemId);
     itemById.set(itemId, {
       id: itemId,
