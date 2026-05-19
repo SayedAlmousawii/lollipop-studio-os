@@ -23,7 +23,10 @@ import {
 } from "@/modules/adjustment-workspace/adjustment-workspace.service";
 import { buildCompositionView } from "@/modules/composition-view/composition-view.model";
 import {
-  deriveLockedFinancialSidebarSummary,
+  getFinancialCaseSummary,
+  toSalesSidebarLocked,
+} from "@/modules/financial-cases";
+import {
   getLinkedFinancialDocumentsForOrder,
   getPOSWorkspace,
 } from "@/modules/orders/order.service";
@@ -46,37 +49,40 @@ export default async function SalesPage(
   if (!workspace) notFound();
 
   if (workspace.invoice?.isLocked) {
-    const [effectiveComposition, openWorkspace, linkedDocuments] = await Promise.all([
+    const [
+      effectiveComposition,
+      openWorkspace,
+      linkedDocuments,
+      financialCaseSummary,
+    ] = await Promise.all([
       getEffectiveCompositionForInvoice(workspace.invoice.invoiceId),
       getOpenWorkspaceForInvoice(workspace.invoice.invoiceId),
       getLinkedFinancialDocumentsForOrder(workspace.orderId),
+      getFinancialCaseSummary({ orderId: workspace.orderId }),
     ]);
-    const finalizedAdjustments = linkedDocuments
-      .filter(
-        (document) =>
-          document.invoiceType === "ADJUSTMENT" &&
-          document.invoiceStatus !== "DRAFT"
-      )
-      .map((document) => ({
-        totalAmount: document.invoiceTotal,
-        remainingAmount: document.remainingAmount,
-      }));
-    const financialSummary = deriveLockedFinancialSidebarSummary({
-      finalInvoice: {
-        totalAmount: workspace.invoice.invoiceTotal,
-        remainingAmount: workspace.invoice.remainingAmount,
-        depositPaidAmount: workspace.invoice.depositPaidAmount,
-      },
-      finalizedAdjustments,
-      orderId: workspace.orderId,
-    });
-    console.info(
-      JSON.stringify({
-        metric: "sales_page.locked.rendered",
-        orderId: workspace.orderId,
-        invoiceId: workspace.invoice.invoiceId,
-      })
-    );
+    const financialSummary = financialCaseSummary
+      ? toSalesSidebarLocked(financialCaseSummary)
+      : null;
+    if (financialSummary && financialCaseSummary?.stage === "active") {
+      console.info(
+        JSON.stringify({
+          metric: "sales_page.locked.rendered",
+          orderId: workspace.orderId,
+          financialCaseId: financialCaseSummary.financialCaseId,
+          invoiceId: workspace.invoice.invoiceId,
+        })
+      );
+    } else {
+      console.error(
+        JSON.stringify({
+          metric: "sales_page.locked.financial_projection_missing",
+          orderId: workspace.orderId,
+          invoiceId: workspace.invoice.invoiceId,
+          financialCaseId: financialCaseSummary?.financialCaseId ?? null,
+          stage: financialCaseSummary?.stage ?? null,
+        })
+      );
+    }
 
     return (
       <div className={styles.salesGrid}>
@@ -88,15 +94,17 @@ export default async function SalesPage(
             workspaceIsOpen={Boolean(openWorkspace)}
           />
         </main>
-        <FinancialSidebarLocked
-          workspace={workspace}
-          linkedDocuments={linkedDocuments}
-          financialSummary={financialSummary}
-          openWorkspace={openWorkspace}
-          currentUserId={appUser.id}
-          isManager={appUser.role === "ADMIN" || appUser.role === "MANAGER"}
-          className={styles.financialSidebar}
-        />
+        {financialSummary ? (
+          <FinancialSidebarLocked
+            workspace={workspace}
+            linkedDocuments={linkedDocuments}
+            financialSummary={financialSummary}
+            openWorkspace={openWorkspace}
+            currentUserId={appUser.id}
+            isManager={appUser.role === "ADMIN" || appUser.role === "MANAGER"}
+            className={styles.financialSidebar}
+          />
+        ) : null}
       </div>
     );
   }

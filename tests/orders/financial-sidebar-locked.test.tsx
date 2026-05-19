@@ -5,6 +5,7 @@ import test from "node:test";
 import { InvoiceStatus, InvoiceType, OrderSelectionStatus, OrderStatus } from "@prisma/client";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { SalesSidebarLockedProjection } from "@/modules/financial-cases";
 import type {
   LinkedFinancialDocument,
   POSWorkspace,
@@ -19,15 +20,7 @@ type ModuleLoader = (
 type FinancialSidebarLockedComponent = ComponentType<{
   workspace: POSWorkspace;
   linkedDocuments: LinkedFinancialDocument[];
-  financialSummary: {
-    customerTotal: number;
-    paidSoFar: number;
-    includesDeposit: number;
-    remaining: number;
-    finalInvoiceTotal: number;
-    totalAdjustments: number;
-    finalTotal: number;
-  };
+  financialSummary: SalesSidebarLockedProjection;
   openWorkspace: {
     id: string;
     openedAt: Date;

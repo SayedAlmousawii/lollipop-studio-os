@@ -12,10 +12,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { formatKD } from "@/components/financial";
 import { OrderDetailsFinancialsTab } from "@/components/financial/order-details-financials-tab";
 import { OrderSettlementSummary } from "@/components/orders/order-settlement-summary";
-import {
-  computeOrderSettlementSummary,
-  deriveLockedFinancialSidebarSummary,
-} from "@/modules/orders/order-settlement";
+import type { FinancialTabBlockProjection } from "@/modules/financial-cases";
+import { computeOrderSettlementSummary } from "@/modules/orders/order-settlement";
 import type {
   LinkedFinancialDocument,
   POSWorkspace,
@@ -52,7 +50,7 @@ test("OrderDetailsFinancialsTab renders all linked documents in canonical order"
   assert.match(markup, /INV-CREDIT/);
 });
 
-test("OrderDetailsFinancialsTab displays summary values from deriveLockedFinancialSidebarSummary", () => {
+test("OrderDetailsFinancialsTab displays summary values from projector-shaped data", () => {
   const summary = financialSummaryFixture();
   const markup = renderToStaticMarkup(
     createElement(OrderDetailsFinancialsTab, {
@@ -96,25 +94,16 @@ test("Order settlement header outstanding matches Financials tab remaining on fi
   assert.match(markup, new RegExp(`${formatKD(summary.remaining)} outstanding`));
 });
 
-function financialSummaryFixture() {
-  const finalInvoice = fixtureInvoice(InvoiceType.FINAL);
-  const depositInvoice = fixtureInvoice(InvoiceType.DEPOSIT);
-  const finalizedAdjustments = FIXTURE_INVOICE_DATA.filter(
-    (fixture) => fixture.invoiceType === InvoiceType.ADJUSTMENT
-  ).map((fixture) => ({
-    totalAmount: fixture.invoiceTotal,
-    remainingAmount: fixture.remainingAmount,
-  }));
-
-  return deriveLockedFinancialSidebarSummary({
-    finalInvoice: {
-      totalAmount: finalInvoice.invoiceTotal,
-      remainingAmount: finalInvoice.remainingAmount,
-      depositPaidAmount: depositInvoice.invoiceTotal,
-    },
-    finalizedAdjustments,
-    orderId: "order-1",
-  });
+function financialSummaryFixture(): FinancialTabBlockProjection {
+  return {
+    customerTotal: 270,
+    paidSoFar: 250,
+    includesDeposit: 20,
+    remaining: 20,
+    finalInvoiceTotal: 230,
+    totalAdjustments: 40,
+    finalTotal: 270,
+  };
 }
 
 function workspaceFixture(): POSWorkspace {

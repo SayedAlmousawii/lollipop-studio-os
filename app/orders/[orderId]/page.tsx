@@ -37,13 +37,16 @@ import {
   getOrderHubById,
   getOrderDeliveryWorkflowById,
   getOrderEditingWorkflowById,
-  deriveLockedFinancialSidebarSummary,
   getLinkedFinancialDocumentsForOrder,
   getPOSWorkspace,
   getOrderProductionWorkflowById,
   getOrderSelectionWorkflowById,
 } from "@/modules/orders/order.service";
 import { getOrderActivityTimeline } from "@/modules/orders/order-activity.service";
+import {
+  getFinancialCaseSummary,
+  toFinancialTabBlock,
+} from "@/modules/financial-cases";
 import type {
   LinkedFinancialDocument,
   OrderActivityPreviewItem,
@@ -68,34 +71,6 @@ const TAB_ITEMS = [
   ["activity", "Activity"],
 ] as const;
 
-function deriveOrderDetailsFinancialSummary(
-  workspace: POSWorkspace | null,
-  linkedDocuments: LinkedFinancialDocument[]
-): LockedFinancialSidebarSummary | null {
-  if (!workspace?.invoice) return null;
-
-  const finalizedAdjustments = linkedDocuments
-    .filter(
-      (document) =>
-        document.invoiceType === "ADJUSTMENT" &&
-        document.invoiceStatus !== "DRAFT"
-    )
-    .map((document) => ({
-      totalAmount: document.invoiceTotal,
-      remainingAmount: document.remainingAmount,
-    }));
-
-  return deriveLockedFinancialSidebarSummary({
-    finalInvoice: {
-      totalAmount: workspace.invoice.invoiceTotal,
-      remainingAmount: workspace.invoice.remainingAmount,
-      depositPaidAmount: workspace.invoice.depositPaidAmount,
-    },
-    finalizedAdjustments,
-    orderId: workspace.orderId,
-  });
-}
-
 export default async function OrderDetailPage(
   props: PageProps<"/orders/[orderId]">
 ) {
@@ -108,6 +83,7 @@ export default async function OrderDetailPage(
     delivery,
     workspace,
     linkedDocuments,
+    financialCaseSummary,
     activity,
   ] = await Promise.all([
     getOrderHubById(orderId),
@@ -117,6 +93,7 @@ export default async function OrderDetailPage(
     getOrderDeliveryWorkflowById(orderId),
     getPOSWorkspace(orderId),
     getLinkedFinancialDocumentsForOrder(orderId),
+    getFinancialCaseSummary({ orderId }),
     getOrderActivityTimeline(orderId),
   ]);
   if (!order) notFound();
@@ -125,31 +102,18 @@ export default async function OrderDetailPage(
   if (!production) notFound();
   if (!delivery) notFound();
 
-  const financialSummary = deriveOrderDetailsFinancialSummary(
-    workspace,
-    linkedDocuments
-  );
-  if (financialSummary) {
+  const financialSummary = financialCaseSummary
+    ? toFinancialTabBlock(financialCaseSummary)
+    : null;
+  if (financialSummary && financialCaseSummary?.stage === "active") {
     console.info(
       JSON.stringify({
         metric: "order_details.financials_tab.rendered",
         orderId,
+        financialCaseId: financialCaseSummary.financialCaseId,
         invoiceId: workspace?.invoice?.invoiceId ?? null,
       })
     );
-    if (
-      Math.abs(order.settlementSummary.outstandingAmount - financialSummary.remaining) >
-      0.0005
-    ) {
-      console.error(
-        JSON.stringify({
-          metric: "order_details.financials_tab.header_discrepancy",
-          orderId,
-          headerOutstanding: order.settlementSummary.outstandingAmount.toFixed(3),
-          tabRemaining: financialSummary.remaining.toFixed(3),
-        })
-      );
-    }
   }
 
   return (
