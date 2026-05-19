@@ -5,7 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- R2 complete: order details Financials tab and locked Sales sidebar consume `FinancialCaseSummary` projectors; page-local locked financial derivation removed. Next: R3a (order header + orders table).
+- R3a complete: order header and orders table consume `FinancialCaseSummary` projectors; orders table financials use a fixed-query batch projection helper, and formatted-money parsing is removed. Next: R3b (booking page).
 - **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 - **Active roadmap:** `context/reviews/centralization-roadmap.md`. R0 (Context Reconciliation & Cleanup Gate) is complete: main docs are canonical, `*-summary.md` files archived, `AGENTS.md` default reads updated, Canonical Architecture Standards + Canonical Read Layer sections live in `architecture-context.md`.
 - **Session Configurations subsystem complete (Features 88–94):** schema, admin CRUD, pricing engine, configure panel, post-lock routing, invoice display, linked-product retrofit as selection-owned `OrderAddOn` rows.
@@ -65,6 +65,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **98 R3a** — Order header and orders table financial readouts now consume `FinancialCaseSummary` projectors; orders-table projection loading is batched; R3b booking-page swap remains next.
 - **96** — R1b FinancialCaseSummary projectors completed for header, draft sidebar financials, payment dialog, orders table, booking page, and invoice list; parity checker now covers header/table projections.
 - **94** — Linked-product session configurations materialize as selection-owned `OrderAddOn` rows; display-mode enum/columns retired.
 - **93** — Session-config selections snapshot option labels; invoice/detail lines use shared grouped renderer; staff-only operational config display; adjustment deltas get Added/Removed/Changed descriptions.

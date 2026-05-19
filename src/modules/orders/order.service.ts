@@ -30,6 +30,8 @@ import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
+import { getOrdersTableFinancialProjections } from "@/modules/financial-cases/orders-table-projections.service";
+import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import {
   invoiceLockSnapshotSelect,
   recordInvoiceLockSnapshot,
@@ -259,8 +261,26 @@ export async function getOrders(filters: OrderFilters = {}): Promise<Order[]> {
     () => fetchOrders(filters),
     "Failed to fetch orders"
   );
+  let financialByOrderId = new Map<string, OrdersTableRowProjection | null>();
+  try {
+    financialByOrderId = await withRetry(
+      () =>
+        getOrdersTableFinancialProjections({
+          orderIds: rows.map((row) => row.id),
+        }),
+      "Failed to fetch order table financial projections"
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        metric: "orders.table_financial_projection.failed",
+        orderCount: rows.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
 
-  return rows.map(mapOrderRow);
+  return rows.map((row) => mapOrderRow(row, financialByOrderId.get(row.id) ?? null));
 }
 
 export async function getOrdersByCustomerId(
@@ -2988,7 +3008,10 @@ function fetchOrderByIdWithClient(
   });
 }
 
-function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
+function mapOrderRow(
+  row: OrderRow | OrderDetailRow,
+  financial: OrdersTableRowProjection | null = null
+): Order {
   const invoiceSummary = summarizeInvoices(row.invoices);
   const settlementSummary = computeOrderSettlementSummary({
     invoices: getOrderSettlementInvoices(row),
@@ -3007,6 +3030,7 @@ function mapOrderRow(row: OrderRow | OrderDetailRow): Order {
     totalAmount: formatMoney(new Prisma.Decimal(settlementSummary.totalOrderValue)),
     paidAmount: formatMoney(new Prisma.Decimal(settlementSummary.paidAmount)),
     remainingAmount: formatMoney(new Prisma.Decimal(settlementSummary.outstandingAmount)),
+    financial,
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,

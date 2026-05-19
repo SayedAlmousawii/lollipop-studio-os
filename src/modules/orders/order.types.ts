@@ -7,6 +7,7 @@ import type {
   SessionConfigurationInputType,
   SessionConfigurationPricingMode,
 } from "@prisma/client";
+import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import type { SelectionInput } from "@/modules/session-configurations/session-configuration-selection.schema";
 
 export type OrderStatusLabel =
@@ -57,6 +58,7 @@ export interface Order {
   totalAmount: string;
   paidAmount: string;
   remainingAmount: string;
+  financial: OrdersTableRowProjection | null;
   createdAt: string;
   primaryInvoiceId: string | null;
   primaryInvoiceNumber: string | null;

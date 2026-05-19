@@ -19,6 +19,8 @@ import {
 import { OrderStatusBadge } from "./order-status-badge";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
 import { Badge } from "@/components/ui/badge";
+import { formatMoney } from "@/lib/formatting/money";
+import { FINANCIAL_CASE_PAYMENT_STATUS_LABELS } from "@/modules/financial-cases/financial-case-summary.constants";
 import type { Order } from "@/modules/orders/order.types";
 
 interface OrdersTableProps {
@@ -48,11 +50,13 @@ export function OrdersTable({ orders }: OrdersTableProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {orders.map((order) => (
-            <TableRow
-              key={order.id}
-              className="border-border hover:bg-surface-soft"
-            >
+          {orders.map((order) => {
+            const financial = order.financial;
+            return (
+              <TableRow
+                key={order.id}
+                className="border-border hover:bg-surface-soft"
+              >
               <TableCell className="font-medium tabular-nums text-text-primary">
                 {order.customerPhone}
               </TableCell>
@@ -81,20 +85,49 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               <TableCell>
                 <InvoiceStatusBadge status={order.invoiceStatus} />
               </TableCell>
-              <TableCell className="text-sm text-text-primary">
-                {order.totalAmount}
-              </TableCell>
-              <TableCell className="text-sm text-success">
-                {order.paidAmount}
+              <TableCell
+                className={cn(
+                  "text-sm",
+                  financial ? "text-text-primary" : "text-text-secondary"
+                )}
+              >
+                {financial ? formatMoney(financial.totalAmount) : "—"}
               </TableCell>
               <TableCell
-                className={`text-sm ${
-                  parseFloat(order.remainingAmount.replace(/[^\d.-]/g, "")) > 0
+                className={cn(
+                  "text-sm",
+                  financial ? "text-success" : "text-text-secondary"
+                )}
+              >
+                {financial ? formatMoney(financial.paidAmount) : "—"}
+              </TableCell>
+              <TableCell
+                className={cn(
+                  "text-sm",
+                  financial && financial.remainingAmount > 0
                     ? "text-danger"
                     : "text-text-secondary"
-                }`}
+                )}
               >
-                {order.remainingAmount}
+                {financial ? (
+                  <div className="space-y-0.5">
+                    <div>{formatMoney(financial.remainingAmount)}</div>
+                    <div className="text-xs text-text-muted">
+                      {
+                        FINANCIAL_CASE_PAYMENT_STATUS_LABELS[
+                          financial.paymentStatusEnum
+                        ]
+                      }
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    <div>—</div>
+                    <div className="text-xs text-text-muted">
+                      No active financial case
+                    </div>
+                  </div>
+                )}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {order.createdAt}
@@ -132,8 +165,9 @@ export function OrdersTable({ orders }: OrdersTableProps) {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </TableCell>
-            </TableRow>
-          ))}
+              </TableRow>
+            );
+          })}
           {orders.length === 0 ? (
             <TableRow>
               <TableCell

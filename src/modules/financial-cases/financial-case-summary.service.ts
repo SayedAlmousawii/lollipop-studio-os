@@ -7,15 +7,12 @@ import {
   computeCreditNoteCapacityForFinal,
   computeOverpaymentCapacity,
 } from "@/modules/invoices/invoice.service";
+import { deriveFinancialCasePaymentStatus } from "./financial-case-payment-status";
 import {
   computeOrderSettlementSummary,
   deriveLockedFinancialSidebarSummary,
   deriveSettlementPaidAmount,
 } from "@/modules/orders/order-settlement";
-import {
-  getLinkedFinancialDocumentsForOrder,
-  getPOSWorkspace,
-} from "@/modules/orders/order.service";
 import type { LinkedFinancialDocument } from "@/modules/orders/order.types";
 import { compareSummaryWithLegacy } from "./discrepancy-logger";
 import {
@@ -26,7 +23,6 @@ import {
 } from "./projections";
 import type {
   FinancialCaseInvoiceSummary,
-  FinancialCasePaymentStatus,
   FinancialCaseSummary,
   FinancialCaseSummaryInput,
 } from "./financial-case-summary.types";
@@ -155,7 +151,7 @@ export async function getFinancialCaseSummary(
       await computeCreditNoteCapacityForFinal(finalInvoice.id, client)
     ).toNumber(),
     linkedDocuments,
-    paymentStatusEnum: derivePaymentStatusEnum({
+    paymentStatusEnum: deriveFinancialCasePaymentStatus({
       settlementSummary,
       effectivePaid: effectivePaid.toNumber(),
       customerTotal: lockedSummary.customerTotal,
@@ -475,6 +471,9 @@ async function getLinkedFinancialDocumentsForOrderWithClient(
 }
 
 async function deriveLegacyLockedSummary(orderId: string, client: DbClient) {
+  const { getLinkedFinancialDocumentsForOrder, getPOSWorkspace } = await import(
+    "@/modules/orders/order.service"
+  );
   const [workspace, linkedDocuments] = await Promise.all([
     getPOSWorkspace(orderId, client),
     getLinkedFinancialDocumentsForOrder(orderId, client),
@@ -516,24 +515,4 @@ async function deriveLegacySettlementSummary(
   if (invoices.length === 0) return null;
 
   return computeOrderSettlementSummary({ invoices });
-}
-
-function derivePaymentStatusEnum(input: {
-  settlementSummary: ReturnType<typeof computeOrderSettlementSummary>;
-  effectivePaid: number;
-  customerTotal: number;
-  refunds: number;
-}): FinancialCasePaymentStatus {
-  if (input.refunds > 0) return "REFUNDED";
-  if (
-    input.settlementSummary.hasOverpayment ||
-    input.effectivePaid - input.customerTotal > 0.0005
-  ) {
-    return "OVERPAID";
-  }
-  if (input.customerTotal > 0 && input.settlementSummary.outstandingAmount <= 0.0005) {
-    return "PAID";
-  }
-  if (input.effectivePaid <= 0.0005) return "UNPAID";
-  return "PARTIAL";
 }
