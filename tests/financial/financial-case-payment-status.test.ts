@@ -24,6 +24,7 @@ test("FinancialCase payment status maps to order payment labels", () => {
 test("FinancialCase payment status preserves force-closed outstanding invoices", () => {
   const status = deriveFinancialCasePaymentStatus({
     finalInvoiceStatus: InvoiceStatus.CLOSED,
+    finalInvoiceRemaining: 25,
     settlementSummary: {
       hasOverpayment: false,
       outstandingAmount: 25,

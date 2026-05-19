@@ -41,6 +41,26 @@ test("OrdersTable renders explicit missing financial case placeholders", () => {
   assert.doesNotMatch(markup, /<td class="text-sm text-success">—<\/td>/);
 });
 
+test("OrdersTable preserves the overridden payment status label", () => {
+  const markup = renderToStaticMarkup(
+    createElement(OrdersTable, {
+      orders: [
+        orderFixture({
+          financial: {
+            totalAmount: 100,
+            paidAmount: 75,
+            remainingAmount: 25,
+            invoiceStatus: "CLOSED",
+            paymentStatusEnum: "OVERRIDDEN",
+          },
+        }),
+      ],
+    })
+  );
+
+  assert.match(markup, /Overridden/);
+});
+
 function orderFixture(overrides: Pick<Order, "financial">): Order {
   return {
     id: "order-1",

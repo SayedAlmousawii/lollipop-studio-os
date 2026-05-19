@@ -3,6 +3,7 @@ import type { FinancialCasePaymentStatus } from "./financial-case-summary.types"
 
 export function deriveFinancialCasePaymentStatus(input: {
   finalInvoiceStatus: InvoiceStatus;
+  finalInvoiceRemaining: number;
   settlementSummary: {
     hasOverpayment: boolean;
     outstandingAmount: number;
@@ -13,7 +14,7 @@ export function deriveFinancialCasePaymentStatus(input: {
 }): FinancialCasePaymentStatus {
   if (
     input.finalInvoiceStatus === InvoiceStatus.CLOSED &&
-    input.settlementSummary.outstandingAmount > 0.0005
+    input.finalInvoiceRemaining > 0.0005
   ) {
     return "OVERRIDDEN";
   }
