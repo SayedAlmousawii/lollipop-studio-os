@@ -199,6 +199,90 @@ export async function recordPayment(
   );
 }
 
+export class UpgradePaymentInvoiceNotFoundError extends Error {
+  constructor() {
+    super("Invoice not found.");
+    this.name = "UpgradePaymentInvoiceNotFoundError";
+  }
+}
+
+export class UpgradePaymentInvoiceOrderMismatchError extends Error {
+  constructor() {
+    super("Invoice does not belong to this order.");
+    this.name = "UpgradePaymentInvoiceOrderMismatchError";
+  }
+}
+
+export class UpgradePaymentNoOutstandingBalanceError extends Error {
+  constructor() {
+    super("No outstanding balance remains on this invoice.");
+    this.name = "UpgradePaymentNoOutstandingBalanceError";
+  }
+}
+
+export class UpgradePaymentOutstandingBalanceChangedError extends Error {
+  constructor() {
+    super("Outstanding balance changed. Please reopen the payment dialog and try again.");
+    this.name = "UpgradePaymentOutstandingBalanceChangedError";
+  }
+}
+
+export async function recordUpgradePaymentForOrder(
+  input: {
+    orderId: string;
+    invoiceId: string;
+    payment: RecordPaymentInput;
+  },
+  actorContext: ActorContext
+): Promise<{ id: string }> {
+  return withRetry(
+    () =>
+      db.$transaction(async (tx) => {
+        await lockInvoiceForUpdate(tx, input.invoiceId);
+        const invoice = await tx.invoice.findUnique({
+          where: { id: input.invoiceId },
+          select: { id: true, orderId: true, remainingAmount: true },
+        });
+        if (!invoice) {
+          throw new UpgradePaymentInvoiceNotFoundError();
+        }
+        if (invoice.orderId !== input.orderId) {
+          throw new UpgradePaymentInvoiceOrderMismatchError();
+        }
+
+        const outstandingAmount = new Prisma.Decimal(invoice.remainingAmount);
+        const outstandingNumber = outstandingAmount.toNumber();
+        if (!Number.isFinite(outstandingNumber) || outstandingNumber <= 0) {
+          throw new UpgradePaymentNoOutstandingBalanceError();
+        }
+
+        const submittedAmount = new Prisma.Decimal(input.payment.amount);
+        if (submittedAmount.toFixed(3) !== outstandingAmount.toFixed(3)) {
+          throw new UpgradePaymentOutstandingBalanceChangedError();
+        }
+
+        return recordPaymentWithClient(
+          tx,
+          invoice.id,
+          { ...input.payment, amount: outstandingNumber },
+          actorContext
+        );
+      }),
+    "Failed to record upgrade payment",
+    3,
+    (error) => !isUpgradePaymentKnownError(error)
+  );
+}
+
+function isUpgradePaymentKnownError(error: unknown): boolean {
+  return (
+    error instanceof UpgradePaymentInvoiceNotFoundError ||
+    error instanceof UpgradePaymentInvoiceOrderMismatchError ||
+    error instanceof UpgradePaymentNoOutstandingBalanceError ||
+    error instanceof UpgradePaymentOutstandingBalanceChangedError
+  );
+}
+
 export async function recordPaymentWithClient(
   client: DbClient,
   invoiceId: string,
