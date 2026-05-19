@@ -33,10 +33,16 @@ export {
 } from "./to-pos-add-on-marketplace";
 export {
   toOverviewTab,
+  emptyOverviewCompositionProjection,
   type OverviewCompositionProjection,
 } from "./to-overview-tab";
 export {
   toProductionDeliverables,
+  emptyProductionDeliverablesProjection,
   type ProductionDeliverablesProjection,
   type ProductionDeliverableRowProjection,
 } from "./to-production-deliverables";
+export {
+  toOperationalConfigurationsDisplay,
+  type OperationalConfigurationsPackageLine,
+} from "./to-operational-configurations-display";

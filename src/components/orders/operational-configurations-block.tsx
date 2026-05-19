@@ -1,11 +1,6 @@
-export type OperationalConfigurationsPackageLine = {
-  packageName: string;
-  sessionTypeName: string;
-  operationalSelections: {
-    configName: string;
-    valueDisplay: string;
-  }[];
-};
+import type { OperationalConfigurationsPackageLine } from "@/modules/orders/composition/projections";
+
+export type { OperationalConfigurationsPackageLine };
 
 export function OperationalConfigurationsBlock({
   packageLines,

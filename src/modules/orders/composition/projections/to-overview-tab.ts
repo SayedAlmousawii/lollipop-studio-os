@@ -37,6 +37,35 @@ export type OverviewCompositionProjection = {
   totals: POSCompositionTotalsProjection;
 };
 
+export function emptyOverviewCompositionProjection(input: {
+  orderId: string;
+  jobNumber: string;
+}): OverviewCompositionProjection {
+  return {
+    orderId: input.orderId,
+    jobNumber: input.jobNumber,
+    summary: {
+      packageCount: 0,
+      includedPhotoCount: 0,
+      selectedPhotoCount: 0,
+      extraPhotoCount: 0,
+      selectedPhotosLabel: "—",
+    },
+    packageLines: [],
+    addOns: [],
+    sessionConfigurations: [],
+    totals: {
+      packageBaseTotal: 0,
+      packageUpgradeDeltaTotal: 0,
+      deliverablesTotal: 0,
+      addOnTotal: 0,
+      extraPhotoTotal: 0,
+      sessionConfigurationTotal: 0,
+      netCompositionTotal: 0,
+    },
+  };
+}
+
 export function toOverviewTab(
   model: OrderCompositionViewModel
 ): OverviewCompositionProjection {

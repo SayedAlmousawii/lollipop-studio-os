@@ -22,7 +22,6 @@ import { OrderSettlementSummary } from "@/components/orders/order-settlement-sum
 import { OrderStatusBadge } from "@/components/orders/order-status-badge";
 import {
   OperationalConfigurationsBlock,
-  type OperationalConfigurationsPackageLine,
 } from "@/components/orders/operational-configurations-block";
 import { ProductionWorkflowForm } from "@/components/orders/production-workflow-form";
 import { Button } from "@/components/ui/button";
@@ -51,9 +50,13 @@ import {
   toOrderHeaderFinancial,
 } from "@/modules/financial-cases";
 import {
+  emptyOverviewCompositionProjection,
+  emptyProductionDeliverablesProjection,
   getOrderCompositionViewModel,
+  toOperationalConfigurationsDisplay,
   toOverviewTab,
   toProductionDeliverables,
+  type OperationalConfigurationsPackageLine,
   type OverviewCompositionProjection,
   type POSCompositionPackageItemProjection,
   type ProductionDeliverablesProjection,
@@ -122,10 +125,17 @@ export default async function OrderDetailPage(
     : null;
   const overviewComposition = compositionModel
     ? toOverviewTab(compositionModel)
-    : emptyOverviewComposition(order);
+    : emptyOverviewCompositionProjection({
+        orderId: order.id,
+        jobNumber: order.jobNumber,
+      });
   const productionDeliverables = compositionModel
     ? toProductionDeliverables(compositionModel)
-    : emptyProductionDeliverables(order);
+    : emptyProductionDeliverablesProjection({
+        orderId: order.id,
+        jobNumber: order.jobNumber,
+      });
+  const operationalPackageLines = toOperationalConfigurationsDisplay(workspace);
   if (financialSummary && financialCaseSummary?.stage === "active") {
     console.info(
       JSON.stringify({
@@ -225,7 +235,7 @@ export default async function OrderDetailPage(
             <OverviewTab
               order={order}
               composition={overviewComposition}
-              operationalPackageLines={deriveOperationalPackageLines(workspace)}
+              operationalPackageLines={operationalPackageLines}
             />
           </TabsContent>
           <TabsContent value="selection" className="space-y-4">
@@ -237,7 +247,6 @@ export default async function OrderDetailPage(
           <TabsContent value="production" className="space-y-4">
             <ProductionTab
               production={production}
-              order={order}
               deliverables={productionDeliverables}
             />
           </TabsContent>
@@ -262,11 +271,9 @@ export default async function OrderDetailPage(
 
 function ProductionTab({
   production,
-  order,
   deliverables,
 }: {
   production: OrderProductionWorkflow;
-  order: OrderDetail;
   deliverables: ProductionDeliverablesProjection;
 }) {
   return (
@@ -287,8 +294,8 @@ function ProductionTab({
               ["Delivery readiness", production.deliveryStatus],
               ["Ready for pickup", production.readyAt ?? "Not ready"],
               ["Deliverables", deliverables.summaryLabel],
-              ["Included photos", order.includedPhotoCount],
-              ["Extra photos", order.extraPhotoCount],
+              ["Included photos", String(deliverables.includedPhotoCount)],
+              ["Extra photos", String(deliverables.extraPhotoCount)],
             ]}
           />
         </CardContent>
@@ -296,45 +303,6 @@ function ProductionTab({
       <ProductionWorkflowForm production={production} />
     </div>
   );
-}
-
-function emptyOverviewComposition(
-  order: OrderDetail
-): OverviewCompositionProjection {
-  return {
-    orderId: order.id,
-    jobNumber: order.jobNumber,
-    summary: {
-      packageCount: 0,
-      includedPhotoCount: 0,
-      selectedPhotoCount: 0,
-      extraPhotoCount: 0,
-      selectedPhotosLabel: "—",
-    },
-    packageLines: [],
-    addOns: [],
-    sessionConfigurations: [],
-    totals: {
-      packageBaseTotal: 0,
-      packageUpgradeDeltaTotal: 0,
-      deliverablesTotal: 0,
-      addOnTotal: 0,
-      extraPhotoTotal: 0,
-      sessionConfigurationTotal: 0,
-      netCompositionTotal: 0,
-    },
-  };
-}
-
-function emptyProductionDeliverables(
-  order: OrderDetail
-): ProductionDeliverablesProjection {
-  return {
-    orderId: order.id,
-    jobNumber: order.jobNumber,
-    summaryLabel: "No structured deliverables",
-    rows: [],
-  };
 }
 
 function DeliveryTab({
@@ -484,40 +452,6 @@ function OverviewTab({
   );
 }
 
-function deriveOperationalPackageLines(
-  workspace: POSWorkspace | null
-): OperationalConfigurationsPackageLine[] {
-  if (!workspace) return [];
-
-  return workspace.packageLines.map((line) => ({
-    packageName: line.currentPackage.name,
-    sessionTypeName: line.sessionTypeName,
-    operationalSelections: line.sessionConfigurationSummary
-      .filter((selection) => selection.financialBehavior === "OPERATIONAL")
-      .map((selection) => ({
-        configName: selection.label,
-        valueDisplay: valueDisplayForOperationalSelection(selection),
-      }))
-      .filter((selection) => selection.valueDisplay.trim().length > 0),
-  }));
-}
-
-function valueDisplayForOperationalSelection(
-  selection: POSWorkspace["packageLines"][number]["sessionConfigurationSummary"][number]
-): string {
-  switch (selection.inputType) {
-    case "TOGGLE":
-      return "Enabled";
-    case "SELECT":
-      return selection.optionLabel ?? "";
-    case "NUMBER":
-    case "COUNTER":
-      return selection.numericValue ?? "";
-    case "TEXT":
-      return selection.textValue ?? "";
-  }
-}
-
 function PackageLineList({ lines }: { lines: OrderDetail["packageLines"] }) {
   if (lines.length === 0) {
     return (
@@ -618,8 +552,8 @@ function SelectionTab({ selection }: { selection: OrderSelectionWorkflow }) {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-text-secondary">
-            Base payment not yet recorded. Use &ldquo;Record Base Payment&rdquo; on
-            the booking to unlock selection.
+            Deposit not yet recorded. Record the deposit on the booking to
+            unlock selection.
           </p>
         </CardContent>
       </Card>
