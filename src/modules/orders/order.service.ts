@@ -3064,10 +3064,6 @@ function mapOrderRow(
   row: OrderRow | OrderDetailRow,
   financial: OrdersTableRowProjection | null = null
 ): Order {
-  const settlementSummary = computeOrderSettlementSummary({
-    invoices: getOrderSettlementInvoices(row),
-  });
-
   return {
     id: row.id,
     jobNumber: row.jobNumber,
@@ -3080,9 +3076,9 @@ function mapOrderRow(
     paymentStatus: financial
       ? mapFinancialCasePaymentStatusToLabel(financial.paymentStatusEnum)
       : "Pending",
-    totalAmount: formatMoney(new Prisma.Decimal(settlementSummary.totalOrderValue)),
-    paidAmount: formatMoney(new Prisma.Decimal(settlementSummary.paidAmount)),
-    remainingAmount: formatMoney(new Prisma.Decimal(settlementSummary.outstandingAmount)),
+    totalAmount: formatMoney(new Prisma.Decimal(financial?.totalAmount ?? 0)),
+    paidAmount: formatMoney(new Prisma.Decimal(financial?.paidAmount ?? 0)),
+    remainingAmount: formatMoney(new Prisma.Decimal(financial?.remainingAmount ?? 0)),
     financial,
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
@@ -3090,24 +3086,6 @@ function mapOrderRow(
     hasOpenAdjustmentWorkspace:
       "adjustmentWorkspaces" in row && row.adjustmentWorkspaces.length > 0,
   };
-}
-
-function getOrderSettlementInvoices(
-  row: OrderRow | OrderDetailRow
-): Array<{
-  invoiceType: InvoiceType;
-  totalAmount: Prisma.Decimal;
-  remainingAmount: Prisma.Decimal;
-}> {
-  if (
-    "financialCase" in row.booking &&
-    row.booking.financialCase?.invoices &&
-    row.booking.financialCase.invoices.length > 0
-  ) {
-    return row.booking.financialCase.invoices;
-  }
-
-  return row.invoices;
 }
 
 type CustomerOrderHistoryRow = Awaited<ReturnType<typeof fetchOrdersByCustomerId>>[number];
@@ -3133,43 +3111,6 @@ function mapCustomerOrderHistoryRow(
     paymentStatus: financial
       ? mapFinancialCasePaymentStatusToLabel(financial.paymentStatusEnum)
       : "Pending",
-  };
-}
-
-type InvoiceSummaryRow = Array<{
-  invoiceType: InvoiceType;
-  totalAmount: Prisma.Decimal;
-  paidAmount: Prisma.Decimal;
-  remainingAmount: Prisma.Decimal;
-  status: InvoiceStatus;
-}>;
-
-function summarizeInvoices(invoices: InvoiceSummaryRow): {
-  totalAmount: Prisma.Decimal;
-  paidAmount: Prisma.Decimal;
-  remainingAmount: Prisma.Decimal;
-  status: InvoiceStatusLabel;
-  paymentStatus: OrderPaymentStatusLabel;
-} {
-  const totalAmount = invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.totalAmount),
-    zeroMoney()
-  );
-  const paidAmount = invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.paidAmount),
-    zeroMoney()
-  );
-  const remainingAmount = invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.remainingAmount),
-    zeroMoney()
-  );
-
-  return {
-    totalAmount,
-    paidAmount,
-    remainingAmount,
-    status: invoices[0] ? mapInvoiceStatus(invoices[0].status) : "No Invoice",
-    paymentStatus: mapPaymentStatus(invoices, totalAmount, paidAmount, remainingAmount),
   };
 }
 
@@ -3209,27 +3150,6 @@ function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {
     case InvoiceStatus.CLOSED:
       return "Closed";
   }
-}
-
-function mapPaymentStatus(
-  invoices: InvoiceSummaryRow,
-  totalAmount: Prisma.Decimal,
-  paidAmount: Prisma.Decimal,
-  remainingAmount: Prisma.Decimal
-): OrderPaymentStatusLabel {
-  if (invoices.some((invoice) => invoice.status === InvoiceStatus.CLOSED && remainingAmount.gt(0))) {
-    return "Overridden";
-  }
-  if (invoices.length === 0) {
-    return "Pending";
-  }
-  if (totalAmount.gt(0) && remainingAmount.lte(0)) {
-    return "Paid";
-  }
-  if (paidAmount.lte(0)) {
-    return "Pending";
-  }
-  return "Partially paid";
 }
 
 function sanitizeCustomerOrderHistoryLimit(limit: number): number {
