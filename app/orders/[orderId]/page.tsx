@@ -113,7 +113,6 @@ export default async function OrderDetailPage(
   if (!editing) notFound();
   if (!production) notFound();
   if (!delivery) notFound();
-  if (!compositionModel) notFound();
 
   const financialSummary = financialCaseSummary
     ? toFinancialTabBlock(financialCaseSummary)
@@ -121,8 +120,12 @@ export default async function OrderDetailPage(
   const headerFinancial = financialCaseSummary
     ? toOrderHeaderFinancial(financialCaseSummary)
     : null;
-  const overviewComposition = toOverviewTab(compositionModel);
-  const productionDeliverables = toProductionDeliverables(compositionModel);
+  const overviewComposition = compositionModel
+    ? toOverviewTab(compositionModel)
+    : emptyOverviewComposition(order);
+  const productionDeliverables = compositionModel
+    ? toProductionDeliverables(compositionModel)
+    : emptyProductionDeliverables(order);
   if (financialSummary && financialCaseSummary?.stage === "active") {
     console.info(
       JSON.stringify({
@@ -293,6 +296,45 @@ function ProductionTab({
       <ProductionWorkflowForm production={production} />
     </div>
   );
+}
+
+function emptyOverviewComposition(
+  order: OrderDetail
+): OverviewCompositionProjection {
+  return {
+    orderId: order.id,
+    jobNumber: order.jobNumber,
+    summary: {
+      packageCount: 0,
+      includedPhotoCount: 0,
+      selectedPhotoCount: 0,
+      extraPhotoCount: 0,
+      selectedPhotosLabel: "—",
+    },
+    packageLines: [],
+    addOns: [],
+    sessionConfigurations: [],
+    totals: {
+      packageBaseTotal: 0,
+      packageUpgradeDeltaTotal: 0,
+      deliverablesTotal: 0,
+      addOnTotal: 0,
+      extraPhotoTotal: 0,
+      sessionConfigurationTotal: 0,
+      netCompositionTotal: 0,
+    },
+  };
+}
+
+function emptyProductionDeliverables(
+  order: OrderDetail
+): ProductionDeliverablesProjection {
+  return {
+    orderId: order.id,
+    jobNumber: order.jobNumber,
+    summaryLabel: "No structured deliverables",
+    rows: [],
+  };
 }
 
 function DeliveryTab({
@@ -658,6 +700,15 @@ function DeliverableList({
   emptyLabel: string;
   photoCountLabel: string;
 }) {
+  if (items.length === 0) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase text-text-muted">{title}</p>
+        <p className="text-sm text-text-secondary">{emptyLabel}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium uppercase text-text-muted">{title}</p>
@@ -682,9 +733,6 @@ function DeliverableList({
           <p className="text-sm font-medium text-text-primary">{photoCountLabel}</p>
           <p className="text-xs text-text-secondary">Included photo selection</p>
         </div>
-        {items.length === 0 ? (
-          <p className="text-sm text-text-secondary">{emptyLabel}</p>
-        ) : null}
       </div>
     </div>
   );

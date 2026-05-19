@@ -65,6 +65,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **103 R8c follow-up** — Order detail now falls back gracefully when composition projection data is unavailable and avoids contradictory empty deliverable UI.
 - **103 R8c** — Swapped order detail overview package/deliverable/add-on/session-configuration readouts and production deliverable summaries onto R7 composition projectors, with regression coverage against legacy composition DTO reads.
 - **103 R8b** — Swapped POS add-on marketplace current rows, product counts, Added badges, and removal targets onto a pure composition marketplace projection while preserving catalog and handler behavior.
 - **103 R8a** — Swapped draft sidebar, POS package/photo composition, locked sales current composition, and adjustment preview cards onto R7 composition projectors; moved photo draft/preview payload helpers out of the client component with regression coverage.
