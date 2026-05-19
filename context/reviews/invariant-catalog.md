@@ -25,7 +25,6 @@
 | runtime-credit-note-is-locked-on-issuance | credit-note-is-locked-on-issuance | Phase F | invoice | Credit notes are closed and locked when issued. |
 | runtime-final-invoice-fully-paid-must-be-locked | final-invoice-fully-paid-must-be-locked | Sprint 1 (78a) | invoice | Fully paid final invoices must be closed and locked. |
 | runtime-classifier-reductions-have-matching-credit-note | classifier-reductions-have-matching-credit-note | Sprint 1 (75c) | order | Classifier reductions must have matching credit notes and source activity. |
-| CENT-FCS-01 | centralization.financial_case_summary.projector_parity | Phase G | global | FinancialCaseSummary projectors must match legacy financial tab and locked sidebar derivations |
 | INV-01 | payment-allocation-count | Phase G | global | Every Payment must have exactly one PaymentAllocation |
 | INV-08 | adjustment-parent-not-adjustment | Phase G | invoice | ADJUSTMENT invoices must not chain to ADJUSTMENT parents |
 | INV-09 | credit-note-application-target | Phase G | global | CREDIT_NOTE document applications must target FINAL invoices or ADJUSTMENT lines |
