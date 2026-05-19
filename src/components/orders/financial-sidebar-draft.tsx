@@ -8,6 +8,7 @@ import { MoneyRow } from "@/components/financial";
 import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections";
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import type { POSFinancialSidebarEditPolicies } from "@/modules/orders/policies/edit-mode-policy";
 import { AdjustmentInvoiceBlock } from "./financial-sidebar-adjustment-blocks";
 import {
   AdjustmentInvoiceSummary,
@@ -17,10 +18,12 @@ import {
 export function FinancialSidebarDraft({
   workspace,
   composition,
+  editPolicies,
   className,
 }: {
   workspace: POSWorkspace;
   composition: DraftPOSCompositionProjection;
+  editPolicies: POSFinancialSidebarEditPolicies;
   className?: string;
 }) {
   const invoice = workspace.invoice;
@@ -58,10 +61,10 @@ export function FinancialSidebarDraft({
                   {invoice.invoiceStatus}
                 </Badge>
               </div>
-              {invoice.isLocked ? (
+              {editPolicies.invoiceLocked.blockedReason ? (
                 <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
                   <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-                  Invoice locked. Composition changes now require the future adjustment flow.
+                  {editPolicies.invoiceLocked.userFacingMessage}
                 </div>
               ) : null}
               <p className="text-xs uppercase tracking-[0.18em] text-text-muted">

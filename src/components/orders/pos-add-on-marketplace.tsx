@@ -40,6 +40,10 @@ import type {
   POSAddOnHandlers,
   POSMutationActionState,
 } from "@/modules/orders/pos-handlers.types";
+import type {
+  OrderEditModePolicy,
+  POSAddOnEditPolicies,
+} from "@/modules/orders/policies/edit-mode-policy";
 import { formatMoney } from "@/lib/formatting/money";
 
 const QUICK_ACTIONS: Array<{ label: string; category: string }> = [
@@ -53,14 +57,15 @@ interface POSAddOnMarketplaceProps {
   workspace: POSWorkspace;
   marketplace: POSAddOnMarketplaceProjection;
   handlers: POSAddOnHandlers;
+  editPolicies: POSAddOnEditPolicies;
 }
 
 export function POSAddOnMarketplace({
   workspace,
   marketplace,
   handlers,
+  editPolicies,
 }: POSAddOnMarketplaceProps) {
-  const locked = workspace.invoice?.isLocked ?? false;
   const productStateById = new Map(
     marketplace.productStates.map((state) => [state.productId, state])
   );
@@ -75,7 +80,7 @@ export function POSAddOnMarketplace({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <LockedNotice locked={locked} />
+          <PolicyNotice policy={editPolicies.addAddOn} />
           <div className="flex flex-wrap gap-2">
             {QUICK_ACTIONS.map((action) => (
               <QuickAddDialog
@@ -84,6 +89,7 @@ export function POSAddOnMarketplace({
                 category={action.category}
                 options={workspace.productOptions}
                 handlers={handlers}
+                policy={editPolicies.addAddOn}
               />
             ))}
           </div>
@@ -98,7 +104,7 @@ export function POSAddOnMarketplace({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <LockedNotice locked={locked} />
+          <PolicyNotice policy={editPolicies.addAddOn} />
           {workspace.addOnCatalog.length > 0 ? (
             <div className="flex gap-3 overflow-x-auto pb-2">
               {workspace.addOnCatalog.map((item) => (
@@ -108,6 +114,7 @@ export function POSAddOnMarketplace({
                   item={item}
                   productState={productStateById.get(item.id) ?? null}
                   handlers={handlers}
+                  policies={editPolicies}
                 />
               ))}
             </div>
@@ -121,6 +128,7 @@ export function POSAddOnMarketplace({
             orderId={workspace.orderId}
             addOns={marketplace.currentAddOns}
             handlers={handlers}
+            removePolicy={editPolicies.removeAddOn}
           />
         </CardContent>
       </Card>
@@ -133,11 +141,13 @@ function QuickAddDialog({
   category,
   options,
   handlers,
+  policy,
 }: {
   label: string;
   category: string;
   options: POSProductOption[];
   handlers: POSAddOnHandlers;
+  policy: OrderEditModePolicy;
 }) {
   const categoryOptions = useMemo(
     () => options.filter((option) => option.category === category),
@@ -151,7 +161,7 @@ function QuickAddDialog({
       quantity: 1,
     })
   );
-  const disabled = categoryOptions.length === 0;
+  const disabled = categoryOptions.length === 0 || !policy.isInteractive;
 
   return (
     <Dialog>
@@ -172,7 +182,11 @@ function QuickAddDialog({
           <input type="hidden" name="productId" value={selectedProductId} />
           <div className="space-y-2">
             <Label htmlFor={`productId-${category}`}>Product</Label>
-            <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+            <Select
+              value={selectedProductId}
+              onValueChange={setSelectedProductId}
+              disabled={disabled}
+            >
               <SelectTrigger id={`productId-${category}`}>
                 <SelectValue placeholder="Select product..." />
               </SelectTrigger>
@@ -201,11 +215,13 @@ function CatalogCard({
   item,
   productState,
   handlers,
+  policies,
 }: {
   orderId: string;
   item: POSAddOnCatalogItem;
   productState: POSAddOnMarketplaceProductStateProjection | null;
   handlers: POSAddOnHandlers;
+  policies: POSAddOnEditPolicies;
 }) {
   const added = Boolean(productState);
   const removalOrderAddOnId = productState?.removalOrderAddOnId ?? null;
@@ -240,14 +256,22 @@ function CatalogCard({
       <div className="mt-4 space-y-2">
         <form action={addAction} className="space-y-2">
           <input type="hidden" name="productId" value={item.id} />
-          <SubmitButton label={added ? "Add Another" : "Add"} />
+          <SubmitButton
+            label={added ? "Add Another" : "Add"}
+            disabled={!policies.addAddOn.isInteractive}
+          />
           <GlobalError messages={addState.errors?._global} />
         </form>
         {added && removalOrderAddOnId ? (
           <>
             <form action={removeAction} className="space-y-2">
               <input type="hidden" name="addOnId" value={removalOrderAddOnId} />
-              <SubmitButton label="Remove One" variant="ghost" icon="trash" />
+              <SubmitButton
+                label="Remove One"
+                variant="ghost"
+                icon="trash"
+                disabled={!policies.removeAddOn.isInteractive}
+              />
               <GlobalError messages={removeState.errors?._global} />
             </form>
             {handlers.shouldPromptInlineApproval ? (
@@ -269,10 +293,12 @@ function CurrentAddOns({
   orderId,
   addOns,
   handlers,
+  removePolicy,
 }: {
   orderId: string;
   addOns: POSAddOnMarketplaceCurrentAddOnProjection[];
   handlers: POSAddOnHandlers;
+  removePolicy: OrderEditModePolicy;
 }) {
   return (
     <div className="space-y-3 border-t border-border pt-4">
@@ -285,6 +311,7 @@ function CurrentAddOns({
               orderId={orderId}
               addOn={addOn}
               handlers={handlers}
+              removePolicy={removePolicy}
             />
           ))}
         </div>
@@ -301,10 +328,12 @@ function CurrentAddOnRow({
   orderId,
   addOn,
   handlers,
+  removePolicy,
 }: {
   orderId: string;
   addOn: POSAddOnMarketplaceCurrentAddOnProjection;
   handlers: POSAddOnHandlers;
+  removePolicy: OrderEditModePolicy;
 }) {
   const [state, formAction] = useHandlerAction(
     handlers.removeAddOn,
@@ -327,7 +356,7 @@ function CurrentAddOnRow({
           <>
             <form action={formAction} className="space-y-2">
               <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
-              <SubmitIconButton />
+              <SubmitIconButton disabled={!removePolicy.isInteractive} />
             </form>
             {handlers.shouldPromptInlineApproval ? (
               <ReductiveEditApprovalModal
@@ -391,13 +420,13 @@ function formDataString(formData: FormData, field: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function LockedNotice({ locked }: { locked: boolean }) {
-  if (!locked) return null;
+function PolicyNotice({ policy }: { policy: OrderEditModePolicy }) {
+  if (!policy.blockedReason) return null;
 
   return (
     <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
       <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-      Invoice is locked. Additions issue adjustments; removals require manager confirmation for a credit note.
+      {policy.userFacingMessage}
     </div>
   );
 }

@@ -32,6 +32,7 @@ import type {
   POSApprovalPayload,
   POSMutationActionState,
 } from "@/modules/orders/pos-handlers.types";
+import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 
 export type PendingCreditNoteApprovalPayload = POSApprovalPayload;
 
@@ -538,12 +539,9 @@ function parseRequiredSelectionStatus(
 }
 
 const SAFE_POS_ERROR_MESSAGES = new Set([
-  "Delivered orders cannot be edited",
+  ORDER_EDIT_MODE_MESSAGES.deliveredOrder,
   "Digital and print extra allocations must equal the derived extra-photo count.",
-  "Invoice is locked. Use the adjustment flow before changing add-ons.",
-  "Invoice is locked. Use the adjustment flow before changing package composition.",
-  "Invoice is locked. Use the adjustment flow before changing selected photos.",
-  "Locked invoices can only be changed through an Adjustment Workspace.",
+  ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS,
   "Invoice does not belong to this order",
   "Manager permission is required to issue a credit note",
   "Manager permission is required to issue an adjustment invoice",

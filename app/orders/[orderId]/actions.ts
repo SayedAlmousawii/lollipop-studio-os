@@ -43,6 +43,11 @@ import {
   updateOrderProductionWorkflow,
 } from "@/modules/orders/order.service";
 import {
+  buildOrderEditModePolicy,
+  ORDER_EDIT_MODE_MESSAGES,
+  ORDER_EDIT_KIND,
+} from "@/modules/orders/policies/edit-mode-policy";
+import {
   WorkflowGuardError,
   type WorkflowGuardErrorCode,
 } from "@/modules/orders/order.errors";
@@ -148,25 +153,36 @@ export async function configureSessionAction(
       parsed.data.orderPackageId,
       parsed.data.selections.map((selection) => selection.configurationId)
     );
+    const financialSelections = parsed.data.selections.filter((selection) =>
+      route.financialConfigurationIds.has(selection.configurationId)
+    );
+    const selectedFinancialEdit = financialSelections.length > 0;
+    const policy = buildOrderEditModePolicy({
+      orderId,
+      mode: route.locked ? "locked" : "draft",
+      orderStatus: route.orderStatus,
+      finalInvoiceIsLocked: route.locked,
+      openAdjustmentWorkspaceId: route.openAdjustmentWorkspaceId,
+      editKind: selectedFinancialEdit
+        ? ORDER_EDIT_KIND.SESSION_CONFIGURATION_FINANCIAL_EDIT
+        : ORDER_EDIT_KIND.SESSION_CONFIGURATION_OPERATIONAL_EDIT,
+      affectedConfigurationNames: financialSelections.map(
+        (selection) =>
+          route.configurationNameById.get(selection.configurationId) ??
+          "Session configuration"
+      ),
+    });
+
+    if (!policy.canEditDirectly) {
+      return {
+        errors: {
+          _global: [policy.userFacingMessage],
+        },
+        adjustmentWorkspaceHref: policy.routeTarget?.href,
+      };
+    }
+
     if (route.locked) {
-      const financialSelections = parsed.data.selections.filter((selection) =>
-        route.financialConfigurationIds.has(selection.configurationId)
-      );
-      if (financialSelections.length > 0) {
-        const affectedNames = financialSelections.map(
-          (selection) =>
-            route.configurationNameById.get(selection.configurationId) ??
-            "Session configuration"
-        );
-        return {
-          errors: {
-            _global: [
-              `Edit ${[...new Set(affectedNames)].join(", ")} in the Adjustment Workspace.`,
-            ],
-          },
-          adjustmentWorkspaceHref: `/orders/${orderId}/adjustment-workspace`,
-        };
-      }
       const operationalSelections = parsed.data.selections.filter((selection) =>
         route.operationalConfigurationIds.has(selection.configurationId)
       );
@@ -299,7 +315,7 @@ function parseJsonPayload(
 
 function messageForConfigureSessionError(error: unknown): string {
   if (error instanceof SessionConfigurationSelectionLockedError) {
-    return "Order is locked. Edit configurations through the Adjustment Workspace.";
+    return ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS;
   }
   if (error instanceof SessionConfigurationSelectionPostLockMisuseError) {
     return "Order lock state changed. Refresh and try again.";

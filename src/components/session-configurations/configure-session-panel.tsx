@@ -32,6 +32,7 @@ import type {
   POSAvailableSessionConfiguration,
   POSSessionConfigurationSelection,
 } from "@/modules/orders/order.types";
+import type { OrderEditModePolicy } from "@/modules/orders/policies/edit-mode-policy";
 
 type ActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -59,6 +60,7 @@ export function ConfigureSessionPanel({
   packageName,
   sessionTypeName,
   mode,
+  editPolicies,
   availableConfigurations,
   currentSelections,
 }: {
@@ -67,6 +69,10 @@ export function ConfigureSessionPanel({
   packageName: string;
   sessionTypeName: string;
   mode: ConfigureSessionPanelMode;
+  editPolicies: {
+    operational: OrderEditModePolicy;
+    financial: OrderEditModePolicy;
+  };
   availableConfigurations: POSAvailableSessionConfiguration[];
   currentSelections: POSSessionConfigurationSelection[];
 }) {
@@ -95,7 +101,7 @@ export function ConfigureSessionPanel({
         (configuration) =>
           mode.kind === "draft" ||
           mode.kind === "adjustment" ||
-          configuration.financialBehavior === "OPERATIONAL"
+          policyForConfiguration(configuration, editPolicies).isInteractive
       )
       .map((configuration) => configuration.id)
   );
@@ -121,7 +127,9 @@ export function ConfigureSessionPanel({
     (configuration) => configuration.financialBehavior === "FINANCIAL"
   );
   const adjustmentWorkspaceHref =
-    state.adjustmentWorkspaceHref ?? `/orders/${orderId}/adjustment-workspace`;
+    state.adjustmentWorkspaceHref ??
+    editPolicies.financial.routeTarget?.href ??
+    `/orders/${orderId}/adjustment-workspace`;
   const missingCodes = new Set(
     sortedConfigurations
       .filter(
@@ -139,7 +147,7 @@ export function ConfigureSessionPanel({
   if (mode.kind === "locked" && mode.workspaceIsOpen) {
     return (
       <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
-        An Adjustment Workspace is open — edit configurations there.
+        {editPolicies.financial.userFacingMessage}
       </div>
     );
   }
@@ -226,7 +234,7 @@ export function ConfigureSessionPanel({
               const isMissing = missingCodes.has(configuration.code);
               const isFinancialLocked =
                 mode.kind === "locked" &&
-                configuration.financialBehavior === "FINANCIAL";
+                !policyForConfiguration(configuration, editPolicies).isInteractive;
               const currentSelection =
                 currentSelectionByConfigurationId.get(configuration.id) ?? null;
 
@@ -294,10 +302,16 @@ export function ConfigureSessionPanel({
           </div>
           <GlobalErrors messages={globalErrors} />
           {mode.kind === "locked" && hasFinancialConfigurations ? (
+            <p className="text-sm text-text-secondary">
+              {editPolicies.financial.userFacingMessage}
+            </p>
+          ) : null}
+          {mode.kind === "locked" && hasFinancialConfigurations ? (
             <Button asChild variant="outline">
               <Link href={adjustmentWorkspaceHref}>
                 <ExternalLink className="h-4 w-4" />
-                Edit in Adjustment Workspace
+                {editPolicies.financial.routeTarget?.label ??
+                  "Edit in Adjustment Workspace"}
               </Link>
             </Button>
           ) : null}
@@ -318,6 +332,18 @@ export function ConfigureSessionPanel({
       </DialogContent>
     </Dialog>
   );
+}
+
+function policyForConfiguration(
+  configuration: POSAvailableSessionConfiguration,
+  policies: {
+    operational: OrderEditModePolicy;
+    financial: OrderEditModePolicy;
+  }
+): OrderEditModePolicy {
+  return configuration.financialBehavior === "FINANCIAL"
+    ? policies.financial
+    : policies.operational;
 }
 
 function buildInitialDraftSelections(
