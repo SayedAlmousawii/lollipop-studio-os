@@ -846,8 +846,6 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
       packageItems: mapPackageItemDisplays(line.package.items),
     };
   });
-  const includedPhotoCount =
-    packageLines.reduce((sum, line) => sum + line.includedPhotoCount, 0) || null;
   const selectedPhotoCount = getOrderTotalSelectedPhotoCount(row.packages) || null;
   const editingStatus = row.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
   const productionStatus = row.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
@@ -867,11 +865,6 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
     sessionDateTime: formatDateTime(row.booking.sessionDate),
     sessionType: row.packages[0]?.sessionType.name ?? "—",
     selectedPhotoCount: formatCount(selectedPhotoCount),
-    includedPhotoCount: formatCount(includedPhotoCount),
-    extraPhotoCount:
-      selectedPhotoCount !== null && includedPhotoCount !== null
-        ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
-        : "—",
     addonsSummary: formatAddOnsSummary(
       mapStructuredAddOns(
         combineFinancialAddOnRows(row.orderAddOns, row.packageItemUpgrades)
