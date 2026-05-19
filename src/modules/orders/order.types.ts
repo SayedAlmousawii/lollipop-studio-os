@@ -9,6 +9,7 @@ import type {
 } from "@prisma/client";
 import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import type { EditingWorkflowPolicy } from "@/modules/orders/policies/editing-workflow-policy";
+import type { ProductionWorkflowPolicy } from "@/modules/orders/policies/production-workflow-policy";
 import type { SelectionInput } from "@/modules/session-configurations/session-configuration-selection.schema";
 
 export type OrderStatusLabel =
@@ -184,6 +185,7 @@ export interface OrderProductionWorkflow {
   readinessWarning: string | null;
   canUpdateProduction: boolean;
   canMarkReadyForPickup: boolean;
+  workflowPolicy: ProductionWorkflowPolicy;
   sections: OrderProductionSection[];
 }
 
