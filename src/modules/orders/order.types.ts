@@ -10,6 +10,7 @@ import type {
 import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import type { EditingWorkflowPolicy } from "@/modules/orders/policies/editing-workflow-policy";
 import type { ProductionWorkflowPolicy } from "@/modules/orders/policies/production-workflow-policy";
+import type { DeliveryWorkflowPolicy } from "@/modules/orders/policies/delivery-workflow-policy";
 import type { SelectionInput } from "@/modules/session-configurations/session-configuration-selection.schema";
 
 export type OrderStatusLabel =
@@ -193,7 +194,7 @@ export interface OrderDeliveryWorkflow {
   orderId: string;
   deliveryStatus: string;
   productionStatus: string;
-  paymentStatus: OrderPaymentStatusLabel;
+  paymentStatus: string;
   readyAt: string | null;
   preparedAt: string | null;
   customerNotifiedAt: string | null;
@@ -207,6 +208,7 @@ export interface OrderDeliveryWorkflow {
   requiresPaymentOverride: boolean;
   canRecordNotification: boolean;
   canMarkPickedUp: boolean;
+  workflowPolicy: DeliveryWorkflowPolicy;
 }
 
 export interface OrderProductionSection {

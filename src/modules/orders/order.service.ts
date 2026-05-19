@@ -31,6 +31,7 @@ import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
+import { getFinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.service";
 import { getOrdersTableFinancialProjections } from "@/modules/financial-cases/orders-table-projections.service";
 import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import {
@@ -101,6 +102,17 @@ import {
   guardCodeForProductionReadyError,
   type BuildProductionWorkflowPolicyInput,
 } from "./policies/production-workflow-policy";
+import {
+  assertDeliveryNotificationReadyPolicy,
+  assertDeliveryPickupReadyPolicy,
+  assertDeliveryWorkflowWritablePolicy,
+  buildDeliveryPaymentSettlementContext,
+  buildDeliveryWorkflowPolicy,
+  DELIVERY_WORKFLOW_MESSAGES,
+  resolveDeliveryPaymentOverridePolicy,
+  type BuildDeliveryWorkflowPolicyInput,
+  type DeliveryPaymentSettlementContext,
+} from "./policies/delivery-workflow-policy";
 import type {
   EditingQueueItem,
   InvoiceStatusFilter,
@@ -1128,7 +1140,10 @@ export async function getOrderDeliveryWorkflowById(
   );
 
   if (!order) return null;
-  return mapOrderDeliveryWorkflow(order);
+  return mapOrderDeliveryWorkflow(
+    order,
+    await getDeliveryPaymentSettlementContext(order.id)
+  );
 }
 
 export async function updateOrderPackage(
@@ -2398,10 +2413,14 @@ export async function updateOrderDeliveryWorkflow(
           throw new Error("Order not found");
         }
         assertDeliveryWorkflowWritable(order.status);
+        const paymentContext = await getDeliveryPaymentSettlementContext(
+          order.id,
+          tx
+        );
 
         let next: ReturnType<typeof resolveDeliveryUpdate>;
         try {
-          next = resolveDeliveryUpdate(order, data, actorContext);
+          next = resolveDeliveryUpdate(order, data, actorContext, paymentContext);
         } catch (err) {
           if (err instanceof WorkflowGuardError) {
             await recordGuardBlockedActivity({
@@ -4590,19 +4609,29 @@ function productionSectionUpdate(
   };
 }
 
-function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkflow {
-  const invoiceSummary = summarizeInvoices(order.invoices);
-  const paymentSettled =
-    invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
-  const completionBlockers = resolveDeliveryCompletionBlockers(order, paymentSettled);
+async function getDeliveryPaymentSettlementContext(
+  orderId: string,
+  client: DbClient = db
+): Promise<DeliveryPaymentSettlementContext> {
+  const summary = await getFinancialCaseSummary({ orderId }, client);
+  return buildDeliveryPaymentSettlementContext(summary);
+}
+
+function mapOrderDeliveryWorkflow(
+  order: DeliveryOrderState,
+  paymentContext: DeliveryPaymentSettlementContext
+): OrderDeliveryWorkflow {
   const productionStatus = getProductionStatus(order);
+  const policy = buildDeliveryWorkflowPolicy(
+    buildDeliveryPolicyContext(order, paymentContext)
+  );
   const readyAt = order.productionJob?.readyForPickupAt ?? null;
 
   return {
     orderId: order.id,
     deliveryStatus: ORDER_DELIVERY_STATUS_LABELS[order.deliveryStatus],
     productionStatus: ORDER_PRODUCTION_STATUS_LABELS[productionStatus],
-    paymentStatus: invoiceSummary.paymentStatus,
+    paymentStatus: policy.paymentStatusLabel,
     readyAt: readyAt ? formatDateTime(readyAt) : null,
     preparedAt: order.deliveryPreparedAt ? formatDateTime(order.deliveryPreparedAt) : null,
     customerNotifiedAt: order.customerNotifiedAt
@@ -4614,20 +4643,23 @@ function mapOrderDeliveryWorkflow(order: DeliveryOrderState): OrderDeliveryWorkf
     completedBy: order.deliveryCompletedByUser?.name ?? order.deliveryCompletedBy ?? "",
     pickupNotes: order.deliveryPickupNotes ?? "",
     overrideReason: order.deliveryOverrideReason ?? "",
-    completionBlockers,
-    requiresPaymentOverride: !paymentSettled,
-    canRecordNotification:
-      order.status !== OrderStatus.CANCELLED &&
-      order.status !== OrderStatus.DELIVERED &&
-      order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP,
-    canMarkPickedUp:
-      order.status !== OrderStatus.CANCELLED &&
-      order.status !== OrderStatus.DELIVERED &&
-      (
-        order.deliveryStatus === OrderDeliveryStatus.READY_FOR_PICKUP ||
-        order.deliveryStatus === OrderDeliveryStatus.CUSTOMER_NOTIFIED ||
-        order.deliveryStatus === OrderDeliveryStatus.PICKED_UP
-     ),
+    completionBlockers: policy.blockers,
+    requiresPaymentOverride: policy.requiresPaymentOverride,
+    canRecordNotification: policy.canRecordNotification,
+    canMarkPickedUp: policy.canMarkPickedUp,
+    workflowPolicy: policy,
+  };
+}
+
+function buildDeliveryPolicyContext(
+  order: DeliveryOrderState,
+  paymentContext: DeliveryPaymentSettlementContext
+): BuildDeliveryWorkflowPolicyInput {
+  return {
+    orderStatus: order.status,
+    deliveryStatus: order.deliveryStatus,
+    productionStatus: getProductionStatus(order),
+    payment: paymentContext,
   };
 }
 
@@ -4701,28 +4733,23 @@ function buildProductionJobStatusUpdate(
 }
 
 function assertDeliveryWorkflowWritable(status: OrderStatus): void {
-  if (status === OrderStatus.CANCELLED) {
-    throw new Error("Cancelled orders cannot be moved through delivery");
-  }
-  if (status === OrderStatus.DELIVERED) {
-    throw new Error("Delivered orders cannot be moved through delivery");
-  }
+  assertDeliveryWorkflowWritablePolicy(status);
 }
 
 function resolveDeliveryUpdate(
   order: DeliveryOrderState,
   input: UpdateOrderDeliveryWorkflowInput,
-  actorContext: ActorContext
+  actorContext: ActorContext,
+  paymentContext: DeliveryPaymentSettlementContext
 ): DeliveryWorkflowUpdate {
   const now = new Date();
   const pickupNotes = input.pickupNotes?.trim() || null;
   const productionStatus = getProductionStatus(order);
+  const policyContext = buildDeliveryPolicyContext(order, paymentContext);
 
   switch (input.action) {
     case "recordCustomerNotification": {
-      if (order.deliveryStatus !== OrderDeliveryStatus.READY_FOR_PICKUP) {
-        throw new Error("Customer notification can only be recorded after pickup readiness");
-      }
+      assertDeliveryNotificationReadyPolicy(policyContext);
       return {
         orderData: {
           order: {
@@ -4756,40 +4783,21 @@ function resolveDeliveryUpdate(
     }
 
     case "markPickedUp": {
-      if (
-        order.deliveryStatus !== OrderDeliveryStatus.READY_FOR_PICKUP &&
-        order.deliveryStatus !== OrderDeliveryStatus.CUSTOMER_NOTIFIED &&
-        order.deliveryStatus !== OrderDeliveryStatus.PICKED_UP
-      ) {
-        throw new Error("Pickup can only be recorded after delivery is ready");
-      }
-      assertProductionReadyForDelivery(order);
-
-      const invoiceSummary = summarizeInvoices(order.invoices);
-      const paymentSettled =
-        invoiceSummary.paymentStatus === "Paid" || invoiceSummary.paymentStatus === "Overridden";
+      assertDeliveryPickupReadyPolicy(policyContext);
       const completedById = actorContext.actorUserId;
       if (!completedById) {
         throw new WorkflowGuardError(
           "ACTOR_MISSING",
-          "A linked authenticated staff user is required to complete delivery"
+          DELIVERY_WORKFLOW_MESSAGES.actorMissing
         );
       }
 
       const overrideReason = input.overrideReason?.trim();
-      const paymentOverrideUsed = !paymentSettled;
-      if (paymentOverrideUsed && !input.allowPaymentOverride) {
-        throw new WorkflowGuardError(
-          "PAYMENT_OVERRIDE_NOT_ALLOWED",
-          "Payment must be settled or explicitly overridden by an authorized manager or admin"
-        );
-      }
-      if (paymentOverrideUsed && !overrideReason) {
-        throw new WorkflowGuardError(
-          "PAYMENT_OVERRIDE_REASON_MISSING",
-          "Override reason is required when payment is not settled"
-        );
-      }
+      const { paymentOverrideUsed } = resolveDeliveryPaymentOverridePolicy({
+        payment: paymentContext,
+        allowPaymentOverride: input.allowPaymentOverride,
+        overrideReason,
+      });
 
       return {
         orderData: {
@@ -4829,7 +4837,7 @@ function resolveDeliveryUpdate(
           pickedUpAt: (order.pickedUpAt ?? now).toISOString(),
           completedById,
           completedAt: (order.deliveryCompletedAt ?? now).toISOString(),
-          paymentStatus: invoiceSummary.paymentStatus,
+          paymentStatus: paymentContext.label,
           paymentOverrideUsed,
           overrideReason: paymentOverrideUsed ? overrideReason ?? null : null,
           pickupNotesUpdated: Boolean(pickupNotes),
@@ -4840,36 +4848,6 @@ function resolveDeliveryUpdate(
       };
     }
   }
-}
-
-const PAYMENT_OVERRIDE_BLOCKER = "Payment needs manager/admin override before pickup completion." as const;
-
-function resolveDeliveryCompletionBlockers(
-  order: DeliveryOrderState,
-  paymentSettled: boolean
-): string[] {
-  const blockers: string[] = [];
-  if (!paymentSettled) {
-    blockers.push(PAYMENT_OVERRIDE_BLOCKER);
-  }
-  if (!isProductionReadyForDelivery(order)) {
-    blockers.push("Production must be ready for pickup or completed.");
-  }
-  return blockers;
-}
-
-function assertProductionReadyForDelivery(order: DeliveryOrderState): void {
-  if (!isProductionReadyForDelivery(order)) {
-    throw new Error("Order cannot be completed until production is ready for pickup or completed");
-  }
-}
-
-function isProductionReadyForDelivery(order: DeliveryOrderState): boolean {
-  const productionStatus = getProductionStatus(order);
-  return (
-    productionStatus === OrderProductionStatus.READY_FOR_PICKUP ||
-    productionStatus === OrderProductionStatus.COMPLETED
-  );
 }
 
 export function basePaymentSettled(order: {
