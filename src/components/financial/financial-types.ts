@@ -1,5 +1,3 @@
-import type { deriveLockedFinancialSidebarSummary } from "@/modules/orders/order-settlement";
+import type { SalesSidebarLockedProjection } from "@/modules/financial-cases/projections";
 
-export type LockedFinancialSidebarSummary = ReturnType<
-  typeof deriveLockedFinancialSidebarSummary
->;
+export type LockedFinancialSidebarSummary = SalesSidebarLockedProjection;
