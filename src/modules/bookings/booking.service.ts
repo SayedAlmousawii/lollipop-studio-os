@@ -155,7 +155,6 @@ export interface BookingDetail {
     status: InvoiceStatus;
     isLocked: boolean;
   } | null;
-  packageRemainingBalanceLabel: string | null;
   packages: BookingPackageSummary[];
   totalDurationMinutes: number;
   totalDurationLabel: string;
@@ -1471,10 +1470,6 @@ function mapBookingDetail(
   const depositInvoice = depositInvoices[0] ?? null;
   const packageSummaries = mapBookingPackages(row.packages);
   const totalDurationMinutes = getBookingDurationFromRow(row);
-  const totalPackagePrice = row.packages.reduce(
-    (total, line) => total.plus(line.package.price.mul(line.quantity)),
-    new Prisma.Decimal(0)
-  );
 
   return {
     id: row.id,
@@ -1517,9 +1512,6 @@ function mapBookingDetail(
           status: depositInvoice.status,
           isLocked: depositInvoice.isLocked,
         }
-      : null,
-    packageRemainingBalanceLabel: depositInvoice
-      ? formatPrice(totalPackagePrice.minus(depositInvoice.totalAmount))
       : null,
     packages: packageSummaries,
     totalDurationMinutes,
