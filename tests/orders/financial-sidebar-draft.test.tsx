@@ -39,6 +39,45 @@ test("FinancialSidebarDraft renders draft commercial rows from the composition p
   assert.doesNotMatch(markup, /999.000 KD/);
 });
 
+test("FinancialSidebarDraft renders locked order from composition projection", async () => {
+  const FinancialSidebarDraft = await loadFinancialSidebarDraft();
+  const lockedWorkspace = workspaceFixture();
+  lockedWorkspace.invoice = {
+    invoiceId: "invoice-final",
+    financialCaseId: "financial-case-1",
+    invoiceNumber: "INV-FINAL",
+    invoiceType: "FINAL",
+    invoiceStatus: "Closed",
+    isLocked: true,
+    renderMode: "COMPUTED",
+    packageBaseTotal: 100,
+    bundleAdjustment: 0,
+    addOnTotal: 20,
+    extraPhotoTotal: 8,
+    invoiceTotal: 250,
+    paidAmount: 150,
+    depositInvoiceNumber: null,
+    depositPaidAmount: 0,
+    remainingAmount: 100,
+    lineItems: [],
+  };
+
+  const markup = renderToStaticMarkup(
+    createElement(FinancialSidebarDraft, {
+      workspace: lockedWorkspace,
+      composition: { ...compositionFixture(), sourceState: "locked" },
+    })
+  );
+
+  assert.match(markup, /Invoice #INV-FINAL/);
+  assert.match(markup, /Locked/);
+  assert.match(markup, /Projected Canvas/);
+  assert.match(markup, /Projected Backdrop/);
+  assert.match(markup, /Final invoice total/);
+  assert.match(markup, /250.000 KD/);
+  assert.doesNotMatch(markup, /140.000 KD/);
+});
+
 async function loadFinancialSidebarDraft(): Promise<FinancialSidebarDraftComponent> {
   const originalModuleLoad = moduleWithLoader._load;
   moduleWithLoader._load = function loadWithActionStubs(request, parent, isMain) {

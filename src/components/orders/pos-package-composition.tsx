@@ -123,6 +123,11 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
         <div className="space-y-4">
           {composition.packageLines.map((line) => {
             const workspaceLine = workspaceLineById.get(line.orderPackageId);
+            if (process.env.NODE_ENV !== "production" && !workspaceLine) {
+              console.error(
+                `[POSPackageComposition] projected line ${line.orderPackageId} has no matching workspace line`
+              );
+            }
             return (
             <div key={line.id} className="space-y-4 rounded-md border border-border p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
