@@ -490,19 +490,34 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
     "r7b-pos-equivalence"
   );
   const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
-  const packageItemId = await firstPackageItemId(db, fixtures.upgradePackageId);
-  const [originalItemBasePrice, upgradeProduct] = await Promise.all([
-    db.packageItem
-      .findUniqueOrThrow({
-        where: { id: packageItemId },
-        select: { priceSnapshot: true },
-      })
-      .then((item) => item.priceSnapshot.toNumber()),
-    db.product.findUniqueOrThrow({
-      where: { id: upgradeProductId },
-      select: { canonicalPrice: true },
-    }),
-  ]);
+  const basePackageItemId = await firstPackageItemId(db, fixtures.basePackageId);
+  const upgradePackageItem = await db.packageItem.findFirstOrThrow({
+    where: { packageId: fixtures.upgradePackageId },
+    select: {
+      productId: true,
+      priceSnapshot: true,
+      product: { select: { name: true } },
+    },
+  });
+  const [originalItemBasePrice, upgradeProduct, downgradeProductId] =
+    await Promise.all([
+      db.packageItem
+        .findUniqueOrThrow({
+          where: { id: basePackageItemId },
+          select: { priceSnapshot: true },
+        })
+        .then((item) => item.priceSnapshot.toNumber()),
+      db.product.findUniqueOrThrow({
+        where: { id: upgradeProductId },
+        select: { canonicalPrice: true },
+      }),
+      createDeliverableProduct(
+        db,
+        "r7b-downgrade-product",
+        "R7b Downgrade Frame",
+        "30.000"
+      ),
+    ]);
   assert.ok(originalItemBasePrice > 0);
   const upgradeDelta = Number(
     upgradeProduct.canonicalPrice.minus(originalItemBasePrice).toFixed(3)
@@ -510,6 +525,8 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
   const expectedUpgradePrice = Number(
     (originalItemBasePrice + upgradeDelta).toFixed(3)
   );
+  const expectedDowngradePrice = 30;
+  assert.ok(expectedDowngradePrice < originalItemBasePrice);
   const existingAddOn = await db.orderAddOn.create({
     data: {
       orderId: workflow.orderId,
@@ -531,14 +548,6 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
         op: "change_package_tier",
         orderPackageId,
         toPackageRefId: fixtures.upgradePackageId,
-      },
-      {
-        id: "equiv-upgrade-item",
-        op: "upgrade_package_item",
-        orderPackageId,
-        packageItemId,
-        toProductId: upgradeProductId,
-        quantity: 1,
       },
       {
         id: "equiv-photos",
@@ -583,10 +592,10 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
         extraPhotoTotal: 16,
         packageItems: [
           {
-            productId: upgradeProductId,
-            productName: "83a Finalize Premium Frame",
-            priceSnapshot: expectedUpgradePrice,
-            priceSnapshotLabel: formatMoney(expectedUpgradePrice),
+            productId: upgradePackageItem.productId,
+            productName: upgradePackageItem.product.name,
+            priceSnapshot: upgradePackageItem.priceSnapshot.toNumber(),
+            priceSnapshotLabel: formatMoney(upgradePackageItem.priceSnapshot),
           },
         ],
       },
@@ -600,7 +609,7 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
       },
     ],
     totals: {
-      rawDeliverableTotal: expectedUpgradePrice,
+      rawDeliverableTotal: upgradePackageItem.priceSnapshot.toNumber(),
       includedPhotoCount: 15,
       selectedPhotoCount: 18,
       extraPhotoCount: 3,
@@ -609,15 +618,72 @@ test("derivePOSWorkspaceFromAdjustmentWorkspace preserves POS public field equiv
       sessionConfigurationTotal: 0,
     },
   });
-  assert.equal(
-    publicFields.packageLines[0]?.packageItems[0]?.priceSnapshot,
-    expectedUpgradePrice
+
+  const upgradeWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "r7b-pos-upgrade-equivalence"
   );
+  const { workspaceId: upgradeWorkspaceId } = await stageWorkspaceEdits(
+    services,
+    upgradeWorkflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "equiv-upgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId: await firstOrderPackageId(db, upgradeWorkflow.orderId),
+        packageItemId: basePackageItemId,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const upgraded = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    upgradeWorkspaceId
+  );
+  assert.ok(upgraded);
+  const upgradedItem = upgraded.packageLines[0]?.packageItems[0];
+  assert.equal(upgradedItem?.priceSnapshot, expectedUpgradePrice);
   assert.equal(
-    publicFields.packageLines[0]?.packageItems[0]?.priceSnapshotLabel,
+    upgradedItem?.priceSnapshotLabel,
     formatMoney(expectedUpgradePrice),
     "upgraded package item label must match the legacy Decimal formatter output"
   );
+  assert.equal(upgraded.rawDeliverableTotal, expectedUpgradePrice);
+
+  const downgradeWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "r7b-pos-downgrade-equivalence"
+  );
+  const { workspaceId: downgradeWorkspaceId } = await stageWorkspaceEdits(
+    services,
+    downgradeWorkflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "equiv-downgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId: await firstOrderPackageId(db, downgradeWorkflow.orderId),
+        packageItemId: basePackageItemId,
+        toProductId: downgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const downgraded = await services.derivePOSWorkspaceFromAdjustmentWorkspace(
+    downgradeWorkspaceId
+  );
+  assert.ok(downgraded);
+  const downgradedItem = downgraded.packageLines[0]?.packageItems[0];
+  assert.equal(downgradedItem?.productId, downgradeProductId);
+  assert.equal(downgradedItem?.priceSnapshot, expectedDowngradePrice);
+  assert.equal(
+    downgradedItem?.priceSnapshotLabel,
+    formatMoney(expectedDowngradePrice)
+  );
+  assert.equal(downgraded.rawDeliverableTotal, expectedDowngradePrice);
 });
 
 test("finalizeWorkspace emits no ADJ when selected-photo edits return to baseline", async () => {

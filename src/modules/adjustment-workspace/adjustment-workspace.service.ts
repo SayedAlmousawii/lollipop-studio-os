@@ -1342,7 +1342,24 @@ async function captureCurrentOrderComposition(
     include: {
       packages: {
         include: {
-          package: { select: { id: true, name: true, price: true, photoCount: true } },
+          package: {
+            select: {
+              id: true,
+              name: true,
+              price: true,
+              photoCount: true,
+              items: {
+                select: {
+                  id: true,
+                  productId: true,
+                  quantity: true,
+                  priceSnapshot: true,
+                  product: { select: { name: true } },
+                },
+                orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+              },
+            },
+          },
           sessionConfigurationSelections: {
             select: {
               id: true,
@@ -1406,6 +1423,22 @@ async function captureCurrentOrderComposition(
         unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.package.price,
       })
     );
+    for (const item of orderPackage.package.items) {
+      // Keep package deliverable prices available to composition projectors without
+      // adding them to invoice-level package totals.
+      lines.push({
+        ...makeLine({
+          lineId: `${packageItemUpgradeLineId(orderPackage.id, item.id)}:base`,
+          kind: "item",
+          refId: item.productId,
+          label: item.product.name,
+          quantity: item.quantity,
+          unitPrice: item.priceSnapshot,
+        }),
+        lineTotalGross: "0.000",
+        lineTotalNet: "0.000",
+      });
+    }
     for (const mediaType of [MediaType.DIGITAL, MediaType.PRINT] as const) {
       const quantity =
         mediaType === MediaType.DIGITAL
@@ -1860,7 +1893,7 @@ function derivePOSPackageItemFromComposition(
   );
   if (!projectedItem || projectedItem.productId === item.productId) return item;
 
-  const priceSnapshot = resolveProjectedPackageItemPrice(item, projectedItem);
+  const priceSnapshot = Number(projectedItem.unitAmount.toFixed(3));
 
   return {
     ...item,
@@ -1870,24 +1903,6 @@ function derivePOSPackageItemFromComposition(
     priceSnapshot,
     priceSnapshotLabel: formatMoney(priceSnapshot),
   };
-}
-
-function roundProjectedMoney(value: number): number {
-  return Number(value.toFixed(3));
-}
-
-function resolveProjectedPackageItemPrice(
-  item: POSPackageItem,
-  projectedItem: POSCompositionPackageLineProjection["packageItems"][number]
-): number {
-  const projectedUnitAmount = roundProjectedMoney(projectedItem.unitAmount);
-  const projectedLooksLikeDelta =
-    projectedItem.productId !== item.productId &&
-    Math.abs(projectedUnitAmount) < Math.abs(item.priceSnapshot);
-
-  return projectedLooksLikeDelta
-    ? roundProjectedMoney(item.priceSnapshot + projectedUnitAmount)
-    : projectedUnitAmount;
 }
 
 function derivePOSPackageOptions(
