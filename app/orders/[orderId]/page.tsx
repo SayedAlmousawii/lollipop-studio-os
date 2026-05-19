@@ -749,6 +749,15 @@ function OverviewDeliverableList({
   emptyLabel: string;
   photoCountLabel: string;
 }) {
+  if (items.length === 0) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase text-text-muted">{title}</p>
+        <p className="text-sm text-text-secondary">{emptyLabel}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2">
       <p className="text-xs font-medium uppercase text-text-muted">{title}</p>
@@ -775,9 +784,6 @@ function OverviewDeliverableList({
           <p className="text-sm font-medium text-text-primary">{photoCountLabel}</p>
           <p className="text-xs text-text-secondary">Included photo selection</p>
         </div>
-        {items.length === 0 ? (
-          <p className="text-sm text-text-secondary">{emptyLabel}</p>
-        ) : null}
       </div>
     </div>
   );
