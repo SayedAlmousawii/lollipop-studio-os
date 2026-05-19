@@ -1289,6 +1289,255 @@ export async function makeMixedEditBookingFixture(
   };
 }
 
+export type FinancialCaseSummaryOrderFixtureResult = BookingFixtureResult & {
+  orderId: string | null;
+  finalInvoiceId: string | null;
+  finalPaymentId: string | null;
+};
+
+export async function makeFinancialCaseSummaryOrderFixture(
+  prisma: PrismaClient,
+  options: {
+    suffix: string;
+    createJob?: boolean;
+    createOrder?: boolean;
+    createFinalInvoice?: boolean;
+    depositStatus?: InvoiceStatus;
+    depositPaidAmount?: number;
+    finalTotal?: number;
+    finalPaymentAmount?: number;
+    finalRemainingAmount?: number;
+  }
+): Promise<FinancialCaseSummaryOrderFixtureResult> {
+  const createJob = options.createJob ?? true;
+  const createOrder = options.createOrder ?? createJob;
+  const createFinalInvoice = options.createFinalInvoice ?? true;
+  const depositPaidAmount = new Prisma.Decimal(options.depositPaidAmount ?? 20);
+  const finalTotal = new Prisma.Decimal(options.finalTotal ?? 100);
+  const finalPaymentAmount = new Prisma.Decimal(options.finalPaymentAmount ?? 80);
+  const finalRemainingAmount = new Prisma.Decimal(
+    options.finalRemainingAmount ?? 0
+  );
+  const suffix = options.suffix;
+
+  const department = await prisma.studioDepartment.create({
+    data: {
+      code: `FCS_DEPT_${suffix}`,
+      name: `FCS Department ${suffix}`,
+      isActive: true,
+      sortOrder: 95,
+    },
+  });
+  const customer = await prisma.customer.create({
+    data: {
+      name: `FCS Customer ${suffix}`,
+      phone: `+96595${suffix.padStart(6, "0").slice(0, 6)}`,
+    },
+  });
+  const job = createJob
+    ? await prisma.job.create({
+        data: {
+          jobNumber: `JOB-FCS-${suffix}`,
+          customerId: customer.id,
+        },
+      })
+    : null;
+  const booking = await prisma.booking.create({
+    data: {
+      publicId: `BK-FCS-${suffix}`,
+      jobNumber: job?.jobNumber ?? null,
+      jobId: job?.id ?? null,
+      customerId: customer.id,
+      departmentId: department.id,
+      status: BookingStatus.CONFIRMED,
+      sessionDate: new Date("2026-05-15T08:00:00.000Z"),
+      sessionTime: "11:00",
+    },
+  });
+  const financialCase = await prisma.financialCase.create({
+    data: {
+      bookingId: booking.id,
+      customerId: customer.id,
+      jobId: job?.id ?? null,
+    },
+  });
+  const depositInvoice = await prisma.invoice.create({
+    data: {
+      publicId: `INV-FCS-${suffix}-DEP`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.DEPOSIT,
+      jobId: job?.id ?? null,
+      jobNumber: job?.jobNumber ?? null,
+      bookingId: booking.id,
+      customerId: customer.id,
+      invoiceNumber: `DEP-FCS-${suffix}`,
+      totalAmount: new Prisma.Decimal(20),
+      paidAmount: depositPaidAmount,
+      remainingAmount:
+        options.depositStatus === InvoiceStatus.DRAFT
+          ? new Prisma.Decimal(20)
+          : Prisma.Decimal.max(new Prisma.Decimal(20).minus(depositPaidAmount), 0),
+      status: options.depositStatus ?? InvoiceStatus.CLOSED,
+      isLocked: options.depositStatus !== InvoiceStatus.DRAFT,
+      issuedAt: new Date("2026-05-15T08:05:00.000Z"),
+      closedAt:
+        options.depositStatus === InvoiceStatus.DRAFT
+          ? null
+          : new Date("2026-05-15T08:10:00.000Z"),
+    },
+  });
+  const depositPayment =
+    depositPaidAmount.gt(0) && options.depositStatus !== InvoiceStatus.DRAFT
+      ? await createPaymentWithAllocation(
+          {
+            invoiceId: depositInvoice.id,
+            financialCaseId: financialCase.id,
+            amount: depositPaidAmount,
+            method: PaymentMethod.CASH,
+            paymentType: PaymentType.DEPOSIT,
+            paidAt: new Date("2026-05-15T08:09:00.000Z"),
+          },
+          prisma
+        )
+      : null;
+
+  if (!createFinalInvoice || !job) {
+    return {
+      customerId: customer.id,
+      departmentId: department.id,
+      jobId: job?.id ?? "",
+      bookingId: booking.id,
+      financialCaseId: financialCase.id,
+      invoiceId: depositInvoice.id,
+      paymentId: depositPayment?.id ?? "",
+      orderId: null,
+      finalInvoiceId: null,
+      finalPaymentId: null,
+    };
+  }
+
+  const sessionType = await prisma.sessionType.create({
+    data: {
+      code: `FCS_SESSION_${suffix}`,
+      name: `FCS Session ${suffix}`,
+      departmentId: department.id,
+      isActive: true,
+      calendarLabel: "FCS",
+    },
+  });
+  const packageFamily = await prisma.packageFamily.create({
+    data: {
+      code: `FCS_FAMILY_${suffix}`,
+      name: `FCS Family ${suffix}`,
+      sessionTypeId: sessionType.id,
+      isActive: true,
+    },
+  });
+  const packageRow = await prisma.package.create({
+    data: {
+      id: `pkg-fcs-${suffix}`,
+      name: `FCS Package ${suffix}`,
+      price: finalTotal,
+      photoCount: 10,
+      durationMinutes: 60,
+      packageFamilyId: packageFamily.id,
+      isActive: true,
+    },
+  });
+  const order = createOrder
+    ? await prisma.order.create({
+        data: {
+          publicId: `ORD-FCS-${suffix}`,
+          jobNumber: job.jobNumber,
+          jobId: job.id,
+          bookingId: booking.id,
+          customerId: customer.id,
+          status: OrderStatus.ACTIVE,
+        },
+      })
+    : null;
+  if (order) {
+    await prisma.orderPackage.create({
+      data: {
+        id: `opkg-fcs-${suffix}`,
+        orderId: order.id,
+        packageId: packageRow.id,
+        sessionTypeId: sessionType.id,
+        originalPackagePriceSnapshot: packageRow.price,
+        finalPackagePriceSnapshot: packageRow.price,
+        selectedPhotoCount: packageRow.photoCount,
+      },
+    });
+  }
+
+  const finalInvoice = await prisma.invoice.create({
+    data: {
+      publicId: `INV-FCS-${suffix}-FINAL`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.FINAL,
+      jobId: job.id,
+      jobNumber: job.jobNumber,
+      orderId: order?.id ?? null,
+      bookingId: booking.id,
+      customerId: customer.id,
+      invoiceNumber: `INV-FCS-${suffix}`,
+      totalAmount: finalTotal,
+      paidAmount: finalPaymentAmount,
+      remainingAmount: finalRemainingAmount,
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      issuedAt: new Date("2026-05-15T09:00:00.000Z"),
+      closedAt: new Date("2026-05-15T09:15:00.000Z"),
+    },
+  });
+  await prisma.invoiceLineItem.create({
+    data: {
+      invoiceId: finalInvoice.id,
+      lineType: InvoiceLineType.PACKAGE_BASE,
+      description: packageRow.name,
+      quantity: 1,
+      unitPrice: packageRow.price,
+      lineTotal: packageRow.price,
+      sortOrder: 0,
+    },
+  });
+  if (depositPaidAmount.gt(0)) {
+    await prisma.documentApplication.create({
+      data: {
+        sourceInvoiceId: depositInvoice.id,
+        targetInvoiceId: finalInvoice.id,
+        amountApplied: depositPaidAmount,
+      },
+    });
+  }
+  const finalPayment = finalPaymentAmount.gt(0)
+    ? await createPaymentWithAllocation(
+        {
+          invoiceId: finalInvoice.id,
+          financialCaseId: financialCase.id,
+          amount: finalPaymentAmount,
+          method: PaymentMethod.CASH,
+          paymentType: PaymentType.FINAL,
+          paidAt: new Date("2026-05-15T09:10:00.000Z"),
+        },
+        prisma
+      )
+    : null;
+
+  return {
+    customerId: customer.id,
+    departmentId: department.id,
+    jobId: job.id,
+    bookingId: booking.id,
+    financialCaseId: financialCase.id,
+    invoiceId: depositInvoice.id,
+    paymentId: depositPayment?.id ?? "",
+    orderId: order?.id ?? null,
+    finalInvoiceId: finalInvoice.id,
+    finalPaymentId: finalPayment?.id ?? null,
+  };
+}
+
 export async function seedAllSharedFixtures(prisma: PrismaClient): Promise<void> {
   await makeCashDepositBookingFixture(prisma);
   await makeAdjustedBookingFixture(prisma);

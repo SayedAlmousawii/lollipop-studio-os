@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- R1a complete: `FinancialCaseSummary` read model and two R2-target projectors live in `src/modules/financial-cases/`; discrepancy logger and reconciliation invariant in place. No consumer swap. Next: R1b (remaining projectors).
 - **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
 - **Active roadmap:** `context/reviews/centralization-roadmap.md`. R0 (Context Reconciliation & Cleanup Gate) is complete: main docs are canonical, `*-summary.md` files archived, `AGENTS.md` default reads updated, Canonical Architecture Standards + Canonical Read Layer sections live in `architecture-context.md`. Next spec is R1 (FinancialCaseSummary read model + projectors, read-only, no UI swap).
 - **Session Configurations subsystem complete (Features 88–94):** schema, admin CRUD, pricing engine, configure panel, post-lock routing, invoice display, linked-product retrofit as selection-owned `OrderAddOn` rows.
