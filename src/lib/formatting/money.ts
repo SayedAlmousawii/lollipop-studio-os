@@ -17,8 +17,8 @@ export function formatMoney(
   const currency = options.currency ?? "KD";
   const density = options.density ?? "compact";
   const signDisplay = options.signDisplay ?? "never";
-  const absoluteAmount = signDisplay === "never" ? amount : absMoneyValue(amount);
-  const value = toFixedMoney(absoluteAmount);
+  const displayAmount = signDisplay === "never" ? amount : absMoneyValue(amount);
+  const value = toFixedMoney(displayAmount);
   const sign = moneySign(amount, signDisplay);
   const separator = currency.length > 0 && density === "compact" ? " " : "";
 
@@ -77,8 +77,8 @@ function moneySign(
   signDisplay: NonNullable<MoneyFormatOptions["signDisplay"]>
 ): string {
   if (signDisplay === "never") return "";
-  const numericAmount = parseMoneyInput(amount);
-  if (numericAmount > 0) return "+";
-  if (numericAmount < 0) return "-";
+  const roundedAmount = Number(toFixedMoney(amount));
+  if (roundedAmount > 0) return "+";
+  if (roundedAmount < 0) return "-";
   return signDisplay === "always" ? "+" : "";
 }

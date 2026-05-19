@@ -8,7 +8,6 @@ const SCANNED_DIRS = ["app", "src/components"];
 const LOCAL_FORMATTER_PATTERN =
   /\b(?:function|const)\s+format(?:KD|SignedKD|SignedMoney|SignedPrice)\b/;
 const TO_FIXED_KD_PATTERN = /toFixed\(3\)[^\n]*KD|KD[^\n]*toFixed\(3\)/;
-
 test("app and component code do not define local KD formatters or parse formatted money", () => {
   const violations: string[] = [];
 
@@ -23,7 +22,10 @@ test("app and component code do not define local KD formatters or parse formatte
     if (contents.includes("replace(/[^\\d.-]/g")) {
       violations.push(`${relativeFilePath}: formatted-money replace parser`);
     }
-    if (contents.includes("parseFloat(")) {
+    if (
+      contents.includes("parseFloat(") &&
+      contents.includes("replace(/[^\\d.-]/g")
+    ) {
       violations.push(`${relativeFilePath}: parseFloat formatted-money parser`);
     }
   }

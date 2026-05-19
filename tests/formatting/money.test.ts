@@ -26,6 +26,10 @@ test("formatSignedMoney centralizes explicit signed display", () => {
   assert.equal(formatSignedMoney(1), "+1.000 KD");
   assert.equal(formatSignedMoney(-1), "-1.000 KD");
   assert.equal(formatSignedMoney(0), "0.000 KD");
+  assert.equal(formatSignedMoney(0.0004), "0.000 KD");
+  assert.equal(formatSignedMoney(-0.0004), "0.000 KD");
+  assert.equal(formatSignedMoney(0.0005), "+0.001 KD");
+  assert.equal(formatSignedMoney(-0.0005), "-0.001 KD");
   assert.equal(formatSignedMoney(0, { signDisplay: "always" }), "+0.000 KD");
 });
 
