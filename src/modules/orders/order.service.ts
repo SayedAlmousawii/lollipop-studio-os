@@ -32,6 +32,7 @@ import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import { getFinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.service";
+import { mapFinancialCasePaymentStatusToLabel } from "@/modules/financial-cases/financial-case-summary.constants";
 import { getOrdersTableFinancialProjections } from "@/modules/financial-cases/orders-table-projections.service";
 import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import {
@@ -3063,7 +3064,6 @@ function mapOrderRow(
   row: OrderRow | OrderDetailRow,
   financial: OrdersTableRowProjection | null = null
 ): Order {
-  const invoiceSummary = summarizeInvoices(row.invoices);
   const settlementSummary = computeOrderSettlementSummary({
     invoices: getOrderSettlementInvoices(row),
   });
@@ -3077,7 +3077,9 @@ function mapOrderRow(
     finalPackageName: formatOrderPackageNames(row.packages),
     orderStatus: mapOrderStatus(row.status),
     invoiceStatus: financial ? mapInvoiceStatus(financial.invoiceStatus) : "No Invoice",
-    paymentStatus: invoiceSummary.paymentStatus,
+    paymentStatus: financial
+      ? mapFinancialCasePaymentStatusToLabel(financial.paymentStatusEnum)
+      : "Pending",
     totalAmount: formatMoney(new Prisma.Decimal(settlementSummary.totalOrderValue)),
     paidAmount: formatMoney(new Prisma.Decimal(settlementSummary.paidAmount)),
     remainingAmount: formatMoney(new Prisma.Decimal(settlementSummary.outstandingAmount)),
@@ -3121,8 +3123,6 @@ function mapCustomerOrderHistoryRow(
   row: CustomerOrderHistoryRow,
   financial: OrdersTableRowProjection | null = null
 ): CustomerOrderHistoryItem {
-  const invoiceSummary = summarizeInvoices(row.invoices);
-
   return {
     id: row.id,
     jobNumber: row.jobNumber,
@@ -3130,7 +3130,9 @@ function mapCustomerOrderHistoryRow(
     packageName: formatOrderPackageNames(row.packages),
     orderStatus: mapOrderStatus(row.status),
     invoiceStatus: financial ? mapInvoiceStatus(financial.invoiceStatus) : "No Invoice",
-    paymentStatus: invoiceSummary.paymentStatus,
+    paymentStatus: financial
+      ? mapFinancialCasePaymentStatusToLabel(financial.paymentStatusEnum)
+      : "Pending",
   };
 }
 

@@ -145,6 +145,7 @@ export async function getFinancialCaseSummary(
     ).toNumber(),
     linkedDocuments,
     paymentStatusEnum: deriveFinancialCasePaymentStatus({
+      finalInvoiceStatus: finalInvoice.status,
       settlementSummary,
       effectivePaid: effectivePaid.toNumber(),
       customerTotal: lockedSummary.customerTotal,
