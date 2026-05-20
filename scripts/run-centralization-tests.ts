@@ -39,8 +39,11 @@ const files = [
   "tests/adjustment-workspace/edit-mode-policy-action.test.ts",
   "tests/adjustment-workspace/finalize-integration.test.ts",
   "tests/adjustment-workspace/net-delta.test.ts",
+  "tests/adjustment-workspace/package-session-metadata-parity.test.ts",
   "tests/adjustment-workspace/pending-changes-view.test.ts",
   "tests/adjustment-workspace/selected-photo-baseline-parity.test.ts",
+  "tests/orders/orders-table-customer-history-parity.test.ts",
+  "tests/orders/workflow-action-availability-parity.test.ts",
 ];
 
 const result = spawnSync(

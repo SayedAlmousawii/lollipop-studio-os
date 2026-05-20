@@ -60,6 +60,18 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 | `tests/invoices/overpayment-capacity.test.ts` | Financial Invariants | Guards refund capacity calculations against true overpayment. | none | out-of-scope-for-R13 |
 | `tests/payments/settlement-transaction.test.ts` | Financial Invariants | Guards settlement row locking, final invoice auto-locking, and overpayment rejection. | none | out-of-scope-for-R13 |
 
+## Workflow Smoke
+
+| Path | Category | Scope summary | Reachability today | R13 wiring decision |
+|---|---|---|---|---|
+| `tests/backend-invariants/booking-confirmation-checkin.smoke.ts` | Workflow Smoke | Service-level smoke for booking confirmation, check-in, booking workflow policy, and booking-stage FinancialCaseSummary values. | test:backend-invariants | existing-script |
+| `tests/backend-invariants/delivery-pickup.smoke.ts` | Workflow Smoke | Service-level smoke for settled delivery pickup and manager override delivery pickup against delivery policy and FinancialCaseSummary values. | test:backend-invariants | existing-script |
+| `tests/backend-invariants/editing-start-gate.smoke.ts` | Workflow Smoke | Service-level smoke for editing start availability and post-start editing workflow policy state. | test:backend-invariants | existing-script |
+| `tests/backend-invariants/end-to-end-studio-walkthrough.smoke.ts` | Workflow Smoke | Service-level smoke chaining booking, check-in, POS settlement, adjustment finalization, editing, production, and delivery with centralized read-layer checkpoints. | test:backend-invariants | existing-script |
+| `tests/backend-invariants/locked-adjustment.smoke.ts` | Workflow Smoke | Service-level smoke for locked Adjustment Workspace staging/finalization, pending net delta, FinancialCaseSummary adjustment values, and selected-photo baseline continuity. | test:backend-invariants | existing-script |
+| `tests/backend-invariants/pos-invoice-payment.smoke.ts` | Workflow Smoke | Service-level smoke for POS draft composition, final invoice issue/payment, locked composition projection, FinancialCaseSummary, and orders-table projection parity. | test:backend-invariants | existing-script |
+| `tests/backend-invariants/production-readiness.smoke.ts` | Workflow Smoke | Service-level smoke for editing-to-production readiness, production workflow policy, and production deliverables projection photo counts. | test:backend-invariants | existing-script |
+
 ## FinancialCase Summary / Projector Parity
 
 | Path | Category | Scope summary | Reachability today | R13 wiring decision |
@@ -84,6 +96,7 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 | `tests/orders/operational-configurations-block.test.tsx` | Orders / Projections | Guards order operational configuration display. | none | centralization-gate |
 | `tests/orders/order-composition-view-model.test.ts` | Orders / Projections | Covers OrderCompositionViewModel, POS/overview/production projectors, selected-photo baselines, and source guards. | none | centralization-gate |
 | `tests/orders/order-details-financials-tab.test.tsx` | Orders / Projections | Guards order details Financials tab rendering from FinancialTabBlockProjection. | none | centralization-gate |
+| `tests/orders/orders-table-customer-history-parity.test.ts` | Orders / Projections | Guards orders table and customer history financial status parity while asserting orders-table amount fields remain byte-equivalent to the canonical projection. | none | centralization-gate |
 | `tests/orders/orders-table.test.tsx` | Orders / Projections | Guards orders table projection rendering and financial status display. | none | centralization-gate |
 | `tests/orders/pos-handler-components.test.tsx` | Orders / Projections | Guards shared POS handler component behavior and source boundaries. | none | centralization-gate |
 | `tests/orders/settlement-summary.test.ts` | Orders / Projections | Guards canonical settlement summary, payment summary, and locked sidebar display totals. | none | centralization-gate |
@@ -108,6 +121,7 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 |---|---|---|---|---|
 | `tests/adjustment-workspace/finalize-integration.test.ts` | Adjustment Workspace | Guards workspace finalization, staged POS projection, selected-photo baselines, operational edits, and handler behavior. | none | centralization-gate |
 | `tests/adjustment-workspace/net-delta.test.ts` | Adjustment Workspace | Guards pending-change parsing, session configuration deltas, approval rules, package/photo/add-on edit semantics, and no-op normalization. | none | centralization-gate |
+| `tests/adjustment-workspace/package-session-metadata-parity.test.ts` | Adjustment Workspace | Guards Adjustment Workspace package/session metadata parity with the locked POS composition projection. | none | centralization-gate |
 | `tests/adjustment-workspace/pending-changes-view.test.ts` | Adjustment Workspace | Guards pending-change rows for package swaps and staged POS edit types. | none | centralization-gate |
 | `tests/adjustment-workspace/selected-photo-baseline-parity.test.ts` | Adjustment Workspace | Guards selected-photo baseline parity between Adjustment Workspace staged/finalized snapshots and the composition POS projection. | none | centralization-gate |
 
@@ -122,6 +136,7 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 | `tests/orders/editing-workflow-policy.test.ts` | Edit-Mode / Workflow Policies | Guards editing workflow action matrix, start blockers, guard messages, and policy-owned rendering. | none | centralization-gate |
 | `tests/orders/order-edit-mode-policy.test.ts` | Edit-Mode / Workflow Policies | Guards draft, locked, adjustment, open-workspace, and delivered-order edit-mode routing. | none | centralization-gate |
 | `tests/orders/production-workflow-policy.test.ts` | Edit-Mode / Workflow Policies | Guards production workflow actions, section labels, readiness blockers, and policy-owned rendering. | none | centralization-gate |
+| `tests/orders/workflow-action-availability-parity.test.ts` | Edit-Mode / Workflow Policies | Guards cross-policy workflow action availability against the documented R10 booking, editing, production, and delivery baseline. | none | centralization-gate |
 
 ## Money Formatting
 
