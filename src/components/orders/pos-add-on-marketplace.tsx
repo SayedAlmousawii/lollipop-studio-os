@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/select";
 import type {
   POSAddOnCatalogItem,
-  POSProductOption,
   POSWorkspace,
 } from "@/modules/orders/order.types";
 import type {
@@ -87,7 +86,7 @@ export function POSAddOnMarketplace({
                 key={action.category}
                 label={action.label}
                 category={action.category}
-                options={workspace.productOptions}
+                options={workspace.addOnCatalog}
                 handlers={handlers}
                 policy={editPolicies.addAddOn}
               />
@@ -145,7 +144,7 @@ function QuickAddDialog({
 }: {
   label: string;
   category: string;
-  options: POSProductOption[];
+  options: POSAddOnCatalogItem[];
   handlers: POSAddOnHandlers;
   policy: OrderEditModePolicy;
 }) {
@@ -193,7 +192,7 @@ function QuickAddDialog({
               <SelectContent>
                 {categoryOptions.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
-                    {option.name} · {option.canonicalPriceLabel}
+                    {option.name} · {option.priceLabel}
                   </SelectItem>
                 ))}
               </SelectContent>

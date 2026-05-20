@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- POS Commercial Actions quick-add catalog fix is complete: quick-action buttons now derive availability from active add-on catalog products while preserving R8b projected current add-on rows and R9 edit-mode interactivity gates.
 - Adjustment Workspace selected-photo POS projection fix is complete: package included-photo baselines, selected-photo baselines, and session labels are preserved through adjustment snapshots/projectors, with live POS fallback only for missing snapshot selected counts.
 - R12 compatibility cleanup is complete: legacy order settlement helpers, booking deposit dedup, and `OrderDetail` aggregate photo-count fields are removed; centralization roadmap R0-R12 is closed except the deferred orders-table-projections performance follow-up.
 - **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
@@ -67,6 +68,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **POS Commercial Actions quick-add catalog fix** — Rewired POSAddOnMarketplace quick actions to use add-on catalog availability instead of package deliverable product options, with draft/empty-category/adjustment-mode regression coverage.
 - **Adjustment Workspace POS selected-photo baseline fix** — Preserved package included-photo metadata through adjustment snapshots and composition projectors, backfilled older adjustment snapshots from normal POS workspace data, and added regression coverage for included+1 photo allocation plus snapshot-primary selected-count fallback.
 - **107 R12** — Removed legacy order settlement helpers, routed order/customer-history statuses through FinancialCase orders-table projections, preserved Overridden payment labeling, removed booking deposit-invoice dedup after canonicalization audit, dropped `OrderDetail` aggregate photo counts, and added source/audit/parity coverage.
 - **106 R11** — Moved order-detail operational configuration display and empty composition DTOs into composition projections, shifted production photo counts onto `ProductionDeliverablesProjection`, corrected stale deposit copy, and added page-thinning/projector regression coverage.
