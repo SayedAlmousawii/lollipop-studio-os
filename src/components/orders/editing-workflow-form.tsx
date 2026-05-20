@@ -84,7 +84,7 @@ export function EditingWorkflowForm({ editing }: EditingWorkflowFormProps) {
       ) : !editing.basePaymentVerified ? (
         <p className="rounded-md bg-warning-soft px-4 py-3 text-sm text-warning">
           Base package payment is not recorded yet. Editing can be assigned, but it cannot
-          start until the base payment exists.
+          start until the deposit exists.
         </p>
       ) : null}
 
