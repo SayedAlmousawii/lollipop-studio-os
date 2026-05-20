@@ -494,3 +494,4 @@ R1a is the **first-in-pattern** spec. The shapes it establishes (folder layout, 
 - Write services unchanged in behavior.
 - All legacy compatibility/fallback paths either removed or documented as intentional.
 - Context files reflect the new pattern; archived analysis docs out of default reads.
+R13 freeze gate: see `context/reviews/r13-freeze-gate-assessment.md`, `context/reviews/r13-verification-inventory.md`, `context/reviews/r13-freeze-checklist.md`.

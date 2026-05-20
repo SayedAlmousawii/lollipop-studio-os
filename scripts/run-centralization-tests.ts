@@ -1,0 +1,46 @@
+import { spawnSync } from "node:child_process";
+
+const files = [
+  "tests/architecture/financial-case-read-layer-cleanup.test.ts",
+  "tests/architecture/service-only-db-access.test.ts",
+  "tests/bookings/booking-financial-section.test.tsx",
+  "tests/bookings/booking-workflow-policy.test.ts",
+  "tests/bookings/deposit-invoice-canonicalization.test.ts",
+  "tests/composition-view/composition-view.model.test.ts",
+  "tests/composition-view/current-composition-card.test.tsx",
+  "tests/financial/financial-case-payment-status.test.ts",
+  "tests/financial/financial-case-summary/projection-parity-r1b.test.ts",
+  "tests/financial/financial-case-summary/projection-parity.test.ts",
+  "tests/financial/financial-case-summary/summary-core.test.ts",
+  "tests/formatting/money-regression.test.ts",
+  "tests/formatting/money.test.ts",
+  "tests/orders/canonical-balance-display.test.ts",
+  "tests/orders/centralization-cleanup.test.ts",
+  "tests/orders/customer-order-history-projection.test.ts",
+  "tests/orders/delivery-workflow-policy.test.ts",
+  "tests/orders/editing-workflow-policy.test.ts",
+  "tests/orders/financial-sidebar-adjustment.test.tsx",
+  "tests/orders/financial-sidebar-draft.test.tsx",
+  "tests/orders/financial-sidebar-locked.test.tsx",
+  "tests/orders/invoice-line-items.test.tsx",
+  "tests/orders/operational-configurations-block.test.tsx",
+  "tests/orders/order-composition-view-model.test.ts",
+  "tests/orders/order-details-financials-tab.test.tsx",
+  "tests/orders/order-edit-mode-policy.test.ts",
+  "tests/orders/orders-table.test.tsx",
+  "tests/orders/pos-handler-components.test.tsx",
+  "tests/orders/production-workflow-policy.test.ts",
+  "tests/orders/settlement-summary.test.ts",
+  "tests/adjustment-workspace/edit-mode-policy-action.test.ts",
+  "tests/adjustment-workspace/finalize-integration.test.ts",
+  "tests/adjustment-workspace/net-delta.test.ts",
+  "tests/adjustment-workspace/pending-changes-view.test.ts",
+];
+
+const result = spawnSync(
+  "node",
+  ["--import", "tsx", "--test", "--test-concurrency=1", "--test-force-exit", ...files],
+  { stdio: "inherit" }
+);
+
+process.exit(result.status ?? 1);
