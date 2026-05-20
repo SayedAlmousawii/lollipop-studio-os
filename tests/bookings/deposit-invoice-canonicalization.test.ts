@@ -4,8 +4,14 @@ import assert from "node:assert/strict";
 import Module from "node:module";
 import process from "node:process";
 import test, { after } from "node:test";
-import { InvoiceType } from "@prisma/client";
+import {
+  BookingStatus,
+  InvoiceStatus,
+  InvoiceType,
+  type PrismaClient,
+} from "@prisma/client";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
+import type { FinancialCaseSummaryOrderFixtureResult } from "../fixtures/financial";
 
 type ModuleLoader = (
   request: string,
@@ -24,7 +30,7 @@ after(() => {
   moduleWithLoader._load = originalModuleLoad;
 });
 
-test("booking deposit invoices are canonical on FinancialCase invoices", async () => {
+test("booking deposit invoice canonicalization audit has positive and negative controls", async (t) => {
   await withIsolatedBackendInvariantSchema(async (databaseUrl) => {
     const previousDatabaseUrl = process.env.DATABASE_URL;
     process.env.DATABASE_URL = databaseUrl;
@@ -36,66 +42,38 @@ test("booking deposit invoices are canonical on FinancialCase invoices", async (
           import("../fixtures/financial"),
         ]);
 
-      await makeFinancialCaseSummaryOrderFixture(db, {
-        suffix: "R12CAN",
-      });
-      await makeFinancialCaseSummaryOrderFixture(db, {
-        suffix: "R12BK",
-        createFinalInvoice: false,
-      });
+      await t.test("passes after scanning a canonical booking deposit invoice", async () => {
+        const canonical = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "R12CAN",
+        });
+        await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "R12BK",
+          createFinalInvoice: false,
+        });
 
-      const rows = await db.booking.findMany({
-        select: {
-          id: true,
-          publicId: true,
-          invoices: {
-            where: { invoiceType: InvoiceType.DEPOSIT },
-            select: { id: true, createdAt: true },
-            orderBy: { createdAt: "desc" },
-          },
-          financialCase: {
-            select: {
-              invoices: {
-                where: { invoiceType: InvoiceType.DEPOSIT },
-                select: { id: true, createdAt: true },
-                orderBy: { createdAt: "desc" },
-              },
-            },
-          },
-        },
-        orderBy: { createdAt: "asc" },
+        const result = await auditBookingDepositInvoiceCanonicalization(db);
+
+        assert.ok(result.bookingInvoiceCount > 0, "audit must scan booking invoices");
+        assert.ok(
+          result.bookingInvoiceIds.includes(canonical.invoiceId),
+          "audit must include the fixture deposit invoice from booking.invoices"
+        );
       });
 
-      assert.ok(rows.length > 0, "expected booking fixtures for audit");
+      await t.test("fails when a booking deposit invoice points at another case", async () => {
+        const drift = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "R12DRF",
+          createFinalInvoice: false,
+          depositStatus: InvoiceStatus.DRAFT,
+          depositPaidAmount: 0,
+        });
+        await seedDriftBookingDepositInvoice(db, drift, "R12DRF-CASE");
 
-      for (const row of rows) {
-        const bookingInvoiceIds = row.invoices.map((invoice) => invoice.id);
-        const financialCaseInvoices = row.financialCase?.invoices ?? [];
-        const financialCaseInvoiceIds = new Set(
-          financialCaseInvoices.map((invoice) => invoice.id)
+        await assert.rejects(
+          () => auditBookingDepositInvoiceCanonicalization(db),
+          new RegExp(`non-canonical deposit invoice ${drift.invoiceId}`)
         );
-
-        for (const invoiceId of bookingInvoiceIds) {
-          assert.ok(
-            financialCaseInvoiceIds.has(invoiceId),
-            `booking ${row.publicId ?? row.id} has non-canonical deposit invoice ${invoiceId}`
-          );
-        }
-
-        const mergedLegacyOrder = dedupeAndSortDepositInvoices([
-          ...row.invoices,
-          ...financialCaseInvoices,
-        ]).map((invoice) => invoice.id);
-        const directFinancialCaseOrder = financialCaseInvoices.map(
-          (invoice) => invoice.id
-        );
-
-        assert.deepEqual(
-          directFinancialCaseOrder,
-          mergedLegacyOrder,
-          `booking ${row.publicId ?? row.id} deposit invoice ordering differs`
-        );
-      }
+      });
     } finally {
       if (previousDatabaseUrl === undefined) {
         delete process.env.DATABASE_URL;
@@ -105,6 +83,98 @@ test("booking deposit invoices are canonical on FinancialCase invoices", async (
     }
   });
 });
+
+async function auditBookingDepositInvoiceCanonicalization(
+  db: PrismaClient
+): Promise<{ bookingInvoiceCount: number; bookingInvoiceIds: string[] }> {
+  const rows = await db.booking.findMany({
+    select: {
+      id: true,
+      publicId: true,
+      invoices: {
+        where: { invoiceType: InvoiceType.DEPOSIT },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+      },
+      financialCase: {
+        select: {
+          invoices: {
+            where: { invoiceType: InvoiceType.DEPOSIT },
+            select: { id: true, createdAt: true },
+            orderBy: { createdAt: "desc" },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  assert.ok(rows.length > 0, "expected booking fixtures for audit");
+
+  const bookingInvoiceIds: string[] = [];
+  for (const row of rows) {
+    bookingInvoiceIds.push(...row.invoices.map((invoice) => invoice.id));
+    const financialCaseInvoices = row.financialCase?.invoices ?? [];
+    const financialCaseInvoiceIds = new Set(
+      financialCaseInvoices.map((invoice) => invoice.id)
+    );
+
+    for (const invoiceId of row.invoices.map((invoice) => invoice.id)) {
+      assert.ok(
+        financialCaseInvoiceIds.has(invoiceId),
+        `booking ${row.publicId ?? row.id} has non-canonical deposit invoice ${invoiceId}`
+      );
+    }
+
+    const mergedLegacyOrder = dedupeAndSortDepositInvoices([
+      ...row.invoices,
+      ...financialCaseInvoices,
+    ]).map((invoice) => invoice.id);
+    const directFinancialCaseOrder = financialCaseInvoices.map(
+      (invoice) => invoice.id
+    );
+
+    assert.deepEqual(
+      directFinancialCaseOrder,
+      mergedLegacyOrder,
+      `booking ${row.publicId ?? row.id} deposit invoice ordering differs`
+    );
+  }
+
+  return { bookingInvoiceCount: bookingInvoiceIds.length, bookingInvoiceIds };
+}
+
+async function seedDriftBookingDepositInvoice(
+  db: PrismaClient,
+  fixture: FinancialCaseSummaryOrderFixtureResult,
+  suffix: string
+): Promise<void> {
+  const driftBooking = await db.booking.create({
+    data: {
+      publicId: `BK-${suffix}`,
+      customerId: fixture.customerId,
+      departmentId: fixture.departmentId,
+      status: BookingStatus.CONFIRMED,
+      sessionDate: new Date("2026-05-16T08:00:00.000Z"),
+      sessionTime: "11:00",
+    },
+    select: { id: true },
+  });
+  const driftFinancialCase = await db.financialCase.create({
+    data: {
+      bookingId: driftBooking.id,
+      customerId: fixture.customerId,
+    },
+    select: { id: true },
+  });
+  await db.invoice.update({
+    where: { id: fixture.invoiceId },
+    data: {
+      financialCaseId: driftFinancialCase.id,
+    },
+    select: { id: true },
+  });
+}
 
 function dedupeAndSortDepositInvoices<T extends { id: string; createdAt: Date }>(
   invoices: T[]

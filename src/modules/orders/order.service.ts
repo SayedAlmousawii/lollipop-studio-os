@@ -317,24 +317,13 @@ export async function getOrdersByCustomerId(
     () => fetchOrdersByCustomerId(customerId, sanitizedLimit),
     "Failed to fetch customer orders"
   );
-  let financialByOrderId = new Map<string, OrdersTableRowProjection | null>();
-  try {
-    financialByOrderId = await withRetry(
-      () =>
-        getOrdersTableFinancialProjections({
-          orderIds: rows.map((row) => row.id),
-        }),
-      "Failed to fetch customer order financial projections"
-    );
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        metric: "orders.customer_history_financial_projection.failed",
-        orderCount: rows.length,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    );
-  }
+  const financialByOrderId = await withRetry(
+    () =>
+      getOrdersTableFinancialProjections({
+        orderIds: rows.map((row) => row.id),
+      }),
+    "Failed to fetch customer order financial projections"
+  );
 
   return rows.map((row) =>
     mapCustomerOrderHistoryRow(row, financialByOrderId.get(row.id) ?? null)
