@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- R13a verification inventory and test gate wiring is complete: `test:centralization` runs the existing R0-R12 centralization regression set through a literal runner, with the inventory and freeze checklist published.
 - POS Commercial Actions quick-add catalog fix is complete: quick-action buttons now derive availability from active add-on catalog products while preserving R8b projected current add-on rows and R9 edit-mode interactivity gates.
 - Adjustment Workspace selected-photo POS projection fix is complete: package included-photo baselines, selected-photo baselines, and session labels are preserved through adjustment snapshots/projectors, with live POS fallback only for missing snapshot selected counts.
 - R12 compatibility cleanup is complete: legacy order settlement helpers, booking deposit dedup, and `OrderDetail` aggregate photo-count fields are removed; centralization roadmap R0-R12 is closed except the deferred orders-table-projections performance follow-up.
@@ -68,6 +69,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **108 R13a** — Published the R13 verification inventory and freeze checklist, added `test:centralization` with a literal R0-R12 centralization regression runner, and linked the R13 gate from the roadmap.
 - **POS Commercial Actions quick-add catalog fix** — Rewired POSAddOnMarketplace quick actions to use add-on catalog availability instead of package deliverable product options, with draft/empty-category/adjustment-mode regression coverage.
 - **Adjustment Workspace POS selected-photo baseline fix** — Preserved package included-photo metadata through adjustment snapshots and composition projectors, backfilled older adjustment snapshots from normal POS workspace data, and added regression coverage for included+1 photo allocation plus snapshot-primary selected-count fallback.
 - **107 R12** — Removed legacy order settlement helpers, routed order/customer-history statuses through FinancialCase orders-table projections, preserved Overridden payment labeling, removed booking deposit-invoice dedup after canonicalization audit, dropped `OrderDetail` aggregate photo counts, and added source/audit/parity coverage.
@@ -129,6 +131,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **73c** — Order add-on split: `OrderPackageItemUpgrade` separated from `OrderAddOn`.
 
 ## Open Follow-Ups
+- R13b: triage the pre-existing isolated failure in `tests/integration/pos-reductive-approval.test.ts` (`posActionErrorMessage` sees a non-object `PrismaClientKnownRequestError` right-hand side).
+- R13b: add or confirm a dedicated automated assertion for intentional terminology cleanup such as "Base payment" -> "deposit".
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.
 - Fix remaining Phase C/F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, voucher redemption schema.
