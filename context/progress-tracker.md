@@ -5,7 +5,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
-- R13c workflow smoke and deferred parity matrices are complete: service-level booking/POS/adjustment/editing/production/delivery/end-to-end smoke coverage is wired into `test:backend-invariants`, the orders-table/customer-history, Adjustment Workspace metadata, and workflow action parity tests are wired into `test:centralization`, and R13d manual QA + freeze signoff is next.
+- R13d manual QA + freeze signoff is complete: the freeze checklist has concrete dev/staging manual QA bodies, the acceptable-changes log, explicit reconciliation deferrals, freeze-eve gate confirmation, and the R0-R13 roadmap closure line dated 2026-05-20.
+- R13c workflow smoke and deferred parity matrices are complete: service-level booking/POS/adjustment/editing/production/delivery/end-to-end smoke coverage is wired into `test:backend-invariants`, and the orders-table/customer-history, Adjustment Workspace metadata, and workflow action parity tests are wired into `test:centralization`.
 - R13b automated regression gate is complete: deposit terminology is source/render guarded, selected-photo baseline, Commercial Actions catalog, and edit-mode interactivity parity tests are wired into `test:centralization`, and the POS reductive approval harness mismatch is fixed/classified as a broken test.
 - R13a verification inventory and test gate wiring is complete: `test:centralization` runs the existing R0-R12 centralization regression set through a literal runner, with the inventory and freeze checklist published.
 - POS Commercial Actions quick-add catalog fix is complete: quick-action buttons now derive availability from active add-on catalog products while preserving R8b projected current add-on rows and R9 edit-mode interactivity gates.
@@ -71,6 +72,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **111 R13d** — Filled the R13 freeze checklist with concrete manual QA steps, traceable acceptable behavior changes, reconciliation operational deferrals, named signoff, and the 2026-05-20 centralization roadmap closure line.
 - **110 R13c** — Added service-level workflow smoke coverage for booking, POS settlement, locked adjustments, editing start, production readiness, delivery pickup/override, and the end-to-end studio walkthrough; closed the three deferred parity matrices in `test:centralization`.
 - **109 R13b** — Added deposit terminology source/render guards, selected-photo baseline parity, Commercial Actions catalog parity, locked/adjustment edit interactivity parity, and moved the fixed POS reductive approval harness into `test:centralization`.
 - **108 R13a** — Published the R13 verification inventory and freeze checklist, added `test:centralization` with a literal R0-R12 centralization regression runner, and linked the R13 gate from the roadmap.
@@ -138,8 +140,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.
 - Fix remaining Phase C/F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, voucher redemption schema.
-- Configure production reconciliation secrets/env: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, `RECONCILIATION_PING_URL`.
-- Manually smoke test booking confirmation, deposit recording, and POS settlement against the migrated dev database.
+- Configure/confirm production GitHub Actions reconciliation secrets: `FINANCIAL_RECON_DATABASE_URL`, `FINANCIAL_RECON_SLACK_WEBHOOK`, `FINANCIAL_RECON_SLACK_CHANNEL`, `RECONCILIATION_PING_URL`; then manually trigger the `Financial Reconciliation` workflow once.
+- Replace the placeholder Healthchecks dashboard URL in `context/ops/reconciliation-monitor.md` after the production check is created.
+- Walk R13d manual QA sections 1-4 once on dev/staging before production freeze.
 - Confirm final per-session-type digital and print extra-photo prices with the owner before Spec 70 ships.
 - Consider explicit job categorization (`SESSION`, `VOUCHER`, `RETAIL`, `OTHER`) before future voucher or standalone sales invoice flows.
 
