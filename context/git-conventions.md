@@ -46,11 +46,34 @@ docs: update auth review to reflect resolved permission gaps
 
 ---
 
-## Commit & Push Flow
+## Branching Strategy
 
-- AI commits and pushes directly to the `development` branch — no feature branches, no PRs
-- User periodically merges `development` → `main` on GitHub to mark stable milestones
-- AI never pushes directly to `main`
+Three-tier flow: `main` ← `development` ← `spec/*`.
+
+### Branches
+
+| Branch | Purpose | Who merges in |
+|---|---|---|
+| `main` | Stable production-ready milestones only. Tagged after each freeze gate. | User only, manually, after freeze verification |
+| `development` | Integration branch for the active roadmap/phase. Receives completed spec branches. | User only, manually, after reviewing the spec branch |
+| `spec/<NN>-<short-name>` | One branch per feature spec. `<NN>` matches the spec folder number (e.g. `spec/97-order-refunds`). | AI commits and pushes here freely |
+
+### Rules
+
+- **One spec per branch.** Avoid long-running multi-spec branches — they break rollback and debugging isolation. If a task touches multiple specs, split it.
+- **AI never pushes to `main` or `development` directly.** Only `spec/*` branches.
+- **Branch from `development`.** Always cut new spec branches from the current `development` tip.
+- **Squash merge** spec → development. Spec branches may have messy WIP commits; the squash leaves one clean Conventional Commit per spec on `development`.
+- **Delete spec branches after merge.** Keeps the branch list scannable.
+- **Tag `main` after each freeze gate** (e.g. `v-phase-13`, `v-2026-05`) for rollback points.
+
+### Workflow
+
+1. User authorizes a spec → AI creates `spec/<NN>-<slug>` from `development`.
+2. AI implements only that spec, commits and pushes to the spec branch.
+3. AI runs verification (typecheck, tests, lint) before signaling ready.
+4. User reviews and squash-merges `spec/*` → `development`, then deletes the spec branch.
+5. After a roadmap/phase completes: user runs the freeze gate / full verification, merges `development` → `main`, and tags the milestone.
 
 ---
 
