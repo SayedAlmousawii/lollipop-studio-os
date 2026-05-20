@@ -743,6 +743,105 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
   await assertNoAdjustmentInvoice(db, workflow.orderId, workflow.finalInvoiceId);
 });
 
+test("adjustment workspace POS projection keeps included photos as selected-photo baseline", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const composition = await import("@/modules/orders/composition");
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "photo-baseline-projection"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: {
+      id: true,
+      package: { select: { photoCount: true } },
+    },
+  });
+  const includedPhotoCount = orderPackage.package.photoCount;
+  const { workspaceId } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "select-included-plus-one",
+        op: "change_selected_photo_count",
+        orderPackageId: orderPackage.id,
+        selectedPhotoCount: includedPhotoCount + 1,
+        extraDigitalCount: 0,
+        extraPrintCount: 1,
+      },
+    ]
+  );
+
+  const model =
+    await composition.getPendingAdjustmentOrderCompositionViewModel(workspaceId);
+  assert.ok(model);
+  const posComposition = composition.toLockedPOSComposition(model);
+  const line = posComposition.packageLines[0];
+
+  assert.equal(line?.includedPhotoCount, includedPhotoCount);
+  assert.equal(line?.selectedPhotoCount, includedPhotoCount + 1);
+  assert.equal(line?.extraDigitalCount, 0);
+  assert.equal(line?.extraPrintCount, 1);
+  assert.equal(line?.extraPhotoCount, 1);
+  assert.equal(
+    (line?.extraDigitalCount ?? 0) + (line?.extraPrintCount ?? 0),
+    (line?.selectedPhotoCount ?? 0) - (line?.includedPhotoCount ?? 0)
+  );
+  assert.equal(line?.extraPhotoTotal, line?.extraPrintUnitPrice);
+});
+
+test("adjustment workspace POS projection does not let live POS selected count override snapshot baseline", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const composition = await import("@/modules/orders/composition");
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "photo-baseline-snapshot-primary"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: {
+      id: true,
+      package: { select: { photoCount: true } },
+    },
+  });
+  const includedPhotoCount = orderPackage.package.photoCount;
+  const workspace = await services.openWorkspace(
+    workflow.finalInvoiceId,
+    fixtures.adminActor
+  );
+
+  await db.orderPackage.update({
+    where: { id: orderPackage.id },
+    data: { selectedPhotoCount: includedPhotoCount + 5 },
+  });
+
+  const model =
+    await composition.getPendingAdjustmentOrderCompositionViewModel(workspace.id);
+  assert.ok(model);
+  const posComposition = composition.toLockedPOSComposition(model);
+  const line = posComposition.packageLines[0];
+
+  assert.equal(line?.includedPhotoCount, includedPhotoCount);
+  assert.equal(line?.selectedPhotoCount, includedPhotoCount);
+  assert.equal(line?.extraPhotoCount, 0);
+  assert.equal(line?.extraDigitalCount, 0);
+  assert.equal(line?.extraPrintCount, 0);
+});
+
 test("finalizeWorkspace emits no ADJ when staged add-on is removed before finalize", async () => {
   const {
     db,

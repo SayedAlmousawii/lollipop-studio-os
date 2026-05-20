@@ -330,6 +330,7 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
     );
 
     assert.match(markup, /Selected Photos/);
+    assert.match(markup, /10 included/);
     assert.match(markup, /value="12"/);
     assert.match(markup, /2 extras · Print · 6.000 KD/);
     assert.match(markup, /Digital 0 x 2.000 KD · Print 2 x 3.000 KD · Total 6.000 KD/);

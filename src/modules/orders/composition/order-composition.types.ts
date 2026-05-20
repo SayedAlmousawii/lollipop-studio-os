@@ -36,6 +36,10 @@ export type CompositionDisplayMetadata = {
   sourceLineId?: string;
   sourceRefId?: string | null;
   mediaType?: MediaType;
+  includedPhotoCount?: number;
+  selectedPhotoCount?: number;
+  sessionTypeId?: string;
+  sessionTypeName?: string;
 };
 
 export type CompositionLine = {
@@ -110,7 +114,7 @@ export type OrderCompositionViewModel = {
 
 export type CompositionMetadataContext = {
   products?: Map<string, { id: string; name: string }>;
-  packages?: Map<string, { id: string; name: string }>;
+  packages?: Map<string, { id: string; name: string; photoCount?: number }>;
   packageItems?: Map<
     string,
     {

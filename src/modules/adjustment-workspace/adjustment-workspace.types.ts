@@ -15,6 +15,10 @@ export interface AdjustmentCompositionLine {
   refId: string;
   refMetadata?: {
     orderAddOnId?: string;
+    includedPhotoCount?: number;
+    selectedPhotoCount?: number;
+    sessionTypeId?: string;
+    sessionTypeName?: string;
   };
   label: string;
   quantity: number;

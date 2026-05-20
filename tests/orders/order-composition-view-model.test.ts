@@ -510,6 +510,62 @@ test("R7b projectors expose raw POS, overview, and production composition DTOs",
   assert.deepEqual(production.rows.map((row) => row.label), ["Album", "USB"]);
 });
 
+test("adjustment POS projection preserves package included-photo baseline for selected-photo edits", () => {
+  const base = adjustmentSnapshot({
+    lines: [
+      adjustmentLine({
+        lineId: "package:op-basic",
+        kind: "package",
+        refId: "pkg-basic",
+        refMetadata: {
+          includedPhotoCount: 20,
+          selectedPhotoCount: 20,
+          sessionTypeId: "session-regular",
+          sessionTypeName: "Regular",
+        },
+        label: "Basic Package",
+        unitPrice: "100.000",
+        lineTotalNet: "100.000",
+      }),
+      adjustmentLine({
+        lineId: "extra-photo:op-basic:print",
+        kind: "item",
+        refId: "Extra photos - Print (Basic Package)",
+        label: "Extra photos - Print (Basic Package)",
+        quantity: 1,
+        unitPrice: "3.000",
+        lineTotalNet: "3.000",
+      }),
+    ],
+  });
+  const pendingAdjustmentComposition =
+    composition().buildCompositionSnapshotFromAdjustmentSnapshot(base);
+  const model = {
+    orderId: "order-1",
+    jobNumber: "JOB-1",
+    state: "adjustment" as const,
+    baseComposition: pendingAdjustmentComposition,
+    effectiveComposition: pendingAdjustmentComposition,
+    pendingAdjustmentComposition,
+    totals: pendingAdjustmentComposition.totals,
+  };
+
+  const pos = composition().toLockedPOSComposition(model);
+  const line = pos.packageLines[0];
+
+  assert.equal(line?.packageName, "Basic Package");
+  assert.equal(line?.sessionTypeName, "Regular");
+  assert.equal(line?.includedPhotoCount, 20);
+  assert.equal(line?.selectedPhotoCount, 21);
+  assert.equal(line?.extraPhotoCount, 1);
+  assert.equal(line?.extraPrintCount, 1);
+  assert.equal(line?.extraDigitalCount, 0);
+  assert.equal(
+    (line?.extraDigitalCount ?? 0) + (line?.extraPrintCount ?? 0),
+    (line?.selectedPhotoCount ?? 0) - (line?.includedPhotoCount ?? 0)
+  );
+});
+
 test("R11 operational configuration projector filters operational selections and maps input values", () => {
   const workspace = posWorkspaceFixture();
   workspace.packageLines[0]!.sessionConfigurationSummary = [
