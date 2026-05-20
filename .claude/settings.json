@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E '^\\\\| `tests/' /Users/bo3li/Desktop/lollipop-studio-os/context/reviews/r13-verification-inventory.md)",
+      "Bash(awk -F'`' '{print $2}')",
+      "Bash(awk -F'\"' '{print $2}')"
+    ]
+  }
+}
