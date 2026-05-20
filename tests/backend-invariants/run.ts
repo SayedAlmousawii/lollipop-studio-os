@@ -42,6 +42,28 @@ async function main() {
     const { runDuplicateBookingPackageInvariantTest } = await import(
       "./duplicate-booking-package.invariant"
     );
+    // Workflow smoke
+    const { runBookingConfirmationCheckinSmokeTest } = await import(
+      "./booking-confirmation-checkin.smoke"
+    );
+    const { runDeliveryPickupSmokeTest } = await import(
+      "./delivery-pickup.smoke"
+    );
+    const { runEditingStartGateSmokeTest } = await import(
+      "./editing-start-gate.smoke"
+    );
+    const { runEndToEndStudioWalkthroughSmokeTest } = await import(
+      "./end-to-end-studio-walkthrough.smoke"
+    );
+    const { runLockedAdjustmentSmokeTest } = await import(
+      "./locked-adjustment.smoke"
+    );
+    const { runPOSInvoicePaymentSmokeTest } = await import(
+      "./pos-invoice-payment.smoke"
+    );
+    const { runProductionReadinessSmokeTest } = await import(
+      "./production-readiness.smoke"
+    );
     const { runPhaseAFinancialArchitectureVerification } = await import(
       "../financial-phase-a/run"
     );
@@ -74,6 +96,13 @@ async function main() {
     await runCalendarSessionTypeDisplayInvariantTest();
     await runScopedAddOnDeleteInvariantTest();
     await runDuplicateBookingPackageInvariantTest();
+    await runBookingConfirmationCheckinSmokeTest(databaseUrl);
+    await runDeliveryPickupSmokeTest(databaseUrl);
+    await runEditingStartGateSmokeTest(databaseUrl);
+    await runEndToEndStudioWalkthroughSmokeTest(databaseUrl);
+    await runLockedAdjustmentSmokeTest(databaseUrl);
+    await runPOSInvoicePaymentSmokeTest(databaseUrl);
+    await runProductionReadinessSmokeTest(databaseUrl);
     await runPhaseGFinancialReconciliation(db);
   });
 
