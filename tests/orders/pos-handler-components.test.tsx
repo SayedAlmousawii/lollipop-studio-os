@@ -196,6 +196,77 @@ test("R8b POS add-on marketplace renders current add-ons and catalog badges from
   });
 });
 
+test("POS add-on marketplace quick actions use add-on catalog options", async () => {
+  await withPOSComponentStubs(async () => {
+    const { POSAddOnMarketplace } = await loadAddOnComponents();
+    const workspace = {
+      ...buildPOSWorkspaceFixture(),
+      productOptions: [],
+      addOnCatalog: [
+        {
+          id: "addon-canvas-quick",
+          name: "Canvas Quick Add",
+          category: "CANVAS",
+          price: 25,
+          priceLabel: "25.000 KD",
+        },
+      ],
+    };
+    const handlers = {
+      addAddOn: async () => ({ ok: true }),
+      removeAddOn: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSAddOnHandlers;
+
+    const markup = renderToStaticMarkup(
+      createElement(POSAddOnMarketplace, {
+        workspace,
+        marketplace: toPOSAddOnMarketplace(buildDraftPOSCompositionFixture(workspace)),
+        handlers,
+        editPolicies: buildAddOnPolicies(workspace),
+      })
+    );
+
+    assert.equal(quickActionButtonIsDisabled(markup, "Add Canvas"), false);
+    assert.equal(quickActionButtonIsDisabled(markup, "Add Album"), true);
+  });
+});
+
+test("POS add-on marketplace quick actions stay interactive in adjustment mode", async () => {
+  await withPOSComponentStubs(async () => {
+    const { POSAddOnMarketplace } = await loadAddOnComponents();
+    const workspace = {
+      ...lockedPOSWorkspaceFixture(),
+      productOptions: [],
+      addOnCatalog: [
+        {
+          id: "addon-album-adjustment",
+          name: "Album Adjustment Add-On",
+          category: "ALBUM",
+          price: 45,
+          priceLabel: "45.000 KD",
+        },
+      ],
+    };
+    const handlers = {
+      addAddOn: async () => ({ ok: true }),
+      removeAddOn: async () => ({ ok: true }),
+      shouldPromptInlineApproval: false,
+    } satisfies POSAddOnHandlers;
+
+    const markup = renderToStaticMarkup(
+      createElement(POSAddOnMarketplace, {
+        workspace,
+        marketplace: toPOSAddOnMarketplace(buildDraftPOSCompositionFixture(workspace)),
+        handlers,
+        editPolicies: buildAddOnPolicies(workspace, "adjustment"),
+      })
+    );
+
+    assert.equal(quickActionButtonIsDisabled(markup, "Add Album"), false);
+  });
+});
+
 test("R8b POS add-on marketplace keeps empty catalog and current-row empty states", async () => {
   await withPOSComponentStubs(async () => {
     const { POSAddOnMarketplace } = await loadAddOnComponents();
@@ -486,6 +557,18 @@ function buildAddOnPolicies(
       persistenceContext,
     })
   );
+}
+
+function quickActionButtonIsDisabled(markup: string, label: string): boolean {
+  const buttons = markup.matchAll(/<button(?<attrs>[^>]*)>(?<body>.*?)<\/button>/gs);
+  for (const button of buttons) {
+    const attrs = button.groups?.attrs ?? "";
+    const bodyText = (button.groups?.body ?? "").replace(/<[^>]*>/g, "");
+    if (bodyText.includes(label)) {
+      return /\sdisabled(?:=""|=|\s)/.test(attrs);
+    }
+  }
+  assert.fail(`Expected to find quick action button: ${label}`);
 }
 
 async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> {
