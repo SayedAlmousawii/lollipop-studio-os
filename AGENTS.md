@@ -48,3 +48,5 @@ Do NOT read all project docs. Only read what is needed for the current task.
 ## Git
 - Read `context/git-conventions.md` before any commit or PR.
 - Follow it for all commits, PR titles, and branch rules.
+- **Never push to `main` or `development` directly.** All AI work happens on a `spec/<NN>-<slug>` branch cut from `development`. The user reviews and merges.
+- Before committing, verify the current branch is a `spec/*` branch. If it isn't, stop and ask.
