@@ -86,8 +86,6 @@ export interface OrderDetail extends Order {
   sessionDateTime: string;
   sessionType: string;
   selectedPhotoCount: string;
-  includedPhotoCount: string;
-  extraPhotoCount: string;
   addonsSummary: string;
   packageItems: PackageItemDisplay[];
   packageLines: OrderPackageLineDisplay[];

@@ -20,6 +20,7 @@ const financialStatusStyles: Record<FinancialCasePaymentStatus, string> = {
   UNPAID: "bg-danger-soft text-danger",
   PARTIAL: "bg-warning-soft text-warning",
   PAID: "bg-success-soft text-success",
+  OVERRIDDEN: "bg-warning-soft text-warning",
   OVERPAID: "bg-warning-soft text-warning",
   REFUNDED: "bg-info-soft text-info",
 };

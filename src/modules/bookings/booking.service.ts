@@ -1522,10 +1522,7 @@ function mapEditableBooking(
 function mapBookingDetail(
   row: NonNullable<Awaited<ReturnType<typeof fetchEditableBookingById>>>
 ): BookingDetail {
-  const depositInvoices = dedupeAndSortDepositInvoices([
-    ...row.invoices,
-    ...(row.financialCase?.invoices ?? []),
-  ]);
+  const depositInvoices = row.financialCase?.invoices ?? [];
   const hasDeposit = hasDepositPayment(depositInvoices);
   const depositInvoice = depositInvoices[0] ?? null;
   const packageSummaries = mapBookingPackages(row.packages);
@@ -1641,22 +1638,6 @@ function hasDepositPayment(
     | undefined
 ): boolean {
   return invoices?.some((invoice) => (invoice.payments?.length ?? 0) > 0) ?? false;
-}
-
-function dedupeAndSortDepositInvoices<
-  T extends { id: string; createdAt: Date; payments?: Array<{ id: string }> }
->(invoices: T[]): T[] {
-  return Array.from(
-    invoices.reduce((map, invoice) => {
-      const existing = map.get(invoice.id);
-      if (!existing || existing.createdAt < invoice.createdAt) {
-        map.set(invoice.id, invoice);
-      }
-      return map;
-    }, new Map<string, T>())
-  )
-    .map(([, invoice]) => invoice)
-    .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
 }
 
 function formatInputDate(date: Date): string {

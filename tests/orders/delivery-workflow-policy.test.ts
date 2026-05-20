@@ -115,7 +115,12 @@ test("R10d delivery policy treats paid and overpaid summaries as settled", () =>
 });
 
 test("R10d delivery policy requires override for unsettled canonical payment statuses", () => {
-  for (const paymentStatusEnum of ["UNPAID", "PARTIAL", "REFUNDED"] as const) {
+  for (const paymentStatusEnum of [
+    "UNPAID",
+    "PARTIAL",
+    "OVERRIDDEN",
+    "REFUNDED",
+  ] as const) {
     const payment = buildDeliveryPaymentSettlementContext(
       activeSummary(paymentStatusEnum)
     );
@@ -270,7 +275,13 @@ function action(
 }
 
 function activeSummary(
-  paymentStatusEnum: "UNPAID" | "PARTIAL" | "PAID" | "OVERPAID" | "REFUNDED"
+  paymentStatusEnum:
+    | "UNPAID"
+    | "PARTIAL"
+    | "PAID"
+    | "OVERRIDDEN"
+    | "OVERPAID"
+    | "REFUNDED"
 ): FinancialCaseSummary {
   return {
     stage: "active",

@@ -72,6 +72,13 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
         finalPaymentAmount: 90,
         finalRemainingAmount: 0,
       });
+      const overridden = await makeFinancialCaseSummaryOrderFixture(dbFromEnv(), {
+        suffix: "R1BOVRD",
+        finalPaymentAmount: 55,
+        finalRemainingAmount: 25,
+        finalStatus: InvoiceStatus.CLOSED,
+        finalIsLocked: true,
+      });
 
       await t.test("booking-stage projectors return null or booking shape", async () => {
         const summary = await getFinancialCaseSummary({
@@ -174,6 +181,18 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
             overpaymentCapacity: 10,
           },
         },
+        {
+          label: "overridden",
+          financialCaseId: overridden.financialCaseId,
+          expected: {
+            total: 100,
+            paid: 75,
+            remaining: 25,
+            status: "OVERRIDDEN",
+            finalLocked: true,
+            finalStatus: InvoiceStatus.CLOSED,
+          },
+        },
       ] as const;
 
       for (const activeCase of activeCases) {
@@ -250,6 +269,7 @@ test("R1b FinancialCaseSummary projectors cover booking and active stages", asyn
           assert.equal(tableRow.totalAmount, activeCase.expected.total);
           assert.equal(tableRow.paidAmount, activeCase.expected.paid);
           assert.equal(tableRow.remainingAmount, activeCase.expected.remaining);
+          assert.equal(tableRow.invoiceStatus, activeCase.expected.finalStatus);
           assert.equal(tableRow.paymentStatusEnum, activeCase.expected.status);
 
           const bookingProjection = toBookingPageFinancial(summary);

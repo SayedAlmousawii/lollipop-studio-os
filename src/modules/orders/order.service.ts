@@ -32,6 +32,7 @@ import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import { getFinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.service";
+import { mapFinancialCasePaymentStatusToLabel } from "@/modules/financial-cases/financial-case-summary.constants";
 import { getOrdersTableFinancialProjections } from "@/modules/financial-cases/orders-table-projections.service";
 import type { OrdersTableRowProjection } from "@/modules/financial-cases/projections/to-orders-table-row";
 import {
@@ -316,8 +317,17 @@ export async function getOrdersByCustomerId(
     () => fetchOrdersByCustomerId(customerId, sanitizedLimit),
     "Failed to fetch customer orders"
   );
+  const financialByOrderId = await withRetry(
+    () =>
+      getOrdersTableFinancialProjections({
+        orderIds: rows.map((row) => row.id),
+      }),
+    "Failed to fetch customer order financial projections"
+  );
 
-  return rows.map(mapCustomerOrderHistoryRow);
+  return rows.map((row) =>
+    mapCustomerOrderHistoryRow(row, financialByOrderId.get(row.id) ?? null)
+  );
 }
 
 export async function getOrderFilterEditorOptions(): Promise<OrderEditorOption[]> {
@@ -825,8 +835,6 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
       packageItems: mapPackageItemDisplays(line.package.items),
     };
   });
-  const includedPhotoCount =
-    packageLines.reduce((sum, line) => sum + line.includedPhotoCount, 0) || null;
   const selectedPhotoCount = getOrderTotalSelectedPhotoCount(row.packages) || null;
   const editingStatus = row.editingJob?.status ?? OrderEditingStatus.NOT_STARTED;
   const productionStatus = row.productionJob?.status ?? resolveDefaultProductionStatus(editingStatus);
@@ -846,11 +854,6 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
     sessionDateTime: formatDateTime(row.booking.sessionDate),
     sessionType: row.packages[0]?.sessionType.name ?? "—",
     selectedPhotoCount: formatCount(selectedPhotoCount),
-    includedPhotoCount: formatCount(includedPhotoCount),
-    extraPhotoCount:
-      selectedPhotoCount !== null && includedPhotoCount !== null
-        ? String(Math.max(selectedPhotoCount - includedPhotoCount, 0))
-        : "—",
     addonsSummary: formatAddOnsSummary(
       mapStructuredAddOns(
         combineFinancialAddOnRows(row.orderAddOns, row.packageItemUpgrades)
@@ -3043,11 +3046,6 @@ function mapOrderRow(
   row: OrderRow | OrderDetailRow,
   financial: OrdersTableRowProjection | null = null
 ): Order {
-  const invoiceSummary = summarizeInvoices(row.invoices);
-  const settlementSummary = computeOrderSettlementSummary({
-    invoices: getOrderSettlementInvoices(row),
-  });
-
   return {
     id: row.id,
     jobNumber: row.jobNumber,
@@ -3056,11 +3054,13 @@ function mapOrderRow(
     originalPackageName: formatOrderPackageNames(row.packages),
     finalPackageName: formatOrderPackageNames(row.packages),
     orderStatus: mapOrderStatus(row.status),
-    invoiceStatus: invoiceSummary.status,
-    paymentStatus: invoiceSummary.paymentStatus,
-    totalAmount: formatMoney(new Prisma.Decimal(settlementSummary.totalOrderValue)),
-    paidAmount: formatMoney(new Prisma.Decimal(settlementSummary.paidAmount)),
-    remainingAmount: formatMoney(new Prisma.Decimal(settlementSummary.outstandingAmount)),
+    invoiceStatus: financial ? mapInvoiceStatus(financial.invoiceStatus) : "No Invoice",
+    paymentStatus: financial
+      ? mapFinancialCasePaymentStatusToLabel(financial.paymentStatusEnum)
+      : "Pending",
+    totalAmount: formatMoney(new Prisma.Decimal(financial?.totalAmount ?? 0)),
+    paidAmount: formatMoney(new Prisma.Decimal(financial?.paidAmount ?? 0)),
+    remainingAmount: formatMoney(new Prisma.Decimal(financial?.remainingAmount ?? 0)),
     financial,
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
@@ -3068,24 +3068,6 @@ function mapOrderRow(
     hasOpenAdjustmentWorkspace:
       "adjustmentWorkspaces" in row && row.adjustmentWorkspaces.length > 0,
   };
-}
-
-function getOrderSettlementInvoices(
-  row: OrderRow | OrderDetailRow
-): Array<{
-  invoiceType: InvoiceType;
-  totalAmount: Prisma.Decimal;
-  remainingAmount: Prisma.Decimal;
-}> {
-  if (
-    "financialCase" in row.booking &&
-    row.booking.financialCase?.invoices &&
-    row.booking.financialCase.invoices.length > 0
-  ) {
-    return row.booking.financialCase.invoices;
-  }
-
-  return row.invoices;
 }
 
 type CustomerOrderHistoryRow = Awaited<ReturnType<typeof fetchOrdersByCustomerId>>[number];
@@ -3098,55 +3080,19 @@ function formatOrderPackageNames(
 }
 
 function mapCustomerOrderHistoryRow(
-  row: CustomerOrderHistoryRow
+  row: CustomerOrderHistoryRow,
+  financial: OrdersTableRowProjection | null = null
 ): CustomerOrderHistoryItem {
-  const invoiceSummary = summarizeInvoices(row.invoices);
-
   return {
     id: row.id,
     jobNumber: row.jobNumber,
     sessionDate: formatDate(row.booking.sessionDate),
     packageName: formatOrderPackageNames(row.packages),
     orderStatus: mapOrderStatus(row.status),
-    invoiceStatus: invoiceSummary.status,
-    paymentStatus: invoiceSummary.paymentStatus,
-  };
-}
-
-type InvoiceSummaryRow = Array<{
-  invoiceType: InvoiceType;
-  totalAmount: Prisma.Decimal;
-  paidAmount: Prisma.Decimal;
-  remainingAmount: Prisma.Decimal;
-  status: InvoiceStatus;
-}>;
-
-function summarizeInvoices(invoices: InvoiceSummaryRow): {
-  totalAmount: Prisma.Decimal;
-  paidAmount: Prisma.Decimal;
-  remainingAmount: Prisma.Decimal;
-  status: InvoiceStatusLabel;
-  paymentStatus: OrderPaymentStatusLabel;
-} {
-  const totalAmount = invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.totalAmount),
-    zeroMoney()
-  );
-  const paidAmount = invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.paidAmount),
-    zeroMoney()
-  );
-  const remainingAmount = invoices.reduce(
-    (sum, invoice) => sum.plus(invoice.remainingAmount),
-    zeroMoney()
-  );
-
-  return {
-    totalAmount,
-    paidAmount,
-    remainingAmount,
-    status: invoices[0] ? mapInvoiceStatus(invoices[0].status) : "No Invoice",
-    paymentStatus: mapPaymentStatus(invoices, totalAmount, paidAmount, remainingAmount),
+    invoiceStatus: financial ? mapInvoiceStatus(financial.invoiceStatus) : "No Invoice",
+    paymentStatus: financial
+      ? mapFinancialCasePaymentStatusToLabel(financial.paymentStatusEnum)
+      : "Pending",
   };
 }
 
@@ -3186,27 +3132,6 @@ function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {
     case InvoiceStatus.CLOSED:
       return "Closed";
   }
-}
-
-function mapPaymentStatus(
-  invoices: InvoiceSummaryRow,
-  totalAmount: Prisma.Decimal,
-  paidAmount: Prisma.Decimal,
-  remainingAmount: Prisma.Decimal
-): OrderPaymentStatusLabel {
-  if (invoices.some((invoice) => invoice.status === InvoiceStatus.CLOSED && remainingAmount.gt(0))) {
-    return "Overridden";
-  }
-  if (invoices.length === 0) {
-    return "Pending";
-  }
-  if (totalAmount.gt(0) && remainingAmount.lte(0)) {
-    return "Paid";
-  }
-  if (paidAmount.lte(0)) {
-    return "Pending";
-  }
-  return "Partially paid";
 }
 
 function sanitizeCustomerOrderHistoryLimit(limit: number): number {

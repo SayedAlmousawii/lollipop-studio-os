@@ -5,6 +5,7 @@ export type FinancialCasePaymentStatus =
   | "UNPAID"
   | "PARTIAL"
   | "PAID"
+  | "OVERRIDDEN"
   | "OVERPAID"
   | "REFUNDED";
 
