@@ -3204,7 +3204,7 @@ function resolveNextOrderAction(input: {
     return "Create the order invoice";
   }
   if (input.orderStatus === "Active") {
-    return "Record base payment on booking to begin selection";
+    return "Record deposit on booking to begin selection";
   }
   if (input.paymentStatus !== "Paid" && input.paymentStatus !== "Overridden") {
     return "Review invoice payment";

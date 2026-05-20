@@ -50,6 +50,7 @@ test("POS reductive actions surface and confirm manager approval", async () => {
     if (request === "@/modules/orders/order.service") {
       return {
         getPOSWorkspace: async () => null,
+        OrderAddOnOwnedBySessionConfigurationError: class OrderAddOnOwnedBySessionConfigurationError extends Error {},
         addOrderProductAddOn: async () => undefined,
         updateOrderPackage: async () => undefined,
         updateOrderSelectedPhotoCount: async () => undefined,

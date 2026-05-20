@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 
 const files = [
+  "tests/architecture/deposit-terminology.test.ts",
   "tests/architecture/financial-case-read-layer-cleanup.test.ts",
   "tests/architecture/service-only-db-access.test.ts",
   "tests/bookings/booking-financial-section.test.tsx",
@@ -16,8 +17,11 @@ const files = [
   "tests/formatting/money.test.ts",
   "tests/orders/canonical-balance-display.test.ts",
   "tests/orders/centralization-cleanup.test.ts",
+  "tests/orders/commercial-actions-add-on-catalog-parity.test.tsx",
   "tests/orders/customer-order-history-projection.test.ts",
   "tests/orders/delivery-workflow-policy.test.ts",
+  "tests/orders/deposit-terminology-render.test.tsx",
+  "tests/orders/edit-mode-interactivity-parity.test.tsx",
   "tests/orders/editing-workflow-policy.test.ts",
   "tests/orders/financial-sidebar-adjustment.test.tsx",
   "tests/orders/financial-sidebar-draft.test.tsx",
@@ -31,10 +35,12 @@ const files = [
   "tests/orders/pos-handler-components.test.tsx",
   "tests/orders/production-workflow-policy.test.ts",
   "tests/orders/settlement-summary.test.ts",
+  "tests/integration/pos-reductive-approval.test.ts",
   "tests/adjustment-workspace/edit-mode-policy-action.test.ts",
   "tests/adjustment-workspace/finalize-integration.test.ts",
   "tests/adjustment-workspace/net-delta.test.ts",
   "tests/adjustment-workspace/pending-changes-view.test.ts",
+  "tests/adjustment-workspace/selected-photo-baseline-parity.test.ts",
 ];
 
 const result = spawnSync(

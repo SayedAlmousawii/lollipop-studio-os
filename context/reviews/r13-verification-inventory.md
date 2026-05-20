@@ -10,6 +10,7 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 
 | Path | Category | Scope summary | Reachability today | R13 wiring decision |
 |---|---|---|---|---|
+| `tests/architecture/deposit-terminology.test.ts` | Architecture Guards | Guards production user-visible source strings against reintroducing "base payment" terminology after the deposit cleanup. | none | centralization-gate |
 | `tests/architecture/financial-case-read-layer-cleanup.test.ts` | Architecture Guards | Guards against reintroducing temporary FinancialCase parity/discrepancy code, impure projectors, and the legacy order financial summary shim. | none | centralization-gate |
 | `tests/architecture/service-only-db-access.test.ts` | Architecture Guards | Asserts app and component production files do not import the Prisma DB client. | none | centralization-gate |
 | `tests/orders/centralization-cleanup.test.ts` | Architecture Guards | Asserts R12 legacy helper declarations and aggregate OrderDetail photo-count fields stay removed. | none | centralization-gate |
@@ -73,7 +74,9 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 | Path | Category | Scope summary | Reachability today | R13 wiring decision |
 |---|---|---|---|---|
 | `tests/orders/canonical-balance-display.test.ts` | Orders / Projections | Asserts order POS and editing gates consume canonical invoice balances. | none | centralization-gate |
+| `tests/orders/commercial-actions-add-on-catalog-parity.test.tsx` | Orders / Projections | Guards Commercial Actions and Add-On Marketplace rendering against the projected add-on catalog state, duplicate counts, and removal targets. | none | centralization-gate |
 | `tests/orders/customer-order-history-projection.test.ts` | Orders / Projections | Asserts customer order history reads invoice and payment status from projections. | none | centralization-gate |
+| `tests/orders/deposit-terminology-render.test.tsx` | Orders / Projections | Guards the editing workflow unpaid-start render path so it says "deposit" and never "base payment". | none | centralization-gate |
 | `tests/orders/financial-sidebar-adjustment.test.tsx` | Orders / Projections | Guards Adjustment Workspace financial sidebar rendering and labels. | none | centralization-gate |
 | `tests/orders/financial-sidebar-draft.test.tsx` | Orders / Projections | Guards draft financial sidebar rendering through projected financial data. | none | centralization-gate |
 | `tests/orders/financial-sidebar-locked.test.tsx` | Orders / Projections | Guards locked financial sidebar sections, sanitized labels, and adjustment workspace action source. | none | centralization-gate |
@@ -106,6 +109,7 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 | `tests/adjustment-workspace/finalize-integration.test.ts` | Adjustment Workspace | Guards workspace finalization, staged POS projection, selected-photo baselines, operational edits, and handler behavior. | none | centralization-gate |
 | `tests/adjustment-workspace/net-delta.test.ts` | Adjustment Workspace | Guards pending-change parsing, session configuration deltas, approval rules, package/photo/add-on edit semantics, and no-op normalization. | none | centralization-gate |
 | `tests/adjustment-workspace/pending-changes-view.test.ts` | Adjustment Workspace | Guards pending-change rows for package swaps and staged POS edit types. | none | centralization-gate |
+| `tests/adjustment-workspace/selected-photo-baseline-parity.test.ts` | Adjustment Workspace | Guards selected-photo baseline parity between Adjustment Workspace staged/finalized snapshots and the composition POS projection. | none | centralization-gate |
 
 ## Edit-Mode / Workflow Policies
 
@@ -114,6 +118,7 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 | `tests/adjustment-workspace/edit-mode-policy-action.test.ts` | Edit-Mode / Workflow Policies | Guards staged workspace edits using the shared locked workspace guard message. | none | centralization-gate |
 | `tests/bookings/booking-workflow-policy.test.ts` | Edit-Mode / Workflow Policies | Guards booking workflow policy actions, terminal states, transition guards, and policy-owned rendering. | none | centralization-gate |
 | `tests/orders/delivery-workflow-policy.test.ts` | Edit-Mode / Workflow Policies | Guards delivery workflow actions, readiness blockers, canonical settlement, and policy ownership. | none | centralization-gate |
+| `tests/orders/edit-mode-interactivity-parity.test.tsx` | Edit-Mode / Workflow Policies | Render-verifies locked vs Adjustment Workspace POS controls follow the centralized edit-mode interactivity policy. | none | centralization-gate |
 | `tests/orders/editing-workflow-policy.test.ts` | Edit-Mode / Workflow Policies | Guards editing workflow action matrix, start blockers, guard messages, and policy-owned rendering. | none | centralization-gate |
 | `tests/orders/order-edit-mode-policy.test.ts` | Edit-Mode / Workflow Policies | Guards draft, locked, adjustment, open-workspace, and delivered-order edit-mode routing. | none | centralization-gate |
 | `tests/orders/production-workflow-policy.test.ts` | Edit-Mode / Workflow Policies | Guards production workflow actions, section labels, readiness blockers, and policy-owned rendering. | none | centralization-gate |
@@ -143,7 +148,7 @@ R13 wiring decisions: `centralization-gate`, `existing-script`, `out-of-scope-fo
 |---|---|---|---|---|
 | `tests/fixtures/actor.ts` | Other Backend Invariants | Shared actor fixture helpers. | none | out-of-scope-for-R13 |
 | `tests/fixtures/financial.ts` | Other Backend Invariants | Shared financial fixture helpers. | none | out-of-scope-for-R13 |
-| `tests/integration/pos-reductive-approval.test.ts` | Other Backend Invariants | Guards POS reductive manager-approval surfacing and credit-note approval line rendering. | none | out-of-scope-for-R13 |
+| `tests/integration/pos-reductive-approval.test.ts` | Other Backend Invariants | Guards POS reductive manager-approval surfacing and credit-note approval line rendering; R13b fixed a stale service-stub harness mismatch and moved it into the gate. | none | centralization-gate |
 | `tests/pricing/extra-photo-pricing-action.test.ts` | Other Backend Invariants | Guards extra-photo pricing action authorization and updates. | none | out-of-scope-for-R13 |
 | `tests/pricing/extra-photo-pricing-service.test.ts` | Other Backend Invariants | Guards extra-photo pricing service listing, validation, authorization, persistence, and missing-row behavior. | none | out-of-scope-for-R13 |
 | `tests/session-configurations/configure-session-action.test.ts` | Other Backend Invariants | Guards configure-session action JSON parsing and locked error mapping. | none | out-of-scope-for-R13 |

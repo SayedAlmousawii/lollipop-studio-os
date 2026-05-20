@@ -23,18 +23,18 @@ This is the canonical R13 freeze gate checklist. The source-of-truth matrix is `
 ## Parity Verification Areas
 
 - Financial totals/statuses for draft, locked, locked+adjusted, credit-noted, refunded, overpaid, overridden, and no-final-invoice states — covered by `tests/financial/financial-case-summary/summary-core.test.ts`, `tests/financial/financial-case-summary/projection-parity.test.ts`, `tests/financial/financial-case-summary/projection-parity-r1b.test.ts`, and `tests/financial/financial-case-payment-status.test.ts`.
-- Orders table and customer history invoice/payment status labels — covered by `tests/orders/orders-table.test.tsx` and `tests/orders/customer-order-history-projection.test.ts`.
+- Orders table and customer history invoice/payment status labels — covered by `tests/orders/orders-table.test.tsx` and `tests/orders/customer-order-history-projection.test.ts`; R13c candidate — broader cross-surface financial parity matrix.
 - Booking-stage financial display — covered by `tests/bookings/booking-financial-section.test.tsx` and `tests/financial/financial-case-summary/projection-parity-r1b.test.ts`.
 - Payment dialog / invoice-list financial context — covered by `tests/financial/financial-case-summary/projection-parity-r1b.test.ts`.
 - Draft POS package/add-on/session-configuration totals — covered by `tests/orders/order-composition-view-model.test.ts`, `tests/orders/financial-sidebar-draft.test.tsx`, and `tests/orders/pos-handler-components.test.tsx`.
 - Locked POS current composition — covered by `tests/orders/order-composition-view-model.test.ts`, `tests/orders/financial-sidebar-locked.test.tsx`, and `tests/composition-view/current-composition-card.test.tsx`.
-- Adjustment Workspace current composition and pending preview — covered by `tests/adjustment-workspace/finalize-integration.test.ts`, `tests/adjustment-workspace/net-delta.test.ts`, and `tests/adjustment-workspace/pending-changes-view.test.ts`.
-- Selected-photo included baseline, selected count, digital/print extra split, and extra-photo total — covered by `tests/orders/order-composition-view-model.test.ts` and `tests/adjustment-workspace/finalize-integration.test.ts`.
-- Add-on marketplace current rows, duplicate counts, "Added" state, empty states, and removal target behavior — covered by `tests/orders/pos-handler-components.test.tsx` and `tests/orders/order-composition-view-model.test.ts`.
-- Edit-mode policy routing for locked financial edits, locked operational edits, open-workspace edits, delivered-order blocks, and adjustment-mode staging — covered by `tests/orders/order-edit-mode-policy.test.ts` and `tests/adjustment-workspace/edit-mode-policy-action.test.ts`.
-- Booking, editing, production, and delivery workflow action availability and blockers — covered by `tests/bookings/booking-workflow-policy.test.ts`, `tests/orders/editing-workflow-policy.test.ts`, `tests/orders/production-workflow-policy.test.ts`, and `tests/orders/delivery-workflow-policy.test.ts`.
+- Adjustment Workspace current composition and pending preview — covered by `tests/adjustment-workspace/finalize-integration.test.ts`, `tests/adjustment-workspace/net-delta.test.ts`, and `tests/adjustment-workspace/pending-changes-view.test.ts`; R13c candidate — broader Adjustment Workspace package/session metadata cross-projector matrix.
+- Selected-photo included baseline, selected count, digital/print extra split, and extra-photo total — covered by `tests/orders/order-composition-view-model.test.ts`, `tests/adjustment-workspace/finalize-integration.test.ts`, and `tests/adjustment-workspace/selected-photo-baseline-parity.test.ts`.
+- Add-on marketplace current rows, duplicate counts, "Added" state, empty states, and removal target behavior — covered by `tests/orders/pos-handler-components.test.tsx`, `tests/orders/order-composition-view-model.test.ts`, and `tests/orders/commercial-actions-add-on-catalog-parity.test.tsx`.
+- Edit-mode policy routing for locked financial edits, locked operational edits, open-workspace edits, delivered-order blocks, and adjustment-mode staging — covered by `tests/orders/order-edit-mode-policy.test.ts`, `tests/adjustment-workspace/edit-mode-policy-action.test.ts`, and `tests/orders/edit-mode-interactivity-parity.test.tsx`.
+- Booking, editing, production, and delivery workflow action availability and blockers — covered by `tests/bookings/booking-workflow-policy.test.ts`, `tests/orders/editing-workflow-policy.test.ts`, `tests/orders/production-workflow-policy.test.ts`, and `tests/orders/delivery-workflow-policy.test.ts`; R13c candidate — broader cross-policy workflow action availability matrix.
 - Delivery payment settlement from `FinancialCaseSummary` — covered by `tests/orders/delivery-workflow-policy.test.ts`.
-- Terminology cleanup such as "Base payment" -> "deposit", where intentional — no dedicated automated assertion in the inventory; R13b candidate.
+- Terminology cleanup such as "Base payment" -> "deposit", where intentional — covered by `tests/architecture/deposit-terminology.test.ts` and `tests/orders/deposit-terminology-render.test.tsx`.
 
 ## Manual QA (R13d)
 
