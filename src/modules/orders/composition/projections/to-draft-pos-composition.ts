@@ -107,6 +107,10 @@ export function toPOSCompositionProjection(
     );
     const includedPhotoCount = line.includedPhotoCount;
     const extraPhotoCount = extraDigitalCount + extraPrintCount;
+    const selectedPhotoCount = Math.max(
+      line.selectedPhotoCount,
+      includedPhotoCount + extraPhotoCount
+    );
 
     return {
       id: line.id,
@@ -117,10 +121,7 @@ export function toPOSCompositionProjection(
       sessionTypeId: line.sessionTypeId ?? null,
       sessionTypeName: line.sessionTypeName ?? null,
       includedPhotoCount,
-      selectedPhotoCount:
-        line.selectedPhotoCount > 0
-          ? line.selectedPhotoCount
-          : includedPhotoCount + extraPhotoCount,
+      selectedPhotoCount,
       extraDigitalCount,
       extraPrintCount,
       extraPhotoCount,

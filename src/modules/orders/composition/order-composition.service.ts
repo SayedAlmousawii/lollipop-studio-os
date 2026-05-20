@@ -226,7 +226,7 @@ export function buildCompositionSnapshotFromAdjustmentSnapshot(
   );
   const packageLines = lines
     .filter((line) => line.metadata.displayKind === "package")
-    .map(toCompositionPackageLine);
+    .map((line) => toCompositionPackageLine(line, options));
   const deliverables = lines.filter(
     (line) => line.metadata.sourceKind === "packageItem"
   );
@@ -436,6 +436,9 @@ function metadataForAdjustmentLine(
       ? { orderAddOnId: line.refMetadata.orderAddOnId }
       : {}),
     ...(line.kind === "package" ? { packageId: line.refId } : {}),
+    ...(line.kind === "package"
+      ? packagePhotoMetadataForAdjustmentLine(line)
+      : {}),
     ...(line.kind === "addon" ? { productId: line.refId } : {}),
     ...(sourceKind === "extraPhoto" ? { mediaType: mediaTypeFromLineId(line.lineId) } : {}),
     adjustmentLineId: line.lineId,
@@ -695,7 +698,7 @@ async function loadMetadataContextForEdits(
     }),
     db.package.findMany({
       where: { id: { in: packageIds } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, photoCount: true },
     }),
     db.packageItem.findMany({
       where: { id: { in: packageItemIds } },
@@ -726,13 +729,27 @@ async function loadMetadataContextForEdits(
   };
 }
 
-function toCompositionPackageLine(line: CompositionLine): CompositionPackageLine {
+function toCompositionPackageLine(
+  line: CompositionLine,
+  options: AdjustmentSnapshotOptions = {}
+): CompositionPackageLine {
+  const packagePhotoCount =
+    options.metadataContext?.packages?.get(line.metadata.packageId ?? "")?.photoCount ??
+    options.metadataContext?.packages?.get(String(line.metadata.sourceRefId ?? ""))
+      ?.photoCount;
+  const includedPhotoCount =
+    line.metadata.includedPhotoCount ?? packagePhotoCount ?? 0;
+  const selectedPhotoCount =
+    line.metadata.selectedPhotoCount ?? includedPhotoCount;
+
   return {
     ...line,
     orderPackageId: line.metadata.orderPackageId ?? line.id,
     packageId: line.metadata.packageId ?? String(line.metadata.sourceRefId ?? line.id),
-    includedPhotoCount: 0,
-    selectedPhotoCount: 0,
+    sessionTypeId: line.metadata.sessionTypeId,
+    sessionTypeName: line.metadata.sessionTypeName,
+    includedPhotoCount,
+    selectedPhotoCount,
     extraDigitalCount: 0,
     extraPrintCount: 0,
     extraPhotoCount: 0,
@@ -756,9 +773,45 @@ function applyPOSPhotoUnitPrices(
     ...snapshot,
     packageLines: snapshot.packageLines.map((line) => {
       const source = lineByOrderPackageId.get(line.orderPackageId);
-      if (!source) return line;
+      const extraPhotos = snapshot.extraPhotos.filter(
+        (extraPhoto) => extraPhoto.orderPackageId === line.orderPackageId
+      );
+      const extraDigitalCount = extraPhotos
+        .filter((extraPhoto) => extraPhoto.mediaType === MediaType.DIGITAL)
+        .reduce((sum, extraPhoto) => sum + extraPhoto.quantity, 0);
+      const extraPrintCount = extraPhotos
+        .filter((extraPhoto) => extraPhoto.mediaType === MediaType.PRINT)
+        .reduce((sum, extraPhoto) => sum + extraPhoto.quantity, 0);
+      const extraPhotoCount = extraDigitalCount + extraPrintCount;
+      const includedPhotoCount =
+        line.includedPhotoCount > 0
+          ? line.includedPhotoCount
+          : source?.includedPhotoCount ?? 0;
+      const selectedPhotoCount =
+        extraPhotoCount > 0
+          ? includedPhotoCount + extraPhotoCount
+          : line.selectedPhotoCount > 0
+            ? line.selectedPhotoCount
+            : source?.selectedPhotoCount ?? includedPhotoCount;
+      if (!source) {
+        return {
+          ...line,
+          includedPhotoCount,
+          selectedPhotoCount,
+          extraDigitalCount,
+          extraPrintCount,
+          extraPhotoCount,
+        };
+      }
       return {
         ...line,
+        sessionTypeId: line.sessionTypeId ?? source.sessionTypeId,
+        sessionTypeName: line.sessionTypeName ?? source.sessionTypeName,
+        includedPhotoCount,
+        selectedPhotoCount,
+        extraDigitalCount,
+        extraPrintCount,
+        extraPhotoCount,
         extraDigitalUnitPrice: source.extraDigitalUnitPrice,
         extraPrintUnitPrice: source.extraPrintUnitPrice,
       };
@@ -783,6 +836,22 @@ function toCompositionSessionConfigurationLine(
     ...line,
     orderPackageId: line.metadata.orderPackageId,
     configurationId: line.metadata.configurationId,
+  };
+}
+
+function packagePhotoMetadataForAdjustmentLine(
+  line: AdjustmentCompositionLine
+): Partial<CompositionDisplayMetadata> {
+  const metadata = line.refMetadata;
+  return {
+    ...(typeof metadata?.includedPhotoCount === "number"
+      ? { includedPhotoCount: metadata.includedPhotoCount }
+      : {}),
+    ...(typeof metadata?.selectedPhotoCount === "number"
+      ? { selectedPhotoCount: metadata.selectedPhotoCount }
+      : {}),
+    ...(metadata?.sessionTypeId ? { sessionTypeId: metadata.sessionTypeId } : {}),
+    ...(metadata?.sessionTypeName ? { sessionTypeName: metadata.sessionTypeName } : {}),
   };
 }
 
@@ -892,11 +961,7 @@ function selectedPhotoCountFromBase(
 function selectedPhotoCountFromMetadata(
   line: AdjustmentCompositionLine | undefined
 ): string | undefined {
-  const metadata = line?.refMetadata as
-    | (AdjustmentCompositionLine["refMetadata"] & {
-        selectedPhotoCount?: unknown;
-      })
-    | undefined;
+  const metadata = line?.refMetadata as Record<string, unknown> | undefined;
   const selectedPhotoCount = metadata?.selectedPhotoCount;
   if (typeof selectedPhotoCount === "number") return String(selectedPhotoCount);
   if (typeof selectedPhotoCount === "string" && selectedPhotoCount.trim()) {

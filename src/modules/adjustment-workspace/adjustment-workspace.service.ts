@@ -900,10 +900,19 @@ export async function computeWorkspaceProposal(
       const packageRow = catalog.packages.get(edit.toPackageRefId);
       if (!packageRow) throw new Error("Package swap is not available");
       if (!existing) continue;
+      const includedPhotoCount = packageRow.photoCount ?? 0;
       const replacement = makeLine({
         lineId: existing.lineId,
         kind: "package",
         refId: packageRow.id,
+        refMetadata: {
+          ...existing.refMetadata,
+          includedPhotoCount,
+          selectedPhotoCount: Math.max(
+            existing.refMetadata?.selectedPhotoCount ?? includedPhotoCount,
+            includedPhotoCount
+          ),
+        },
         label: packageRow.name,
         quantity: existing.quantity,
         unitPrice: packageRow.price,
@@ -966,10 +975,19 @@ export async function computeWorkspaceProposal(
       const packageRow = catalog.packages.get(edit.toPackageRefId);
       if (!packageRow) throw new Error("Package tier change is not available");
       if (!existing) continue;
+      const includedPhotoCount = packageRow.photoCount ?? 0;
       const replacement = makeLine({
         lineId: existing.lineId,
         kind: "package",
         refId: packageRow.id,
+        refMetadata: {
+          ...existing.refMetadata,
+          includedPhotoCount,
+          selectedPhotoCount: Math.max(
+            existing.refMetadata?.selectedPhotoCount ?? includedPhotoCount,
+            includedPhotoCount
+          ),
+        },
         label: packageRow.name,
         quantity: existing.quantity,
         unitPrice: packageRow.price,
@@ -1379,6 +1397,7 @@ async function captureCurrentOrderComposition(
               orderAddOnId: true,
             },
           },
+          sessionType: { select: { id: true, name: true } },
         },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
@@ -1418,6 +1437,13 @@ async function captureCurrentOrderComposition(
         lineId: `package:${orderPackage.id}`,
         kind: "package",
         refId: orderPackage.packageId,
+        refMetadata: {
+          includedPhotoCount: orderPackage.package.photoCount,
+          selectedPhotoCount:
+            orderPackage.selectedPhotoCount ?? orderPackage.package.photoCount,
+          sessionTypeId: orderPackage.sessionType.id,
+          sessionTypeName: orderPackage.sessionType.name,
+        },
         label: orderPackage.package.name,
         quantity: 1,
         unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.package.price,
