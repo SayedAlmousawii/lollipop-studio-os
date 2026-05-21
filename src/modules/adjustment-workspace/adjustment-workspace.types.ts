@@ -67,6 +67,7 @@ export type AdjustmentWorkspaceEdit =
       kind: "item" | "addon";
       refId: string;
       quantity: number;
+      orderPackageId?: string;
     }
   | { id: string; op: "remove_line"; targetLineId: string }
   | { id: string; op: "modify_quantity"; targetLineId: string; newQuantity: number }
