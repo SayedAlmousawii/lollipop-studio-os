@@ -236,9 +236,10 @@ Detailed sequencing for adopting these is in `context/reviews/centralization-roa
 15. `derivePOSWorkspaceFromAdjustmentWorkspace()` is the read-only bridge from staged workspace state to shared POS UI modules. Handlers stage edits into `pending_changes_json`; the unlocked sales page handlers still commit directly.
 16. `derivePendingAdjustmentPreview()` is the service-layer source for Adjustment Workspace sidebar preview totals. Base Locked Total reads live from the parent final invoice plus finalized ADJs through settlement math; pending additions / reductions / net come from `computeWorkspaceProposal()`.
 17. `buildPendingChangesView()` is the pure display normalizer for staged edits. It renders business-facing pending change rows from the edit DSL and optional base/proposed/delta context; it is not a financial calculation source.
-18. Locked invoices remain content-immutable, but unpaid locked invoices can accept append-only payments and refresh payment-derived fields. A DB trigger blocks frozen-field mutation of locked invoices; every service lock path writes an `InvoiceLockSnapshot`.
-19. Payment settlement acquires an invoice row lock before balance reads; fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
-20. PaymentAllocation totals cannot exceed the invoice's `totalAmount` (DB trigger); ADJUSTMENT invoices cannot parent another ADJUSTMENT (DB trigger).
+18. Adjustment invoices are financial documents only. Post-lock operational state is materialized into `OrderPackage`, `OrderAddOn`, `OrderPackageItemUpgrade`, and session-configuration selection rows during workspace finalize; locked composition projections read those `Order*` rows, not finalized adjustment invoice line items.
+19. Locked invoices remain content-immutable, but unpaid locked invoices can accept append-only payments and refresh payment-derived fields. A DB trigger blocks frozen-field mutation of locked invoices; every service lock path writes an `InvoiceLockSnapshot`.
+20. Payment settlement acquires an invoice row lock before balance reads; fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
+21. PaymentAllocation totals cannot exceed the invoice's `totalAmount` (DB trigger); ADJUSTMENT invoices cannot parent another ADJUSTMENT (DB trigger).
 
 ---
 
