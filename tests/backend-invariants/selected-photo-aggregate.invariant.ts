@@ -157,8 +157,11 @@ async function createSelectedPhotoFixture(
   const firstOrderPackage = await db.orderPackage.create({
     data: {
       orderId: order.id,
-      packageId: firstPackage.id,
+      originalPackageId: firstPackage.id,
+      currentPackageId: firstPackage.id,
       sessionTypeId: sessionType.id,
+      originalPackageNameSnapshot: firstPackage.name,
+      currentPackageNameSnapshot: firstPackage.name,
       originalPackagePriceSnapshot: firstPackage.price,
       finalPackagePriceSnapshot: firstPackage.price,
       selectedPhotoCount: 12,
@@ -168,8 +171,11 @@ async function createSelectedPhotoFixture(
   await db.orderPackage.create({
     data: {
       orderId: order.id,
-      packageId: secondPackage.id,
+      originalPackageId: secondPackage.id,
+      currentPackageId: secondPackage.id,
       sessionTypeId: sessionType.id,
+      originalPackageNameSnapshot: secondPackage.name,
+      currentPackageNameSnapshot: secondPackage.name,
       originalPackagePriceSnapshot: secondPackage.price,
       finalPackagePriceSnapshot: secondPackage.price,
       selectedPhotoCount: null,
@@ -188,7 +194,7 @@ function findSelectedPhotoLines(db: Db, orderId: string) {
     where: { orderId },
     select: {
       selectedPhotoCount: true,
-      package: { select: { photoCount: true } },
+      currentPackage: { select: { photoCount: true } },
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });

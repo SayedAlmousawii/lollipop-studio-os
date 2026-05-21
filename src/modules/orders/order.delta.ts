@@ -116,7 +116,7 @@ export async function computeOrderEditDelta(
     include: {
       booking: { select: { financialCase: { select: { id: true } } } },
       packages: {
-        include: { package: { select: { name: true, price: true } } },
+        include: { currentPackage: { select: { name: true, price: true } } },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       orderAddOns: {
@@ -168,7 +168,7 @@ export async function computeOrderEditDelta(
   comparePackageTotals({
     previousTotal: sumLines(finalInvoice.lineItems, InvoiceLineType.PACKAGE_BASE),
     nextTotal: order.packages.reduce(
-      (sum, line) => sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
+      (sum, line) => sum.plus(line.finalPackagePriceSnapshot ?? line.currentPackage.price),
       new Prisma.Decimal(0)
     ),
     additions,
@@ -411,7 +411,7 @@ async function buildCurrentExtraPhotoLines(
     sessionTypeId: string;
     extraDigitalCount: number;
     extraPrintCount: number;
-    package: { name: string };
+    currentPackage: { name: string };
   }>,
   client: DbClient
 ): Promise<ComparableLine[]> {
@@ -426,7 +426,7 @@ async function buildCurrentExtraPhotoLines(
 
       lines.push({
         source: "EXTRA_PHOTO",
-        name: `Extra photos - ${formatEnum(mediaType)} (${orderPackage.package.name})`,
+        name: `Extra photos - ${formatEnum(mediaType)} (${orderPackage.currentPackage.name})`,
         quantity,
         unitPrice: await getExtraPhotoUnitPriceWithClient(
           client,

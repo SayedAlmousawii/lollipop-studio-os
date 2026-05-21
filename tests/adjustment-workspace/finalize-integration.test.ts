@@ -700,8 +700,9 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
   );
   const orderPackage = await db.orderPackage.findFirstOrThrow({
     where: { orderId: workflow.orderId },
-    select: { id: true, package: { select: { photoCount: true } } },
+    select: { id: true, currentPackage: { select: { photoCount: true } } },
   });
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
   const { workspaceId, version } = await stageWorkspaceEdits(
     services,
     workflow.finalInvoiceId,
@@ -711,7 +712,7 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
         id: "photo-count-increase",
         op: "change_selected_photo_count",
         orderPackageId: orderPackage.id,
-        selectedPhotoCount: orderPackage.package.photoCount + 2,
+        selectedPhotoCount: includedPhotoCount + 2,
         extraDigitalCount: 2,
         extraPrintCount: 0,
       },
@@ -719,7 +720,7 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
         id: "photo-count-baseline",
         op: "change_selected_photo_count",
         orderPackageId: orderPackage.id,
-        selectedPhotoCount: orderPackage.package.photoCount,
+        selectedPhotoCount: includedPhotoCount,
         extraDigitalCount: 0,
         extraPrintCount: 0,
       },
@@ -730,7 +731,7 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
   );
   assert.equal(
     derived?.packageLines[0]?.selectedPhotoCount,
-    orderPackage.package.photoCount
+    includedPhotoCount
   );
 
   const result = await services.finalizeWorkspace(
@@ -760,10 +761,10 @@ test("adjustment workspace POS projection keeps included photos as selected-phot
     where: { orderId: workflow.orderId },
     select: {
       id: true,
-      package: { select: { photoCount: true } },
+      currentPackage: { select: { photoCount: true } },
     },
   });
-  const includedPhotoCount = orderPackage.package.photoCount;
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
   const { workspaceId } = await stageWorkspaceEdits(
     services,
     workflow.finalInvoiceId,
@@ -815,10 +816,10 @@ test("adjustment workspace POS projection does not let live POS selected count o
     where: { orderId: workflow.orderId },
     select: {
       id: true,
-      package: { select: { photoCount: true } },
+      currentPackage: { select: { photoCount: true } },
     },
   });
-  const includedPhotoCount = orderPackage.package.photoCount;
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
   const workspace = await services.openWorkspace(
     workflow.finalInvoiceId,
     fixtures.adminActor

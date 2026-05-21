@@ -1224,9 +1224,10 @@ async function buildProposal(
       where: { id: { in: orderPackageIds } },
       select: {
         id: true,
-        packageId: true,
+        currentPackageId: true,
+        currentPackageNameSnapshot: true,
         sessionTypeId: true,
-        package: { select: { name: true, photoCount: true } },
+        currentPackage: { select: { photoCount: true } },
       },
     }),
     client.sessionConfiguration.findMany({
@@ -1304,9 +1305,9 @@ async function buildProposal(
         orderPackage.id,
         {
           id: orderPackage.id,
-          packageId: orderPackage.packageId,
-          packageName: orderPackage.package.name,
-          includedPhotoCount: orderPackage.package.photoCount,
+          packageId: orderPackage.currentPackageId,
+          packageName: orderPackage.currentPackageNameSnapshot,
+          includedPhotoCount: orderPackage.currentPackage.photoCount,
           sessionTypeId: orderPackage.sessionTypeId,
           extraDigitalUnitPrice: extraPhotoPrices.get(extraPhotoPriceKey(
             orderPackage.sessionTypeId,
@@ -1360,7 +1361,7 @@ async function captureCurrentOrderComposition(
     include: {
       packages: {
         include: {
-          package: {
+          currentPackage: {
             select: {
               id: true,
               name: true,
@@ -1436,20 +1437,20 @@ async function captureCurrentOrderComposition(
       makeLine({
         lineId: `package:${orderPackage.id}`,
         kind: "package",
-        refId: orderPackage.packageId,
+        refId: orderPackage.currentPackageId,
         refMetadata: {
-          includedPhotoCount: orderPackage.package.photoCount,
+          includedPhotoCount: orderPackage.currentPackage.photoCount,
           selectedPhotoCount:
-            orderPackage.selectedPhotoCount ?? orderPackage.package.photoCount,
+            orderPackage.selectedPhotoCount ?? orderPackage.currentPackage.photoCount,
           sessionTypeId: orderPackage.sessionType.id,
           sessionTypeName: orderPackage.sessionType.name,
         },
-        label: orderPackage.package.name,
+        label: orderPackage.currentPackageNameSnapshot,
         quantity: 1,
-        unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.package.price,
+        unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.currentPackage.price,
       })
     );
-    for (const item of orderPackage.package.items) {
+    for (const item of orderPackage.currentPackage.items) {
       // Keep package deliverable prices available to composition projectors without
       // adding them to invoice-level package totals.
       lines.push({
@@ -1480,8 +1481,8 @@ async function captureCurrentOrderComposition(
         makeLine({
           lineId: extraPhotoLineId(orderPackage.id, mediaType),
           kind: "item",
-          refId: extraPhotoRef(orderPackage.package.name, mediaType),
-          label: extraPhotoRef(orderPackage.package.name, mediaType),
+          refId: extraPhotoRef(orderPackage.currentPackageNameSnapshot, mediaType),
+          label: extraPhotoRef(orderPackage.currentPackageNameSnapshot, mediaType),
           quantity,
           unitPrice,
         })

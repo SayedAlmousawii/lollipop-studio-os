@@ -312,17 +312,40 @@ async function syncSeededOrderPackage({
   selectedPhotoCount?: number;
 }) {
   const sessionTypeId = await getSessionTypeIdForCode(sessionTypeCode);
+  const packageRow = await prisma.package.findUniqueOrThrow({
+    where: { id: packageId },
+    select: { name: true, price: true, photoCount: true },
+  });
+  const order = await prisma.order.findUniqueOrThrow({
+    where: { id: orderId },
+    select: { bookingId: true },
+  });
+  const bookingPackage = await prisma.bookingPackage.findFirst({
+    where: {
+      bookingId: order.bookingId,
+      packageId,
+      sessionTypeId,
+      sortOrder: 0,
+    },
+    select: { id: true },
+  });
 
   await prisma.$transaction([
     prisma.orderPackage.deleteMany({ where: { orderId } }),
     prisma.orderPackage.create({
       data: {
         orderId,
-        packageId,
+        originalPackageId: packageId,
+        currentPackageId: packageId,
+        bookingPackageId: bookingPackage?.id ?? null,
         sessionTypeId,
-        originalPackagePriceSnapshot,
-        finalPackagePriceSnapshot,
-        selectedPhotoCount,
+        originalPackageNameSnapshot: packageRow.name,
+        currentPackageNameSnapshot: packageRow.name,
+        originalPackagePriceSnapshot:
+          originalPackagePriceSnapshot ?? packageRow.price,
+        finalPackagePriceSnapshot:
+          finalPackagePriceSnapshot ?? originalPackagePriceSnapshot ?? packageRow.price,
+        selectedPhotoCount: selectedPhotoCount ?? packageRow.photoCount,
         extraDigitalCount: 0,
         extraPrintCount: 0,
         sortOrder: 0,

@@ -91,7 +91,7 @@ export async function getPackages(filters: PackageFilters = {}): Promise<Package
           _count: {
             select: {
               bookingPackages: true,
-              orderPackages: true,
+              currentOrderPackages: true,
             },
           },
         },
@@ -166,7 +166,7 @@ export async function getPackageWithItems(id: string): Promise<PackageWithItems 
           _count: {
             select: {
               bookingPackages: true,
-              orderPackages: true,
+              currentOrderPackages: true,
             },
           },
         },
@@ -505,7 +505,11 @@ async function assertNoLockedInvoicesForPackage(
       OR: [
         {
           order: {
-            packages: { some: { packageId } },
+            packages: {
+              some: {
+                OR: [{ originalPackageId: packageId }, { currentPackageId: packageId }],
+              },
+            },
           },
         },
         { booking: { packages: { some: { packageId } } } },
@@ -551,7 +555,7 @@ async function getActiveReferenceCounts(client: DbClient, packageId: string) {
     }),
     client.orderPackage.count({
       where: {
-        packageId,
+        OR: [{ originalPackageId: packageId }, { currentPackageId: packageId }],
         order: { status: { in: ACTIVE_ORDER_STATUSES } },
       },
     }),
@@ -563,7 +567,11 @@ async function getActiveReferenceCounts(client: DbClient, packageId: string) {
 async function getTotalReferenceCounts(client: DbClient, packageId: string) {
   const [bookingCount, orderCount] = await Promise.all([
     client.bookingPackage.count({ where: { packageId } }),
-    client.orderPackage.count({ where: { packageId } }),
+    client.orderPackage.count({
+      where: {
+        OR: [{ originalPackageId: packageId }, { currentPackageId: packageId }],
+      },
+    }),
   ]);
 
   return { bookingCount, orderCount };
@@ -574,7 +582,7 @@ async function getActiveReferenceCountsByPackageId(
 ): Promise<Map<string, number>> {
   if (packageIds.length === 0) return new Map();
 
-  const [bookingCounts, orderCounts] = await Promise.all([
+  const [bookingCounts, orderPackageRefs] = await Promise.all([
     db.bookingPackage.groupBy({
       by: ["packageId"],
       where: {
@@ -583,13 +591,15 @@ async function getActiveReferenceCountsByPackageId(
       },
       _count: { _all: true },
     }),
-    db.orderPackage.groupBy({
-      by: ["packageId"],
+    db.orderPackage.findMany({
       where: {
-        packageId: { in: packageIds },
+        OR: [
+          { originalPackageId: { in: packageIds } },
+          { currentPackageId: { in: packageIds } },
+        ],
         order: { status: { in: ACTIVE_ORDER_STATUSES } },
       },
-      _count: { _all: true },
+      select: { originalPackageId: true, currentPackageId: true },
     }),
   ]);
 
@@ -597,8 +607,16 @@ async function getActiveReferenceCountsByPackageId(
   for (const row of bookingCounts) {
     counts.set(row.packageId, row._count._all);
   }
-  for (const row of orderCounts) {
-    counts.set(row.packageId, (counts.get(row.packageId) ?? 0) + row._count._all);
+  for (const row of orderPackageRefs) {
+    const referencedIds = new Set([row.originalPackageId, row.currentPackageId]);
+    for (const referencedPackageId of referencedIds) {
+      if (packageIds.includes(referencedPackageId)) {
+        counts.set(
+          referencedPackageId,
+          (counts.get(referencedPackageId) ?? 0) + 1
+        );
+      }
+    }
   }
   return counts;
 }
@@ -664,10 +682,10 @@ function mapPackageWithItems(
     bundleAdjustment: formatSignedMoney(row.bundleAdjustment, { signDisplay: "always" }),
     bundleAdjustmentValue: row.bundleAdjustment.toNumber(),
     bookingCount: row._count.bookingPackages,
-    orderCount: row._count.orderPackages,
+    orderCount: row._count.currentOrderPackages,
     activeReferenceCount,
     totalReferenceCount:
-      row._count.bookingPackages + row._count.orderPackages,
+      row._count.bookingPackages + row._count.currentOrderPackages,
     deliverableSummary: summarizePackageDeliverables(row),
     status: row.isActive ? "Active" : "Inactive",
     isActive: row.isActive,
@@ -734,7 +752,7 @@ type PackageWithItemsRow = Prisma.PackageGetPayload<{
     _count: {
       select: {
         bookingPackages: true;
-        orderPackages: true;
+        currentOrderPackages: true;
       };
     };
   };

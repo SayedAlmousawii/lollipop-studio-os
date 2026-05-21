@@ -138,9 +138,9 @@ async function createScopedAddOnFixture(
   );
   await client.query(
     `INSERT INTO ${schema}."order_packages"
-      ("id", "orderId", "packageId", "sessionTypeId", "originalPackagePriceSnapshot", "finalPackagePriceSnapshot", "selectedPhotoCount", "sortOrder", "updatedAt")
-     VALUES ($1, $2, $3, $4, 60.000, 60.000, 10, 0, now())`,
-    [orderPackageId, orderId, packageId, sessionTypeId]
+      ("id", "orderId", "originalPackageId", "currentPackageId", "sessionTypeId", "originalPackageNameSnapshot", "currentPackageNameSnapshot", "originalPackagePriceSnapshot", "finalPackagePriceSnapshot", "selectedPhotoCount", "sortOrder", "updatedAt")
+     VALUES ($1, $2, $3, $3, $4, $5, $5, 60.000, 60.000, 10, 0, now())`,
+    [orderPackageId, orderId, packageId, sessionTypeId, "Scoped Add-On Package"]
   );
   await client.query(
     `INSERT INTO ${schema}."order_add_ons"
