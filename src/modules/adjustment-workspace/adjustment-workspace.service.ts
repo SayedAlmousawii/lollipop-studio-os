@@ -420,50 +420,14 @@ export async function getEffectiveCompositionForInvoice(
 ): Promise<AdjustmentBaseSnapshot> {
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true, orderId: true, isLocked: true, invoiceType: true },
+    select: { id: true, orderId: true, invoiceType: true },
   });
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.invoiceType !== InvoiceType.FINAL || !invoice.orderId) {
     throw new Error("Adjustment workspaces require a final order invoice");
   }
 
-  const snapshot = await captureCurrentOrderComposition(client, invoice.orderId);
-  const finalizedWorkspaceInvoices = await client.adjustmentWorkspace.findMany({
-    where: {
-      invoiceId,
-      status: AdjustmentWorkspaceStatus.FINALIZED,
-      finalizedAdjustmentInvoiceId: { not: null },
-    },
-    select: {
-      operationalStateAppliedAt: true,
-      finalizedAdjustmentInvoice: {
-        select: {
-          lineItems: {
-            select: {
-              id: true,
-              lineType: true,
-              description: true,
-              quantity: true,
-              unitPrice: true,
-              lineTotal: true,
-              causeOrderEntityKind: true,
-              causeOrderEntityId: true,
-            },
-            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-          },
-        },
-      },
-    },
-    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
-  });
-
-  for (const workspace of finalizedWorkspaceInvoices) {
-    if (workspace.operationalStateAppliedAt) continue;
-    const lines = workspace.finalizedAdjustmentInvoice?.lineItems ?? [];
-    applySignedInvoiceLines(snapshot.lines, lines);
-  }
-  snapshot.totals = computeTotals(snapshot.lines);
-  return snapshot;
+  return captureCurrentOrderComposition(client, invoice.orderId);
 }
 
 export async function openWorkspace(
@@ -1685,42 +1649,6 @@ export async function captureCurrentOrderComposition(
       }))
     ),
   };
-}
-
-function applySignedInvoiceLines(
-  lines: AdjustmentCompositionLine[],
-  invoiceLines: Array<{
-    id: string;
-    lineType: InvoiceLineType;
-    description: string;
-    quantity: number;
-    unitPrice: Prisma.Decimal;
-    lineTotal: Prisma.Decimal;
-    causeOrderEntityKind: OrderEntityKind | null;
-    causeOrderEntityId: string | null;
-  }>
-) {
-  for (const invoiceLine of invoiceLines) {
-    if (
-      invoiceLine.causeOrderEntityKind ===
-      OrderEntityKind.SESSION_CONFIGURATION_SELECTION
-    ) {
-      continue;
-    }
-    const signedQuantity =
-      invoiceLine.unitPrice.lessThan(0) || invoiceLine.lineTotal.lessThan(0)
-        ? -invoiceLine.quantity
-        : invoiceLine.quantity;
-    const line = makeLine({
-      lineId: `adj:${invoiceLine.id}`,
-      kind: kindFromInvoiceLine(invoiceLine.lineType, invoiceLine.causeOrderEntityKind),
-      refId: invoiceLine.causeOrderEntityId ?? invoiceLine.description,
-      label: invoiceLine.description,
-      quantity: signedQuantity,
-      unitPrice: invoiceLine.unitPrice.abs(),
-    });
-    upsertWorkingLine(lines, line);
-  }
 }
 
 async function finalizeSessionConfigurationSelectionEdits(
@@ -3742,23 +3670,6 @@ function collectBasePackageRefs(
 function eventTypeForEdit(edit: AdjustmentWorkspaceEdit): AdjustmentWorkspaceEventType {
   if (edit.op === "swap_package") return AdjustmentWorkspaceEventType.PACKAGE_SWAPPED;
   return AdjustmentWorkspaceEventType.EDIT_ADDED;
-}
-
-function kindFromInvoiceLine(
-  lineType: InvoiceLineType,
-  causeKind: OrderEntityKind | null
-): AdjustmentLineKind {
-  if (causeKind === OrderEntityKind.EXTRA_PHOTO) return "item";
-  if (causeKind === OrderEntityKind.ADDON) return "addon";
-  if (causeKind === OrderEntityKind.UPGRADE) return "item";
-  if (causeKind === OrderEntityKind.SESSION_CONFIGURATION_SELECTION) {
-    return "session_configuration";
-  }
-  if (lineType === InvoiceLineType.PACKAGE_BASE || causeKind === OrderEntityKind.PACKAGE_TIER_UPGRADE) {
-    return "package";
-  }
-  if (lineType === InvoiceLineType.ADD_ON) return "addon";
-  return "item";
 }
 
 export function resolveAdjustmentInvoiceLineSemantics(

@@ -30,6 +30,7 @@ type ModuleLoader = (
 ) => unknown;
 
 type WorkspaceServices = typeof import("@/modules/adjustment-workspace/adjustment-workspace.service");
+type OrderCompositionServices = typeof import("@/modules/orders/composition/order-composition.service");
 type PhaseBFixturesModule = typeof import("../financial-phase-b/fixtures");
 type PhaseBFixtures = Awaited<
   ReturnType<PhaseBFixturesModule["seedPhaseBFixtures"]>
@@ -40,6 +41,7 @@ type BuildLockedWorkflow =
 type IntegrationContext = {
   db: PrismaClient;
   services: WorkspaceServices;
+  compositionServices: OrderCompositionServices;
   fixtures: PhaseBFixtures;
   buildLockedFinalInvoiceWorkflowFixture: BuildLockedWorkflow;
   upgradeProductId: string;
@@ -74,6 +76,9 @@ test.before(async () => {
       const services = await import(
         "@/modules/adjustment-workspace/adjustment-workspace.service"
       );
+      const compositionServices = await import(
+        "@/modules/orders/composition/order-composition.service"
+      );
       const {
         buildLockedFinalInvoiceWorkflowFixture,
         seedPhaseBFixtures,
@@ -105,6 +110,7 @@ test.before(async () => {
       integrationContext = {
         db,
         services,
+        compositionServices,
         fixtures,
         buildLockedFinalInvoiceWorkflowFixture,
         upgradeProductId,
@@ -377,7 +383,7 @@ test("finalizeWorkspace applies operational and financial session configuration 
   assert.equal(workspace.operationalStateAppliedAt, null);
 });
 
-test("getEffectiveCompositionForInvoice skips replay for materialized finalized workspaces", async () => {
+test("getEffectiveCompositionForInvoice ignores finalized adjustment invoice lines without relying on the materialized flag", async () => {
   const {
     db,
     services,
@@ -414,7 +420,7 @@ test("getEffectiveCompositionForInvoice skips replay for materialized finalized 
 
   await db.adjustmentWorkspace.update({
     where: { id: workspaceId },
-    data: { operationalStateAppliedAt: new Date() },
+    data: { operationalStateAppliedAt: null },
   });
   const adjustment = await onlyAdjustmentInvoice(
     db,
@@ -1122,6 +1128,108 @@ test("finalizeWorkspace materializes photo counts after same-workspace package s
   assert.deepEqual(
     stripCompositionCaptureTime(effective),
     stripCompositionCaptureTime(captured)
+  );
+});
+
+test("locked composition projection ignores finalized adjustment invoice lines after materialization", async () => {
+  const {
+    db,
+    services,
+    compositionServices,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "118-collapse-replay"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const finalInvoiceLinesBefore = await invoiceLineShape(db, workflow.finalInvoiceId);
+
+  const swapResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-swap-package",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, swapResult);
+
+  const addOnResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-add-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 2,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, addOnResult);
+
+  const packageItemId = await firstPackageItemId(db, fixtures.upgradePackageId);
+  const itemUpgradeResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-upgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId,
+        packageItemId,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, itemUpgradeResult);
+
+  const photoResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-photo-counts",
+        op: "change_selected_photo_count",
+        orderPackageId,
+        selectedPhotoCount: 18,
+        extraDigitalCount: 2,
+        extraPrintCount: 1,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, photoResult);
+
+  const lockedComposition =
+    await compositionServices.getLockedOrderCompositionViewModel({
+      invoiceId: workflow.finalInvoiceId,
+    });
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  const currentComposition =
+    compositionServices.buildCompositionSnapshotFromAdjustmentSnapshot(captured);
+
+  assert.deepEqual(lockedComposition.effectiveComposition.lines, currentComposition.lines);
+  assert.deepEqual(
+    lockedComposition.effectiveComposition.totals,
+    currentComposition.totals
+  );
+  assert.deepEqual(
+    await invoiceLineShape(db, workflow.finalInvoiceId),
+    finalInvoiceLinesBefore
   );
 });
 
@@ -1968,13 +2076,22 @@ async function stageAndFinalize(
   actor: ActorContext,
   edits: AdjustmentWorkspaceEdit[]
 ) {
+  await stageAndFinalizeWithResult(services, finalInvoiceId, actor, edits);
+}
+
+async function stageAndFinalizeWithResult(
+  services: WorkspaceServices,
+  finalInvoiceId: string,
+  actor: ActorContext,
+  edits: AdjustmentWorkspaceEdit[]
+) {
   const { workspaceId, version } = await stageWorkspaceEdits(
     services,
     finalInvoiceId,
     actor,
     edits
   );
-  await services.finalizeWorkspace(workspaceId, { version }, actor);
+  return services.finalizeWorkspace(workspaceId, { version }, actor);
 }
 
 async function stageWorkspaceEdits(
@@ -2029,6 +2146,63 @@ async function onlyAdjustmentInvoice(
   });
   assert.equal(adjustments.length, 1, "finalize should emit exactly one ADJ");
   return adjustments[0] ?? assert.fail("missing adjustment invoice");
+}
+
+async function invoiceLineShape(db: PrismaClient, invoiceId: string) {
+  const invoice = await db.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    select: {
+      lineItems: {
+        select: {
+          lineType: true,
+          description: true,
+          quantity: true,
+          unitPrice: true,
+          lineTotal: true,
+          sortOrder: true,
+          causeOrderEntityKind: true,
+          causeOrderEntityId: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+  });
+  return invoice.lineItems.map((line) => ({
+    ...line,
+    unitPrice: line.unitPrice.toFixed(3),
+    lineTotal: line.lineTotal.toFixed(3),
+  }));
+}
+
+async function assertAdjustmentInvoiceMatchesProposal(
+  db: PrismaClient,
+  services: WorkspaceServices,
+  result: Awaited<ReturnType<WorkspaceServices["finalizeWorkspace"]>>
+) {
+  assert.ok(result.adjustmentInvoiceId);
+  const adjustment = await db.invoice.findUniqueOrThrow({
+    where: { id: result.adjustmentInvoiceId },
+    select: {
+      invoiceType: true,
+      lineItems: { orderBy: { sortOrder: "asc" } },
+    },
+  });
+  assert.equal(adjustment.invoiceType, InvoiceType.ADJUSTMENT);
+  assert.deepEqual(
+    adjustment.lineItems.map((line) => ({
+      lineType: line.lineType,
+      causeOrderEntityKind: line.causeOrderEntityKind,
+      lineTotal: line.lineTotal.toFixed(3),
+    })),
+    result.proposal.deltas.map((line) => {
+      const semantics = services.resolveAdjustmentInvoiceLineSemantics(line);
+      return {
+        lineType: semantics.lineType,
+        causeOrderEntityKind: semantics.causeOrderEntityKind,
+        lineTotal: line.lineTotalNet,
+      };
+    })
+  );
 }
 
 function assertLineSemantics(
