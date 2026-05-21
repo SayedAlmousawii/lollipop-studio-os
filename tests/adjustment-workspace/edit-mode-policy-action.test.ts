@@ -14,6 +14,20 @@ const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 const originalModuleLoad = moduleWithLoader._load;
 
 test("staged workspace edits use the shared locked workspace guard message when context is invalid", async () => {
+  let capturedApplyEdit:
+    | {
+        workspaceId: string;
+        input: {
+          version: number;
+          edit: {
+            id: string;
+            op: string;
+            orderPackageId?: string;
+            toPackageRefId?: string;
+          };
+        };
+      }
+    | null = null;
   moduleWithLoader._load = function loadWithAdjustmentActionStubs(
     request,
     parent,
@@ -42,8 +56,20 @@ test("staged workspace edits use the shared locked workspace guard message when 
       return {
         AdjustmentWorkspaceApprovalRequiredError: class extends Error {},
         AdjustmentWorkspaceConflictError: class extends Error {},
-        applyEdit: async () => {
-          throw new Error("applyEdit should not be called");
+        applyEdit: async (
+          workspaceId: string,
+          input: {
+            version: number;
+            edit: {
+              id: string;
+              op: string;
+              orderPackageId?: string;
+              toPackageRefId?: string;
+            };
+          }
+        ) => {
+          capturedApplyEdit = { workspaceId, input };
+          return { version: input.version + 1 };
         },
         cancelWorkspace: async () => undefined,
         finalizeWorkspace: async () => undefined,
@@ -76,6 +102,30 @@ test("staged workspace edits use the shared locked workspace guard message when 
         ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS
       );
     }
+
+    const staged = await stagePackageTierChangeAction(
+      "order-1",
+      "workspace-1",
+      {
+        version: 4,
+        orderPackageId: "order-package-1",
+        toPackageRefId: "package-2",
+      }
+    );
+
+    assert.deepEqual(staged, { ok: true });
+    assert.deepEqual(capturedApplyEdit, {
+      workspaceId: "workspace-1",
+      input: {
+        version: 4,
+        edit: {
+          id: "tier:order-package-1",
+          op: "change_package_tier",
+          orderPackageId: "order-package-1",
+          toPackageRefId: "package-2",
+        },
+      },
+    });
   } finally {
     moduleWithLoader._load = originalModuleLoad;
   }
