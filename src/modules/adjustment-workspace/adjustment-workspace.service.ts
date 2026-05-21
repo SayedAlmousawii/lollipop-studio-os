@@ -90,6 +90,20 @@ type MaterializedAddOnActivity = {
   unitPrice: Prisma.Decimal;
 };
 
+type MaterializedItemUpgradeActivity = {
+  orderPackageItemUpgradeId: string | null;
+  orderPackageId: string;
+  packageItemId: string;
+  previousProductId: string;
+  previousProductName: string;
+  nextProductId: string | null;
+  nextProductName: string | null;
+  quantity: number;
+  unitPriceDelta: Prisma.Decimal;
+  priceDelta: Prisma.Decimal;
+  action: "upserted" | "updated" | "removed";
+};
+
 type CatalogLookup = {
   products: Map<string, { id: string; name: string; price: Prisma.Decimal }>;
   packages: Map<
@@ -827,9 +841,16 @@ export async function finalizeWorkspace(
           finalizedProposal,
           workspace.orderId
         );
+        const materializedItemUpgradeActivities =
+          await materializeItemUpgradeEdits(
+            tx,
+            finalizedProposal,
+            workspace.orderId
+          );
         const operationalStateAppliedAt =
           materializedPackageSwapActivities.length > 0 ||
-          materializedAddOnActivities.length > 0
+          materializedAddOnActivities.length > 0 ||
+          materializedItemUpgradeActivities.length > 0
             ? new Date()
             : null;
 
@@ -843,6 +864,11 @@ export async function finalizeWorkspace(
             orderId: workspace.orderId,
             actorUserId: actorContext.actorUserId,
             activities: materializedAddOnActivities,
+          });
+          await recordMaterializedItemUpgradeActivities(tx, {
+            orderId: workspace.orderId,
+            actorUserId: actorContext.actorUserId,
+            activities: materializedItemUpgradeActivities,
           });
           await markWorkspaceFinalized(
             tx,
@@ -887,6 +913,11 @@ export async function finalizeWorkspace(
           orderId: workspace.orderId,
           actorUserId: actorContext.actorUserId,
           activities: materializedAddOnActivities,
+        });
+        await recordMaterializedItemUpgradeActivities(tx, {
+          orderId: workspace.orderId,
+          actorUserId: actorContext.actorUserId,
+          activities: materializedItemUpgradeActivities,
         });
 
         await markWorkspaceFinalized(
@@ -1914,6 +1945,205 @@ async function materializeAddOnEdits(
   return activities;
 }
 
+async function materializeItemUpgradeEdits(
+  client: Prisma.TransactionClient,
+  proposal: AdjustmentWorkspaceProposal,
+  orderId: string
+): Promise<MaterializedItemUpgradeActivity[]> {
+  const activities: MaterializedItemUpgradeActivity[] = [];
+
+  for (const edit of proposal.edits) {
+    if (edit.op === "upgrade_package_item") {
+      const resolvedLine = proposal.proposed.lines.find(
+        (line) =>
+          line.kind === "item" &&
+          line.lineId === packageItemUpgradeLineId(edit.orderPackageId, edit.packageItemId)
+      );
+      if (!resolvedLine) continue;
+
+      const context = await resolvePackageItemUpgradeContext(client, {
+        orderId,
+        orderPackageId: edit.orderPackageId,
+        packageItemId: edit.packageItemId,
+        nextProductId: edit.toProductId,
+      });
+      if (!context) continue;
+      const quantity = resolvedLine.quantity;
+      if (quantity <= 0) {
+        await client.orderPackageItemUpgrade.deleteMany({
+          where: {
+            orderId,
+            orderPackageId: edit.orderPackageId,
+            packageItemId: edit.packageItemId,
+          },
+        });
+        continue;
+      }
+
+      const unitPriceDelta = decimal(resolvedLine.unitPrice);
+      const upgrade = await client.orderPackageItemUpgrade.upsert({
+        where: {
+          orderId_orderPackageId_packageItemId: {
+            orderId,
+            orderPackageId: edit.orderPackageId,
+            packageItemId: edit.packageItemId,
+          },
+        },
+        create: {
+          orderId,
+          orderPackageId: edit.orderPackageId,
+          packageItemId: edit.packageItemId,
+          nameSnapshot: resolvedLine.label,
+          priceSnapshot: unitPriceDelta,
+          quantity,
+          notes: `Package item upgrade from ${context.previousProductName}`,
+        },
+        update: {
+          nameSnapshot: resolvedLine.label,
+          priceSnapshot: unitPriceDelta,
+          quantity,
+          notes: `Package item upgrade from ${context.previousProductName}`,
+        },
+        select: { id: true },
+      });
+
+      activities.push({
+        orderPackageItemUpgradeId: upgrade.id,
+        orderPackageId: edit.orderPackageId,
+        packageItemId: edit.packageItemId,
+        previousProductId: context.previousProductId,
+        previousProductName: context.previousProductName,
+        nextProductId: context.nextProductId,
+        nextProductName: context.nextProductName,
+        quantity,
+        unitPriceDelta,
+        priceDelta: unitPriceDelta.mul(quantity),
+        action: "upserted",
+      });
+      continue;
+    }
+
+    if (edit.op !== "remove_line" && edit.op !== "modify_quantity") continue;
+
+    const parsed = packageItemUpgradeIdsFromLineId(edit.targetLineId);
+    if (!parsed) continue;
+
+    const existing = await client.orderPackageItemUpgrade.findUnique({
+      where: {
+        orderId_orderPackageId_packageItemId: {
+          orderId,
+          orderPackageId: parsed.orderPackageId,
+          packageItemId: parsed.packageItemId,
+        },
+      },
+      select: {
+        id: true,
+        orderPackageId: true,
+        packageItemId: true,
+        nameSnapshot: true,
+        priceSnapshot: true,
+        quantity: true,
+        packageItem: {
+          select: {
+            productId: true,
+            product: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!existing) continue;
+
+    const nextQuantity = edit.op === "remove_line" ? 0 : edit.newQuantity;
+    if (nextQuantity <= 0) {
+      await client.orderPackageItemUpgrade.delete({ where: { id: existing.id } });
+    } else {
+      await client.orderPackageItemUpgrade.update({
+        where: { id: existing.id },
+        data: { quantity: nextQuantity },
+      });
+    }
+
+    if (existing.quantity !== nextQuantity) {
+      activities.push({
+        orderPackageItemUpgradeId: existing.id,
+        orderPackageId: existing.orderPackageId,
+        packageItemId: existing.packageItemId,
+        previousProductId: existing.packageItem.productId,
+        previousProductName: existing.packageItem.product.name,
+        nextProductId: null,
+        nextProductName: existing.nameSnapshot,
+        quantity: nextQuantity,
+        unitPriceDelta: existing.priceSnapshot,
+        priceDelta: existing.priceSnapshot.mul(nextQuantity - existing.quantity),
+        action: nextQuantity <= 0 ? "removed" : "updated",
+      });
+    }
+  }
+
+  return activities;
+}
+
+async function resolvePackageItemUpgradeContext(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    orderPackageId: string;
+    packageItemId: string;
+    nextProductId: string;
+  }
+): Promise<{
+  previousProductId: string;
+  previousProductName: string;
+  nextProductId: string;
+  nextProductName: string;
+} | null> {
+  const [orderPackage, currentItem, nextProduct] = await Promise.all([
+    client.orderPackage.findFirst({
+      where: { id: input.orderPackageId, orderId: input.orderId },
+      select: { id: true, currentPackageId: true },
+    }),
+    client.packageItem.findUnique({
+      where: { id: input.packageItemId },
+      select: {
+        packageId: true,
+        productId: true,
+        priceSnapshot: true,
+        product: { select: { id: true, name: true, category: true } },
+      },
+    }),
+    client.product.findUnique({
+      where: { id: input.nextProductId },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        isActive: true,
+        isPackageDeliverable: true,
+      },
+    }),
+  ]);
+
+  if (!orderPackage) throw new Error("Package line not found for item upgrade edit");
+  if (!currentItem) throw new Error("Package item is not available");
+  if (currentItem.packageId !== orderPackage.currentPackageId) return null;
+  if (!nextProduct || !nextProduct.isActive || !nextProduct.isPackageDeliverable) {
+    throw new Error("Replacement product is not available");
+  }
+  if (nextProduct.category !== currentItem.product.category) {
+    throw new Error("Replacement product must be in the same category");
+  }
+  if (nextProduct.id === currentItem.productId) {
+    throw new Error("Replacement product is already included");
+  }
+
+  return {
+    previousProductId: currentItem.productId,
+    previousProductName: currentItem.product.name,
+    nextProductId: nextProduct.id,
+    nextProductName: nextProduct.name,
+  };
+}
+
 async function recordMaterializedPackageSwapActivities(
   client: Prisma.TransactionClient,
   input: {
@@ -1972,6 +2202,46 @@ async function recordMaterializedAddOnActivities(
   }
 }
 
+async function recordMaterializedItemUpgradeActivities(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    actorUserId: string;
+    activities: MaterializedItemUpgradeActivity[];
+  }
+): Promise<void> {
+  for (const activity of input.activities) {
+    const nextProductName = activity.nextProductName ?? "base package item";
+    await recordOrderActivity(client, {
+      orderId: input.orderId,
+      userId: input.actorUserId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+      title:
+        activity.action === "removed"
+          ? "Package item upgrade removed"
+          : activity.action === "updated"
+            ? "Package item upgrade quantity changed"
+            : "Package item upgraded",
+      description:
+        activity.action === "removed"
+          ? `${activity.previousProductName} upgrade removed.`
+          : `${activity.previousProductName} changed to ${nextProductName} for ${formatSignedMoney(activity.priceDelta)}.`,
+      metadata: {
+        orderPackageItemUpgradeId: activity.orderPackageItemUpgradeId,
+        orderPackageId: activity.orderPackageId,
+        packageItemId: activity.packageItemId,
+        previousProductId: activity.previousProductId,
+        previousProductName: activity.previousProductName,
+        nextProductId: activity.nextProductId,
+        nextProductName: activity.nextProductName,
+        quantity: activity.quantity,
+        unitPriceDelta: activity.unitPriceDelta.toFixed(3),
+        priceDelta: activity.priceDelta.toFixed(3),
+      },
+    });
+  }
+}
+
 async function resolveScopedOrderPackageId(
   client: Prisma.TransactionClient,
   orderId: string,
@@ -1992,6 +2262,16 @@ function orderAddOnIdFromLineId(lineId: string): string | null {
   const [kind, id, ...rest] = lineId.split(":");
   if (kind !== "addon" || !id || rest.length > 0) return null;
   return id;
+}
+
+function packageItemUpgradeIdsFromLineId(
+  lineId: string
+): { orderPackageId: string; packageItemId: string } | null {
+  const [kind, orderPackageId, packageItemId, ...rest] = lineId.split(":");
+  if (kind !== "item" || !orderPackageId || !packageItemId || rest.length > 0) {
+    return null;
+  }
+  return { orderPackageId, packageItemId };
 }
 
 async function syncOrderSelectedPhotoCountFromPackageLines(
@@ -2543,6 +2823,9 @@ function resolveEffectivePackageId(
 ): string {
   let effectivePackageId = fallbackPackageId;
   for (const edit of edits) {
+    if (edit.op === "swap_package" && edit.fromPackageRefId === effectivePackageId) {
+      effectivePackageId = edit.toPackageRefId;
+    }
     if (edit.op === "change_package_tier" && edit.orderPackageId === orderPackageId) {
       effectivePackageId = edit.toPackageRefId;
     }

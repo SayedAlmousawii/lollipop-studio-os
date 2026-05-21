@@ -390,10 +390,6 @@ test("getEffectiveCompositionForInvoice skips replay for materialized finalized 
     fixtures,
     "113-materialized-skip"
   );
-  const baseline = await services.getEffectiveCompositionForInvoice(
-    workflow.finalInvoiceId,
-    db
-  );
   const { workspaceId, version } = await stageWorkspaceEdits(
     services,
     workflow.finalInvoiceId,
@@ -431,9 +427,10 @@ test("getEffectiveCompositionForInvoice skips replay for materialized finalized 
     workflow.finalInvoiceId,
     db
   );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
   assert.deepEqual(
     stripCompositionCaptureTime(effective),
-    stripCompositionCaptureTime(baseline)
+    stripCompositionCaptureTime(captured)
   );
 });
 
@@ -659,6 +656,282 @@ test("finalizeWorkspace materializes add-on edits into order add-on rows", async
   assert.equal(metadata.previousQuantity, 0);
   assert.equal(metadata.nextQuantity, 2);
   assert.equal(metadata.unitPrice, "50.000");
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes package item upgrade edits into upgrade rows", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-item-upgrade-add"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const packageItem = await firstPackageItemWithProduct(db, fixtures.basePackageId);
+  const upgradeProduct = await db.product.findUniqueOrThrow({
+    where: { id: upgradeProductId },
+    select: { id: true, name: true, canonicalPrice: true },
+  });
+  const expectedUnitDelta = upgradeProduct.canonicalPrice.minus(
+    packageItem.priceSnapshot
+  );
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "116-upgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId,
+        packageItemId: packageItem.id,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const upgrade = await db.orderPackageItemUpgrade.findUniqueOrThrow({
+    where: {
+      orderId_orderPackageId_packageItemId: {
+        orderId: workflow.orderId,
+        orderPackageId,
+        packageItemId: packageItem.id,
+      },
+    },
+  });
+  assert.equal(upgrade.nameSnapshot, `${packageItem.product.name} to ${upgradeProduct.name}`);
+  assert.equal(upgrade.priceSnapshot.toFixed(3), expectedUnitDelta.toFixed(3));
+  assert.equal(upgrade.quantity, 1);
+
+  const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
+    where: { id: workspaceId },
+    select: { operationalStateAppliedAt: true },
+  });
+  assert.ok(workspace.operationalStateAppliedAt);
+
+  const activity = await db.orderActivity.findFirstOrThrow({
+    where: {
+      orderId: workflow.orderId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+      title: "Package item upgraded",
+    },
+  });
+  const metadata = activity.metadata as Record<string, unknown>;
+  assert.equal(metadata.orderPackageItemUpgradeId, upgrade.id);
+  assert.equal(metadata.orderPackageId, orderPackageId);
+  assert.equal(metadata.packageItemId, packageItem.id);
+  assert.equal(metadata.previousProductId, packageItem.productId);
+  assert.equal(metadata.previousProductName, packageItem.product.name);
+  assert.equal(metadata.nextProductId, upgradeProductId);
+  assert.equal(metadata.nextProductName, upgradeProduct.name);
+  assert.equal(metadata.quantity, 1);
+  assert.equal(metadata.unitPriceDelta, expectedUnitDelta.toFixed(3));
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes package item upgrade removals and quantity changes", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-item-upgrade-update"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const packageItem = await firstPackageItemWithProduct(db, fixtures.basePackageId);
+  const quantityUpgrade = await db.orderPackageItemUpgrade.create({
+    data: {
+      orderId: workflow.orderId,
+      orderPackageId,
+      packageItemId: packageItem.id,
+      nameSnapshot: `${packageItem.product.name} to 116 Premium`,
+      priceSnapshot: new Prisma.Decimal("20.000"),
+      quantity: 1,
+    },
+  });
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "116-item-quantity",
+        op: "modify_quantity",
+        targetLineId: packageItemUpgradeLineId(orderPackageId, packageItem.id),
+        newQuantity: 3,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  const updatedUpgrade = await db.orderPackageItemUpgrade.findUniqueOrThrow({
+    where: { id: quantityUpgrade.id },
+    select: { quantity: true },
+  });
+  assert.equal(updatedUpgrade.quantity, 3);
+
+  const removalWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-item-upgrade-remove"
+  );
+  const removalOrderPackageId = await firstOrderPackageId(db, removalWorkflow.orderId);
+  const removablePackageItem = await firstPackageItemWithProduct(
+    db,
+    fixtures.basePackageId
+  );
+  const removedUpgrade = await db.orderPackageItemUpgrade.create({
+    data: {
+      orderId: removalWorkflow.orderId,
+      orderPackageId: removalOrderPackageId,
+      packageItemId: removablePackageItem.id,
+      nameSnapshot: `${removablePackageItem.product.name} to 116 Removed Premium`,
+      priceSnapshot: new Prisma.Decimal("5.000"),
+      quantity: 1,
+    },
+  });
+  const { workspaceId: removalWorkspaceId, version: removalVersion } =
+    await stageWorkspaceEdits(
+      services,
+      removalWorkflow.finalInvoiceId,
+      fixtures.adminActor,
+      [
+        {
+          id: "116-item-remove",
+          op: "remove_line",
+          targetLineId: packageItemUpgradeLineId(
+            removalOrderPackageId,
+            removablePackageItem.id
+          ),
+        },
+      ]
+    );
+  await services.finalizeWorkspace(
+    removalWorkspaceId,
+    {
+      version: removalVersion,
+      managerApprovedReductionByUserId: fixtures.adminActor.actorUserId,
+      managerApprovedReason: "Regression removal approval",
+    },
+    fixtures.adminActor
+  );
+  assert.equal(
+    await db.orderPackageItemUpgrade.count({ where: { id: removedUpgrade.id } }),
+    0
+  );
+});
+
+test("finalizeWorkspace materializes item upgrades after same-workspace package swaps", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-swap-item-upgrade"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const upgradePackageItem = await firstPackageItemWithProduct(
+    db,
+    fixtures.upgradePackageId
+  );
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "116-swap-package",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+      {
+        id: "116-upgrade-after-swap",
+        op: "upgrade_package_item",
+        orderPackageId,
+        packageItemId: upgradePackageItem.id,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  const [orderPackage, upgradeCount, activities] = await Promise.all([
+    db.orderPackage.findUniqueOrThrow({
+      where: { id: orderPackageId },
+      select: { currentPackageId: true },
+    }),
+    db.orderPackageItemUpgrade.count({
+      where: {
+        orderId: workflow.orderId,
+        orderPackageId,
+        packageItemId: upgradePackageItem.id,
+      },
+    }),
+    db.orderActivity.findMany({
+      where: {
+        orderId: workflow.orderId,
+        type: {
+          in: [
+            OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+            OrderActivityType.ADD_ON_CHANGED,
+          ],
+        },
+      },
+    }),
+  ]);
+  assert.equal(orderPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(upgradeCount, 1);
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.title === "Package item upgraded")
+  );
 
   const effective = await services.getEffectiveCompositionForInvoice(
     workflow.finalInvoiceId,
@@ -1627,6 +1900,17 @@ async function firstPackageItemId(db: PrismaClient, packageId: string): Promise<
     select: { id: true },
   });
   return packageItem.id;
+}
+
+async function firstPackageItemWithProduct(db: PrismaClient, packageId: string) {
+  return db.packageItem.findFirstOrThrow({
+    where: { packageId },
+    include: { product: { select: { name: true } } },
+  });
+}
+
+function packageItemUpgradeLineId(orderPackageId: string, packageItemId: string): string {
+  return `item:${orderPackageId}:${packageItemId}`;
 }
 
 async function createDeliverableProduct(
