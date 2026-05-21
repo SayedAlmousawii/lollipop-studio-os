@@ -805,8 +805,8 @@ export async function finalizeWorkspace(
           proposal,
           sessionConfigurationSelectionIds
         );
-        const materializedPackageSwapActivities =
-          await materializeSwapPackageEdits(
+        const materializedPackageTierActivities =
+          await materializePackageTierChangeEdits(
             tx,
             finalizedProposal,
             workspace.orderId
@@ -829,7 +829,7 @@ export async function finalizeWorkspace(
             workspace.orderId
           );
         const operationalStateAppliedAt =
-          materializedPackageSwapActivities.length > 0 ||
+          materializedPackageTierActivities.length > 0 ||
           materializedAddOnActivities.length > 0 ||
           materializedItemUpgradeActivities.length > 0 ||
           materializedPhotoCountActivities.length > 0
@@ -840,7 +840,7 @@ export async function finalizeWorkspace(
           await recordMaterializedPackageSwapActivities(tx, {
             orderId: workspace.orderId,
             actorUserId: actorContext.actorUserId,
-            activities: materializedPackageSwapActivities,
+            activities: materializedPackageTierActivities,
           });
           await recordMaterializedAddOnActivities(tx, {
             orderId: workspace.orderId,
@@ -894,7 +894,7 @@ export async function finalizeWorkspace(
         await recordMaterializedPackageSwapActivities(tx, {
           orderId: workspace.orderId,
           actorUserId: actorContext.actorUserId,
-          activities: materializedPackageSwapActivities,
+          activities: materializedPackageTierActivities,
         });
         await recordMaterializedAddOnActivities(tx, {
           orderId: workspace.orderId,
@@ -1697,7 +1697,7 @@ async function finalizeSessionConfigurationSelectionEdits(
   return selectionIdByPlaceholder;
 }
 
-async function materializeSwapPackageEdits(
+async function materializePackageTierChangeEdits(
   client: Prisma.TransactionClient,
   proposal: AdjustmentWorkspaceProposal,
   orderId: string
@@ -1705,39 +1705,19 @@ async function materializeSwapPackageEdits(
   const activities: MaterializedPackageSwapActivity[] = [];
 
   for (const edit of proposal.edits) {
-    if (edit.op !== "swap_package") continue;
+    if (edit.op !== "change_package_tier" && edit.op !== "swap_package") continue;
 
-    const [orderPackage, selectedPackage] = await Promise.all([
-      client.orderPackage.findFirst({
-        where: {
-          orderId,
-          currentPackageId: edit.fromPackageRefId,
-        },
-        include: {
-          currentPackage: {
-            select: { id: true, name: true, price: true, photoCount: true },
-          },
-        },
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      }),
-      client.package.findUnique({
-        where: { id: edit.toPackageRefId },
-        select: {
-          id: true,
-          name: true,
-          price: true,
-          photoCount: true,
-          isActive: true,
-          packageFamily: { select: { sessionTypeId: true } },
-        },
-      }),
-    ]);
+    const { orderPackage, selectedPackage } = await resolvePackageTierChange(
+      client,
+      orderId,
+      edit
+    );
 
     if (!selectedPackage || !selectedPackage.isActive) {
       throw new Error("Selected package is not available");
     }
     if (!orderPackage) {
-      throw new Error(`Package line not found for swap_package edit on order ${orderId}`);
+      throw new Error("Package line not found for package tier change");
     }
     if (selectedPackage.packageFamily.sessionTypeId !== orderPackage.sessionTypeId) {
       throw new Error("Selected package does not belong to this line's session type");
@@ -1772,11 +1752,11 @@ async function materializeSwapPackageEdits(
     });
 
     if (previousPackage.id !== selectedPackage.id) {
-      const packageAdjustmentAmount = packageAdjustmentAmountForSwap(
+      const packageAdjustmentAmount = packageAdjustmentAmountForTierChange(
         proposal,
         edit
       );
-      const packageAdjustmentBaseline = packageAdjustmentBaselineForSwap(
+      const packageAdjustmentBaseline = packageAdjustmentBaselineForTierChange(
         proposal,
         edit,
         orderPackage.finalPackagePriceSnapshot ?? previousPackage.price
@@ -1799,6 +1779,45 @@ async function materializeSwapPackageEdits(
   }
 
   return activities;
+}
+
+async function resolvePackageTierChange(
+  client: Prisma.TransactionClient,
+  orderId: string,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >
+) {
+  const orderPackageWhere =
+    edit.op === "change_package_tier"
+      ? { id: edit.orderPackageId, orderId }
+      : { orderId, currentPackageId: edit.fromPackageRefId };
+
+  const [orderPackage, selectedPackage] = await Promise.all([
+    client.orderPackage.findFirst({
+      where: orderPackageWhere,
+      include: {
+        currentPackage: {
+          select: { id: true, name: true, price: true, photoCount: true },
+        },
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    }),
+    client.package.findUnique({
+      where: { id: edit.toPackageRefId },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        photoCount: true,
+        isActive: true,
+        packageFamily: { select: { sessionTypeId: true } },
+      },
+    }),
+  ]);
+
+  return { orderPackage, selectedPackage };
 }
 
 async function materializeAddOnEdits(
@@ -2433,28 +2452,65 @@ async function syncOrderSelectedPhotoCountFromPackageLines(
   });
 }
 
-function packageAdjustmentAmountForSwap(
+function packageAdjustmentAmountForTierChange(
   proposal: AdjustmentWorkspaceProposal,
-  edit: Extract<AdjustmentWorkspaceEdit, { op: "swap_package" }>
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >
 ): Prisma.Decimal {
-  const refs = new Set([edit.fromPackageRefId, edit.toPackageRefId]);
+  const refs = packageRefsForTierChange(proposal, edit);
+  const lineId =
+    edit.op === "change_package_tier" ? `package:${edit.orderPackageId}` : null;
   return proposal.deltas
-    .filter((line) => line.kind === "package" && refs.has(line.refId))
+    .filter(
+      (line) =>
+        line.kind === "package" &&
+        (refs.has(line.refId) || (lineId !== null && line.lineId === lineId))
+    )
     .reduce(
       (sum, line) => sum.plus(line.lineTotalNet),
       new Prisma.Decimal(0)
     );
 }
 
-function packageAdjustmentBaselineForSwap(
+function packageAdjustmentBaselineForTierChange(
   proposal: AdjustmentWorkspaceProposal,
-  edit: Extract<AdjustmentWorkspaceEdit, { op: "swap_package" }>,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >,
   fallback: Prisma.Decimal
 ): Prisma.Decimal {
-  const baseLine = proposal.base.lines.find(
-    (line) => line.kind === "package" && line.refId === edit.fromPackageRefId
-  );
+  const baseLine =
+    edit.op === "change_package_tier"
+      ? proposal.base.lines.find(
+          (line) =>
+            line.kind === "package" &&
+            line.lineId === `package:${edit.orderPackageId}`
+        )
+      : proposal.base.lines.find(
+          (line) => line.kind === "package" && line.refId === edit.fromPackageRefId
+        );
   return baseLine ? new Prisma.Decimal(baseLine.lineTotalNet) : fallback;
+}
+
+function packageRefsForTierChange(
+  proposal: AdjustmentWorkspaceProposal,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >
+): Set<string> {
+  if (edit.op === "swap_package") {
+    return new Set([edit.fromPackageRefId, edit.toPackageRefId]);
+  }
+
+  const baseLine = proposal.base.lines.find(
+    (line) =>
+      line.kind === "package" && line.lineId === `package:${edit.orderPackageId}`
+  );
+  return new Set([baseLine?.refId, edit.toPackageRefId].filter(Boolean) as string[]);
 }
 
 function remapSessionConfigurationProposal(
