@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 116 package-item upgrade materialization is complete: workspace finalize now applies post-lock package-item upgrade add/remove/quantity edits back to `OrderPackageItemUpgrade`, emits matching item-upgrade activities, and preserves replay skip semantics.
 - Feature 115 add-on materialization is complete: workspace finalize now applies post-lock add-on add/remove/quantity edits back to `OrderAddOn`, emits `ADD_ON_CHANGED` activities, and marks materialized workspaces for replay skip.
 - Feature 114 package-swap materialization is complete: workspace finalize now applies `swap_package` edits back to `OrderPackage` current identity/price/photo fields, clears scoped item upgrades, records package-line activity, and marks materialized workspaces for replay skip.
 - Feature 113 adjustment workspace applied flag is complete: `AdjustmentWorkspace.operationalStateAppliedAt` is nullable, finalize writes it as `null` by default, and composition replay skips finalized workspaces that have already been operationally materialized.
@@ -41,7 +42,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - POS is the canonical writable workspace for order package changes, selected photos, add-ons, invoice preview, and final payment. The legacy edit order route redirects there; order detail selection is read-only.
 - Shared POS components that may mount in multiple persistence contexts use handler props from `src/modules/orders/pos-handlers.types.ts`. Sales passes commit-through server-action adapters with inline reductive approval enabled; AdjustmentWorkspace passes staged-edit adapters with inline approval disabled, finalize-time approval preserved.
 - `OrderEditModePolicy` is the centralized source for draft, locked, adjustment, direct-write, Adjustment Workspace route, blocked-message, and manager-approval edit affordances across POS and configure-session surfaces.
-- `AdjustmentWorkspace.operationalStateAppliedAt` is the materialization idempotency flag; current finalize paths leave it `null`, while composition replay treats non-null finalized workspaces as already applied and skips their adjustment invoice lines.
+- `AdjustmentWorkspace.operationalStateAppliedAt` is the materialization idempotency flag; non-materializing finalize paths leave it `null`, while materialized finalized workspaces set it and skip adjustment-invoice composition replay.
+- Finalizing package-item upgrade materializable workspaces upserts, updates, or deletes `OrderPackageItemUpgrade` rows after package-swap materialization and before ADJ creation; same-workspace swap + item-upgrade edits survive the swap cleanup and the materialized workspace is skipped by composition replay.
 - Finalizing add-on materializable workspaces applies `add_line` / `remove_line` / `modify_quantity` addon edits to `OrderAddOn` rows before ADJ creation, while session-configuration-owned linked add-ons remain owned by the session-configuration finalizer.
 - Finalizing a `swap_package` workspace materializes the affected `OrderPackage` current package identity/name, final package price, selected-photo baseline, and scoped item-upgrade cleanup before ADJ creation; the ADJ remains the immutable financial delta source and the materialized workspace is skipped by composition replay.
 - `derivePOSWorkspaceFromAdjustmentWorkspace()` is the canonical bridge for rendering staged post-lock edits through POS modules without mutating the locked invoice or reusing sales commit-through.
@@ -79,6 +81,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **116 OPS5** — Materialized post-lock package-item upgrade add/remove/quantity workspace edits into `OrderPackageItemUpgrade`, emitted item-upgrade activities consistent with direct edits, preserved ADJ line shape, and covered item-only plus same-line swap/item finalize ordering.
 - **115 OPS4** — Materialized post-lock add-on add/remove/quantity workspace edits into `OrderAddOn`, emitted `ADD_ON_CHANGED` activities, preserved ADJ line shape, and covered add-on-only, mixed swap/add-on, and session-config coexistence finalize paths.
 - **114 OPS3** — Materialized post-lock `swap_package` edits into `OrderPackage` rows during finalize, emitted package-line activities, preserved ADJ line shape, and enabled replay skip via `operationalStateAppliedAt`.
 - **113 OPS2** — Added `AdjustmentWorkspace.operationalStateAppliedAt`, wired finalize to persist the null default, and muted invoice-line replay for finalized workspaces marked operationally materialized.
