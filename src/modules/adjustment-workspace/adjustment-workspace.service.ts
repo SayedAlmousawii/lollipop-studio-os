@@ -104,6 +104,17 @@ type MaterializedItemUpgradeActivity = {
   action: "upserted" | "updated" | "removed";
 };
 
+type MaterializedPhotoCountActivity = {
+  orderPackageId: string;
+  previousSelectedPhotoCount: number | null;
+  nextSelectedPhotoCount: number;
+  includedPhotoCount: number;
+  previousExtraDigitalCount: number;
+  previousExtraPrintCount: number;
+  nextExtraDigitalCount: number;
+  nextExtraPrintCount: number;
+};
+
 type CatalogLookup = {
   products: Map<string, { id: string; name: string; price: Prisma.Decimal }>;
   packages: Map<
@@ -847,10 +858,17 @@ export async function finalizeWorkspace(
             finalizedProposal,
             workspace.orderId
           );
+        const materializedPhotoCountActivities =
+          await materializePhotoCountEdits(
+            tx,
+            finalizedProposal,
+            workspace.orderId
+          );
         const operationalStateAppliedAt =
           materializedPackageSwapActivities.length > 0 ||
           materializedAddOnActivities.length > 0 ||
-          materializedItemUpgradeActivities.length > 0
+          materializedItemUpgradeActivities.length > 0 ||
+          materializedPhotoCountActivities.length > 0
             ? new Date()
             : null;
 
@@ -869,6 +887,11 @@ export async function finalizeWorkspace(
             orderId: workspace.orderId,
             actorUserId: actorContext.actorUserId,
             activities: materializedItemUpgradeActivities,
+          });
+          await recordMaterializedPhotoCountActivities(tx, {
+            orderId: workspace.orderId,
+            actorUserId: actorContext.actorUserId,
+            activities: materializedPhotoCountActivities,
           });
           await markWorkspaceFinalized(
             tx,
@@ -918,6 +941,11 @@ export async function finalizeWorkspace(
           orderId: workspace.orderId,
           actorUserId: actorContext.actorUserId,
           activities: materializedItemUpgradeActivities,
+        });
+        await recordMaterializedPhotoCountActivities(tx, {
+          orderId: workspace.orderId,
+          actorUserId: actorContext.actorUserId,
+          activities: materializedPhotoCountActivities,
         });
 
         await markWorkspaceFinalized(
@@ -2083,6 +2111,66 @@ async function materializeItemUpgradeEdits(
   return activities;
 }
 
+async function materializePhotoCountEdits(
+  client: Prisma.TransactionClient,
+  proposal: AdjustmentWorkspaceProposal,
+  orderId: string
+): Promise<MaterializedPhotoCountActivity[]> {
+  const affectedOrderPackageIds = collectPhotoCountOrderPackageIds(proposal.edits);
+  if (affectedOrderPackageIds.size === 0) return [];
+
+  const activities: MaterializedPhotoCountActivity[] = [];
+  const finalCounts = resolveProposalPhotoCounts(proposal, affectedOrderPackageIds);
+
+  for (const [orderPackageId, counts] of finalCounts) {
+    const orderPackage = await client.orderPackage.findFirst({
+      where: { id: orderPackageId, orderId },
+      select: {
+        id: true,
+        selectedPhotoCount: true,
+        extraDigitalCount: true,
+        extraPrintCount: true,
+        currentPackage: { select: { photoCount: true } },
+      },
+    });
+    if (!orderPackage) {
+      throw new Error("Package line not found for photo-count edit");
+    }
+
+    const changed =
+      orderPackage.selectedPhotoCount !== counts.selectedPhotoCount ||
+      orderPackage.extraDigitalCount !== counts.extraDigitalCount ||
+      orderPackage.extraPrintCount !== counts.extraPrintCount;
+    if (!changed) continue;
+
+    await client.orderPackage.update({
+      where: { id: orderPackage.id },
+      data: {
+        selectedPhotoCount: counts.selectedPhotoCount,
+        extraDigitalCount: counts.extraDigitalCount,
+        extraPrintCount: counts.extraPrintCount,
+      },
+    });
+
+    activities.push({
+      orderPackageId: orderPackage.id,
+      previousSelectedPhotoCount: orderPackage.selectedPhotoCount,
+      nextSelectedPhotoCount: counts.selectedPhotoCount,
+      includedPhotoCount: counts.includedPhotoCount,
+      previousExtraDigitalCount: orderPackage.extraDigitalCount,
+      previousExtraPrintCount: orderPackage.extraPrintCount,
+      nextExtraDigitalCount: counts.extraDigitalCount,
+      nextExtraPrintCount: counts.extraPrintCount,
+    });
+  }
+
+  if (activities.length > 0) {
+    await syncOrderSelectedPhotoCountFromPackageLines(client, orderId);
+  }
+
+  return activities;
+}
+
 async function resolvePackageItemUpgradeContext(
   client: Prisma.TransactionClient,
   input: {
@@ -2242,6 +2330,37 @@ async function recordMaterializedItemUpgradeActivities(
   }
 }
 
+async function recordMaterializedPhotoCountActivities(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    actorUserId: string;
+    activities: MaterializedPhotoCountActivity[];
+  }
+): Promise<void> {
+  for (const activity of input.activities) {
+    await recordOrderActivity(client, {
+      orderId: input.orderId,
+      userId: input.actorUserId,
+      type: OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
+      title: "Package line photo selection updated",
+      description: `Selected photos changed to ${activity.nextSelectedPhotoCount}.`,
+      metadata: {
+        orderPackageId: activity.orderPackageId,
+        previousSelectedPhotoCount: activity.previousSelectedPhotoCount,
+        nextSelectedPhotoCount: activity.nextSelectedPhotoCount,
+        includedPhotoCount: activity.includedPhotoCount,
+        previousExtraDigitalCount: activity.previousExtraDigitalCount,
+        previousExtraPrintCount: activity.previousExtraPrintCount,
+        nextExtraDigitalCount: activity.nextExtraDigitalCount,
+        nextExtraPrintCount: activity.nextExtraPrintCount,
+        extraPhotoCount:
+          activity.nextExtraDigitalCount + activity.nextExtraPrintCount,
+      },
+    });
+  }
+}
+
 async function resolveScopedOrderPackageId(
   client: Prisma.TransactionClient,
   orderId: string,
@@ -2262,6 +2381,96 @@ function orderAddOnIdFromLineId(lineId: string): string | null {
   const [kind, id, ...rest] = lineId.split(":");
   if (kind !== "addon" || !id || rest.length > 0) return null;
   return id;
+}
+
+function extraPhotoIdsFromLineId(
+  lineId: string
+): { orderPackageId: string; mediaType: MediaType } | null {
+  const [kind, orderPackageId, mediaType, ...rest] = lineId.split(":");
+  if (kind !== "extra-photo" || !orderPackageId || !mediaType || rest.length > 0) {
+    return null;
+  }
+  if (mediaType === "digital") {
+    return { orderPackageId, mediaType: MediaType.DIGITAL };
+  }
+  if (mediaType === "print") {
+    return { orderPackageId, mediaType: MediaType.PRINT };
+  }
+  return null;
+}
+
+function collectPhotoCountOrderPackageIds(
+  edits: AdjustmentWorkspaceEdit[]
+): Set<string> {
+  const orderPackageIds = new Set<string>();
+  for (const edit of edits) {
+    if (edit.op === "change_selected_photo_count") {
+      orderPackageIds.add(edit.orderPackageId);
+      continue;
+    }
+    if (edit.op !== "remove_line" && edit.op !== "modify_quantity") continue;
+    const parsed = extraPhotoIdsFromLineId(edit.targetLineId);
+    if (parsed) orderPackageIds.add(parsed.orderPackageId);
+  }
+  return orderPackageIds;
+}
+
+function resolveProposalPhotoCounts(
+  proposal: AdjustmentWorkspaceProposal,
+  affectedOrderPackageIds: Set<string>
+): Map<
+  string,
+  {
+    selectedPhotoCount: number;
+    includedPhotoCount: number;
+    extraDigitalCount: number;
+    extraPrintCount: number;
+  }
+> {
+  const counts = new Map<
+    string,
+    {
+      selectedPhotoCount: number;
+      includedPhotoCount: number;
+      extraDigitalCount: number;
+      extraPrintCount: number;
+    }
+  >();
+
+  for (const orderPackageId of affectedOrderPackageIds) {
+    const packageLine = proposal.proposed.lines.find(
+      (line) => line.kind === "package" && line.lineId === `package:${orderPackageId}`
+    );
+    if (!packageLine) {
+      throw new Error("Package line not found in finalized photo-count proposal");
+    }
+    const includedPhotoCount = packageLine.refMetadata?.includedPhotoCount ?? 0;
+    counts.set(orderPackageId, {
+      selectedPhotoCount: includedPhotoCount,
+      includedPhotoCount,
+      extraDigitalCount: 0,
+      extraPrintCount: 0,
+    });
+  }
+
+  for (const line of proposal.proposed.lines) {
+    const parsed = extraPhotoIdsFromLineId(line.lineId);
+    if (!parsed || !affectedOrderPackageIds.has(parsed.orderPackageId)) continue;
+    const count = counts.get(parsed.orderPackageId);
+    if (!count) continue;
+    if (parsed.mediaType === MediaType.DIGITAL) {
+      count.extraDigitalCount += line.quantity;
+    } else {
+      count.extraPrintCount += line.quantity;
+    }
+  }
+
+  for (const count of counts.values()) {
+    count.selectedPhotoCount =
+      count.includedPhotoCount + count.extraDigitalCount + count.extraPrintCount;
+  }
+
+  return counts;
 }
 
 function packageItemUpgradeIdsFromLineId(
