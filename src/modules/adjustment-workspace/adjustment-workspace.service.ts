@@ -391,6 +391,7 @@ export async function getEffectiveCompositionForInvoice(
       finalizedAdjustmentInvoiceId: { not: null },
     },
     select: {
+      operationalStateAppliedAt: true,
       finalizedAdjustmentInvoice: {
         select: {
           lineItems: {
@@ -413,6 +414,7 @@ export async function getEffectiveCompositionForInvoice(
   });
 
   for (const workspace of finalizedWorkspaceInvoices) {
+    if (workspace.operationalStateAppliedAt) continue;
     const lines = workspace.finalizedAdjustmentInvoice?.lineItems ?? [];
     applySignedInvoiceLines(snapshot.lines, lines);
   }
@@ -1810,13 +1812,15 @@ async function markWorkspaceFinalized(
   workspaceId: string,
   actorUserId: string,
   adjustmentInvoiceId: string | null,
-  proposal: AdjustmentWorkspaceProposal
+  proposal: AdjustmentWorkspaceProposal,
+  operationalStateAppliedAt: Date | null = null
 ) {
   await client.adjustmentWorkspace.update({
     where: { id: workspaceId },
     data: {
       status: AdjustmentWorkspaceStatus.FINALIZED,
       finalizedAdjustmentInvoiceId: adjustmentInvoiceId,
+      operationalStateAppliedAt,
       version: { increment: 1 },
       lastActivityAt: new Date(),
       events: {

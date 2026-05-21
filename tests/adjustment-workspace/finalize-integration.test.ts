@@ -370,9 +370,69 @@ test("finalizeWorkspace applies operational and financial session configuration 
   );
   const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
     where: { id: workspaceId },
-    select: { status: true },
+    select: { status: true, operationalStateAppliedAt: true },
   });
   assert.equal(workspace.status, "FINALIZED");
+  assert.equal(workspace.operationalStateAppliedAt, null);
+});
+
+test("getEffectiveCompositionForInvoice skips replay for materialized finalized workspaces", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "113-materialized-skip"
+  );
+  const baseline = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "113-materialized-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  await db.adjustmentWorkspace.update({
+    where: { id: workspaceId },
+    data: { operationalStateAppliedAt: new Date() },
+  });
+  const adjustment = await onlyAdjustmentInvoice(
+    db,
+    workflow.orderId,
+    workflow.finalInvoiceId
+  );
+  assert.ok(adjustment.lineItems.length > 0);
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(baseline)
+  );
 });
 
 test("derivePOSWorkspaceFromAdjustmentWorkspace projects staged edits into POS modules", async () => {
@@ -1062,6 +1122,16 @@ function assertLineSemantics(
     );
     lines.splice(index, 1);
   }
+}
+
+function stripCompositionCaptureTime(
+  snapshot: Awaited<ReturnType<WorkspaceServices["getEffectiveCompositionForInvoice"]>>
+) {
+  return {
+    lines: snapshot.lines,
+    totals: snapshot.totals,
+    sessionConfigurationSelections: snapshot.sessionConfigurationSelections,
+  };
 }
 
 async function firstOrderPackageId(db: PrismaClient, orderId: string): Promise<string> {

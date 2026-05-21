@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 113 adjustment workspace applied flag is complete: `AdjustmentWorkspace.operationalStateAppliedAt` is nullable, finalize writes it as `null` by default, and composition replay skips finalized workspaces that have already been operationally materialized.
 - Feature 112 order-package identity schema is complete: `OrderPackage` now carries immutable original package identity, mutable current package identity, optional `BookingPackage` lineage, separate name snapshots, and initialized original/final price snapshots; pre-lock package swaps update only current identity.
 - R13d manual QA + freeze signoff is complete: the freeze checklist has concrete dev/staging manual QA bodies, the acceptable-changes log, explicit reconciliation deferrals, freeze-eve gate confirmation, and the R0-R13 roadmap closure line dated 2026-05-20.
 - R13c workflow smoke and deferred parity matrices are complete: service-level booking/POS/adjustment/editing/production/delivery/end-to-end smoke coverage is wired into `test:backend-invariants`, and the orders-table/customer-history, Adjustment Workspace metadata, and workflow action parity tests are wired into `test:centralization`.
@@ -38,6 +39,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - POS is the canonical writable workspace for order package changes, selected photos, add-ons, invoice preview, and final payment. The legacy edit order route redirects there; order detail selection is read-only.
 - Shared POS components that may mount in multiple persistence contexts use handler props from `src/modules/orders/pos-handlers.types.ts`. Sales passes commit-through server-action adapters with inline reductive approval enabled; AdjustmentWorkspace passes staged-edit adapters with inline approval disabled, finalize-time approval preserved.
 - `OrderEditModePolicy` is the centralized source for draft, locked, adjustment, direct-write, Adjustment Workspace route, blocked-message, and manager-approval edit affordances across POS and configure-session surfaces.
+- `AdjustmentWorkspace.operationalStateAppliedAt` is the materialization idempotency flag; current finalize paths leave it `null`, while composition replay treats non-null finalized workspaces as already applied and skips their adjustment invoice lines.
 - `derivePOSWorkspaceFromAdjustmentWorkspace()` is the canonical bridge for rendering staged post-lock edits through POS modules without mutating the locked invoice or reusing sales commit-through.
 - Locked POS operational edits stay direct/audited; locked POS financial edits route to workspace; open workspaces disable locked direct edits.
 - Multi-package is the only package model: `BookingPackage` and `OrderPackage` are the source of truth; each `OrderPackage` preserves immutable `originalPackageId` / original name snapshot and mutable `currentPackageId` / current name snapshot, with `finalPackagePriceSnapshot` initialized at creation rather than using null as a no-swap marker.
@@ -73,6 +75,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **113 OPS2** — Added `AdjustmentWorkspace.operationalStateAppliedAt`, wired finalize to persist the null default, and muted invoice-line replay for finalized workspaces marked operationally materialized.
 - **112 OPS1** — Split `OrderPackage.packageId` into immutable original/current package identity fields with booking-line lineage, rewired POS/order/composition/invoice readers, seed/test factories, and package reference checks.
 - **111 R13d** — Filled the R13 freeze checklist with concrete manual QA steps, traceable acceptable behavior changes, reconciliation operational deferrals, named signoff, and the 2026-05-20 centralization roadmap closure line.
 - **110 R13c** — Added service-level workflow smoke coverage for booking, POS settlement, locked adjustments, editing start, production readiness, delivery pickup/override, and the end-to-end studio walkthrough; closed the three deferred parity matrices in `test:centralization`.
