@@ -81,6 +81,15 @@ type MaterializedPackageSwapActivity = {
   packageAdjustmentBaseline: Prisma.Decimal;
 };
 
+type MaterializedAddOnActivity = {
+  orderAddOnId: string;
+  productId: string;
+  productName: string;
+  previousQuantity: number;
+  nextQuantity: number;
+  unitPrice: Prisma.Decimal;
+};
+
 type CatalogLookup = {
   products: Map<string, { id: string; name: string; price: Prisma.Decimal }>;
   packages: Map<
@@ -813,14 +822,27 @@ export async function finalizeWorkspace(
             finalizedProposal,
             workspace.orderId
           );
+        const materializedAddOnActivities = await materializeAddOnEdits(
+          tx,
+          finalizedProposal,
+          workspace.orderId
+        );
         const operationalStateAppliedAt =
-          materializedPackageSwapActivities.length > 0 ? new Date() : null;
+          materializedPackageSwapActivities.length > 0 ||
+          materializedAddOnActivities.length > 0
+            ? new Date()
+            : null;
 
         if (finalizedProposal.deltas.length === 0) {
           await recordMaterializedPackageSwapActivities(tx, {
             orderId: workspace.orderId,
             actorUserId: actorContext.actorUserId,
             activities: materializedPackageSwapActivities,
+          });
+          await recordMaterializedAddOnActivities(tx, {
+            orderId: workspace.orderId,
+            actorUserId: actorContext.actorUserId,
+            activities: materializedAddOnActivities,
           });
           await markWorkspaceFinalized(
             tx,
@@ -860,6 +882,11 @@ export async function finalizeWorkspace(
           orderId: workspace.orderId,
           actorUserId: actorContext.actorUserId,
           activities: materializedPackageSwapActivities,
+        });
+        await recordMaterializedAddOnActivities(tx, {
+          orderId: workspace.orderId,
+          actorUserId: actorContext.actorUserId,
+          activities: materializedAddOnActivities,
         });
 
         await markWorkspaceFinalized(
@@ -1787,6 +1814,106 @@ async function materializeSwapPackageEdits(
   return activities;
 }
 
+async function materializeAddOnEdits(
+  client: Prisma.TransactionClient,
+  proposal: AdjustmentWorkspaceProposal,
+  orderId: string
+): Promise<MaterializedAddOnActivity[]> {
+  const activities: MaterializedAddOnActivity[] = [];
+
+  for (const edit of proposal.edits) {
+    if (edit.op === "add_line") {
+      if (edit.kind !== "addon") continue;
+      const product = await client.product.findUnique({
+        where: { id: edit.refId },
+        select: {
+          id: true,
+          name: true,
+          canonicalPrice: true,
+          isActive: true,
+          isAddOn: true,
+          isPackageDeliverable: true,
+        },
+      });
+      if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
+        throw new Error("Selected add-on product is not available");
+      }
+      const orderPackageId = await resolveScopedOrderPackageId(
+        client,
+        orderId,
+        edit.orderPackageId
+      );
+      const addOn = await client.orderAddOn.create({
+        data: {
+          orderId,
+          orderPackageId,
+          productId: product.id,
+          nameSnapshot: product.name,
+          priceSnapshot: product.canonicalPrice,
+          quantity: edit.quantity,
+        },
+        select: { id: true },
+      });
+
+      activities.push({
+        orderAddOnId: addOn.id,
+        productId: product.id,
+        productName: product.name,
+        previousQuantity: 0,
+        nextQuantity: edit.quantity,
+        unitPrice: product.canonicalPrice,
+      });
+      continue;
+    }
+
+    if (edit.op !== "remove_line" && edit.op !== "modify_quantity") continue;
+
+    const orderAddOnId = orderAddOnIdFromLineId(edit.targetLineId);
+    if (!orderAddOnId) continue;
+    const addOn = await client.orderAddOn.findFirst({
+      where: { id: orderAddOnId, orderId },
+      select: {
+        id: true,
+        productId: true,
+        nameSnapshot: true,
+        priceSnapshot: true,
+        quantity: true,
+      },
+    });
+    if (!addOn) continue;
+
+    const selectionOwner =
+      await client.orderPackageSessionConfigurationSelection.findFirst({
+        where: { orderAddOnId: addOn.id },
+        select: { id: true },
+      });
+    if (selectionOwner) continue;
+
+    const nextQuantity = edit.op === "remove_line" ? 0 : edit.newQuantity;
+    if (nextQuantity <= 0) {
+      await client.orderAddOn.delete({ where: { id: addOn.id } });
+    } else {
+      await client.orderAddOn.update({
+        where: { id: addOn.id },
+        data: { quantity: nextQuantity },
+      });
+    }
+
+    if (addOn.quantity !== nextQuantity) {
+      activities.push({
+        orderAddOnId: addOn.id,
+        productId: addOn.productId,
+        productName: addOn.nameSnapshot,
+        previousQuantity: addOn.quantity,
+        nextQuantity,
+        unitPrice: addOn.priceSnapshot,
+      });
+    }
+  }
+
+  return activities;
+}
+
 async function recordMaterializedPackageSwapActivities(
   client: Prisma.TransactionClient,
   input: {
@@ -1815,6 +1942,56 @@ async function recordMaterializedPackageSwapActivities(
       },
     });
   }
+}
+
+async function recordMaterializedAddOnActivities(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    actorUserId: string;
+    activities: MaterializedAddOnActivity[];
+  }
+): Promise<void> {
+  for (const activity of input.activities) {
+    await recordOrderActivity(client, {
+      orderId: input.orderId,
+      userId: input.actorUserId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+      title: "Add-on changed",
+      description: `${activity.productName} quantity changed from ${activity.previousQuantity} to ${activity.nextQuantity}.`,
+      metadata: {
+        orderAddOnId: activity.orderAddOnId,
+        productId: activity.productId,
+        productName: activity.productName,
+        previousQuantity: activity.previousQuantity,
+        nextQuantity: activity.nextQuantity,
+        unitPrice: activity.unitPrice.toFixed(3),
+        price: activity.unitPrice.toFixed(3),
+      },
+    });
+  }
+}
+
+async function resolveScopedOrderPackageId(
+  client: Prisma.TransactionClient,
+  orderId: string,
+  orderPackageId: string | undefined
+): Promise<string | null> {
+  if (!orderPackageId) return null;
+  const orderPackage = await client.orderPackage.findFirst({
+    where: { id: orderPackageId, orderId },
+    select: { id: true },
+  });
+  if (!orderPackage) {
+    throw new Error("Package line not found for scoped add-on edit");
+  }
+  return orderPackage.id;
+}
+
+function orderAddOnIdFromLineId(lineId: string): string | null {
+  const [kind, id, ...rest] = lineId.split(":");
+  if (kind !== "addon" || !id || rest.length > 0) return null;
+  return id;
 }
 
 async function syncOrderSelectedPhotoCountFromPackageLines(
