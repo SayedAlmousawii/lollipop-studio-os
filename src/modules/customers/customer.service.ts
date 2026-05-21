@@ -188,7 +188,7 @@ export async function getCustomerById(
               booking: { select: { sessionDate: true } },
               packages: {
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-                select: { package: { select: { name: true } } },
+                select: { currentPackageNameSnapshot: true },
               },
             },
           },
@@ -821,15 +821,20 @@ function isRecordNotFound(error: unknown): boolean {
 }
 
 function formatPackageLineNames(
-  packages: Array<{ quantity?: number; package: { name: string } }>
+  packages: Array<{
+    quantity?: number;
+    package?: { name: string };
+    currentPackageNameSnapshot?: string;
+  }>
 ): string {
   if (packages.length === 0) return "—";
   return packages
-    .map((line) =>
-      line.quantity && line.quantity > 1
-        ? `${line.package.name} x${line.quantity}`
-        : line.package.name
-    )
+    .map((line) => {
+      const packageName = line.package?.name ?? line.currentPackageNameSnapshot ?? "—";
+      return line.quantity && line.quantity > 1
+        ? `${packageName} x${line.quantity}`
+        : packageName;
+    })
     .join(", ");
 }
 

@@ -228,11 +228,14 @@ export async function formatMissingSessionConfigurationMessage(
     where: { id: { in: packageIds } },
     select: {
       id: true,
-      package: { select: { name: true } },
+      currentPackageNameSnapshot: true,
     },
   });
   const packageNameById = new Map(
-    packages.map((orderPackage) => [orderPackage.id, orderPackage.package.name])
+    packages.map((orderPackage) => [
+      orderPackage.id,
+      orderPackage.currentPackageNameSnapshot,
+    ])
   );
   const missingLabels = details.map((detail) => {
     const names = detail.missingConfigurationCodes.map(

@@ -200,8 +200,11 @@ async function createMixedSessionPOSFixture(db: Db): Promise<string> {
     data: [
       {
         orderId: order.id,
-        packageId: firstPackage.id,
+        originalPackageId: firstPackage.id,
+        currentPackageId: firstPackage.id,
         sessionTypeId: firstSessionType.id,
+        originalPackageNameSnapshot: firstPackage.name,
+        currentPackageNameSnapshot: firstPackage.name,
         originalPackagePriceSnapshot: firstPackage.price,
         finalPackagePriceSnapshot: firstPackage.price,
         selectedPhotoCount: 13,
@@ -211,8 +214,11 @@ async function createMixedSessionPOSFixture(db: Db): Promise<string> {
       },
       {
         orderId: order.id,
-        packageId: secondPackage.id,
+        originalPackageId: secondPackage.id,
+        currentPackageId: secondPackage.id,
         sessionTypeId: secondSessionType.id,
+        originalPackageNameSnapshot: secondPackage.name,
+        currentPackageNameSnapshot: secondPackage.name,
         originalPackagePriceSnapshot: secondPackage.price,
         finalPackagePriceSnapshot: secondPackage.price,
         selectedPhotoCount: 15,

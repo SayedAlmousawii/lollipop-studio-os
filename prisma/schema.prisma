@@ -360,10 +360,11 @@ model Package {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items           PackageItem[]
-  packageFamily   PackageFamily    @relation(fields: [packageFamilyId], references: [id])
-  bookingPackages BookingPackage[]
-  orderPackages   OrderPackage[]
+  items                 PackageItem[]
+  packageFamily         PackageFamily  @relation(fields: [packageFamilyId], references: [id])
+  bookingPackages       BookingPackage[]
+  originalOrderPackages OrderPackage[] @relation("OriginalOrderPackage")
+  currentOrderPackages  OrderPackage[] @relation("CurrentOrderPackage")
 
   @@index([packageFamilyId, isActive])
   @@map("packages")
@@ -543,6 +544,7 @@ model BookingPackage {
   booking     Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   package     Package     @relation(fields: [packageId], references: [id])
   sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+  orderPackages OrderPackage[]
 
   @@unique([bookingId, packageId])
   @@index([bookingId, sortOrder])
@@ -640,10 +642,14 @@ model Order {
 }
 
 model OrderPackage {
-  id                           String   @id @default(cuid())
-  orderId                      String
-  packageId                    String
-  sessionTypeId                String
+  id                          String   @id @default(cuid())
+  orderId                     String
+  originalPackageId           String
+  currentPackageId            String
+  bookingPackageId            String?
+  sessionTypeId               String
+  originalPackageNameSnapshot String
+  currentPackageNameSnapshot  String
   originalPackagePriceSnapshot Decimal? @db.Decimal(10, 3)
   finalPackagePriceSnapshot    Decimal? @db.Decimal(10, 3)
   selectedPhotoCount           Int?
@@ -654,14 +660,18 @@ model OrderPackage {
   updatedAt                    DateTime @updatedAt
 
   order                          Order                                       @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  package                        Package                                     @relation(fields: [packageId], references: [id])
+  originalPackage                Package                                     @relation("OriginalOrderPackage", fields: [originalPackageId], references: [id])
+  currentPackage                 Package                                     @relation("CurrentOrderPackage", fields: [currentPackageId], references: [id])
+  bookingPackage                 BookingPackage?                             @relation(fields: [bookingPackageId], references: [id], onDelete: SetNull)
   sessionType                    SessionType                                 @relation(fields: [sessionTypeId], references: [id])
   orderAddOns                    OrderAddOn[]
   packageItemUpgrades            OrderPackageItemUpgrade[]
   sessionConfigurationSelections OrderPackageSessionConfigurationSelection[]
 
   @@index([orderId, sortOrder])
-  @@index([packageId])
+  @@index([originalPackageId])
+  @@index([currentPackageId])
+  @@index([bookingPackageId])
   @@index([sessionTypeId])
   @@map("order_packages")
 }

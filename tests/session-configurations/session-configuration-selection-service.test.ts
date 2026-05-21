@@ -479,8 +479,11 @@ async function createFixture(db: typeof import("@/lib/db")["db"]) {
   const orderPackage = await db.orderPackage.create({
     data: {
       orderId: order.id,
-      packageId: packageRow.id,
+      originalPackageId: packageRow.id,
+      currentPackageId: packageRow.id,
       sessionTypeId: sessionType.id,
+      originalPackageNameSnapshot: packageRow.name,
+      currentPackageNameSnapshot: packageRow.name,
       originalPackagePriceSnapshot: new Prisma.Decimal(60),
       finalPackagePriceSnapshot: new Prisma.Decimal(60),
       sortOrder: 10,

@@ -94,7 +94,8 @@ export async function runInvoiceMathInvariantTest(): Promise<void> {
     await db.orderPackage.update({
       where: { id: orderPackageId },
       data: {
-        packageId: upgradeThroughService.packages.goldPackageId,
+        currentPackageId: upgradeThroughService.packages.goldPackageId,
+        currentPackageNameSnapshot: "Invariant Gold",
         finalPackagePriceSnapshot: new Prisma.Decimal(90),
       },
     });
@@ -237,16 +238,21 @@ async function createOrderFixture(
   });
 
   await db.orderPackage.createMany({
-    data: input.lines.map((line, index) => ({
-      orderId: order.id,
-      packageId:
-        line.packageKind === "silver" ? silverPackage.id : goldPackage.id,
-      sessionTypeId: sessionType.id,
-      originalPackagePriceSnapshot: new Prisma.Decimal(line.originalPrice),
-      finalPackagePriceSnapshot: new Prisma.Decimal(line.finalPrice),
-      selectedPhotoCount: line.packageKind === "silver" ? 10 : 15,
-      sortOrder: index,
-    })),
+    data: input.lines.map((line, index) => {
+      const packageRow = line.packageKind === "silver" ? silverPackage : goldPackage;
+      return {
+        orderId: order.id,
+        originalPackageId: packageRow.id,
+        currentPackageId: packageRow.id,
+        sessionTypeId: sessionType.id,
+        originalPackageNameSnapshot: packageRow.name,
+        currentPackageNameSnapshot: packageRow.name,
+        originalPackagePriceSnapshot: new Prisma.Decimal(line.originalPrice),
+        finalPackagePriceSnapshot: new Prisma.Decimal(line.finalPrice),
+        selectedPhotoCount: line.packageKind === "silver" ? 10 : 15,
+        sortOrder: index,
+      };
+    }),
   });
 
   return {

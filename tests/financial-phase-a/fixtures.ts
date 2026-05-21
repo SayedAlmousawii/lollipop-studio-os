@@ -280,8 +280,11 @@ export async function seedPhaseAFinancialFixtures(
       packages: {
         create: {
           id: `${FIXTURE_PREFIX}-order-package`,
-          packageId: packageRow.id,
+          originalPackageId: packageRow.id,
+          currentPackageId: packageRow.id,
           sessionTypeId: sessionType.id,
+          originalPackageNameSnapshot: packageRow.name,
+          currentPackageNameSnapshot: packageRow.name,
           originalPackagePriceSnapshot: new Prisma.Decimal(100),
           finalPackagePriceSnapshot: new Prisma.Decimal(100),
           selectedPhotoCount: 10,

@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Feature 112 order-package identity schema is complete: `OrderPackage` now carries immutable original package identity, mutable current package identity, optional `BookingPackage` lineage, and separate name snapshots; pre-lock package swaps update only current identity.
 - R13d manual QA + freeze signoff is complete: the freeze checklist has concrete dev/staging manual QA bodies, the acceptable-changes log, explicit reconciliation deferrals, freeze-eve gate confirmation, and the R0-R13 roadmap closure line dated 2026-05-20.
 - R13c workflow smoke and deferred parity matrices are complete: service-level booking/POS/adjustment/editing/production/delivery/end-to-end smoke coverage is wired into `test:backend-invariants`, and the orders-table/customer-history, Adjustment Workspace metadata, and workflow action parity tests are wired into `test:centralization`.
 - R13b automated regression gate is complete: deposit terminology is source/render guarded, selected-photo baseline, Commercial Actions catalog, and edit-mode interactivity parity tests are wired into `test:centralization`, and the POS reductive approval harness mismatch is fixed/classified as a broken test.
@@ -39,7 +40,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `OrderEditModePolicy` is the centralized source for draft, locked, adjustment, direct-write, Adjustment Workspace route, blocked-message, and manager-approval edit affordances across POS and configure-session surfaces.
 - `derivePOSWorkspaceFromAdjustmentWorkspace()` is the canonical bridge for rendering staged post-lock edits through POS modules without mutating the locked invoice or reusing sales commit-through.
 - Locked POS operational edits stay direct/audited; locked POS financial edits route to workspace; open workspaces disable locked direct edits.
-- Multi-package is the only package model: `BookingPackage` and `OrderPackage` are the source of truth.
+- Multi-package is the only package model: `BookingPackage` and `OrderPackage` are the source of truth; each `OrderPackage` preserves immutable `originalPackageId` / original name snapshot and mutable `currentPackageId` / current name snapshot.
 - Package-item upgrades reference `PackageItem` snapshots via `OrderPackageItemUpgrade`; true add-ons reference `Product` via `OrderAddOn`. The two are not overloaded.
 - Selected-photo totals are derived from `OrderPackage.selectedPhotoCount`; `Order.selectedPhotoCount` is a synchronized cache, not a read source.
 - Extra selected photos are stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, emitted as per-line/per-media Final Invoice lines.
@@ -72,6 +73,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **112 OPS1** — Split `OrderPackage.packageId` into immutable original/current package identity fields with booking-line lineage, rewired POS/order/composition/invoice readers, seed/test factories, and package reference checks.
 - **111 R13d** — Filled the R13 freeze checklist with concrete manual QA steps, traceable acceptable behavior changes, reconciliation operational deferrals, named signoff, and the 2026-05-20 centralization roadmap closure line.
 - **110 R13c** — Added service-level workflow smoke coverage for booking, POS settlement, locked adjustments, editing start, production readiness, delivery pickup/override, and the end-to-end studio walkthrough; closed the three deferred parity matrices in `test:centralization`.
 - **109 R13b** — Added deposit terminology source/render guards, selected-photo baseline parity, Commercial Actions catalog parity, locked/adjustment edit interactivity parity, and moved the fixed POS reductive approval harness into `test:centralization`.

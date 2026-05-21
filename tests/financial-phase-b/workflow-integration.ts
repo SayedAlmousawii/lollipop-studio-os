@@ -567,7 +567,7 @@ async function runInt13PackageUpgradeCreatesDeltaAdjustment(
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "int13");
   const orderPackage = await db.orderPackage.findFirstOrThrow({
     where: { orderId: workflow.orderId },
-    select: { id: true, packageId: true },
+    select: { id: true, currentPackageId: true },
   });
 
   await expectRejectsWithoutPartialWrites(
@@ -601,7 +601,7 @@ async function runInt13PackageUpgradeCreatesDeltaAdjustment(
     where: { id: workflow.finalInvoiceId },
   });
 
-  assert.equal(refreshedPackage.packageId, orderPackage.packageId);
+  assert.equal(refreshedPackage.currentPackageId, orderPackage.currentPackageId);
   assertMoney(adjustment.totalAmount, "100", "upgrade adjustment is delta only");
   assertMoney(finalInvoice.totalAmount, "500", "locked final remains original amount");
   await assertOrderActivity(db, {
@@ -740,7 +740,7 @@ async function snapshotOrderEditFinancialState(db: PrismaClient, orderId: string
       where: { orderId },
       select: {
         id: true,
-        packageId: true,
+        currentPackageId: true,
         finalPackagePriceSnapshot: true,
         selectedPhotoCount: true,
       },

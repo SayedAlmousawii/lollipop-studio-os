@@ -147,7 +147,8 @@ erDiagram
     PackageFamily ||--o{ Package : "contains"
     Package ||--o{ PackageItem : "contains"
     Package ||--o{ BookingPackage : "booked as"
-    Package ||--o{ OrderPackage : "ordered as"
+    Package ||--o{ OrderPackage : "original package"
+    Package ||--o{ OrderPackage : "current package"
 
     Product ||--o{ PackageItem : "included in"
     Product ||--o{ OrderAddOn : "snapshotted in"
@@ -250,7 +251,7 @@ erDiagram
 - `Order.jobId` and `Order.bookingId` are both required and unique.
 - `Order.addOns` JSON still exists, but structured `OrderAddOn` rows are the relational source of truth.
 - `Order.refundPending` exists as a mapped boolean column `refund_pending`.
-- `OrderPackage` stores original/final package price snapshots, selected photo count, and extra photo counts.
+- `OrderPackage` stores immutable original package identity, mutable current package identity, source `BookingPackage` lineage when present, original/final package price snapshots, selected photo count, and extra photo counts.
 - `OrderPackageSessionConfigurationSelection` stores both live references and immutable snapshot fields for pricing/configuration behavior.
 
 ### Finance
