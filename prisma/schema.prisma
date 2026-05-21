@@ -904,6 +904,7 @@ model AdjustmentWorkspace {
   baseSnapshotJson             Json                      @map("base_snapshot_json")
   pendingChangesJson           Json                      @default("{\"edits\":[]}") @map("pending_changes_json")
   finalizedAdjustmentInvoiceId String?                   @map("finalized_adjustment_invoice_id")
+  operationalStateAppliedAt    DateTime?                 @map("operational_state_applied_at")
   cancelledReason              String?                   @map("cancelled_reason")
   createdAt                    DateTime                  @default(now()) @map("created_at")
   updatedAt                    DateTime                  @updatedAt @map("updated_at")
