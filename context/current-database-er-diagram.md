@@ -251,7 +251,7 @@ erDiagram
 - `Order.jobId` and `Order.bookingId` are both required and unique.
 - `Order.addOns` JSON still exists, but structured `OrderAddOn` rows are the relational source of truth.
 - `Order.refundPending` exists as a mapped boolean column `refund_pending`.
-- `OrderPackage` stores immutable original package identity, mutable current package identity, source `BookingPackage` lineage when present, original/final package price snapshots, selected photo count, and extra photo counts.
+- `OrderPackage` stores immutable original package identity, mutable current package identity, source `BookingPackage` lineage when present, original/final package price snapshots, selected photo count, and extra photo counts. At creation, original/current identity and original/final price snapshots start equal; a null final price snapshot is not the marker for "no swap yet."
 - `OrderPackageSessionConfigurationSelection` stores both live references and immutable snapshot fields for pricing/configuration behavior.
 
 ### Finance

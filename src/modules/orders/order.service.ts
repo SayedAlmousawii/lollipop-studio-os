@@ -1174,13 +1174,13 @@ export async function updateOrderPackage(
           tx.order.findUnique({
             where: { id: orderId },
             include: {
-            packages: {
-              where: { id: data.orderPackageId },
-              include: {
+              packages: {
+                where: { id: data.orderPackageId },
+                include: {
                   currentPackage: { select: { id: true, name: true, price: true, photoCount: true } },
+                },
+                take: 1,
               },
-              take: 1,
-            },
               invoices: {
                 where: FINAL_PARENT_INVOICE_WHERE,
                 select: { id: true, isLocked: true },

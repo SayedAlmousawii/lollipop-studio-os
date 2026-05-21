@@ -18,6 +18,7 @@ Make `OrderPackage` the operational source of truth for package identity by spli
 - `bookingPackageId` is a nullable FK to support future order-only package additions that have no booking line.
 - Pre-lock package swaps mutate `currentPackageId` and `currentPackageNameSnapshot` only. They must never write `originalPackageId` after the row is created.
 - Original package identity is derived at `OrderPackage` creation time from the `BookingPackage` that seeded the line. For lines added later without a booking origin, `originalPackageId = currentPackageId` at creation.
+- `finalPackagePriceSnapshot` is intentionally initialized at `OrderPackage` creation to match `originalPackagePriceSnapshot`. `null` no longer means "no package swap yet"; original/current package identity and original/final package price snapshots are symmetric at creation.
 - No workspace finalize logic changes in this spec. Adjustment invoice replay (`applySignedInvoiceLines`) continues to drive locked composition.
 
 ## Scope
@@ -48,6 +49,8 @@ Land the schema change first as a single destructive Prisma migration. Replace t
 The widest read-layer touch is everywhere the Prisma include uses `package: true` on `OrderPackage`. Each call site must be audited and routed to either `originalPackage` or `currentPackage` based on the surface's intent — order header card original vs current, POS package selector, composition projectors, captured snapshot. Use the `formatOrderPackageNames` pattern but feed it the correct field; do not collapse both sides into one helper.
 
 Order creation today builds `OrderPackage` rows from `BookingPackage`. Extend that flow to capture `bookingPackageId`, `originalPackageId`, `originalPackageNameSnapshot` at the same time. Any code path that creates an `OrderPackage` outside the booking flow (if any exists today; verify) must default `originalPackageId = currentPackageId` and `bookingPackageId = null`.
+
+At row creation, initialize `finalPackagePriceSnapshot` to the same package price as `originalPackagePriceSnapshot`. This preserves symmetric row semantics: original/current package identity starts equal, and original/final package price starts equal.
 
 `updateOrderPackage` must keep the deletion of `OrderPackageItemUpgrade` rows on package swap (current behavior). It only changes which field it writes for identity.
 
