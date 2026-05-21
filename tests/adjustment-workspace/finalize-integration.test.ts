@@ -944,6 +944,187 @@ test("finalizeWorkspace materializes item upgrades after same-workspace package 
   );
 });
 
+test("finalizeWorkspace materializes photo-count edits into order package rows", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "117-photo-counts"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: {
+      id: true,
+      currentPackage: { select: { photoCount: true } },
+    },
+  });
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "117-photo-count",
+        op: "change_selected_photo_count",
+        orderPackageId: orderPackage.id,
+        selectedPhotoCount: includedPhotoCount + 3,
+        extraDigitalCount: 2,
+        extraPrintCount: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const [materializedPackage, materializedOrder, workspace, activity] =
+    await Promise.all([
+      db.orderPackage.findUniqueOrThrow({
+        where: { id: orderPackage.id },
+        select: {
+          selectedPhotoCount: true,
+          extraDigitalCount: true,
+          extraPrintCount: true,
+        },
+      }),
+      db.order.findUniqueOrThrow({
+        where: { id: workflow.orderId },
+        select: { selectedPhotoCount: true },
+      }),
+      db.adjustmentWorkspace.findUniqueOrThrow({
+        where: { id: workspaceId },
+        select: { operationalStateAppliedAt: true },
+      }),
+      db.orderActivity.findFirstOrThrow({
+        where: {
+          orderId: workflow.orderId,
+          type: OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
+        },
+      }),
+    ]);
+
+  assert.equal(materializedPackage.selectedPhotoCount, includedPhotoCount + 3);
+  assert.equal(materializedPackage.extraDigitalCount, 2);
+  assert.equal(materializedPackage.extraPrintCount, 1);
+  assert.equal(materializedOrder.selectedPhotoCount, includedPhotoCount + 3);
+  assert.ok(workspace.operationalStateAppliedAt);
+
+  const metadata = activity.metadata as Record<string, unknown>;
+  assert.equal(metadata.orderPackageId, orderPackage.id);
+  assert.equal(metadata.nextSelectedPhotoCount, includedPhotoCount + 3);
+  assert.equal(metadata.includedPhotoCount, includedPhotoCount);
+  assert.equal(metadata.nextExtraDigitalCount, 2);
+  assert.equal(metadata.nextExtraPrintCount, 1);
+  assert.equal(metadata.extraPhotoCount, 3);
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes photo counts after same-workspace package swaps", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "117-swap-photo-counts"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "117-swap-package",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+      {
+        id: "117-photo-count-after-swap",
+        op: "change_selected_photo_count",
+        orderPackageId,
+        selectedPhotoCount: 17,
+        extraDigitalCount: 1,
+        extraPrintCount: 1,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  const [orderPackage, order, activities] = await Promise.all([
+    db.orderPackage.findUniqueOrThrow({
+      where: { id: orderPackageId },
+      select: {
+        currentPackageId: true,
+        selectedPhotoCount: true,
+        extraDigitalCount: true,
+        extraPrintCount: true,
+      },
+    }),
+    db.order.findUniqueOrThrow({
+      where: { id: workflow.orderId },
+      select: { selectedPhotoCount: true },
+    }),
+    db.orderActivity.findMany({
+      where: {
+        orderId: workflow.orderId,
+        type: {
+          in: [
+            OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+            OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
+          ],
+        },
+      },
+    }),
+  ]);
+
+  assert.equal(orderPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(orderPackage.selectedPhotoCount, 17);
+  assert.equal(orderPackage.extraDigitalCount, 1);
+  assert.equal(orderPackage.extraPrintCount, 1);
+  assert.equal(order.selectedPhotoCount, 17);
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED)
+  );
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
 test("finalizeWorkspace materializes add-on removals and quantity changes", async () => {
   const {
     db,
