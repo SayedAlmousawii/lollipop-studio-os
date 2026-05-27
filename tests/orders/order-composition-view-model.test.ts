@@ -874,7 +874,17 @@ test("current composition card projector uses structured swap and upgrade metada
     ],
   });
   const proposed = adjustmentSnapshot({
-    lines: base.lines,
+    lines: [
+      adjustmentLine({
+        lineId: "package:op-1",
+        kind: "package",
+        refId: "pkg-gold",
+        label: "Gold Package",
+        unitPrice: "150.000",
+        lineTotalNet: "150.000",
+      }),
+      base.lines[1] ?? assert.fail("missing package item fixture"),
+    ],
   });
   const pendingAdjustmentComposition =
     composition().buildCompositionSnapshotFromAdjustmentSnapshot(proposed, {
@@ -976,6 +986,28 @@ test("current composition card projector uses structured swap and upgrade metada
         from: "Standard Album",
         to: "Premium Album",
         amount: 15,
+      },
+    ]
+  );
+
+  const pendingCard = composition().toCurrentCompositionCard(model, {
+    source: "pending",
+  });
+  assert.equal(pendingCard.mode, "adjustment");
+  assert.equal(pendingCard.total, 170);
+  assert.deepEqual(
+    pendingCard.rows
+      .filter((row) => row.kind === "package" || row.kind === "swap")
+      .map((row) => ({
+        kind: row.kind,
+        label: row.label,
+        lineTotal: row.lineTotal,
+      })),
+    [
+      {
+        kind: "package",
+        label: "Gold Package",
+        lineTotal: 150,
       },
     ]
   );

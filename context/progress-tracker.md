@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Adjustment Workspace preview composition package-tier display fix is complete: pending full preview now renders the proposed package row for `change_package_tier` while keeping pending delta rows as "Package Change" summaries.
 - Spec 119 package-tier materialization fix is complete: `change_package_tier` is now the canonical Adjustment Workspace package-tier materialization path, legacy `swap_package` remains compatible, mixed tier/add-on finalizes materialize together, and the action path regression proves the UI stages the canonical op.
 - Feature 118 invoice replay collapse is complete: locked composition now delegates to current operational composition rows, finalized ADJ invoice lines are financial documents only, and mixed finalized-workspace projection parity is regression-covered.
 - Feature 117 photo-count materialization is complete: workspace finalize now applies post-lock selected-photo and extra digital/print count edits back to `OrderPackage`, resyncs `Order.selectedPhotoCount`, emits one extras activity per changed package line, and feeds locked composition through operational rows.
@@ -84,6 +85,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **Adjustment Workspace preview package-tier display fix** — Normalized pending package-tier swap metadata back into package rows for the full preview card while preserving pending-delta summaries, with projector regression coverage.
 - **119 package-tier materialization fix** — Made `change_package_tier` the canonical package-tier materialization path while preserving legacy `swap_package`, added action-path staging coverage, and covered canonical single/mixed finalize regressions without invoice replay.
 - **118 OPS7** — Collapsed locked composition projection to current operational rows, deleted invoice-line replay helpers, proved mixed finalized-workspace locked composition parity, preserved FINAL/ADJ invoice line snapshots, and archived superseded materialization review notes.
 - **117 OPS6** — Materialized post-lock selected-photo and extra digital/print count workspace edits into `OrderPackage`, resynced the order selected-photo cache, emitted `ORDER_PACKAGE_EXTRAS_CHANGED`, and covered photo-only plus same-line swap/photo finalize ordering.
