@@ -38,6 +38,7 @@ export const adjustmentWorkspaceEditSchema = z.discriminatedUnion("op", [
     kind: z.enum(["item", "addon"]),
     refId: z.string().trim().min(1, "Catalog item is required"),
     quantity: z.coerce.number().int().positive("Quantity must be at least 1"),
+    orderPackageId: z.string().trim().min(1, "Package line is required").optional(),
   }),
   z.object({
     id: editId,

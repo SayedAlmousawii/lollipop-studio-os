@@ -387,6 +387,10 @@ async function createOrderFixture(
   },
   label: string
 ): Promise<string> {
+  const packageRow = await db.package.findUniqueOrThrow({
+    where: { id: fixture.packageId },
+    select: { name: true },
+  });
   const jobNumber = `JOB-PRICING-${label.toUpperCase()}`;
   const job = await db.job.create({
     data: {
@@ -424,8 +428,11 @@ async function createOrderFixture(
   await db.orderPackage.create({
     data: {
       orderId: order.id,
-      packageId: fixture.packageId,
+      originalPackageId: fixture.packageId,
+      currentPackageId: fixture.packageId,
       sessionTypeId: fixture.sessionTypeId,
+      originalPackageNameSnapshot: packageRow.name,
+      currentPackageNameSnapshot: packageRow.name,
       originalPackagePriceSnapshot: new Prisma.Decimal(60),
       finalPackagePriceSnapshot: new Prisma.Decimal(60),
       selectedPhotoCount: 13,

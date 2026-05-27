@@ -190,7 +190,7 @@ export async function createInvoiceForOrderWithClient(
       booking: { select: { financialCase: { select: { id: true } } } },
       packages: {
         include: {
-          package: { select: { price: true } },
+          currentPackage: { select: { price: true } },
           sessionConfigurationSelections: {
             select: pricedSessionConfigurationSelectionSelect,
           },
@@ -223,7 +223,7 @@ export async function createInvoiceForOrderWithClient(
   if (order.packages.length === 0) throw new Error("Order has no package lines");
   const packageAmount = order.packages.reduce(
     (sum, line) =>
-      sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
+      sum.plus(line.finalPackagePriceSnapshot ?? line.currentPackage.price),
     new Prisma.Decimal(0)
   );
   const extraPhotoCharge = await calculateOrderPackageExtraPhotoTotal(client, order.id);
@@ -302,7 +302,7 @@ export async function syncOrderInvoiceForFinancialEdit(
       customer: { select: { id: true } },
       booking: { select: { financialCase: { select: { id: true } } } },
       packages: {
-        include: { package: { select: { price: true } } },
+        include: { currentPackage: { select: { price: true } } },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       },
       orderAddOns: {
@@ -324,7 +324,7 @@ export async function syncOrderInvoiceForFinancialEdit(
   if (order.packages.length === 0) throw new Error("Order has no package lines");
   const packagePrice = order.packages.reduce(
     (sum, line) =>
-      sum.plus(line.finalPackagePriceSnapshot ?? line.package.price),
+      sum.plus(line.finalPackagePriceSnapshot ?? line.currentPackage.price),
     new Prisma.Decimal(0)
   );
 
@@ -368,7 +368,7 @@ export async function syncOrderInvoiceForFinancialEdit(
     .plus(sessionConfigurationPrice.totalDelta);
   const packageAdjustmentBaseline = order.packages.reduce(
     (sum, line) =>
-      sum.plus(line.originalPackagePriceSnapshot ?? line.package.price),
+      sum.plus(line.originalPackagePriceSnapshot ?? line.currentPackage.price),
     new Prisma.Decimal(0)
   );
   const packageAdjustmentAmount = packagePrice.minus(packageAdjustmentBaseline);
@@ -1357,7 +1357,7 @@ async function buildInvoiceLineItems(
     include: {
       packages: {
         include: {
-          package: {
+          currentPackage: {
             select: {
               id: true,
               name: true,
@@ -1387,7 +1387,7 @@ async function buildInvoiceLineItems(
   let sortOrder = 0;
 
   for (const orderPackage of order.packages) {
-    const packageRow = orderPackage.package;
+    const packageRow = orderPackage.currentPackage;
     const finalSnapshot =
       orderPackage.finalPackagePriceSnapshot ?? packageRow.price;
     lines.push(
@@ -1718,7 +1718,7 @@ async function buildCurrentAdjustmentCauseAmounts(
             sessionTypeId: true,
             extraDigitalCount: true,
             extraPrintCount: true,
-            package: { select: { name: true, price: true } },
+            currentPackage: { select: { name: true, price: true } },
           },
         },
       },
@@ -1743,8 +1743,8 @@ async function buildCurrentAdjustmentCauseAmounts(
   );
   if (packageTierCause && order) {
     const currentPackageUpgradeAmount = order.packages.reduce((sum, line) => {
-      const original = line.originalPackagePriceSnapshot ?? line.package.price;
-      const current = line.finalPackagePriceSnapshot ?? line.package.price;
+      const original = line.originalPackagePriceSnapshot ?? line.currentPackage.price;
+      const current = line.finalPackagePriceSnapshot ?? line.currentPackage.price;
       return sum.plus(current.minus(original));
     }, new Prisma.Decimal(0));
     amounts.set(
@@ -1769,7 +1769,7 @@ async function buildCurrentAdjustmentCauseAmounts(
             : orderPackage.extraPrintCount;
         if (quantity <= 0) continue;
 
-        const description = `Extra photos - ${formatEnum(mediaType)} (${orderPackage.package.name})`;
+        const description = `Extra photos - ${formatEnum(mediaType)} (${orderPackage.currentPackage.name})`;
         const unitPrice = await getExtraPhotoUnitPriceWithClient(
           client,
           orderPackage.sessionTypeId,

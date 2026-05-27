@@ -71,6 +71,50 @@ import type {
 
 type DbClient = typeof db | Prisma.TransactionClient;
 
+type MaterializedPackageSwapActivity = {
+  orderPackageId: string;
+  previousPackageId: string;
+  previousPackageName: string;
+  nextPackageId: string;
+  nextPackageName: string;
+  packageAdjustmentAmount: Prisma.Decimal;
+  packageAdjustmentBaseline: Prisma.Decimal;
+};
+
+type MaterializedAddOnActivity = {
+  orderAddOnId: string;
+  productId: string;
+  productName: string;
+  previousQuantity: number;
+  nextQuantity: number;
+  unitPrice: Prisma.Decimal;
+};
+
+type MaterializedItemUpgradeActivity = {
+  orderPackageItemUpgradeId: string | null;
+  orderPackageId: string;
+  packageItemId: string;
+  previousProductId: string;
+  previousProductName: string;
+  nextProductId: string | null;
+  nextProductName: string | null;
+  quantity: number;
+  unitPriceDelta: Prisma.Decimal;
+  priceDelta: Prisma.Decimal;
+  action: "upserted" | "updated" | "removed";
+};
+
+type MaterializedPhotoCountActivity = {
+  orderPackageId: string;
+  previousSelectedPhotoCount: number | null;
+  nextSelectedPhotoCount: number;
+  includedPhotoCount: number;
+  previousExtraDigitalCount: number;
+  previousExtraPrintCount: number;
+  nextExtraDigitalCount: number;
+  nextExtraPrintCount: number;
+};
+
 type CatalogLookup = {
   products: Map<string, { id: string; name: string; price: Prisma.Decimal }>;
   packages: Map<
@@ -376,48 +420,14 @@ export async function getEffectiveCompositionForInvoice(
 ): Promise<AdjustmentBaseSnapshot> {
   const invoice = await client.invoice.findUnique({
     where: { id: invoiceId },
-    select: { id: true, orderId: true, isLocked: true, invoiceType: true },
+    select: { id: true, orderId: true, invoiceType: true },
   });
   if (!invoice) throw new Error("Invoice not found");
   if (invoice.invoiceType !== InvoiceType.FINAL || !invoice.orderId) {
     throw new Error("Adjustment workspaces require a final order invoice");
   }
 
-  const snapshot = await captureCurrentOrderComposition(client, invoice.orderId);
-  const finalizedWorkspaceInvoices = await client.adjustmentWorkspace.findMany({
-    where: {
-      invoiceId,
-      status: AdjustmentWorkspaceStatus.FINALIZED,
-      finalizedAdjustmentInvoiceId: { not: null },
-    },
-    select: {
-      finalizedAdjustmentInvoice: {
-        select: {
-          lineItems: {
-            select: {
-              id: true,
-              lineType: true,
-              description: true,
-              quantity: true,
-              unitPrice: true,
-              lineTotal: true,
-              causeOrderEntityKind: true,
-              causeOrderEntityId: true,
-            },
-            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-          },
-        },
-      },
-    },
-    orderBy: [{ updatedAt: "asc" }, { id: "asc" }],
-  });
-
-  for (const workspace of finalizedWorkspaceInvoices) {
-    const lines = workspace.finalizedAdjustmentInvoice?.lineItems ?? [];
-    applySignedInvoiceLines(snapshot.lines, lines);
-  }
-  snapshot.totals = computeTotals(snapshot.lines);
-  return snapshot;
+  return captureCurrentOrderComposition(client, invoice.orderId);
 }
 
 export async function openWorkspace(
@@ -752,6 +762,9 @@ export async function finalizeWorkspace(
           },
         });
         if (!workspace) throw new Error("Workspace not found");
+        if (workspace.operationalStateAppliedAt) {
+          throw new Error("Workspace operational state was already materialized");
+        }
         assertOpenWorkspace(workspace.status);
         assertWorkspaceVersion(workspace.version, input.version);
         assertWorkspaceOwnerOrManager(workspace.currentOwnerUserId, actorContext);
@@ -792,14 +805,65 @@ export async function finalizeWorkspace(
           proposal,
           sessionConfigurationSelectionIds
         );
+        const materializedPackageTierActivities =
+          await materializePackageTierChangeEdits(
+            tx,
+            finalizedProposal,
+            workspace.orderId
+          );
+        const materializedAddOnActivities = await materializeAddOnEdits(
+          tx,
+          finalizedProposal,
+          workspace.orderId
+        );
+        const materializedItemUpgradeActivities =
+          await materializeItemUpgradeEdits(
+            tx,
+            finalizedProposal,
+            workspace.orderId
+          );
+        const materializedPhotoCountActivities =
+          await materializePhotoCountEdits(
+            tx,
+            finalizedProposal,
+            workspace.orderId
+          );
+        const operationalStateAppliedAt =
+          materializedPackageTierActivities.length > 0 ||
+          materializedAddOnActivities.length > 0 ||
+          materializedItemUpgradeActivities.length > 0 ||
+          materializedPhotoCountActivities.length > 0
+            ? new Date()
+            : null;
 
         if (finalizedProposal.deltas.length === 0) {
+          await recordMaterializedPackageSwapActivities(tx, {
+            orderId: workspace.orderId,
+            actorUserId: actorContext.actorUserId,
+            activities: materializedPackageTierActivities,
+          });
+          await recordMaterializedAddOnActivities(tx, {
+            orderId: workspace.orderId,
+            actorUserId: actorContext.actorUserId,
+            activities: materializedAddOnActivities,
+          });
+          await recordMaterializedItemUpgradeActivities(tx, {
+            orderId: workspace.orderId,
+            actorUserId: actorContext.actorUserId,
+            activities: materializedItemUpgradeActivities,
+          });
+          await recordMaterializedPhotoCountActivities(tx, {
+            orderId: workspace.orderId,
+            actorUserId: actorContext.actorUserId,
+            activities: materializedPhotoCountActivities,
+          });
           await markWorkspaceFinalized(
             tx,
             workspaceId,
             actorContext.actorUserId,
             null,
-            finalizedProposal
+            finalizedProposal,
+            operationalStateAppliedAt
           );
           return { adjustmentInvoiceId: null, proposal: finalizedProposal };
         }
@@ -827,12 +891,34 @@ export async function finalizeWorkspace(
           });
         }
 
+        await recordMaterializedPackageSwapActivities(tx, {
+          orderId: workspace.orderId,
+          actorUserId: actorContext.actorUserId,
+          activities: materializedPackageTierActivities,
+        });
+        await recordMaterializedAddOnActivities(tx, {
+          orderId: workspace.orderId,
+          actorUserId: actorContext.actorUserId,
+          activities: materializedAddOnActivities,
+        });
+        await recordMaterializedItemUpgradeActivities(tx, {
+          orderId: workspace.orderId,
+          actorUserId: actorContext.actorUserId,
+          activities: materializedItemUpgradeActivities,
+        });
+        await recordMaterializedPhotoCountActivities(tx, {
+          orderId: workspace.orderId,
+          actorUserId: actorContext.actorUserId,
+          activities: materializedPhotoCountActivities,
+        });
+
         await markWorkspaceFinalized(
           tx,
           workspaceId,
           actorContext.actorUserId,
           adjustmentInvoice.id,
-          finalizedProposal
+          finalizedProposal,
+          operationalStateAppliedAt
         );
 
         recordWorkspaceMetric("adjustment_workspace.finalized", {
@@ -1224,9 +1310,10 @@ async function buildProposal(
       where: { id: { in: orderPackageIds } },
       select: {
         id: true,
-        packageId: true,
+        currentPackageId: true,
+        currentPackageNameSnapshot: true,
         sessionTypeId: true,
-        package: { select: { name: true, photoCount: true } },
+        currentPackage: { select: { photoCount: true } },
       },
     }),
     client.sessionConfiguration.findMany({
@@ -1304,9 +1391,9 @@ async function buildProposal(
         orderPackage.id,
         {
           id: orderPackage.id,
-          packageId: orderPackage.packageId,
-          packageName: orderPackage.package.name,
-          includedPhotoCount: orderPackage.package.photoCount,
+          packageId: orderPackage.currentPackageId,
+          packageName: orderPackage.currentPackageNameSnapshot,
+          includedPhotoCount: orderPackage.currentPackage.photoCount,
           sessionTypeId: orderPackage.sessionTypeId,
           extraDigitalUnitPrice: extraPhotoPrices.get(extraPhotoPriceKey(
             orderPackage.sessionTypeId,
@@ -1351,7 +1438,7 @@ async function buildProposal(
   });
 }
 
-async function captureCurrentOrderComposition(
+export async function captureCurrentOrderComposition(
   client: DbClient,
   orderId: string
 ): Promise<AdjustmentBaseSnapshot> {
@@ -1360,7 +1447,7 @@ async function captureCurrentOrderComposition(
     include: {
       packages: {
         include: {
-          package: {
+          currentPackage: {
             select: {
               id: true,
               name: true,
@@ -1436,20 +1523,20 @@ async function captureCurrentOrderComposition(
       makeLine({
         lineId: `package:${orderPackage.id}`,
         kind: "package",
-        refId: orderPackage.packageId,
+        refId: orderPackage.currentPackageId,
         refMetadata: {
-          includedPhotoCount: orderPackage.package.photoCount,
+          includedPhotoCount: orderPackage.currentPackage.photoCount,
           selectedPhotoCount:
-            orderPackage.selectedPhotoCount ?? orderPackage.package.photoCount,
+            orderPackage.selectedPhotoCount ?? orderPackage.currentPackage.photoCount,
           sessionTypeId: orderPackage.sessionType.id,
           sessionTypeName: orderPackage.sessionType.name,
         },
-        label: orderPackage.package.name,
+        label: orderPackage.currentPackageNameSnapshot,
         quantity: 1,
-        unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.package.price,
+        unitPrice: orderPackage.finalPackagePriceSnapshot ?? orderPackage.currentPackage.price,
       })
     );
-    for (const item of orderPackage.package.items) {
+    for (const item of orderPackage.currentPackage.items) {
       // Keep package deliverable prices available to composition projectors without
       // adding them to invoice-level package totals.
       lines.push({
@@ -1480,8 +1567,8 @@ async function captureCurrentOrderComposition(
         makeLine({
           lineId: extraPhotoLineId(orderPackage.id, mediaType),
           kind: "item",
-          refId: extraPhotoRef(orderPackage.package.name, mediaType),
-          label: extraPhotoRef(orderPackage.package.name, mediaType),
+          refId: extraPhotoRef(orderPackage.currentPackageNameSnapshot, mediaType),
+          label: extraPhotoRef(orderPackage.currentPackageNameSnapshot, mediaType),
           quantity,
           unitPrice,
         })
@@ -1564,42 +1651,6 @@ async function captureCurrentOrderComposition(
   };
 }
 
-function applySignedInvoiceLines(
-  lines: AdjustmentCompositionLine[],
-  invoiceLines: Array<{
-    id: string;
-    lineType: InvoiceLineType;
-    description: string;
-    quantity: number;
-    unitPrice: Prisma.Decimal;
-    lineTotal: Prisma.Decimal;
-    causeOrderEntityKind: OrderEntityKind | null;
-    causeOrderEntityId: string | null;
-  }>
-) {
-  for (const invoiceLine of invoiceLines) {
-    if (
-      invoiceLine.causeOrderEntityKind ===
-      OrderEntityKind.SESSION_CONFIGURATION_SELECTION
-    ) {
-      continue;
-    }
-    const signedQuantity =
-      invoiceLine.unitPrice.lessThan(0) || invoiceLine.lineTotal.lessThan(0)
-        ? -invoiceLine.quantity
-        : invoiceLine.quantity;
-    const line = makeLine({
-      lineId: `adj:${invoiceLine.id}`,
-      kind: kindFromInvoiceLine(invoiceLine.lineType, invoiceLine.causeOrderEntityKind),
-      refId: invoiceLine.causeOrderEntityId ?? invoiceLine.description,
-      label: invoiceLine.description,
-      quantity: signedQuantity,
-      unitPrice: invoiceLine.unitPrice.abs(),
-    });
-    upsertWorkingLine(lines, line);
-  }
-}
-
 async function finalizeSessionConfigurationSelectionEdits(
   client: Prisma.TransactionClient,
   edits: AdjustmentWorkspaceEdit[],
@@ -1644,6 +1695,822 @@ async function finalizeSessionConfigurationSelectionEdits(
     }
   }
   return selectionIdByPlaceholder;
+}
+
+async function materializePackageTierChangeEdits(
+  client: Prisma.TransactionClient,
+  proposal: AdjustmentWorkspaceProposal,
+  orderId: string
+): Promise<MaterializedPackageSwapActivity[]> {
+  const activities: MaterializedPackageSwapActivity[] = [];
+
+  for (const edit of proposal.edits) {
+    if (edit.op !== "change_package_tier" && edit.op !== "swap_package") continue;
+
+    const { orderPackage, selectedPackage } = await resolvePackageTierChange(
+      client,
+      orderId,
+      edit
+    );
+
+    if (!selectedPackage || !selectedPackage.isActive) {
+      throw new Error("Selected package is not available");
+    }
+    if (!orderPackage) {
+      throw new Error("Package line not found for package tier change");
+    }
+    if (selectedPackage.packageFamily.sessionTypeId !== orderPackage.sessionTypeId) {
+      throw new Error("Selected package does not belong to this line's session type");
+    }
+
+    const previousPackage = orderPackage.currentPackage;
+    const previousIncludedPhotoCount = previousPackage.photoCount;
+    const nextSelectedPhotoCount =
+      orderPackage.selectedPhotoCount === null ||
+      orderPackage.selectedPhotoCount === 0 ||
+      orderPackage.selectedPhotoCount === previousIncludedPhotoCount
+        ? selectedPackage.photoCount
+        : orderPackage.selectedPhotoCount > previousIncludedPhotoCount
+          ? Math.max(orderPackage.selectedPhotoCount, selectedPackage.photoCount)
+          : undefined;
+
+    await client.orderPackageItemUpgrade.deleteMany({
+      where: {
+        orderId,
+        orderPackageId: orderPackage.id,
+      },
+    });
+
+    await client.orderPackage.update({
+      where: { id: orderPackage.id },
+      data: {
+        currentPackage: { connect: { id: selectedPackage.id } },
+        currentPackageNameSnapshot: selectedPackage.name,
+        finalPackagePriceSnapshot: selectedPackage.price,
+        selectedPhotoCount: nextSelectedPhotoCount,
+      },
+    });
+
+    if (previousPackage.id !== selectedPackage.id) {
+      const packageAdjustmentAmount = packageAdjustmentAmountForTierChange(
+        proposal,
+        edit
+      );
+      const packageAdjustmentBaseline = packageAdjustmentBaselineForTierChange(
+        proposal,
+        edit,
+        orderPackage.finalPackagePriceSnapshot ?? previousPackage.price
+      );
+
+      activities.push({
+        orderPackageId: orderPackage.id,
+        previousPackageId: previousPackage.id,
+        previousPackageName: previousPackage.name,
+        nextPackageId: selectedPackage.id,
+        nextPackageName: selectedPackage.name,
+        packageAdjustmentAmount,
+        packageAdjustmentBaseline,
+      });
+    }
+  }
+
+  if (activities.length > 0) {
+    await syncOrderSelectedPhotoCountFromPackageLines(client, orderId);
+  }
+
+  return activities;
+}
+
+async function resolvePackageTierChange(
+  client: Prisma.TransactionClient,
+  orderId: string,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >
+) {
+  const orderPackageWhere =
+    edit.op === "change_package_tier"
+      ? { id: edit.orderPackageId, orderId }
+      : { orderId, currentPackageId: edit.fromPackageRefId };
+
+  const [orderPackage, selectedPackage] = await Promise.all([
+    client.orderPackage.findFirst({
+      where: orderPackageWhere,
+      include: {
+        currentPackage: {
+          select: { id: true, name: true, price: true, photoCount: true },
+        },
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    }),
+    client.package.findUnique({
+      where: { id: edit.toPackageRefId },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        photoCount: true,
+        isActive: true,
+        packageFamily: { select: { sessionTypeId: true } },
+      },
+    }),
+  ]);
+
+  return { orderPackage, selectedPackage };
+}
+
+async function materializeAddOnEdits(
+  client: Prisma.TransactionClient,
+  proposal: AdjustmentWorkspaceProposal,
+  orderId: string
+): Promise<MaterializedAddOnActivity[]> {
+  const activities: MaterializedAddOnActivity[] = [];
+
+  for (const edit of proposal.edits) {
+    if (edit.op === "add_line") {
+      if (edit.kind !== "addon") continue;
+      const product = await client.product.findUnique({
+        where: { id: edit.refId },
+        select: {
+          id: true,
+          name: true,
+          canonicalPrice: true,
+          isActive: true,
+          isAddOn: true,
+          isPackageDeliverable: true,
+        },
+      });
+      if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
+        throw new Error("Selected add-on product is not available");
+      }
+      const orderPackageId = await resolveScopedOrderPackageId(
+        client,
+        orderId,
+        edit.orderPackageId
+      );
+      const addOn = await client.orderAddOn.create({
+        data: {
+          orderId,
+          orderPackageId,
+          productId: product.id,
+          nameSnapshot: product.name,
+          priceSnapshot: product.canonicalPrice,
+          quantity: edit.quantity,
+        },
+        select: { id: true },
+      });
+
+      activities.push({
+        orderAddOnId: addOn.id,
+        productId: product.id,
+        productName: product.name,
+        previousQuantity: 0,
+        nextQuantity: edit.quantity,
+        unitPrice: product.canonicalPrice,
+      });
+      continue;
+    }
+
+    if (edit.op !== "remove_line" && edit.op !== "modify_quantity") continue;
+
+    const orderAddOnId = orderAddOnIdFromLineId(edit.targetLineId);
+    if (!orderAddOnId) continue;
+    const addOn = await client.orderAddOn.findFirst({
+      where: { id: orderAddOnId, orderId },
+      select: {
+        id: true,
+        productId: true,
+        nameSnapshot: true,
+        priceSnapshot: true,
+        quantity: true,
+      },
+    });
+    if (!addOn) continue;
+
+    const selectionOwner =
+      await client.orderPackageSessionConfigurationSelection.findFirst({
+        where: { orderAddOnId: addOn.id },
+        select: { id: true },
+      });
+    if (selectionOwner) continue;
+
+    const nextQuantity = edit.op === "remove_line" ? 0 : edit.newQuantity;
+    if (nextQuantity <= 0) {
+      await client.orderAddOn.delete({ where: { id: addOn.id } });
+    } else {
+      await client.orderAddOn.update({
+        where: { id: addOn.id },
+        data: { quantity: nextQuantity },
+      });
+    }
+
+    if (addOn.quantity !== nextQuantity) {
+      activities.push({
+        orderAddOnId: addOn.id,
+        productId: addOn.productId,
+        productName: addOn.nameSnapshot,
+        previousQuantity: addOn.quantity,
+        nextQuantity,
+        unitPrice: addOn.priceSnapshot,
+      });
+    }
+  }
+
+  return activities;
+}
+
+async function materializeItemUpgradeEdits(
+  client: Prisma.TransactionClient,
+  proposal: AdjustmentWorkspaceProposal,
+  orderId: string
+): Promise<MaterializedItemUpgradeActivity[]> {
+  const activities: MaterializedItemUpgradeActivity[] = [];
+
+  for (const edit of proposal.edits) {
+    if (edit.op === "upgrade_package_item") {
+      const resolvedLine = proposal.proposed.lines.find(
+        (line) =>
+          line.kind === "item" &&
+          line.lineId === packageItemUpgradeLineId(edit.orderPackageId, edit.packageItemId)
+      );
+      if (!resolvedLine) continue;
+
+      const context = await resolvePackageItemUpgradeContext(client, {
+        orderId,
+        orderPackageId: edit.orderPackageId,
+        packageItemId: edit.packageItemId,
+        nextProductId: edit.toProductId,
+      });
+      if (!context) continue;
+      const quantity = resolvedLine.quantity;
+      if (quantity <= 0) {
+        await client.orderPackageItemUpgrade.deleteMany({
+          where: {
+            orderId,
+            orderPackageId: edit.orderPackageId,
+            packageItemId: edit.packageItemId,
+          },
+        });
+        continue;
+      }
+
+      const unitPriceDelta = decimal(resolvedLine.unitPrice);
+      const upgrade = await client.orderPackageItemUpgrade.upsert({
+        where: {
+          orderId_orderPackageId_packageItemId: {
+            orderId,
+            orderPackageId: edit.orderPackageId,
+            packageItemId: edit.packageItemId,
+          },
+        },
+        create: {
+          orderId,
+          orderPackageId: edit.orderPackageId,
+          packageItemId: edit.packageItemId,
+          nameSnapshot: resolvedLine.label,
+          priceSnapshot: unitPriceDelta,
+          quantity,
+          notes: `Package item upgrade from ${context.previousProductName}`,
+        },
+        update: {
+          nameSnapshot: resolvedLine.label,
+          priceSnapshot: unitPriceDelta,
+          quantity,
+          notes: `Package item upgrade from ${context.previousProductName}`,
+        },
+        select: { id: true },
+      });
+
+      activities.push({
+        orderPackageItemUpgradeId: upgrade.id,
+        orderPackageId: edit.orderPackageId,
+        packageItemId: edit.packageItemId,
+        previousProductId: context.previousProductId,
+        previousProductName: context.previousProductName,
+        nextProductId: context.nextProductId,
+        nextProductName: context.nextProductName,
+        quantity,
+        unitPriceDelta,
+        priceDelta: unitPriceDelta.mul(quantity),
+        action: "upserted",
+      });
+      continue;
+    }
+
+    if (edit.op !== "remove_line" && edit.op !== "modify_quantity") continue;
+
+    const parsed = packageItemUpgradeIdsFromLineId(edit.targetLineId);
+    if (!parsed) continue;
+
+    const existing = await client.orderPackageItemUpgrade.findUnique({
+      where: {
+        orderId_orderPackageId_packageItemId: {
+          orderId,
+          orderPackageId: parsed.orderPackageId,
+          packageItemId: parsed.packageItemId,
+        },
+      },
+      select: {
+        id: true,
+        orderPackageId: true,
+        packageItemId: true,
+        nameSnapshot: true,
+        priceSnapshot: true,
+        quantity: true,
+        packageItem: {
+          select: {
+            productId: true,
+            product: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!existing) continue;
+
+    const nextQuantity = edit.op === "remove_line" ? 0 : edit.newQuantity;
+    if (nextQuantity <= 0) {
+      await client.orderPackageItemUpgrade.delete({ where: { id: existing.id } });
+    } else {
+      await client.orderPackageItemUpgrade.update({
+        where: { id: existing.id },
+        data: { quantity: nextQuantity },
+      });
+    }
+
+    if (existing.quantity !== nextQuantity) {
+      activities.push({
+        orderPackageItemUpgradeId: existing.id,
+        orderPackageId: existing.orderPackageId,
+        packageItemId: existing.packageItemId,
+        previousProductId: existing.packageItem.productId,
+        previousProductName: existing.packageItem.product.name,
+        nextProductId: null,
+        nextProductName: existing.nameSnapshot,
+        quantity: nextQuantity,
+        unitPriceDelta: existing.priceSnapshot,
+        priceDelta: existing.priceSnapshot.mul(nextQuantity - existing.quantity),
+        action: nextQuantity <= 0 ? "removed" : "updated",
+      });
+    }
+  }
+
+  return activities;
+}
+
+async function materializePhotoCountEdits(
+  client: Prisma.TransactionClient,
+  proposal: AdjustmentWorkspaceProposal,
+  orderId: string
+): Promise<MaterializedPhotoCountActivity[]> {
+  const affectedOrderPackageIds = collectPhotoCountOrderPackageIds(proposal.edits);
+  if (affectedOrderPackageIds.size === 0) return [];
+
+  const activities: MaterializedPhotoCountActivity[] = [];
+  const finalCounts = resolveProposalPhotoCounts(proposal, affectedOrderPackageIds);
+
+  for (const [orderPackageId, counts] of finalCounts) {
+    const orderPackage = await client.orderPackage.findFirst({
+      where: { id: orderPackageId, orderId },
+      select: {
+        id: true,
+        selectedPhotoCount: true,
+        extraDigitalCount: true,
+        extraPrintCount: true,
+        currentPackage: { select: { photoCount: true } },
+      },
+    });
+    if (!orderPackage) {
+      throw new Error("Package line not found for photo-count edit");
+    }
+
+    const changed =
+      orderPackage.selectedPhotoCount !== counts.selectedPhotoCount ||
+      orderPackage.extraDigitalCount !== counts.extraDigitalCount ||
+      orderPackage.extraPrintCount !== counts.extraPrintCount;
+    if (!changed) continue;
+
+    await client.orderPackage.update({
+      where: { id: orderPackage.id },
+      data: {
+        selectedPhotoCount: counts.selectedPhotoCount,
+        extraDigitalCount: counts.extraDigitalCount,
+        extraPrintCount: counts.extraPrintCount,
+      },
+    });
+
+    activities.push({
+      orderPackageId: orderPackage.id,
+      previousSelectedPhotoCount: orderPackage.selectedPhotoCount,
+      nextSelectedPhotoCount: counts.selectedPhotoCount,
+      includedPhotoCount: counts.includedPhotoCount,
+      previousExtraDigitalCount: orderPackage.extraDigitalCount,
+      previousExtraPrintCount: orderPackage.extraPrintCount,
+      nextExtraDigitalCount: counts.extraDigitalCount,
+      nextExtraPrintCount: counts.extraPrintCount,
+    });
+  }
+
+  if (activities.length > 0) {
+    await syncOrderSelectedPhotoCountFromPackageLines(client, orderId);
+  }
+
+  return activities;
+}
+
+async function resolvePackageItemUpgradeContext(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    orderPackageId: string;
+    packageItemId: string;
+    nextProductId: string;
+  }
+): Promise<{
+  previousProductId: string;
+  previousProductName: string;
+  nextProductId: string;
+  nextProductName: string;
+} | null> {
+  const [orderPackage, currentItem, nextProduct] = await Promise.all([
+    client.orderPackage.findFirst({
+      where: { id: input.orderPackageId, orderId: input.orderId },
+      select: { id: true, currentPackageId: true },
+    }),
+    client.packageItem.findUnique({
+      where: { id: input.packageItemId },
+      select: {
+        packageId: true,
+        productId: true,
+        priceSnapshot: true,
+        product: { select: { id: true, name: true, category: true } },
+      },
+    }),
+    client.product.findUnique({
+      where: { id: input.nextProductId },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        isActive: true,
+        isPackageDeliverable: true,
+      },
+    }),
+  ]);
+
+  if (!orderPackage) throw new Error("Package line not found for item upgrade edit");
+  if (!currentItem) throw new Error("Package item is not available");
+  if (currentItem.packageId !== orderPackage.currentPackageId) return null;
+  if (!nextProduct || !nextProduct.isActive || !nextProduct.isPackageDeliverable) {
+    throw new Error("Replacement product is not available");
+  }
+  if (nextProduct.category !== currentItem.product.category) {
+    throw new Error("Replacement product must be in the same category");
+  }
+  if (nextProduct.id === currentItem.productId) {
+    throw new Error("Replacement product is already included");
+  }
+
+  return {
+    previousProductId: currentItem.productId,
+    previousProductName: currentItem.product.name,
+    nextProductId: nextProduct.id,
+    nextProductName: nextProduct.name,
+  };
+}
+
+async function recordMaterializedPackageSwapActivities(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    actorUserId: string;
+    activities: MaterializedPackageSwapActivity[];
+  }
+): Promise<void> {
+  for (const activity of input.activities) {
+    await recordOrderActivity(client, {
+      orderId: input.orderId,
+      userId: input.actorUserId,
+      type: OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+      title: "Package line changed",
+      description: `${activity.previousPackageName} changed to ${activity.nextPackageName}.`,
+      metadata: {
+        orderPackageId: activity.orderPackageId,
+        previousPackageId: activity.previousPackageId,
+        previousPackageName: activity.previousPackageName,
+        nextPackageId: activity.nextPackageId,
+        nextPackageName: activity.nextPackageName,
+        packageAdjustmentAmount:
+          activity.packageAdjustmentAmount.toFixed(3),
+        packageAdjustmentBaseline:
+          activity.packageAdjustmentBaseline.toFixed(3),
+      },
+    });
+  }
+}
+
+async function recordMaterializedAddOnActivities(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    actorUserId: string;
+    activities: MaterializedAddOnActivity[];
+  }
+): Promise<void> {
+  for (const activity of input.activities) {
+    await recordOrderActivity(client, {
+      orderId: input.orderId,
+      userId: input.actorUserId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+      title: "Add-on changed",
+      description: `${activity.productName} quantity changed from ${activity.previousQuantity} to ${activity.nextQuantity}.`,
+      metadata: {
+        orderAddOnId: activity.orderAddOnId,
+        productId: activity.productId,
+        productName: activity.productName,
+        previousQuantity: activity.previousQuantity,
+        nextQuantity: activity.nextQuantity,
+        unitPrice: activity.unitPrice.toFixed(3),
+        price: activity.unitPrice.toFixed(3),
+      },
+    });
+  }
+}
+
+async function recordMaterializedItemUpgradeActivities(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    actorUserId: string;
+    activities: MaterializedItemUpgradeActivity[];
+  }
+): Promise<void> {
+  for (const activity of input.activities) {
+    const nextProductName = activity.nextProductName ?? "base package item";
+    await recordOrderActivity(client, {
+      orderId: input.orderId,
+      userId: input.actorUserId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+      title:
+        activity.action === "removed"
+          ? "Package item upgrade removed"
+          : activity.action === "updated"
+            ? "Package item upgrade quantity changed"
+            : "Package item upgraded",
+      description:
+        activity.action === "removed"
+          ? `${activity.previousProductName} upgrade removed.`
+          : `${activity.previousProductName} changed to ${nextProductName} for ${formatSignedMoney(activity.priceDelta)}.`,
+      metadata: {
+        orderPackageItemUpgradeId: activity.orderPackageItemUpgradeId,
+        orderPackageId: activity.orderPackageId,
+        packageItemId: activity.packageItemId,
+        previousProductId: activity.previousProductId,
+        previousProductName: activity.previousProductName,
+        nextProductId: activity.nextProductId,
+        nextProductName: activity.nextProductName,
+        quantity: activity.quantity,
+        unitPriceDelta: activity.unitPriceDelta.toFixed(3),
+        priceDelta: activity.priceDelta.toFixed(3),
+      },
+    });
+  }
+}
+
+async function recordMaterializedPhotoCountActivities(
+  client: Prisma.TransactionClient,
+  input: {
+    orderId: string;
+    actorUserId: string;
+    activities: MaterializedPhotoCountActivity[];
+  }
+): Promise<void> {
+  for (const activity of input.activities) {
+    await recordOrderActivity(client, {
+      orderId: input.orderId,
+      userId: input.actorUserId,
+      type: OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
+      title: "Package line photo selection updated",
+      description: `Selected photos changed to ${activity.nextSelectedPhotoCount}.`,
+      metadata: {
+        orderPackageId: activity.orderPackageId,
+        previousSelectedPhotoCount: activity.previousSelectedPhotoCount,
+        nextSelectedPhotoCount: activity.nextSelectedPhotoCount,
+        includedPhotoCount: activity.includedPhotoCount,
+        previousExtraDigitalCount: activity.previousExtraDigitalCount,
+        previousExtraPrintCount: activity.previousExtraPrintCount,
+        nextExtraDigitalCount: activity.nextExtraDigitalCount,
+        nextExtraPrintCount: activity.nextExtraPrintCount,
+        extraPhotoCount:
+          activity.nextExtraDigitalCount + activity.nextExtraPrintCount,
+      },
+    });
+  }
+}
+
+async function resolveScopedOrderPackageId(
+  client: Prisma.TransactionClient,
+  orderId: string,
+  orderPackageId: string | undefined
+): Promise<string | null> {
+  if (!orderPackageId) return null;
+  const orderPackage = await client.orderPackage.findFirst({
+    where: { id: orderPackageId, orderId },
+    select: { id: true },
+  });
+  if (!orderPackage) {
+    throw new Error("Package line not found for scoped add-on edit");
+  }
+  return orderPackage.id;
+}
+
+function orderAddOnIdFromLineId(lineId: string): string | null {
+  const [kind, id, ...rest] = lineId.split(":");
+  if (kind !== "addon" || !id || rest.length > 0) return null;
+  return id;
+}
+
+function extraPhotoIdsFromLineId(
+  lineId: string
+): { orderPackageId: string; mediaType: MediaType } | null {
+  const [kind, orderPackageId, mediaType, ...rest] = lineId.split(":");
+  if (kind !== "extra-photo" || !orderPackageId || !mediaType || rest.length > 0) {
+    return null;
+  }
+  if (mediaType === "digital") {
+    return { orderPackageId, mediaType: MediaType.DIGITAL };
+  }
+  if (mediaType === "print") {
+    return { orderPackageId, mediaType: MediaType.PRINT };
+  }
+  return null;
+}
+
+function collectPhotoCountOrderPackageIds(
+  edits: AdjustmentWorkspaceEdit[]
+): Set<string> {
+  const orderPackageIds = new Set<string>();
+  for (const edit of edits) {
+    if (edit.op === "change_selected_photo_count") {
+      orderPackageIds.add(edit.orderPackageId);
+      continue;
+    }
+    if (edit.op !== "remove_line" && edit.op !== "modify_quantity") continue;
+    const parsed = extraPhotoIdsFromLineId(edit.targetLineId);
+    if (parsed) orderPackageIds.add(parsed.orderPackageId);
+  }
+  return orderPackageIds;
+}
+
+function resolveProposalPhotoCounts(
+  proposal: AdjustmentWorkspaceProposal,
+  affectedOrderPackageIds: Set<string>
+): Map<
+  string,
+  {
+    selectedPhotoCount: number;
+    includedPhotoCount: number;
+    extraDigitalCount: number;
+    extraPrintCount: number;
+  }
+> {
+  const counts = new Map<
+    string,
+    {
+      selectedPhotoCount: number;
+      includedPhotoCount: number;
+      extraDigitalCount: number;
+      extraPrintCount: number;
+    }
+  >();
+
+  for (const orderPackageId of affectedOrderPackageIds) {
+    const packageLine = proposal.proposed.lines.find(
+      (line) => line.kind === "package" && line.lineId === `package:${orderPackageId}`
+    );
+    if (!packageLine) {
+      throw new Error("Package line not found in finalized photo-count proposal");
+    }
+    const includedPhotoCount = packageLine.refMetadata?.includedPhotoCount ?? 0;
+    counts.set(orderPackageId, {
+      selectedPhotoCount: includedPhotoCount,
+      includedPhotoCount,
+      extraDigitalCount: 0,
+      extraPrintCount: 0,
+    });
+  }
+
+  for (const line of proposal.proposed.lines) {
+    const parsed = extraPhotoIdsFromLineId(line.lineId);
+    if (!parsed || !affectedOrderPackageIds.has(parsed.orderPackageId)) continue;
+    const count = counts.get(parsed.orderPackageId);
+    if (!count) continue;
+    if (parsed.mediaType === MediaType.DIGITAL) {
+      count.extraDigitalCount += line.quantity;
+    } else {
+      count.extraPrintCount += line.quantity;
+    }
+  }
+
+  for (const count of counts.values()) {
+    count.selectedPhotoCount =
+      count.includedPhotoCount + count.extraDigitalCount + count.extraPrintCount;
+  }
+
+  return counts;
+}
+
+function packageItemUpgradeIdsFromLineId(
+  lineId: string
+): { orderPackageId: string; packageItemId: string } | null {
+  const [kind, orderPackageId, packageItemId, ...rest] = lineId.split(":");
+  if (kind !== "item" || !orderPackageId || !packageItemId || rest.length > 0) {
+    return null;
+  }
+  return { orderPackageId, packageItemId };
+}
+
+async function syncOrderSelectedPhotoCountFromPackageLines(
+  client: Prisma.TransactionClient,
+  orderId: string
+): Promise<void> {
+  const lines = await client.orderPackage.findMany({
+    where: { orderId },
+    select: {
+      selectedPhotoCount: true,
+      currentPackage: { select: { photoCount: true } },
+    },
+  });
+  const selectedPhotoCount = lines.reduce(
+    (sum, line) => sum + (line.selectedPhotoCount ?? line.currentPackage.photoCount),
+    0
+  );
+
+  await client.order.update({
+    where: { id: orderId },
+    data: { selectedPhotoCount },
+  });
+}
+
+function packageAdjustmentAmountForTierChange(
+  proposal: AdjustmentWorkspaceProposal,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >
+): Prisma.Decimal {
+  const refs = packageRefsForTierChange(proposal, edit);
+  const lineId =
+    edit.op === "change_package_tier" ? `package:${edit.orderPackageId}` : null;
+  return proposal.deltas
+    .filter(
+      (line) =>
+        line.kind === "package" &&
+        (refs.has(line.refId) || (lineId !== null && line.lineId === lineId))
+    )
+    .reduce(
+      (sum, line) => sum.plus(line.lineTotalNet),
+      new Prisma.Decimal(0)
+    );
+}
+
+function packageAdjustmentBaselineForTierChange(
+  proposal: AdjustmentWorkspaceProposal,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >,
+  fallback: Prisma.Decimal
+): Prisma.Decimal {
+  const baseLine =
+    edit.op === "change_package_tier"
+      ? proposal.base.lines.find(
+          (line) =>
+            line.kind === "package" &&
+            line.lineId === `package:${edit.orderPackageId}`
+        )
+      : proposal.base.lines.find(
+          (line) => line.kind === "package" && line.refId === edit.fromPackageRefId
+        );
+  return baseLine ? new Prisma.Decimal(baseLine.lineTotalNet) : fallback;
+}
+
+function packageRefsForTierChange(
+  proposal: AdjustmentWorkspaceProposal,
+  edit: Extract<
+    AdjustmentWorkspaceEdit,
+    { op: "change_package_tier" } | { op: "swap_package" }
+  >
+): Set<string> {
+  if (edit.op === "swap_package") {
+    return new Set([edit.fromPackageRefId, edit.toPackageRefId]);
+  }
+
+  const baseLine = proposal.base.lines.find(
+    (line) =>
+      line.kind === "package" && line.lineId === `package:${edit.orderPackageId}`
+  );
+  return new Set([baseLine?.refId, edit.toPackageRefId].filter(Boolean) as string[]);
 }
 
 function remapSessionConfigurationProposal(
@@ -1809,13 +2676,15 @@ async function markWorkspaceFinalized(
   workspaceId: string,
   actorUserId: string,
   adjustmentInvoiceId: string | null,
-  proposal: AdjustmentWorkspaceProposal
+  proposal: AdjustmentWorkspaceProposal,
+  operationalStateAppliedAt: Date | null = null
 ) {
   await client.adjustmentWorkspace.update({
     where: { id: workspaceId },
     data: {
       status: AdjustmentWorkspaceStatus.FINALIZED,
       finalizedAdjustmentInvoiceId: adjustmentInvoiceId,
+      operationalStateAppliedAt,
       version: { increment: 1 },
       lastActivityAt: new Date(),
       events: {
@@ -2147,6 +3016,9 @@ function resolveEffectivePackageId(
 ): string {
   let effectivePackageId = fallbackPackageId;
   for (const edit of edits) {
+    if (edit.op === "swap_package" && edit.fromPackageRefId === effectivePackageId) {
+      effectivePackageId = edit.toPackageRefId;
+    }
     if (edit.op === "change_package_tier" && edit.orderPackageId === orderPackageId) {
       effectivePackageId = edit.toPackageRefId;
     }
@@ -2854,23 +3726,6 @@ function collectBasePackageRefs(
 function eventTypeForEdit(edit: AdjustmentWorkspaceEdit): AdjustmentWorkspaceEventType {
   if (edit.op === "swap_package") return AdjustmentWorkspaceEventType.PACKAGE_SWAPPED;
   return AdjustmentWorkspaceEventType.EDIT_ADDED;
-}
-
-function kindFromInvoiceLine(
-  lineType: InvoiceLineType,
-  causeKind: OrderEntityKind | null
-): AdjustmentLineKind {
-  if (causeKind === OrderEntityKind.EXTRA_PHOTO) return "item";
-  if (causeKind === OrderEntityKind.ADDON) return "addon";
-  if (causeKind === OrderEntityKind.UPGRADE) return "item";
-  if (causeKind === OrderEntityKind.SESSION_CONFIGURATION_SELECTION) {
-    return "session_configuration";
-  }
-  if (lineType === InvoiceLineType.PACKAGE_BASE || causeKind === OrderEntityKind.PACKAGE_TIER_UPGRADE) {
-    return "package";
-  }
-  if (lineType === InvoiceLineType.ADD_ON) return "addon";
-  return "item";
 }
 
 export function resolveAdjustmentInvoiceLineSemantics(

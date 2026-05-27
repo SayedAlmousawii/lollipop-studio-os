@@ -19,15 +19,7 @@ export function toCurrentCompositionCard(
   } = {}
 ): CurrentCompositionCardProjection {
   const snapshot = selectSnapshot(model, options.source);
-  const lines =
-    options.source === "pendingDeltas" ||
-    (!options.source &&
-      model.state === "adjustment" &&
-      snapshot.adjustmentLines.length > 0)
-      ? snapshot.adjustmentLines
-      : snapshot.lines.filter(
-          (line) => line.metadata.sourceKind !== "adjustmentDelta"
-        );
+  const lines = compositionLinesForCard(model, snapshot, options.source);
 
   return {
     mode: options.mode ?? (model.state === "adjustment" ? "adjustment" : "locked"),
@@ -36,6 +28,46 @@ export function toCurrentCompositionCard(
       options.source === "pendingDeltas"
         ? sumMoney(lines.map((line) => line.totalAmount))
         : snapshot.totals.netCompositionTotal,
+  };
+}
+
+function compositionLinesForCard(
+  model: OrderCompositionViewModel,
+  snapshot: CompositionSnapshot,
+  source: "base" | "effective" | "pending" | "pendingDeltas" | undefined
+): CompositionLine[] {
+  if (
+    source === "pendingDeltas" ||
+    (!source && model.state === "adjustment" && snapshot.adjustmentLines.length > 0)
+  ) {
+    return snapshot.adjustmentLines;
+  }
+
+  const lines =
+    source === "pending"
+      ? snapshot.lines.map(normalizePendingCompositionLine)
+      : snapshot.lines;
+
+  return lines.filter((line) => line.metadata.sourceKind !== "adjustmentDelta");
+}
+
+function normalizePendingCompositionLine(line: CompositionLine): CompositionLine {
+  if (
+    line.metadata.displayKind !== "swap" ||
+    line.metadata.categoryLabel !== "Package" ||
+    !line.id.startsWith("package:")
+  ) {
+    return line;
+  }
+
+  return {
+    ...line,
+    label: line.metadata.toLabel ?? line.label,
+    metadata: {
+      ...line.metadata,
+      displayKind: "package",
+      sourceKind: "orderPackage",
+    },
   };
 }
 

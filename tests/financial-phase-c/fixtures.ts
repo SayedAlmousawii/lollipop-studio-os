@@ -569,13 +569,16 @@ export async function addSecondPackageLine(
 ): Promise<string> {
   const secondPackage = await db.package.findUniqueOrThrow({
     where: { id: fixtures.secondPackageId },
-    select: { id: true, price: true },
+    select: { id: true, name: true, price: true },
   });
   const orderPackage = await db.orderPackage.create({
     data: {
       orderId,
-      packageId: secondPackage.id,
+      originalPackageId: secondPackage.id,
+      currentPackageId: secondPackage.id,
       sessionTypeId: fixtures.sessionTypeId,
+      originalPackageNameSnapshot: secondPackage.name,
+      currentPackageNameSnapshot: secondPackage.name,
       originalPackagePriceSnapshot: secondPackage.price,
       finalPackagePriceSnapshot: secondPackage.price,
       selectedPhotoCount: 5,

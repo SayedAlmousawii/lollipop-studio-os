@@ -9,6 +9,7 @@ import {
   AuditEntityType,
   InvoiceLineType,
   InvoiceType,
+  OrderActivityType,
   OrderEntityKind,
   Prisma,
   ProductCategory,
@@ -29,6 +30,7 @@ type ModuleLoader = (
 ) => unknown;
 
 type WorkspaceServices = typeof import("@/modules/adjustment-workspace/adjustment-workspace.service");
+type OrderCompositionServices = typeof import("@/modules/orders/composition/order-composition.service");
 type PhaseBFixturesModule = typeof import("../financial-phase-b/fixtures");
 type PhaseBFixtures = Awaited<
   ReturnType<PhaseBFixturesModule["seedPhaseBFixtures"]>
@@ -39,6 +41,7 @@ type BuildLockedWorkflow =
 type IntegrationContext = {
   db: PrismaClient;
   services: WorkspaceServices;
+  compositionServices: OrderCompositionServices;
   fixtures: PhaseBFixtures;
   buildLockedFinalInvoiceWorkflowFixture: BuildLockedWorkflow;
   upgradeProductId: string;
@@ -73,6 +76,9 @@ test.before(async () => {
       const services = await import(
         "@/modules/adjustment-workspace/adjustment-workspace.service"
       );
+      const compositionServices = await import(
+        "@/modules/orders/composition/order-composition.service"
+      );
       const {
         buildLockedFinalInvoiceWorkflowFixture,
         seedPhaseBFixtures,
@@ -104,6 +110,7 @@ test.before(async () => {
       integrationContext = {
         db,
         services,
+        compositionServices,
         fixtures,
         buildLockedFinalInvoiceWorkflowFixture,
         upgradeProductId,
@@ -370,9 +377,1290 @@ test("finalizeWorkspace applies operational and financial session configuration 
   );
   const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
     where: { id: workspaceId },
-    select: { status: true },
+    select: { status: true, operationalStateAppliedAt: true },
   });
   assert.equal(workspace.status, "FINALIZED");
+  assert.equal(workspace.operationalStateAppliedAt, null);
+});
+
+test("getEffectiveCompositionForInvoice ignores finalized adjustment invoice lines without relying on the materialized flag", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "113-materialized-skip"
+  );
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "113-materialized-item",
+        op: "upgrade_package_item",
+        orderPackageId: await firstOrderPackageId(db, workflow.orderId),
+        packageItemId: await firstPackageItemId(db, fixtures.basePackageId),
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  await db.adjustmentWorkspace.update({
+    where: { id: workspaceId },
+    data: { operationalStateAppliedAt: null },
+  });
+  const adjustment = await onlyAdjustmentInvoice(
+    db,
+    workflow.orderId,
+    workflow.finalInvoiceId
+  );
+  assert.ok(adjustment.lineItems.length > 0);
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes swap_package edits into order package rows", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "114-package-swap"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: {
+      id: true,
+      originalPackageId: true,
+      currentPackageId: true,
+      currentPackage: { select: { photoCount: true } },
+    },
+  });
+  await db.orderPackageItemUpgrade.create({
+    data: {
+      orderId: workflow.orderId,
+      orderPackageId: orderPackage.id,
+      packageItemId: await firstPackageItemId(db, fixtures.basePackageId),
+      nameSnapshot: "114 Legacy Upgrade",
+      priceSnapshot: new Prisma.Decimal("7.000"),
+      quantity: 1,
+    },
+  });
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "114-swap-package",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const materializedPackage = await db.orderPackage.findUniqueOrThrow({
+    where: { id: orderPackage.id },
+    select: {
+      originalPackageId: true,
+      currentPackageId: true,
+      currentPackageNameSnapshot: true,
+      finalPackagePriceSnapshot: true,
+      selectedPhotoCount: true,
+    },
+  });
+  assert.equal(materializedPackage.originalPackageId, orderPackage.originalPackageId);
+  assert.equal(materializedPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(materializedPackage.currentPackageNameSnapshot, "Phase B Upgrade Package");
+  assert.equal(materializedPackage.finalPackagePriceSnapshot?.toFixed(3), "600.000");
+  assert.equal(materializedPackage.selectedPhotoCount, 15);
+  assert.equal(
+    await db.orderPackageItemUpgrade.count({
+      where: { orderPackageId: orderPackage.id },
+    }),
+    0
+  );
+
+  const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
+    where: { id: workspaceId },
+    select: { operationalStateAppliedAt: true },
+  });
+  assert.ok(workspace.operationalStateAppliedAt);
+
+  const activities = await db.orderActivity.findMany({
+    where: {
+      orderId: workflow.orderId,
+      type: {
+        in: [
+          OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+          OrderActivityType.INVOICE_ADJUSTED,
+        ],
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  const packageActivity = activities.find(
+    (activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED
+  );
+  assert.ok(packageActivity);
+  const metadata = packageActivity.metadata as Record<string, unknown>;
+  assert.equal(metadata.orderPackageId, orderPackage.id);
+  assert.equal(metadata.previousPackageId, fixtures.basePackageId);
+  assert.equal(metadata.previousPackageName, "Phase B Base Package");
+  assert.equal(metadata.nextPackageId, fixtures.upgradePackageId);
+  assert.equal(metadata.nextPackageName, "Phase B Upgrade Package");
+  assert.equal(metadata.packageAdjustmentAmount, "100.000");
+  assert.equal(metadata.packageAdjustmentBaseline, "500.000");
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.INVOICE_ADJUSTED)
+  );
+
+  const adjustment = await onlyAdjustmentInvoice(
+    db,
+    workflow.orderId,
+    workflow.finalInvoiceId
+  );
+  assert.deepEqual(
+    adjustment.lineItems.map((line) => ({
+      lineType: line.lineType,
+      causeOrderEntityKind: line.causeOrderEntityKind,
+      lineTotal: line.lineTotal.toFixed(3),
+    })),
+    result.proposal.deltas.map((line) => {
+      const semantics = services.resolveAdjustmentInvoiceLineSemantics(line);
+      return {
+        lineType: semantics.lineType,
+        causeOrderEntityKind: semantics.causeOrderEntityKind,
+        lineTotal: line.lineTotalNet,
+      };
+    })
+  );
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+
+  await assert.rejects(
+    () =>
+      services.finalizeWorkspace(
+        workspaceId,
+        { version },
+        fixtures.adminActor
+      ),
+    /already materialized/
+  );
+});
+
+test("finalizeWorkspace materializes canonical change_package_tier edits into order package rows", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "119-package-tier"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: {
+      id: true,
+      originalPackageId: true,
+      currentPackageId: true,
+    },
+  });
+  await db.orderPackageItemUpgrade.create({
+    data: {
+      orderId: workflow.orderId,
+      orderPackageId: orderPackage.id,
+      packageItemId: await firstPackageItemId(db, fixtures.basePackageId),
+      nameSnapshot: "119 Legacy Upgrade",
+      priceSnapshot: new Prisma.Decimal("7.000"),
+      quantity: 1,
+    },
+  });
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "119-change-package-tier",
+        op: "change_package_tier",
+        orderPackageId: orderPackage.id,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const materializedPackage = await db.orderPackage.findUniqueOrThrow({
+    where: { id: orderPackage.id },
+    select: {
+      originalPackageId: true,
+      currentPackageId: true,
+      currentPackageNameSnapshot: true,
+      finalPackagePriceSnapshot: true,
+      selectedPhotoCount: true,
+    },
+  });
+  assert.equal(materializedPackage.originalPackageId, orderPackage.originalPackageId);
+  assert.equal(materializedPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(materializedPackage.currentPackageNameSnapshot, "Phase B Upgrade Package");
+  assert.equal(materializedPackage.finalPackagePriceSnapshot?.toFixed(3), "600.000");
+  assert.equal(materializedPackage.selectedPhotoCount, 15);
+  assert.equal(
+    await db.orderPackageItemUpgrade.count({
+      where: { orderPackageId: orderPackage.id },
+    }),
+    0
+  );
+
+  const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
+    where: { id: workspaceId },
+    select: { operationalStateAppliedAt: true },
+  });
+  assert.ok(workspace.operationalStateAppliedAt);
+
+  const activities = await db.orderActivity.findMany({
+    where: {
+      orderId: workflow.orderId,
+      type: {
+        in: [
+          OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+          OrderActivityType.INVOICE_ADJUSTED,
+        ],
+      },
+    },
+  });
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.INVOICE_ADJUSTED)
+  );
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes add-on edits into order add-on rows", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "115-addon-add"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "115-add-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 2,
+        orderPackageId,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const addOn = await db.orderAddOn.findFirstOrThrow({
+    where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
+    select: {
+      id: true,
+      orderPackageId: true,
+      productId: true,
+      nameSnapshot: true,
+      priceSnapshot: true,
+      quantity: true,
+    },
+  });
+  assert.equal(addOn.orderPackageId, orderPackageId);
+  assert.equal(addOn.productId, fixtures.addOnProductId);
+  assert.equal(addOn.nameSnapshot, "Phase B Add-on");
+  assert.equal(addOn.priceSnapshot.toFixed(3), "50.000");
+  assert.equal(addOn.quantity, 2);
+
+  const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
+    where: { id: workspaceId },
+    select: { operationalStateAppliedAt: true },
+  });
+  assert.ok(workspace.operationalStateAppliedAt);
+
+  const addOnActivity = await db.orderActivity.findFirstOrThrow({
+    where: {
+      orderId: workflow.orderId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+    },
+  });
+  const metadata = addOnActivity.metadata as Record<string, unknown>;
+  assert.equal(metadata.orderAddOnId, addOn.id);
+  assert.equal(metadata.productId, fixtures.addOnProductId);
+  assert.equal(metadata.productName, "Phase B Add-on");
+  assert.equal(metadata.previousQuantity, 0);
+  assert.equal(metadata.nextQuantity, 2);
+  assert.equal(metadata.unitPrice, "50.000");
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes package item upgrade edits into upgrade rows", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-item-upgrade-add"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const packageItem = await firstPackageItemWithProduct(db, fixtures.basePackageId);
+  const upgradeProduct = await db.product.findUniqueOrThrow({
+    where: { id: upgradeProductId },
+    select: { id: true, name: true, canonicalPrice: true },
+  });
+  const expectedUnitDelta = upgradeProduct.canonicalPrice.minus(
+    packageItem.priceSnapshot
+  );
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "116-upgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId,
+        packageItemId: packageItem.id,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const upgrade = await db.orderPackageItemUpgrade.findUniqueOrThrow({
+    where: {
+      orderId_orderPackageId_packageItemId: {
+        orderId: workflow.orderId,
+        orderPackageId,
+        packageItemId: packageItem.id,
+      },
+    },
+  });
+  assert.equal(upgrade.nameSnapshot, `${packageItem.product.name} to ${upgradeProduct.name}`);
+  assert.equal(upgrade.priceSnapshot.toFixed(3), expectedUnitDelta.toFixed(3));
+  assert.equal(upgrade.quantity, 1);
+
+  const workspace = await db.adjustmentWorkspace.findUniqueOrThrow({
+    where: { id: workspaceId },
+    select: { operationalStateAppliedAt: true },
+  });
+  assert.ok(workspace.operationalStateAppliedAt);
+
+  const activity = await db.orderActivity.findFirstOrThrow({
+    where: {
+      orderId: workflow.orderId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+      title: "Package item upgraded",
+    },
+  });
+  const metadata = activity.metadata as Record<string, unknown>;
+  assert.equal(metadata.orderPackageItemUpgradeId, upgrade.id);
+  assert.equal(metadata.orderPackageId, orderPackageId);
+  assert.equal(metadata.packageItemId, packageItem.id);
+  assert.equal(metadata.previousProductId, packageItem.productId);
+  assert.equal(metadata.previousProductName, packageItem.product.name);
+  assert.equal(metadata.nextProductId, upgradeProductId);
+  assert.equal(metadata.nextProductName, upgradeProduct.name);
+  assert.equal(metadata.quantity, 1);
+  assert.equal(metadata.unitPriceDelta, expectedUnitDelta.toFixed(3));
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes package item upgrade removals and quantity changes", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-item-upgrade-update"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const packageItem = await firstPackageItemWithProduct(db, fixtures.basePackageId);
+  const quantityUpgrade = await db.orderPackageItemUpgrade.create({
+    data: {
+      orderId: workflow.orderId,
+      orderPackageId,
+      packageItemId: packageItem.id,
+      nameSnapshot: `${packageItem.product.name} to 116 Premium`,
+      priceSnapshot: new Prisma.Decimal("20.000"),
+      quantity: 1,
+    },
+  });
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "116-item-quantity",
+        op: "modify_quantity",
+        targetLineId: packageItemUpgradeLineId(orderPackageId, packageItem.id),
+        newQuantity: 3,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  const updatedUpgrade = await db.orderPackageItemUpgrade.findUniqueOrThrow({
+    where: { id: quantityUpgrade.id },
+    select: { quantity: true },
+  });
+  assert.equal(updatedUpgrade.quantity, 3);
+
+  const removalWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-item-upgrade-remove"
+  );
+  const removalOrderPackageId = await firstOrderPackageId(db, removalWorkflow.orderId);
+  const removablePackageItem = await firstPackageItemWithProduct(
+    db,
+    fixtures.basePackageId
+  );
+  const removedUpgrade = await db.orderPackageItemUpgrade.create({
+    data: {
+      orderId: removalWorkflow.orderId,
+      orderPackageId: removalOrderPackageId,
+      packageItemId: removablePackageItem.id,
+      nameSnapshot: `${removablePackageItem.product.name} to 116 Removed Premium`,
+      priceSnapshot: new Prisma.Decimal("5.000"),
+      quantity: 1,
+    },
+  });
+  const { workspaceId: removalWorkspaceId, version: removalVersion } =
+    await stageWorkspaceEdits(
+      services,
+      removalWorkflow.finalInvoiceId,
+      fixtures.adminActor,
+      [
+        {
+          id: "116-item-remove",
+          op: "remove_line",
+          targetLineId: packageItemUpgradeLineId(
+            removalOrderPackageId,
+            removablePackageItem.id
+          ),
+        },
+      ]
+    );
+  await services.finalizeWorkspace(
+    removalWorkspaceId,
+    {
+      version: removalVersion,
+      managerApprovedReductionByUserId: fixtures.adminActor.actorUserId,
+      managerApprovedReason: "Regression removal approval",
+    },
+    fixtures.adminActor
+  );
+  assert.equal(
+    await db.orderPackageItemUpgrade.count({ where: { id: removedUpgrade.id } }),
+    0
+  );
+});
+
+test("finalizeWorkspace materializes item upgrades after same-workspace package swaps", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "116-swap-item-upgrade"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const upgradePackageItem = await firstPackageItemWithProduct(
+    db,
+    fixtures.upgradePackageId
+  );
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "116-swap-package",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+      {
+        id: "116-upgrade-after-swap",
+        op: "upgrade_package_item",
+        orderPackageId,
+        packageItemId: upgradePackageItem.id,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  const [orderPackage, upgradeCount, activities] = await Promise.all([
+    db.orderPackage.findUniqueOrThrow({
+      where: { id: orderPackageId },
+      select: { currentPackageId: true },
+    }),
+    db.orderPackageItemUpgrade.count({
+      where: {
+        orderId: workflow.orderId,
+        orderPackageId,
+        packageItemId: upgradePackageItem.id,
+      },
+    }),
+    db.orderActivity.findMany({
+      where: {
+        orderId: workflow.orderId,
+        type: {
+          in: [
+            OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+            OrderActivityType.ADD_ON_CHANGED,
+          ],
+        },
+      },
+    }),
+  ]);
+  assert.equal(orderPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(upgradeCount, 1);
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.title === "Package item upgraded")
+  );
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes photo-count edits into order package rows", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "117-photo-counts"
+  );
+  const orderPackage = await db.orderPackage.findFirstOrThrow({
+    where: { orderId: workflow.orderId },
+    select: {
+      id: true,
+      currentPackage: { select: { photoCount: true } },
+    },
+  });
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "117-photo-count",
+        op: "change_selected_photo_count",
+        orderPackageId: orderPackage.id,
+        selectedPhotoCount: includedPhotoCount + 3,
+        extraDigitalCount: 2,
+        extraPrintCount: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const [materializedPackage, materializedOrder, workspace, activity] =
+    await Promise.all([
+      db.orderPackage.findUniqueOrThrow({
+        where: { id: orderPackage.id },
+        select: {
+          selectedPhotoCount: true,
+          extraDigitalCount: true,
+          extraPrintCount: true,
+        },
+      }),
+      db.order.findUniqueOrThrow({
+        where: { id: workflow.orderId },
+        select: { selectedPhotoCount: true },
+      }),
+      db.adjustmentWorkspace.findUniqueOrThrow({
+        where: { id: workspaceId },
+        select: { operationalStateAppliedAt: true },
+      }),
+      db.orderActivity.findFirstOrThrow({
+        where: {
+          orderId: workflow.orderId,
+          type: OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
+        },
+      }),
+    ]);
+
+  assert.equal(materializedPackage.selectedPhotoCount, includedPhotoCount + 3);
+  assert.equal(materializedPackage.extraDigitalCount, 2);
+  assert.equal(materializedPackage.extraPrintCount, 1);
+  assert.equal(materializedOrder.selectedPhotoCount, includedPhotoCount + 3);
+  assert.ok(workspace.operationalStateAppliedAt);
+
+  const metadata = activity.metadata as Record<string, unknown>;
+  assert.equal(metadata.orderPackageId, orderPackage.id);
+  assert.equal(metadata.nextSelectedPhotoCount, includedPhotoCount + 3);
+  assert.equal(metadata.includedPhotoCount, includedPhotoCount);
+  assert.equal(metadata.nextExtraDigitalCount, 2);
+  assert.equal(metadata.nextExtraPrintCount, 1);
+  assert.equal(metadata.extraPhotoCount, 3);
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("finalizeWorkspace materializes photo counts after same-workspace package swaps", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "117-swap-photo-counts"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "117-swap-package",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+      {
+        id: "117-photo-count-after-swap",
+        op: "change_selected_photo_count",
+        orderPackageId,
+        selectedPhotoCount: 17,
+        extraDigitalCount: 1,
+        extraPrintCount: 1,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  const [orderPackage, order, activities] = await Promise.all([
+    db.orderPackage.findUniqueOrThrow({
+      where: { id: orderPackageId },
+      select: {
+        currentPackageId: true,
+        selectedPhotoCount: true,
+        extraDigitalCount: true,
+        extraPrintCount: true,
+      },
+    }),
+    db.order.findUniqueOrThrow({
+      where: { id: workflow.orderId },
+      select: { selectedPhotoCount: true },
+    }),
+    db.orderActivity.findMany({
+      where: {
+        orderId: workflow.orderId,
+        type: {
+          in: [
+            OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+            OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
+          ],
+        },
+      },
+    }),
+  ]);
+
+  assert.equal(orderPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(orderPackage.selectedPhotoCount, 17);
+  assert.equal(orderPackage.extraDigitalCount, 1);
+  assert.equal(orderPackage.extraPrintCount, 1);
+  assert.equal(order.selectedPhotoCount, 17);
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED)
+  );
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
+});
+
+test("locked composition projection ignores finalized adjustment invoice lines after materialization", async () => {
+  const {
+    db,
+    services,
+    compositionServices,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+    upgradeProductId,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "118-collapse-replay"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const finalInvoiceLinesBefore = await invoiceLineShape(db, workflow.finalInvoiceId);
+
+  const swapResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-swap-package",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, swapResult);
+
+  const addOnResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-add-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 2,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, addOnResult);
+
+  const packageItemId = await firstPackageItemId(db, fixtures.upgradePackageId);
+  const itemUpgradeResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-upgrade-item",
+        op: "upgrade_package_item",
+        orderPackageId,
+        packageItemId,
+        toProductId: upgradeProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, itemUpgradeResult);
+
+  const photoResult = await stageAndFinalizeWithResult(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "118-photo-counts",
+        op: "change_selected_photo_count",
+        orderPackageId,
+        selectedPhotoCount: 18,
+        extraDigitalCount: 2,
+        extraPrintCount: 1,
+      },
+    ]
+  );
+  await assertAdjustmentInvoiceMatchesProposal(db, services, photoResult);
+
+  const lockedComposition =
+    await compositionServices.getLockedOrderCompositionViewModel({
+      invoiceId: workflow.finalInvoiceId,
+    });
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  const currentComposition =
+    compositionServices.buildCompositionSnapshotFromAdjustmentSnapshot(captured);
+
+  assert.deepEqual(lockedComposition.effectiveComposition.lines, currentComposition.lines);
+  assert.deepEqual(
+    lockedComposition.effectiveComposition.totals,
+    currentComposition.totals
+  );
+  assert.deepEqual(
+    await invoiceLineShape(db, workflow.finalInvoiceId),
+    finalInvoiceLinesBefore
+  );
+});
+
+test("finalizeWorkspace materializes add-on removals and quantity changes", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "115-addon-update"
+  );
+  const [removedAddOn, increasedAddOn, zeroedAddOn] = await Promise.all([
+    db.orderAddOn.create({
+      data: {
+        orderId: workflow.orderId,
+        productId: fixtures.addOnProductId,
+        nameSnapshot: "Phase B Add-on",
+        priceSnapshot: new Prisma.Decimal("50.000"),
+        quantity: 1,
+      },
+    }),
+    db.orderAddOn.create({
+      data: {
+        orderId: workflow.orderId,
+        productId: fixtures.addOnProductId,
+        nameSnapshot: "Phase B Add-on",
+        priceSnapshot: new Prisma.Decimal("50.000"),
+        quantity: 1,
+      },
+    }),
+    db.orderAddOn.create({
+      data: {
+        orderId: workflow.orderId,
+        productId: fixtures.addOnProductId,
+        nameSnapshot: "Phase B Add-on",
+        priceSnapshot: new Prisma.Decimal("50.000"),
+        quantity: 1,
+      },
+    }),
+  ]);
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "115-remove-addon",
+        op: "remove_line",
+        targetLineId: `addon:${removedAddOn.id}`,
+      },
+      {
+        id: "115-increase-addon",
+        op: "modify_quantity",
+        targetLineId: `addon:${increasedAddOn.id}`,
+        newQuantity: 3,
+      },
+      {
+        id: "115-zero-addon",
+        op: "modify_quantity",
+        targetLineId: `addon:${zeroedAddOn.id}`,
+        newQuantity: 0,
+      },
+      {
+        id: "115-offset-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 2,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  assert.equal(
+    await db.orderAddOn.count({ where: { id: removedAddOn.id } }),
+    0
+  );
+  assert.equal(
+    await db.orderAddOn.count({ where: { id: zeroedAddOn.id } }),
+    0
+  );
+  const updatedAddOn = await db.orderAddOn.findUniqueOrThrow({
+    where: { id: increasedAddOn.id },
+    select: { quantity: true },
+  });
+  assert.equal(updatedAddOn.quantity, 3);
+
+  const changedActivities = await db.orderActivity.findMany({
+    where: {
+      orderId: workflow.orderId,
+      type: OrderActivityType.ADD_ON_CHANGED,
+    },
+  });
+  assert.equal(changedActivities.length, 4);
+});
+
+test("finalizeWorkspace materializes mixed swap and add-on workspaces", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "115-mixed-swap-addon"
+  );
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "115-mixed-swap",
+        op: "swap_package",
+        fromPackageRefId: fixtures.basePackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+      {
+        id: "115-mixed-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const [orderPackage, addOnCount, activities] = await Promise.all([
+    db.orderPackage.findFirstOrThrow({
+      where: { orderId: workflow.orderId },
+      select: { currentPackageId: true },
+    }),
+    db.orderAddOn.count({
+      where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
+    }),
+    db.orderActivity.findMany({
+      where: {
+        orderId: workflow.orderId,
+        type: {
+          in: [
+            OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+            OrderActivityType.ADD_ON_CHANGED,
+            OrderActivityType.INVOICE_ADJUSTED,
+          ],
+        },
+      },
+    }),
+  ]);
+  assert.equal(orderPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(addOnCount, 1);
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ADD_ON_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.INVOICE_ADJUSTED)
+  );
+});
+
+test("finalizeWorkspace materializes mixed canonical package tier and add-on workspaces", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "119-mixed-tier-addon"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "119-mixed-tier",
+        op: "change_package_tier",
+        orderPackageId,
+        toPackageRefId: fixtures.upgradePackageId,
+      },
+      {
+        id: "119-mixed-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  const result = await services.finalizeWorkspace(
+    workspaceId,
+    { version },
+    fixtures.adminActor
+  );
+  assert.ok(result.adjustmentInvoiceId);
+
+  const [orderPackage, addOnCount, workspace, activities] = await Promise.all([
+    db.orderPackage.findUniqueOrThrow({
+      where: { id: orderPackageId },
+      select: { currentPackageId: true },
+    }),
+    db.orderAddOn.count({
+      where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
+    }),
+    db.adjustmentWorkspace.findUniqueOrThrow({
+      where: { id: workspaceId },
+      select: { operationalStateAppliedAt: true },
+    }),
+    db.orderActivity.findMany({
+      where: {
+        orderId: workflow.orderId,
+        type: {
+          in: [
+            OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
+            OrderActivityType.ADD_ON_CHANGED,
+            OrderActivityType.INVOICE_ADJUSTED,
+          ],
+        },
+      },
+    }),
+  ]);
+  assert.equal(orderPackage.currentPackageId, fixtures.upgradePackageId);
+  assert.equal(addOnCount, 1);
+  assert.ok(workspace.operationalStateAppliedAt);
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ORDER_PACKAGE_LINE_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.ADD_ON_CHANGED)
+  );
+  assert.ok(
+    activities.some((activity) => activity.type === OrderActivityType.INVOICE_ADJUSTED)
+  );
+});
+
+test("finalizeWorkspace lets session-config linked add-ons coexist with regular add-ons", async () => {
+  const {
+    db,
+    services,
+    fixtures,
+    buildLockedFinalInvoiceWorkflowFixture,
+  } = getIntegrationContext();
+  const workflow = await buildLockedFinalInvoiceWorkflowFixture(
+    db,
+    fixtures,
+    "115-session-config-addon"
+  );
+  const orderPackageId = await firstOrderPackageId(db, workflow.orderId);
+  const linkedConfig = await db.sessionConfiguration.create({
+    data: {
+      code: "115_LINKED_USB",
+      name: "115 Linked USB",
+      sessionTypeId: fixtures.sessionTypeId,
+      inputType: SessionConfigurationInputType.TOGGLE,
+      pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
+      financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+      linkedProductId: fixtures.addOnProductId,
+      isActive: true,
+    },
+  });
+
+  const { workspaceId, version } = await stageWorkspaceEdits(
+    services,
+    workflow.finalInvoiceId,
+    fixtures.adminActor,
+    [
+      {
+        id: "115-linked-selection",
+        op: "change_session_configuration_selection",
+        orderPackageId,
+        configurationId: linkedConfig.id,
+        desired: { kind: "toggle" },
+      },
+      {
+        id: "115-regular-addon",
+        op: "add_line",
+        kind: "addon",
+        refId: fixtures.addOnProductId,
+        quantity: 1,
+      },
+    ]
+  );
+  await services.finalizeWorkspace(workspaceId, { version }, fixtures.adminActor);
+
+  const linkedSelection = await db.orderPackageSessionConfigurationSelection.findFirstOrThrow({
+    where: { orderPackageId, configurationId: linkedConfig.id },
+    select: { orderAddOnId: true },
+  });
+  assert.ok(linkedSelection.orderAddOnId);
+  assert.equal(
+    await db.orderAddOn.count({
+      where: { orderId: workflow.orderId, productId: fixtures.addOnProductId },
+    }),
+    2
+  );
+
+  const effective = await services.getEffectiveCompositionForInvoice(
+    workflow.finalInvoiceId,
+    db
+  );
+  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  assert.deepEqual(
+    stripCompositionCaptureTime(effective),
+    stripCompositionCaptureTime(captured)
+  );
 });
 
 test("derivePOSWorkspaceFromAdjustmentWorkspace projects staged edits into POS modules", async () => {
@@ -700,8 +1988,9 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
   );
   const orderPackage = await db.orderPackage.findFirstOrThrow({
     where: { orderId: workflow.orderId },
-    select: { id: true, package: { select: { photoCount: true } } },
+    select: { id: true, currentPackage: { select: { photoCount: true } } },
   });
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
   const { workspaceId, version } = await stageWorkspaceEdits(
     services,
     workflow.finalInvoiceId,
@@ -711,7 +2000,7 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
         id: "photo-count-increase",
         op: "change_selected_photo_count",
         orderPackageId: orderPackage.id,
-        selectedPhotoCount: orderPackage.package.photoCount + 2,
+        selectedPhotoCount: includedPhotoCount + 2,
         extraDigitalCount: 2,
         extraPrintCount: 0,
       },
@@ -719,7 +2008,7 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
         id: "photo-count-baseline",
         op: "change_selected_photo_count",
         orderPackageId: orderPackage.id,
-        selectedPhotoCount: orderPackage.package.photoCount,
+        selectedPhotoCount: includedPhotoCount,
         extraDigitalCount: 0,
         extraPrintCount: 0,
       },
@@ -730,7 +2019,7 @@ test("finalizeWorkspace emits no ADJ when selected-photo edits return to baselin
   );
   assert.equal(
     derived?.packageLines[0]?.selectedPhotoCount,
-    orderPackage.package.photoCount
+    includedPhotoCount
   );
 
   const result = await services.finalizeWorkspace(
@@ -760,10 +2049,10 @@ test("adjustment workspace POS projection keeps included photos as selected-phot
     where: { orderId: workflow.orderId },
     select: {
       id: true,
-      package: { select: { photoCount: true } },
+      currentPackage: { select: { photoCount: true } },
     },
   });
-  const includedPhotoCount = orderPackage.package.photoCount;
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
   const { workspaceId } = await stageWorkspaceEdits(
     services,
     workflow.finalInvoiceId,
@@ -815,10 +2104,10 @@ test("adjustment workspace POS projection does not let live POS selected count o
     where: { orderId: workflow.orderId },
     select: {
       id: true,
-      package: { select: { photoCount: true } },
+      currentPackage: { select: { photoCount: true } },
     },
   });
-  const includedPhotoCount = orderPackage.package.photoCount;
+  const includedPhotoCount = orderPackage.currentPackage.photoCount;
   const workspace = await services.openWorkspace(
     workflow.finalInvoiceId,
     fixtures.adminActor
@@ -974,13 +2263,22 @@ async function stageAndFinalize(
   actor: ActorContext,
   edits: AdjustmentWorkspaceEdit[]
 ) {
+  await stageAndFinalizeWithResult(services, finalInvoiceId, actor, edits);
+}
+
+async function stageAndFinalizeWithResult(
+  services: WorkspaceServices,
+  finalInvoiceId: string,
+  actor: ActorContext,
+  edits: AdjustmentWorkspaceEdit[]
+) {
   const { workspaceId, version } = await stageWorkspaceEdits(
     services,
     finalInvoiceId,
     actor,
     edits
   );
-  await services.finalizeWorkspace(workspaceId, { version }, actor);
+  return services.finalizeWorkspace(workspaceId, { version }, actor);
 }
 
 async function stageWorkspaceEdits(
@@ -1037,6 +2335,63 @@ async function onlyAdjustmentInvoice(
   return adjustments[0] ?? assert.fail("missing adjustment invoice");
 }
 
+async function invoiceLineShape(db: PrismaClient, invoiceId: string) {
+  const invoice = await db.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    select: {
+      lineItems: {
+        select: {
+          lineType: true,
+          description: true,
+          quantity: true,
+          unitPrice: true,
+          lineTotal: true,
+          sortOrder: true,
+          causeOrderEntityKind: true,
+          causeOrderEntityId: true,
+        },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+  });
+  return invoice.lineItems.map((line) => ({
+    ...line,
+    unitPrice: line.unitPrice.toFixed(3),
+    lineTotal: line.lineTotal.toFixed(3),
+  }));
+}
+
+async function assertAdjustmentInvoiceMatchesProposal(
+  db: PrismaClient,
+  services: WorkspaceServices,
+  result: Awaited<ReturnType<WorkspaceServices["finalizeWorkspace"]>>
+) {
+  assert.ok(result.adjustmentInvoiceId);
+  const adjustment = await db.invoice.findUniqueOrThrow({
+    where: { id: result.adjustmentInvoiceId },
+    select: {
+      invoiceType: true,
+      lineItems: { orderBy: { sortOrder: "asc" } },
+    },
+  });
+  assert.equal(adjustment.invoiceType, InvoiceType.ADJUSTMENT);
+  assert.deepEqual(
+    adjustment.lineItems.map((line) => ({
+      lineType: line.lineType,
+      causeOrderEntityKind: line.causeOrderEntityKind,
+      lineTotal: line.lineTotal.toFixed(3),
+    })),
+    result.proposal.deltas.map((line) => {
+      const semantics = services.resolveAdjustmentInvoiceLineSemantics(line);
+      return {
+        lineType: semantics.lineType,
+        causeOrderEntityKind: semantics.causeOrderEntityKind,
+        lineTotal: line.lineTotalNet,
+      };
+    })
+  );
+}
+
 function assertLineSemantics(
   lines: Array<{
     lineType: InvoiceLineType;
@@ -1063,6 +2418,16 @@ function assertLineSemantics(
   }
 }
 
+function stripCompositionCaptureTime(
+  snapshot: Awaited<ReturnType<WorkspaceServices["getEffectiveCompositionForInvoice"]>>
+) {
+  return {
+    lines: snapshot.lines,
+    totals: snapshot.totals,
+    sessionConfigurationSelections: snapshot.sessionConfigurationSelections,
+  };
+}
+
 async function firstOrderPackageId(db: PrismaClient, orderId: string): Promise<string> {
   const orderPackage = await db.orderPackage.findFirstOrThrow({
     where: { orderId },
@@ -1077,6 +2442,17 @@ async function firstPackageItemId(db: PrismaClient, packageId: string): Promise<
     select: { id: true },
   });
   return packageItem.id;
+}
+
+async function firstPackageItemWithProduct(db: PrismaClient, packageId: string) {
+  return db.packageItem.findFirstOrThrow({
+    where: { packageId },
+    include: { product: { select: { name: true } } },
+  });
+}
+
+function packageItemUpgradeLineId(orderPackageId: string, packageItemId: string): string {
+  return `item:${orderPackageId}:${packageItemId}`;
 }
 
 async function createDeliverableProduct(

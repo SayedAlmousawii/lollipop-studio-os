@@ -188,7 +188,7 @@ export async function getCustomerById(
               booking: { select: { sessionDate: true } },
               packages: {
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-                select: { package: { select: { name: true } } },
+                select: { currentPackageNameSnapshot: true },
               },
             },
           },
@@ -205,7 +205,7 @@ export async function getCustomerById(
     sessionDate: formatSessionDate(booking.sessionDate),
     sessionType: booking.packages[0]?.sessionType.name ?? "—",
     department: booking.department.name,
-    packageName: formatPackageLineNames(booking.packages),
+    packageName: formatBookingPackageLineNames(booking.packages),
     status: mapBookingStatus(booking.status),
   }));
   const orders = row.orders.map((order) => ({
@@ -821,6 +821,15 @@ function isRecordNotFound(error: unknown): boolean {
 }
 
 function formatPackageLineNames(
+  packages: Array<{
+    currentPackageNameSnapshot: string;
+  }>
+): string {
+  if (packages.length === 0) return "—";
+  return packages.map((line) => line.currentPackageNameSnapshot).join(", ");
+}
+
+function formatBookingPackageLineNames(
   packages: Array<{ quantity?: number; package: { name: string } }>
 ): string {
   if (packages.length === 0) return "—";

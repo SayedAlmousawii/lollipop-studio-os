@@ -203,7 +203,7 @@ export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefiniti
             op."orderId" AS order_id,
             SUM(COALESCE(op."finalPackagePriceSnapshot", p.price)) AS total
           FROM "order_packages" op
-          JOIN "packages" p ON p.id = op."packageId"
+          JOIN "packages" p ON p.id = op."currentPackageId"
           GROUP BY op."orderId"
         ),
         extra_photo_totals AS (
