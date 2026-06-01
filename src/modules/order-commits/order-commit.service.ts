@@ -3,8 +3,10 @@ import {
   InvoiceType,
   MediaType,
   Prisma,
+  SessionConfigurationCounterPricingMode,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
+  SessionConfigurationPricingMode,
   UserRole,
   type PrismaClient,
 } from "@prisma/client";
@@ -33,16 +35,44 @@ import {
 import {
   ORDER_COMMIT_DRAFT_OPERATION_TYPE,
   ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+  ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
+  ORDER_COMMIT_DRAFT_STAGING_HISTORY_SCHEMA_VERSION,
 } from "./order-commit-draft.constants";
 import {
   orderCommitDraftOperationV1Schema,
   orderCommitDraftPendingOpsV1Schema,
+  orderCommitDraftStagingChangeSchema,
+  orderCommitDraftStagingSnapshotReplacementOperationSchema,
 } from "./order-commit-draft.schema";
+import {
+  reduceOrderCommitDraftAddOn,
+  type ResolvedOrderCommitDraftAddOnProduct,
+} from "./order-commit-add-on-reducer";
+import {
+  reduceOrderCommitDraftPackage,
+  type ResolvedOrderCommitDraftPackage,
+} from "./order-commit-package-reducer";
+import {
+  reduceOrderCommitDraftPackageItemUpgrade,
+  type ResolvedOrderCommitDraftPackageItemUpgrade,
+} from "./order-commit-package-item-upgrade-reducer";
+import {
+  reduceOrderCommitDraftPhoto,
+  type ResolvedOrderCommitDraftExtraPhotoPricing,
+} from "./order-commit-photo-reducer";
+import {
+  reduceOrderCommitDraftSessionConfiguration,
+  type ResolvedOrderCommitDraftLinkedProduct,
+  type ResolvedOrderCommitDraftSessionConfigurationSelection,
+} from "./order-commit-session-configuration-reducer";
 import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
+import { resolveOrderCommitDraftTargetLine } from "./order-commit-target-resolver";
 import type {
+  OrderCommitDraftLineTarget,
   OrderCommitDraftOperationV1,
   OrderCommitDraftPendingOpsV1,
   OrderCommitDraftPendingSnapshotV1,
+  OrderCommitDraftStagingChange,
 } from "./order-commit-draft.types";
 import type {
   OrderCommitKind,
@@ -78,7 +108,14 @@ type OrderCommitBackfillClient = OrderCommitRootClient;
 
 type OrderCommitDraftTransactionClient = Pick<
   Prisma.TransactionClient,
-  "order" | "orderCommit" | "orderCommitDraft" | "sessionTypeExtraPhotoPricing"
+  | "order"
+  | "orderCommit"
+  | "orderCommitDraft"
+  | "package"
+  | "packageItem"
+  | "product"
+  | "sessionConfiguration"
+  | "sessionTypeExtraPhotoPricing"
 >;
 
 type OrderCommitDraftRootClient = OrderCommitDraftTransactionClient & {
@@ -156,6 +193,14 @@ export type ReplaceOrderCommitDraftSnapshotInput = {
   expectedVersion: number;
   actorContext: ActorContext;
   operation?: OrderCommitDraftOperationV1;
+  client?: OrderCommitDraftRootClient;
+};
+
+export type StageOrderCommitDraftChangeInput = {
+  orderId: string;
+  change: OrderCommitDraftStagingChange;
+  expectedVersion: number;
+  actorContext: ActorContext;
   client?: OrderCommitDraftRootClient;
 };
 
@@ -474,6 +519,51 @@ export async function replaceOrderCommitDraftSnapshot(
     }
 
     return parseOrderCommitDraft(row);
+  });
+}
+
+export async function stageOrderCommitDraftChange(
+  input: StageOrderCommitDraftChangeInput
+): Promise<OrderCommitDraftState> {
+  assertValidDraftActor(input.actorContext, "stage OrderCommitDraft change");
+  const change = orderCommitDraftStagingChangeSchema.parse(input.change);
+  const client = input.client ?? (await loadDefaultOrderCommitDraftRootClient());
+
+  const existing = await getOrderCommitDraft({
+    orderId: input.orderId,
+    client,
+  });
+  if (!existing) {
+    throw new Error(
+      `OrderCommitDraft staging failed: draft for order ${input.orderId} was not found.`
+    );
+  }
+  if (existing.draft.version !== input.expectedVersion) {
+    throw new Error(
+      `OrderCommitDraft staging failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.draft.id}; current version is ${existing.draft.version}.`
+    );
+  }
+
+  const staged = await reduceOrderCommitDraftStagingChange({
+    client,
+    snapshot: existing.pendingSnapshot,
+    change,
+  });
+  const pendingSnapshot = normalizeOrderCommitSnapshot(staged.snapshot);
+  const operation = stagingSnapshotReplacementOperation({
+    actorUserId: input.actorContext.actorUserId,
+    beforeSnapshot: existing.pendingSnapshot,
+    afterSnapshot: pendingSnapshot,
+    change: staged.change,
+  });
+
+  return replaceOrderCommitDraftSnapshot({
+    orderId: input.orderId,
+    pendingSnapshotJson: pendingSnapshot,
+    expectedVersion: input.expectedVersion,
+    actorContext: input.actorContext,
+    operation,
+    client,
   });
 }
 
@@ -1067,6 +1157,756 @@ function assertReplacementSnapshotMatchesDraft(
       `OrderCommitDraft snapshot replacement failed: snapshot currency ${snapshot.currency} is not supported.`
     );
   }
+}
+
+async function reduceOrderCommitDraftStagingChange(input: {
+  client: OrderCommitDraftTransactionClient;
+  snapshot: OrderCommitSnapshotV1;
+  change: OrderCommitDraftStagingChange;
+}): Promise<{ snapshot: OrderCommitSnapshotV1; change: OrderCommitDraftStagingChange }> {
+  switch (input.change.domain) {
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE: {
+      const resolvedPackage = await resolveStagedPackage(
+        input.client,
+        input.change
+      );
+      let snapshot = reduceOrderCommitDraftPackage(input.snapshot, {
+        change: input.change,
+        resolvedPackage,
+        deferPhotoInvariantValidation: Boolean(
+          input.change.intendedPhotoOutcome
+        ),
+      });
+
+      if (input.change.intendedPhotoOutcome) {
+        const photoChange: Extract<
+          OrderCommitDraftStagingChange,
+          { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO }
+        > = {
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO,
+          action: "SET_COUNTS",
+          target: input.change.target,
+          ...input.change.intendedPhotoOutcome,
+        };
+        snapshot = reduceOrderCommitDraftPhoto(snapshot, {
+          change: photoChange,
+          resolvedExtraPhotoPricing: await resolveStagedExtraPhotoPricing(
+            input.client,
+            snapshot,
+            photoChange
+          ),
+        });
+      }
+
+      return { snapshot, change: input.change };
+    }
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION: {
+      const resolved =
+        input.change.action === "UPSERT"
+          ? await resolveStagedSessionConfiguration(
+              input.client,
+              input.snapshot,
+              input.change
+            )
+          : undefined;
+      const change =
+        input.change.action === "UPSERT" && resolved
+          ? enrichSessionConfigurationStagingChange(
+              input.snapshot,
+              input.change,
+              resolved.resolvedSelection
+            )
+          : input.change;
+      return {
+        snapshot: reduceOrderCommitDraftSessionConfiguration(input.snapshot, {
+          change,
+          ...(resolved ?? {}),
+        }),
+        change,
+      };
+    }
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE: {
+      const change =
+        input.change.action === "ADD" && !input.change.draftPackageItemUpgradeId
+          ? {
+              ...input.change,
+              draftPackageItemUpgradeId: draftEntityId("package-item-upgrade"),
+            }
+          : input.change;
+      return {
+        snapshot: reduceOrderCommitDraftPackageItemUpgrade(input.snapshot, {
+          change,
+          resolvedPackageItem:
+            change.action === "ADD"
+              ? await resolveStagedPackageItemUpgrade(input.client, change)
+              : undefined,
+        }),
+        change,
+      };
+    }
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON: {
+      const change =
+        input.change.action === "ADD" && !input.change.draftOrderAddOnId
+          ? {
+              ...input.change,
+              draftOrderAddOnId: draftEntityId("order-add-on"),
+            }
+          : input.change;
+      return {
+        snapshot: reduceOrderCommitDraftAddOn(input.snapshot, {
+          change,
+          resolvedProduct:
+            change.action === "ADD"
+              ? await resolveStagedAddOnProduct(input.client, change)
+              : undefined,
+        }),
+        change,
+      };
+    }
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO:
+      return {
+        snapshot: reduceOrderCommitDraftPhoto(input.snapshot, {
+          change: input.change,
+          resolvedExtraPhotoPricing: await resolveStagedExtraPhotoPricing(
+            input.client,
+            input.snapshot,
+            input.change
+          ),
+        }),
+        change: input.change,
+      };
+  }
+}
+
+async function resolveStagedPackage(
+  client: OrderCommitDraftTransactionClient,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE }
+  >
+): Promise<ResolvedOrderCommitDraftPackage> {
+  const row = await client.package.findUnique({
+    where: { id: change.packageId },
+    select: {
+      id: true,
+      name: true,
+      price: true,
+      photoCount: true,
+      isActive: true,
+      packageFamily: {
+        select: {
+          sessionType: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+  if (!row || !row.isActive) {
+    throw new Error(
+      `OrderCommitDraft staging failed: package ${change.packageId} was not found.`
+    );
+  }
+
+  return {
+    packageId: row.id,
+    packageName: change.packageLabel ?? row.name,
+    packagePrice: money(row.price),
+    sessionType: row.packageFamily.sessionType,
+    includedPhotoCount: row.photoCount,
+  };
+}
+
+async function resolveStagedAddOnProduct(
+  client: OrderCommitDraftTransactionClient,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON }
+  >
+): Promise<ResolvedOrderCommitDraftAddOnProduct> {
+  if (!change.productId) {
+    throw new Error("OrderCommitDraft staging failed: ADD_ON ADD requires productId.");
+  }
+  const row = await client.product.findUnique({
+    where: { id: change.productId },
+    select: {
+      id: true,
+      name: true,
+      canonicalPrice: true,
+      isActive: true,
+      isAddOn: true,
+    },
+  });
+  if (!row || !row.isActive || !row.isAddOn) {
+    throw new Error(
+      `OrderCommitDraft staging failed: add-on product ${change.productId} was not found.`
+    );
+  }
+
+  return {
+    productId: row.id,
+    label: row.name,
+    unitPrice: money(row.canonicalPrice),
+  };
+}
+
+async function resolveStagedPackageItemUpgrade(
+  client: OrderCommitDraftTransactionClient,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE }
+  >
+): Promise<ResolvedOrderCommitDraftPackageItemUpgrade> {
+  if (!change.packageItemId) {
+    throw new Error(
+      "OrderCommitDraft staging failed: PACKAGE_ITEM_UPGRADE ADD requires packageItemId."
+    );
+  }
+  const row = await client.packageItem.findUnique({
+    where: { id: change.packageItemId },
+    select: {
+      id: true,
+      packageId: true,
+      priceSnapshot: true,
+      product: { select: { name: true } },
+    },
+  });
+  if (!row) {
+    throw new Error(
+      `OrderCommitDraft staging failed: package item ${change.packageItemId} was not found.`
+    );
+  }
+
+  return {
+    packageItemId: row.id,
+    packageId: row.packageId,
+    label: row.product.name,
+    unitPrice: money(row.priceSnapshot),
+  };
+}
+
+async function resolveStagedExtraPhotoPricing(
+  client: OrderCommitDraftTransactionClient,
+  snapshot: OrderCommitSnapshotV1,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO }
+  >
+): Promise<ResolvedOrderCommitDraftExtraPhotoPricing | undefined> {
+  const packageLine = resolvePackageLineForStaging(
+    snapshot,
+    change.target,
+    "photo"
+  );
+  const missingMediaTypes = ([
+    ["DIGITAL", MediaType.DIGITAL, change.extraDigitalCount],
+    ["PRINT", MediaType.PRINT, change.extraPrintCount],
+  ] as const).flatMap(([mediaKey, mediaType, quantity]) => {
+    if (quantity <= 0) return [];
+    return hasExtraPhotoLine(snapshot, packageLine.orderEntityId, mediaKey)
+      ? []
+      : [mediaType];
+  });
+
+  if (missingMediaTypes.length === 0) return undefined;
+
+  const sessionTypeId = requiredSnapshotStringMetadata(
+    packageLine,
+    "sessionTypeId",
+    "photo"
+  );
+  const rows = await client.sessionTypeExtraPhotoPricing.findMany({
+    where: {
+      sessionTypeId,
+      mediaType: { in: missingMediaTypes },
+    },
+    select: { mediaType: true, unitPrice: true, sessionTypeId: true },
+  });
+  const byMedia = new Map(rows.map((row) => [row.mediaType, row]));
+
+  return Object.fromEntries(
+    missingMediaTypes.map((mediaType) => {
+      const row = byMedia.get(mediaType);
+      if (!row) {
+        throw new Error(
+          `OrderCommitDraft staging failed: missing ${mediaType} extra-photo pricing for session type ${sessionTypeId}.`
+        );
+      }
+      return [
+        mediaType,
+        {
+          unitPrice: money(row.unitPrice),
+          sessionTypeId: row.sessionTypeId,
+        },
+      ];
+    })
+  ) as ResolvedOrderCommitDraftExtraPhotoPricing;
+}
+
+function enrichSessionConfigurationStagingChange(
+  snapshot: OrderCommitSnapshotV1,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION }
+  >,
+  resolvedSelection: ResolvedOrderCommitDraftSessionConfigurationSelection
+): typeof change {
+  const linkedProductId = resolvedSelection.snapshotLinkedProductId;
+  const parentPackage = resolvePackageLineForStaging(
+    snapshot,
+    change.parentPackageTarget,
+    "session configuration"
+  );
+  const existingSelection = resolveExistingSessionConfigurationForStaging(
+    snapshot,
+    change,
+    parentPackage
+  );
+  const draftSelectionId =
+    existingSelection || change.draftSelectionId
+      ? change.draftSelectionId
+      : draftEntityId("session-configuration-selection");
+
+  if (!linkedProductId) {
+    return draftSelectionId ? { ...change, draftSelectionId } : change;
+  }
+
+  const existingLinkedIdentity = existingSelection
+    ? linkedIdentityFromSnapshotMetadata(existingSelection)
+    : null;
+  const orderAddOnId =
+    change.linkedProduct?.orderAddOnId ??
+    existingLinkedIdentity?.orderAddOnId ??
+    undefined;
+  const draftOrderAddOnId =
+    change.linkedProduct?.draftOrderAddOnId ??
+    existingLinkedIdentity?.draftOrderAddOnId ??
+    (orderAddOnId ? undefined : draftEntityId("linked-product-add-on"));
+
+  return {
+    ...change,
+    ...(draftSelectionId ? { draftSelectionId } : {}),
+    linkedProduct: {
+      productId: change.linkedProduct?.productId ?? linkedProductId,
+      ...(orderAddOnId ? { orderAddOnId } : {}),
+      ...(draftOrderAddOnId ? { draftOrderAddOnId } : {}),
+    },
+  };
+}
+
+async function resolveStagedSessionConfiguration(
+  client: OrderCommitDraftTransactionClient,
+  snapshot: OrderCommitSnapshotV1,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION }
+  >
+): Promise<{
+  resolvedSelection: ResolvedOrderCommitDraftSessionConfigurationSelection;
+  resolvedLinkedProduct?: ResolvedOrderCommitDraftLinkedProduct;
+}> {
+  if (change.action === "REMOVE") return {} as never;
+
+  const parentPackage = resolvePackageLineForStaging(
+    snapshot,
+    change.parentPackageTarget,
+    "session configuration"
+  );
+  const sessionTypeId = requiredSnapshotStringMetadata(
+    parentPackage,
+    "sessionTypeId",
+    "session configuration"
+  );
+  const configuration = await client.sessionConfiguration.findUnique({
+    where: { id: change.configurationId },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      sessionTypeId: true,
+      inputType: true,
+      pricingMode: true,
+      financialBehavior: true,
+      fixedPriceDelta: true,
+      linkedProductId: true,
+      counterPricingMode: true,
+      counterUnitPrice: true,
+      isActive: true,
+      linkedProduct: {
+        select: { id: true, name: true, canonicalPrice: true },
+      },
+      options: {
+        where: { isActive: true },
+        orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+        select: { id: true, label: true, priceDelta: true },
+      },
+    },
+  });
+  if (
+    !configuration ||
+    !configuration.isActive ||
+    configuration.sessionTypeId !== sessionTypeId
+  ) {
+    throw new Error(
+      `OrderCommitDraft staging failed: session configuration ${change.configurationId} was not found for package session type ${sessionTypeId}.`
+    );
+  }
+
+  const option = resolveSessionConfigurationOption(change, configuration);
+  const numericValue = resolveSessionConfigurationNumericValue(
+    change,
+    configuration
+  );
+  const textValue = resolveSessionConfigurationTextValue(change, configuration);
+  const snapshotPriceDelta = resolveSessionConfigurationPriceDelta({
+    configuration,
+    option,
+    numericValue,
+  });
+  const resolvedSelection: ResolvedOrderCommitDraftSessionConfigurationSelection = {
+    configurationId: configuration.id,
+    optionId: option?.id ?? null,
+    numericValue: numericValue?.toString() ?? null,
+    textValue,
+    snapshotOptionLabel:
+      change.action === "UPSERT" &&
+      (configuration.inputType === SessionConfigurationInputType.SELECT ||
+        (configuration.inputType === SessionConfigurationInputType.COUNTER &&
+          configuration.pricingMode === SessionConfigurationPricingMode.TIERED))
+        ? option?.label ?? null
+        : null,
+    snapshotConfigurationCode: configuration.code,
+    snapshotLabel: configuration.name,
+    snapshotPriceDelta: money(snapshotPriceDelta),
+    snapshotFinancialBehavior: configuration.financialBehavior,
+    snapshotInputType: configuration.inputType,
+    snapshotPricingMode: configuration.pricingMode,
+    snapshotLinkedProductId:
+      configuration.pricingMode === SessionConfigurationPricingMode.LINKED_PRODUCT
+        ? configuration.linkedProductId
+        : null,
+  };
+
+  if (
+    configuration.pricingMode !== SessionConfigurationPricingMode.LINKED_PRODUCT
+  ) {
+    return { resolvedSelection };
+  }
+  if (!configuration.linkedProductId || !configuration.linkedProduct) {
+    throw new Error(
+      `OrderCommitDraft staging failed: linked product for session configuration ${configuration.id} was not found.`
+    );
+  }
+  if (
+    change.linkedProduct?.productId &&
+    change.linkedProduct.productId !== configuration.linkedProductId
+  ) {
+    throw new Error(
+      `OrderCommitDraft staging failed: linked product ${change.linkedProduct.productId} does not match configuration ${configuration.id}.`
+    );
+  }
+
+  return {
+    resolvedSelection,
+    resolvedLinkedProduct: {
+      productId: configuration.linkedProduct.id,
+      label: configuration.linkedProduct.name,
+      unitPrice: money(configuration.linkedProduct.canonicalPrice),
+      quantity: 1,
+    },
+  };
+}
+
+function resolveSessionConfigurationOption(
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION }
+  >,
+  configuration: {
+    inputType: SessionConfigurationInputType;
+    pricingMode: SessionConfigurationPricingMode;
+    options: { id: string; label: string; priceDelta: Prisma.Decimal }[];
+  }
+): { id: string; label: string; priceDelta: Prisma.Decimal } | null {
+  const requiresOption =
+    configuration.inputType === SessionConfigurationInputType.SELECT ||
+    (configuration.inputType === SessionConfigurationInputType.COUNTER &&
+      configuration.pricingMode === SessionConfigurationPricingMode.TIERED);
+  if (!requiresOption) return null;
+  const optionId = change.optionId ?? null;
+  if (!optionId) {
+    throw new Error(
+      "OrderCommitDraft staging failed: session configuration optionId is required."
+    );
+  }
+  const option = configuration.options.find((candidate) => candidate.id === optionId);
+  if (!option) {
+    throw new Error(
+      `OrderCommitDraft staging failed: session configuration option ${optionId} was not found.`
+    );
+  }
+  return option;
+}
+
+function resolveSessionConfigurationNumericValue(
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION }
+  >,
+  configuration: { inputType: SessionConfigurationInputType }
+): Prisma.Decimal | null {
+  if (
+    configuration.inputType !== SessionConfigurationInputType.NUMBER &&
+    configuration.inputType !== SessionConfigurationInputType.COUNTER
+  ) {
+    return null;
+  }
+  if (change.numericValue === undefined || change.numericValue === null) {
+    throw new Error(
+      "OrderCommitDraft staging failed: session configuration numericValue is required."
+    );
+  }
+  return nonnegativeDecimal(
+    change.numericValue,
+    "session configuration numericValue"
+  );
+}
+
+function resolveSessionConfigurationTextValue(
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION }
+  >,
+  configuration: { inputType: SessionConfigurationInputType }
+): string | null {
+  if (configuration.inputType !== SessionConfigurationInputType.TEXT) {
+    return null;
+  }
+  const trimmed = change.textValue?.trim() ?? "";
+  if (!trimmed || trimmed.length > 500) {
+    throw new Error(
+      "OrderCommitDraft staging failed: session configuration textValue is invalid."
+    );
+  }
+  return trimmed;
+}
+
+function resolveSessionConfigurationPriceDelta(input: {
+  configuration: {
+    pricingMode: SessionConfigurationPricingMode;
+    inputType: SessionConfigurationInputType;
+    fixedPriceDelta: Prisma.Decimal | null;
+    counterPricingMode: SessionConfigurationCounterPricingMode | null;
+    counterUnitPrice: Prisma.Decimal | null;
+  };
+  option: { priceDelta: Prisma.Decimal } | null;
+  numericValue: Prisma.Decimal | null;
+}): Prisma.Decimal {
+  switch (input.configuration.pricingMode) {
+    case SessionConfigurationPricingMode.NONE:
+    case SessionConfigurationPricingMode.LINKED_PRODUCT:
+      return new Prisma.Decimal(0);
+    case SessionConfigurationPricingMode.FIXED: {
+      const fixedPrice = input.configuration.fixedPriceDelta ?? new Prisma.Decimal(0);
+      if (
+        input.configuration.inputType === SessionConfigurationInputType.COUNTER &&
+        input.configuration.counterPricingMode ===
+          SessionConfigurationCounterPricingMode.PER_UNIT
+      ) {
+        return (input.configuration.counterUnitPrice ?? fixedPrice).mul(
+          input.numericValue ?? new Prisma.Decimal(0)
+        );
+      }
+      return fixedPrice;
+    }
+    case SessionConfigurationPricingMode.TIERED:
+      if (!input.option) {
+        throw new Error(
+          "OrderCommitDraft staging failed: tiered session configuration requires an option."
+        );
+      }
+      return input.option.priceDelta;
+  }
+}
+
+function resolvePackageLineForStaging(
+  snapshot: OrderCommitSnapshotV1,
+  target: OrderCommitDraftLineTarget,
+  domain: string
+): OrderCommitSnapshotLineV1 {
+  const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
+    errorPrefix: "OrderCommitDraft staging failed",
+    targetDescription: `${domain} package target`,
+  });
+  if (line.lineKind !== ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE) {
+    throw new Error(
+      `OrderCommitDraft staging failed: ${domain} target ${line.lineId} is not a package line.`
+    );
+  }
+  return line;
+}
+
+function resolveExistingSessionConfigurationForStaging(
+  snapshot: OrderCommitSnapshotV1,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION }
+  >,
+  parentPackage: OrderCommitSnapshotLineV1
+): OrderCommitSnapshotLineV1 | null {
+  if (change.target) {
+    return resolveOrderCommitDraftTargetLine(snapshot, change.target, {
+      errorPrefix: "OrderCommitDraft staging failed",
+      targetDescription: "session configuration target",
+    });
+  }
+
+  const matches = snapshot.lines.filter(
+    (line) =>
+      line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION &&
+      line.parentOrderPackageId === parentPackage.orderEntityId &&
+      line.catalogEntityId === change.configurationId
+  );
+  if (matches.length > 1) {
+    throw new Error(
+      `OrderCommitDraft staging failed: package ${parentPackage.orderEntityId} has multiple selections for configuration ${change.configurationId}.`
+    );
+  }
+  return matches[0] ?? null;
+}
+
+function hasExtraPhotoLine(
+  snapshot: OrderCommitSnapshotV1,
+  orderPackageId: string,
+  mediaType: "DIGITAL" | "PRINT"
+): boolean {
+  return snapshot.lines.some(
+    (line) =>
+      line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA &&
+      line.parentOrderPackageId === orderPackageId &&
+      (line.metadata.mediaType === mediaType ||
+        line.stableKey.endsWith(`:extra-photo:${mediaType.toLowerCase()}`))
+  );
+}
+
+function requiredSnapshotStringMetadata(
+  line: OrderCommitSnapshotLineV1,
+  key: string,
+  domain: string
+): string {
+  const value = line.metadata[key];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(
+      `OrderCommitDraft staging failed: ${domain} package metadata ${key} is required.`
+    );
+  }
+  return value;
+}
+
+function linkedIdentityFromSnapshotMetadata(
+  line: OrderCommitSnapshotLineV1
+): { orderAddOnId?: string; draftOrderAddOnId?: string } | null {
+  const orderAddOnId =
+    typeof line.metadata.orderAddOnId === "string" &&
+    line.metadata.orderAddOnId.length > 0
+      ? line.metadata.orderAddOnId
+      : undefined;
+  const draftOrderAddOnId =
+    typeof line.metadata.draftOrderAddOnId === "string" &&
+    line.metadata.draftOrderAddOnId.length > 0
+      ? line.metadata.draftOrderAddOnId
+      : undefined;
+  if (!orderAddOnId && !draftOrderAddOnId) return null;
+  return { orderAddOnId, draftOrderAddOnId };
+}
+
+function nonnegativeDecimal(value: string, label: string): Prisma.Decimal {
+  try {
+    const decimal = new Prisma.Decimal(value);
+    if (!Number.isFinite(decimal.toNumber()) || decimal.isNegative()) {
+      throw new Error("invalid");
+    }
+    return decimal;
+  } catch {
+    throw new Error(`OrderCommitDraft staging failed: ${label} is invalid.`);
+  }
+}
+
+function draftEntityId(kind: string): string {
+  return `draft:${kind}:${randomUUID()}`;
+}
+
+function stagingSnapshotReplacementOperation(input: {
+  actorUserId: string;
+  beforeSnapshot: OrderCommitSnapshotV1;
+  afterSnapshot: OrderCommitSnapshotV1;
+  change: OrderCommitDraftStagingChange;
+}): OrderCommitDraftOperationV1 {
+  const stagedAt = new Date().toISOString();
+  const target = stagingHistoryTarget(input.change);
+  const catalogEntityIds = stagingHistoryCatalogEntityIds(input.change);
+
+  return orderCommitDraftStagingSnapshotReplacementOperationSchema.parse({
+    id: `snapshot-replaced:${input.change.domain.toLowerCase()}:${randomUUID()}`,
+    type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED,
+    payload: {
+      schemaVersion: ORDER_COMMIT_DRAFT_STAGING_HISTORY_SCHEMA_VERSION,
+      historyKind: "STAGING_CHANGE",
+      domain: input.change.domain,
+      ...(target ? { target } : {}),
+      ...(Object.keys(catalogEntityIds).length > 0 ? { catalogEntityIds } : {}),
+      before: snapshotHistorySummary(input.beforeSnapshot),
+      after: snapshotHistorySummary(input.afterSnapshot),
+      stagedAt,
+      actorUserId: input.actorUserId,
+      change: input.change,
+    },
+    createdAt: stagedAt,
+    actorUserId: input.actorUserId,
+  });
+}
+
+function stagingHistoryTarget(
+  change: OrderCommitDraftStagingChange
+): OrderCommitDraftLineTarget | undefined {
+  switch (change.domain) {
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE:
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO:
+      return change.target;
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON:
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE:
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION:
+      return change.target ?? change.parentPackageTarget;
+  }
+}
+
+function stagingHistoryCatalogEntityIds(
+  change: OrderCommitDraftStagingChange
+): Record<string, string> {
+  switch (change.domain) {
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE:
+      return { packageId: change.packageId };
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON:
+      return change.productId ? { productId: change.productId } : {};
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE:
+      return change.packageItemId ? { packageItemId: change.packageItemId } : {};
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION:
+      return {
+        configurationId: change.configurationId,
+        ...(change.linkedProduct?.productId
+          ? { linkedProductId: change.linkedProduct.productId }
+          : {}),
+      };
+    case ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO:
+      return {};
+  }
+}
+
+function snapshotHistorySummary(
+  snapshot: OrderCommitSnapshotV1
+): Record<string, unknown> {
+  return {
+    lineCount: snapshot.lines.length,
+    totals: snapshot.totals,
+  };
 }
 
 type CapturedOrderPackage = CapturedOrder["packages"][number];

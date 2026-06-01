@@ -326,6 +326,22 @@ test("draft mutating helpers stay isolated from operational and financial mutati
   assert.doesNotMatch(helpers, /priceSelections|sessionConfiguration/i);
 });
 
+test("draft staging service writes snapshots through replacement only", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/modules/order-commits/order-commit.service.ts"),
+    "utf8"
+  );
+  const helper = sourceForFunction(source, "stageOrderCommitDraftChange");
+
+  assert.match(helper, /replaceOrderCommitDraftSnapshot/);
+  assert.doesNotMatch(helper, /appendOrderCommitDraftOperation/);
+  assert.doesNotMatch(helper, /invoiceLineItem/i);
+  assert.doesNotMatch(
+    helper,
+    /\.(?:invoice|payment|paymentAllocation|documentApplication|refund|creditNote|adjustmentWorkspace)\b/
+  );
+});
+
 function stagingHistoryPayload(
   change: Record<string, unknown>,
   overrides: Record<string, unknown> = {}

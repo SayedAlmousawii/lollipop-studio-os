@@ -73,6 +73,7 @@ export {
   getLatestCommittedOrderSnapshot,
   getOrderCommitDraft,
   replaceOrderCommitDraftSnapshot,
+  stageOrderCommitDraftChange,
   type AppendOrderCommitDraftOperationInput,
   type BackfillOrderCommitsForFinanciallyCommittedOrdersInput,
   type BootstrapOrderCommitIfMissingInput,
@@ -88,6 +89,7 @@ export {
   type OrderCommitDraftState,
   type OrderCommitSnapshotClient,
   type ReplaceOrderCommitDraftSnapshotInput,
+  type StageOrderCommitDraftChangeInput,
 } from "./order-commit.service";
 export type {
   OrderCommitDraftLineTarget,
