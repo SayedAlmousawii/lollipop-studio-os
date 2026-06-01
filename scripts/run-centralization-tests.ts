@@ -21,6 +21,7 @@ const files = [
   "tests/order-commits/order-commit-package-item-upgrade-reducer.test.ts",
   "tests/order-commits/order-commit-photo-reducer.test.ts",
   "tests/order-commits/order-commit-session-configuration-reducer.test.ts",
+  "tests/order-commits/order-commit-staging-regression.test.ts",
   "tests/order-commits/order-commit-draft-contracts.test.ts",
   "tests/order-commits/order-commit-service.test.ts",
   "tests/order-commits/order-commit-snapshot-capture.test.ts",

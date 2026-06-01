@@ -288,6 +288,23 @@ test("order commit draft public module does not read invoice line items", () => 
   assert.deepEqual(invoiceLineReads, []);
 });
 
+test("order commit reducers do not import the database client", () => {
+  const sources = listSourceFiles("src/modules/order-commits")
+    .filter((file) => /-reducer\.ts$/.test(file))
+    .map((file) => ({
+      file,
+      source: readFileSync(join(process.cwd(), file), "utf8"),
+    }));
+
+  const dbImportFiles = sources
+    .filter(({ source }) =>
+      /from\s+["']@\/lib\/db["']|import\(["']@\/lib\/db["']\)/.test(source)
+    )
+    .map(({ file }) => file);
+
+  assert.deepEqual(dbImportFiles, []);
+});
+
 test("order commit draft foundation does not introduce app or component DB imports", () => {
   const sources = [
     ...listSourceFiles("app"),
@@ -340,6 +357,29 @@ test("draft staging service writes snapshots through replacement only", () => {
     helper,
     /\.(?:invoice|payment|paymentAllocation|documentApplication|refund|creditNote|adjustmentWorkspace)\b/
   );
+});
+
+test("draft staging helper does not import financial or Adjustment Workspace mutation services", () => {
+  const sources = listSourceFiles("src/modules/order-commits").map((file) => ({
+    file,
+    imports: readFileSync(join(process.cwd(), file), "utf8")
+      .split("\n")
+      .filter((line) => /^\s*import\b/.test(line))
+      .join("\n"),
+  }));
+
+  const forbiddenImportFiles = sources
+    .filter(({ imports }) =>
+      /@\/modules\/(?:invoices|payments|refunds|adjustment-workspace)\//.test(
+        imports
+      ) ||
+      /from\s+["'][^"']*(?:invoice|payment|refund|credit-note|adjustment-workspace)\.service["']/.test(
+        imports
+      )
+    )
+    .map(({ file }) => file);
+
+  assert.deepEqual(forbiddenImportFiles, []);
 });
 
 function stagingHistoryPayload(
