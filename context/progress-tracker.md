@@ -5,6 +5,11 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 121 Phase 2 Task 5 is complete: OrderCommitDraft final regression guards now prove draft mutations stay isolated from pending snapshot/ops boundaries plus operational and financial rows, and the order-commit suite remains wired into `test:centralization`.
+- Spec 121 Phase 2 Task 4 is complete: OrderCommitDraft generic pending-operation history can append or replace operations by id with expected-version owner/manager mutation checks while leaving pending snapshots and operational/financial rows untouched.
+- Spec 121 Phase 2 Task 3 is complete: OrderCommitDraft snapshot replacement now validates the V1 pending snapshot identity, requires expected-version owner/manager mutation checks, increments draft version, and appends generic SNAPSHOT_REPLACED history without touching operational or financial rows.
+- Spec 121 Phase 2 Task 2 is complete: OrderCommitDraft lifecycle helpers now load, create from latest OrderCommit/current operational rows, and discard active drafts with expected-version and owner/manager mutation checks.
+- Spec 121 Phase 2 Task 1 is complete: OrderCommitDraft schema/contracts now define the additive pending snapshot boundary and generic pending operation history without lifecycle helpers, POS routing, or invoice/payment behavior changes.
 - Spec 120 Phase 1 review fixes are complete: OrderCommit snapshots now preserve zero-value OPERATIONAL session-configuration ownership rows, and order-commit tests are wired into the centralization runner.
 - Spec 120 Phase 1 Task 5 is complete: OrderCommit foundation coverage now guards latest lookup, bootstrap/backfill integration, invoice-line independence, stored snapshot immutability after catalog price edits, and app/component DB import boundaries.
 - Spec 120 Phase 1 Task 4 is complete: financially committed orders can be idempotently backfilled into bootstrap OrderCommit snapshots from current Order* rows, with invoice headers used only for selection and inspectable failure details returned.
@@ -91,6 +96,11 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **121 Phase 2 Task 5** — Completed final OrderCommitDraft regression guards for pendingOps vs pendingSnapshot isolation, no invoice-line/public Adjustment Workspace source drift, no app/component DB imports, no draft mutation access to financial/operational mutation surfaces, and centralization-gate coverage.
+- **121 Phase 2 Task 4** — Added OrderCommitDraft generic pending-operation append/replace history with optimistic expected-version writes, owner/manager mutation authorization, and guards that pending snapshots remain unchanged.
+- **121 Phase 2 Task 3** — Added OrderCommitDraft snapshot replacement with V1 identity validation, optimistic expected-version writes, owner/manager mutation authorization, and generic SNAPSHOT_REPLACED history.
+- **121 Phase 2 Task 2** — Added OrderCommitDraft lifecycle helpers for get, get-or-create, and discard, including latest-commit/current-row draft initialization, expected-version checks, owner/manager mutation authorization, and focused service coverage.
+- **121 Phase 2 Task 1** — Added the additive OrderCommitDraft schema, generic pending operation contracts, pending snapshot contract guard, and centralization wiring without lifecycle or staging behavior.
 - **120 Phase 1 review fixes** — Preserved OPERATIONAL session-configuration selections as zero-value OrderCommit ownership lines and wired order-commit tests into `test:centralization`.
 - **120 Phase 1 Task 5** — Completed final OrderCommit foundation regression guards for latest lookup, create/bootstrap/backfill cooperation, invoice-line independence, stored snapshot immutability after catalog price edits, source ownership boundaries, and app/component DB import boundaries.
 - **120 Phase 1 Task 4** — Added idempotent OrderCommit bootstrap backfill for financially committed orders, with invoice-header-only selection, structured counts, inspectable per-order failures, and a thin script wrapper.

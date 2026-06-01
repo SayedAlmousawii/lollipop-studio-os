@@ -346,6 +346,28 @@ Codex GPT-5.5 High.
 
 ---
 
+## Spec 122 - OrderCommitDraft Staging Reducers (Deferred)
+
+### Purpose
+
+Document the next planned phase after the OrderCommitDraft foundation so the architecture direction is not lost.
+
+### Future Scope
+
+- add-on staging reducers
+- package item upgrade reducers
+- package tier change reducers
+- selected/extra photo reducers
+- session configuration reducers
+- catalog price resolution and locking for newly staged items
+- pending snapshot recomputation from staged operations
+- reducer architecture and operation typing
+- tests proving pending snapshots update correctly without invoice-line ownership reconstruction
+
+Detailed design is intentionally deferred until Spec 121 implementation is complete. The final reducer architecture should be based on the actual OrderCommitDraft foundation, lifecycle helpers, concurrency model, and pending operation structure that emerge from Spec 121.
+
+---
+
 ## Phase 3 - Commit Preview And Diff Engine
 
 ### Objective
@@ -910,4 +932,3 @@ Codex GPT-5.5 High.
 - Financial documents are linked by `OrderCommitDocument`.
 - Employee-facing UI exposes Unified Live POS, not Adjustment Workspace.
 - Financial safety, immutable invoices, operational ownership, auditability, and projection consistency stay above convenience or shortcut migrations.
-
