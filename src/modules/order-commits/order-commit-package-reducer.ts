@@ -6,6 +6,7 @@ import {
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
 } from "./order-commit.constants";
 import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
+import { resolveOrderCommitDraftTargetLine } from "./order-commit-target-resolver";
 import type {
   OrderCommitDraftLineTarget,
   OrderCommitDraftStagingChange,
@@ -34,6 +35,7 @@ export type ResolvedOrderCommitDraftPackage = {
 export type ReduceOrderCommitDraftPackageInput = {
   change: PackageStagingChange;
   resolvedPackage: ResolvedOrderCommitDraftPackage;
+  deferPhotoInvariantValidation?: boolean;
 };
 
 export function reduceOrderCommitDraftPackage(
@@ -52,7 +54,9 @@ export function reduceOrderCommitDraftPackage(
   assertLinkedProductOwnership(snapshot.lines);
 
   const nextPackageLine = updatePackageLine(packageLine, resolvedPackage);
-  assertPhotoCountsRemainValid(nextPackageLine);
+  if (!input.deferPhotoInvariantValidation) {
+    assertPhotoCountsRemainValid(nextPackageLine);
+  }
 
   const packageIdentityChanged =
     packageLine.catalogEntityId !== resolvedPackage.packageId;
@@ -156,34 +160,16 @@ function resolvePackageLine(
   snapshot: OrderCommitSnapshotV1,
   target: OrderCommitDraftLineTarget
 ): OrderCommitSnapshotLineV1 {
-  const matches = snapshot.lines.filter((line) => targetMatchesLine(line, target));
-  if (matches.length === 0) {
-    throw new Error("OrderCommit package reducer failed: package target not found.");
-  }
-  if (matches.length > 1) {
-    throw new Error(
-      "OrderCommit package reducer failed: package target matched multiple lines."
-    );
-  }
-  const line = matches[0];
+  const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
+    errorPrefix: "OrderCommit package reducer failed",
+    targetDescription: "package target",
+  });
   if (line.lineKind !== ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE) {
     throw new Error(
       `OrderCommit package reducer failed: target ${line.lineId} is not a package line.`
     );
   }
   return line;
-}
-
-function targetMatchesLine(
-  line: OrderCommitSnapshotLineV1,
-  target: OrderCommitDraftLineTarget
-): boolean {
-  return (
-    line.stableKey === target.stableKey ||
-    line.lineId === target.lineId ||
-    line.orderEntityId === target.orderEntityId ||
-    line.orderEntityId === target.draftEntityId
-  );
 }
 
 function assertScopedSessionConfigurationsRemainValid(

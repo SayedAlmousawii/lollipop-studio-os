@@ -356,6 +356,33 @@ test("requires resolved pricing only for newly created media lines", () => {
   );
 });
 
+test("rejects contradictory photo target identity fields", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine({ orderEntityId: "order-package-1" }),
+      packageLine({ orderEntityId: "order-package-2" }),
+    ],
+  });
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftPhoto(snapshot, {
+        change: photoChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO,
+          action: "SET_COUNTS",
+          target: {
+            stableKey: "order-package:order-package-1",
+            lineId: "package:order-package-2",
+          },
+          selectedPhotoCount: 10,
+          extraDigitalCount: 0,
+          extraPrintCount: 0,
+        }),
+      }),
+    /matched multiple lines from contradictory target identity fields/
+  );
+});
+
 test("photo reducer source stays pure and invoice-independent", () => {
   const source = readFileSync(
     join(process.cwd(), "src/modules/order-commits/order-commit-photo-reducer.ts"),

@@ -317,6 +317,39 @@ test("rejects target package scope mismatches on updates and removals", () => {
   );
 });
 
+test("rejects contradictory package item upgrade target identity fields", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      packageItemUpgradeLine({
+        orderEntityId: "upgrade-existing",
+        packageItemId: "package-item-album",
+      }),
+      packageItemUpgradeLine({
+        orderEntityId: "upgrade-other",
+        packageItemId: "package-item-frame",
+      }),
+    ],
+  });
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftPackageItemUpgrade(snapshot, {
+        change: packageItemUpgradeChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+          action: "UPDATE_QUANTITY",
+          target: {
+            stableKey: "order-package-item-upgrade:upgrade-existing",
+            lineId: "item-upgrade:upgrade-other",
+          },
+          parentPackageTarget: { stableKey: "order-package:order-package-1" },
+          quantity: 2,
+        }),
+      }),
+    /matched multiple lines from contradictory target identity fields/
+  );
+});
+
 test("package item upgrade reducer source stays pure and invoice-independent", () => {
   const source = readFileSync(
     join(

@@ -7,6 +7,7 @@ import {
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
 } from "./order-commit.constants";
 import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
+import { resolveOrderCommitDraftTargetLine } from "./order-commit-target-resolver";
 import type {
   OrderCommitDraftLineTarget,
   OrderCommitDraftStagingChange,
@@ -169,10 +170,10 @@ function resolvePackageLine(
   snapshot: OrderCommitSnapshotV1,
   target: OrderCommitDraftLineTarget
 ): OrderCommitSnapshotLineV1 {
-  const line = resolveLine(snapshot, target);
-  if (!line) {
-    throw new Error("OrderCommit photo reducer failed: package target not found.");
-  }
+  const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
+    errorPrefix: "OrderCommit photo reducer failed",
+    targetDescription: "package target",
+  });
   if (line.lineKind !== ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE) {
     throw new Error(
       `OrderCommit photo reducer failed: target ${line.lineId} is not a package line.`
@@ -208,21 +209,6 @@ function extraPhotoLineMediaType(
   if (line.stableKey.endsWith(":extra-photo:digital")) return "DIGITAL";
   if (line.stableKey.endsWith(":extra-photo:print")) return "PRINT";
   return null;
-}
-
-function resolveLine(
-  snapshot: OrderCommitSnapshotV1,
-  target: OrderCommitDraftLineTarget
-): OrderCommitSnapshotLineV1 | null {
-  return (
-    snapshot.lines.find(
-      (line) =>
-        line.stableKey === target.stableKey ||
-        line.lineId === target.lineId ||
-        line.orderEntityId === target.orderEntityId ||
-        line.orderEntityId === target.draftEntityId
-    ) ?? null
-  );
 }
 
 function requiredNonnegativeIntegerMetadata(

@@ -223,6 +223,39 @@ test("keeps true add-ons isolated by package scope", () => {
   assert.equal(requireLine(reduced, "addon:addon-package-2").quantity, 5);
 });
 
+test("rejects contradictory add-on target identity fields", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      addOnLine({
+        orderEntityId: "addon-existing",
+        productId: "product-addon",
+      }),
+      addOnLine({
+        orderEntityId: "addon-other",
+        productId: "product-other",
+      }),
+    ],
+  });
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftAddOn(snapshot, {
+        change: addOnChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+          action: "UPDATE_QUANTITY",
+          target: {
+            stableKey: "order-add-on:addon-existing",
+            lineId: "addon:addon-other",
+          },
+          parentPackageTarget: { stableKey: "order-package:order-package-1" },
+          quantity: 2,
+        }),
+      }),
+    /matched multiple lines from contradictory target identity fields/
+  );
+});
+
 test("rejects linked-product session-configuration add-on updates and removals", () => {
   const snapshot = snapshotFixture({
     lines: [packageLine(), linkedProductAddOnLine()],

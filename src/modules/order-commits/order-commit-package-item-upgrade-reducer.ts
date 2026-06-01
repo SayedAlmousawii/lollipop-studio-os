@@ -7,6 +7,7 @@ import {
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
 } from "./order-commit.constants";
 import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
+import { resolveOrderCommitDraftTargetLine } from "./order-commit-target-resolver";
 import type {
   OrderCommitDraftLineTarget,
   OrderCommitDraftStagingChange,
@@ -219,12 +220,10 @@ function resolveParentPackageLine(
   snapshot: OrderCommitSnapshotV1,
   target: OrderCommitDraftLineTarget
 ): OrderCommitSnapshotLineV1 {
-  const line = resolveLine(snapshot, target);
-  if (!line) {
-    throw new Error(
-      "OrderCommit package item upgrade reducer failed: parent package not found."
-    );
-  }
+  const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
+    errorPrefix: "OrderCommit package item upgrade reducer failed",
+    targetDescription: "parent package",
+  });
   if (line.lineKind !== ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE) {
     throw new Error(
       `OrderCommit package item upgrade reducer failed: parent target ${line.lineId} is not a package line.`
@@ -238,12 +237,10 @@ function resolvePackageItemUpgradeLine(
   target: OrderCommitDraftLineTarget,
   parentPackage: OrderCommitSnapshotLineV1
 ): OrderCommitSnapshotLineV1 {
-  const line = resolveLine(snapshot, target);
-  if (!line) {
-    throw new Error(
-      "OrderCommit package item upgrade reducer failed: package item upgrade target not found."
-    );
-  }
+  const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
+    errorPrefix: "OrderCommit package item upgrade reducer failed",
+    targetDescription: "package item upgrade target",
+  });
   if (line.lineKind !== ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE) {
     throw new Error(
       `OrderCommit package item upgrade reducer failed: target ${line.lineId} is not a package item upgrade line.`
@@ -255,21 +252,6 @@ function resolvePackageItemUpgradeLine(
     );
   }
   return line;
-}
-
-function resolveLine(
-  snapshot: OrderCommitSnapshotV1,
-  target: OrderCommitDraftLineTarget
-): OrderCommitSnapshotLineV1 | null {
-  return (
-    snapshot.lines.find(
-      (line) =>
-        line.stableKey === target.stableKey ||
-        line.lineId === target.lineId ||
-        line.orderEntityId === target.orderEntityId ||
-        line.orderEntityId === target.draftEntityId
-    ) ?? null
-  );
 }
 
 function cloneSnapshotLine(

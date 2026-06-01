@@ -279,6 +279,59 @@ test("updates a materialized linked-product pair with orderAddOnId ownership", (
   );
 });
 
+test("rejects changing the identity of an existing materialized linked-product pair", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      sessionConfigurationLine({
+        selectionId: "selection-album",
+        configurationId: "configuration-album",
+        linkedOrderAddOnId: "addon-album",
+        snapshotLinkedProductId: "product-album",
+      }),
+      linkedProductAddOnLine({
+        selectionId: "selection-album",
+        orderAddOnId: "addon-album",
+        productId: "product-album",
+      }),
+    ],
+  });
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftSessionConfiguration(snapshot, {
+        change: sessionConfigurationChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION,
+          action: "UPSERT",
+          target: { stableKey: "session-configuration-selection:selection-album" },
+          parentPackageTarget: { stableKey: "order-package:order-package-1" },
+          configurationId: "configuration-album",
+          optionId: "option-album-updated",
+          linkedProduct: {
+            productId: "product-album-updated",
+            orderAddOnId: "addon-other",
+          },
+        }),
+        resolvedSelection: resolvedSelection({
+          configurationId: "configuration-album",
+          optionId: "option-album-updated",
+          snapshotConfigurationCode: "ALBUM",
+          snapshotLabel: "Album",
+          snapshotLinkedProductId: "product-album-updated",
+          snapshotOptionLabel: "Updated Album",
+          snapshotFinancialBehavior: "FINANCIAL",
+          snapshotPricingMode: "LINKED_PRODUCT",
+        }),
+        resolvedLinkedProduct: {
+          productId: "product-album-updated",
+          label: "Updated Album Add-On",
+          unitPrice: 42,
+        },
+      }),
+    /owns addon-album, not addon-other/
+  );
+});
+
 test("removes a session configuration and its linked-product add-on together", () => {
   const snapshot = snapshotFixture({
     lines: [
@@ -372,6 +425,79 @@ test("requires exactly one linked add-on identity path", () => {
   );
 });
 
+test("rejects draft ids passed through the materialized linked-product identity path", () => {
+  const snapshot = snapshotFixture({ lines: [packageLine()] });
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftSessionConfiguration(snapshot, {
+        change: sessionConfigurationChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION,
+          action: "UPSERT",
+          parentPackageTarget: { stableKey: "order-package:order-package-1" },
+          configurationId: "configuration-album",
+          optionId: "option-album",
+          draftSelectionId: "draft:selection-album",
+          linkedProduct: {
+            productId: "product-album",
+            orderAddOnId: "draft:addon-album",
+          },
+        }),
+        resolvedSelection: linkedSelection(),
+        resolvedLinkedProduct: {
+          productId: "product-album",
+          label: "Premium Album",
+          unitPrice: 45,
+        },
+      }),
+    /materialized OrderAddOn id/
+  );
+});
+
+test("rejects materialized identity when updating an existing draft linked-product pair", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      sessionConfigurationLine({
+        selectionId: "draft:selection-album",
+        configurationId: "configuration-album",
+        draftOrderAddOnId: "draft:addon-album",
+        snapshotLinkedProductId: "product-album",
+      }),
+      linkedProductAddOnLine({
+        selectionId: "draft:selection-album",
+        draftOrderAddOnId: "draft:addon-album",
+        productId: "product-album",
+      }),
+    ],
+  });
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftSessionConfiguration(snapshot, {
+        change: sessionConfigurationChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION,
+          action: "UPSERT",
+          target: { stableKey: "session-configuration-selection:draft:selection-album" },
+          parentPackageTarget: { stableKey: "order-package:order-package-1" },
+          configurationId: "configuration-album",
+          optionId: "option-album",
+          linkedProduct: {
+            productId: "product-album",
+            orderAddOnId: "addon-album",
+          },
+        }),
+        resolvedSelection: linkedSelection(),
+        resolvedLinkedProduct: {
+          productId: "product-album",
+          label: "Premium Album",
+          unitPrice: 45,
+        },
+      }),
+    /owns draft:addon-album, not addon-album/
+  );
+});
+
 test("rejects orphaned linked-product add-on ownership states", () => {
   const snapshot = snapshotFixture({
     lines: [
@@ -406,6 +532,49 @@ test("rejects orphaned linked-product add-on ownership states", () => {
         }),
       }),
     /orphaned linked-product add-on/
+  );
+});
+
+test("rejects contradictory session configuration target identity fields", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      sessionConfigurationLine({
+        selectionId: "selection-album",
+        configurationId: "configuration-album",
+      }),
+      sessionConfigurationLine({
+        selectionId: "selection-other",
+        configurationId: "configuration-other",
+      }),
+    ],
+  });
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftSessionConfiguration(snapshot, {
+        change: sessionConfigurationChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION,
+          action: "UPSERT",
+          target: {
+            stableKey: "session-configuration-selection:selection-album",
+            lineId: "session-config:selection-other",
+          },
+          parentPackageTarget: { stableKey: "order-package:order-package-1" },
+          configurationId: "configuration-album",
+          optionId: "option-album",
+        }),
+        resolvedSelection: resolvedSelection({
+          configurationId: "configuration-album",
+          optionId: "option-album",
+          snapshotConfigurationCode: "ALBUM",
+          snapshotLabel: "Album",
+          snapshotOptionLabel: "Album",
+          snapshotFinancialBehavior: "OPERATIONAL",
+          snapshotPricingMode: "NONE",
+        }),
+      }),
+    /matched multiple lines from contradictory target identity fields/
   );
 });
 

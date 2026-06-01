@@ -201,6 +201,18 @@ export const orderCommitDraftStagingChangeSchema = z.discriminatedUnion(
       message: "Session configuration remove staging requires a target.",
     });
   }
+
+  if (
+    change.domain === ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION &&
+    change.linkedProduct?.orderAddOnId?.startsWith("draft:")
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["linkedProduct", "orderAddOnId"],
+      message:
+        "Session configuration linkedProduct.orderAddOnId must reference a materialized OrderAddOn id.",
+    });
+  }
 });
 
 export const orderCommitDraftStagingHistoryPayloadSchema = z

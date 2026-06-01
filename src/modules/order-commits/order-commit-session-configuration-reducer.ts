@@ -12,6 +12,7 @@ import {
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
 } from "./order-commit.constants";
 import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
+import { resolveOrderCommitDraftTargetLine } from "./order-commit-target-resolver";
 import type {
   OrderCommitDraftLineTarget,
   OrderCommitDraftStagingChange,
@@ -111,6 +112,7 @@ function upsertSessionConfiguration(
   }
 
   const linkedIdentity = linkedProductIdentityForUpsert(input);
+  assertExistingLinkedProductIdentity(snapshot.lines, existingSelection, linkedIdentity);
   const selectionLine = sessionConfigurationLine({
     parentPackage,
     selectionId,
@@ -311,6 +313,16 @@ function linkedProductIdentityForUpsert(
       "OrderCommit session configuration reducer failed: linked products require exactly one of orderAddOnId or draftOrderAddOnId."
     );
   }
+  if (orderAddOnId?.startsWith("draft:")) {
+    throw new Error(
+      "OrderCommit session configuration reducer failed: orderAddOnId is reserved for materialized linked-product add-ons."
+    );
+  }
+  if (draftOrderAddOnId && !draftOrderAddOnId.startsWith("draft:")) {
+    throw new Error(
+      "OrderCommit session configuration reducer failed: draftOrderAddOnId is required for draft linked-product add-ons."
+    );
+  }
 
   return {
     addOnRef: orderAddOnId ?? requiredDraftOrderAddOnId(draftOrderAddOnId),
@@ -421,12 +433,10 @@ function resolveParentPackageLine(
   snapshot: OrderCommitSnapshotV1,
   target: OrderCommitDraftLineTarget
 ): OrderCommitSnapshotLineV1 {
-  const line = resolveLine(snapshot, target);
-  if (!line) {
-    throw new Error(
-      "OrderCommit session configuration reducer failed: parent package not found."
-    );
-  }
+  const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
+    errorPrefix: "OrderCommit session configuration reducer failed",
+    targetDescription: "parent package",
+  });
   if (line.lineKind !== ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE) {
     throw new Error(
       `OrderCommit session configuration reducer failed: parent target ${line.lineId} is not a package line.`
@@ -440,12 +450,10 @@ function resolveSessionConfigurationLine(
   target: OrderCommitDraftLineTarget,
   parentPackage: OrderCommitSnapshotLineV1
 ): OrderCommitSnapshotLineV1 {
-  const line = resolveLine(snapshot, target);
-  if (!line) {
-    throw new Error(
-      "OrderCommit session configuration reducer failed: selection target not found."
-    );
-  }
+  const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
+    errorPrefix: "OrderCommit session configuration reducer failed",
+    targetDescription: "selection target",
+  });
   if (line.lineKind !== ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION) {
     throw new Error(
       `OrderCommit session configuration reducer failed: target ${line.lineId} is not a session configuration line.`
@@ -457,21 +465,6 @@ function resolveSessionConfigurationLine(
     );
   }
   return line;
-}
-
-function resolveLine(
-  snapshot: OrderCommitSnapshotV1,
-  target: OrderCommitDraftLineTarget
-): OrderCommitSnapshotLineV1 | null {
-  return (
-    snapshot.lines.find(
-      (line) =>
-        line.stableKey === target.stableKey ||
-        line.lineId === target.lineId ||
-        line.orderEntityId === target.orderEntityId ||
-        line.orderEntityId === target.draftEntityId
-    ) ?? null
-  );
 }
 
 function assertLinkedProductOwnership(
@@ -523,6 +516,58 @@ function assertLinkedProductOwnership(
         `OrderCommit session configuration reducer failed: linked-product selection ${selectionLine.lineId} must own exactly one linked add-on line.`
       );
     }
+  }
+}
+
+function assertExistingLinkedProductIdentity(
+  lines: OrderCommitSnapshotLineV1[],
+  existingSelection: OrderCommitSnapshotLineV1 | null,
+  nextIdentity: LinkedProductIdentity | null
+): void {
+  if (!existingSelection || !nextIdentity) return;
+
+  const existingSelectionIdentity = metadataLinkedIdentity(existingSelection);
+  if (!existingSelectionIdentity) return;
+
+  if (existingSelectionIdentity.addOnRef !== nextIdentity.addOnRef) {
+    throw new Error(
+      `OrderCommit session configuration reducer failed: existing linked-product selection ${existingSelection.lineId} owns ${existingSelectionIdentity.addOnRef}, not ${nextIdentity.addOnRef}.`
+    );
+  }
+  if (
+    existingSelectionIdentity.orderAddOnId &&
+    !nextIdentity.orderAddOnId
+  ) {
+    throw new Error(
+      `OrderCommit session configuration reducer failed: materialized linked-product selection ${existingSelection.lineId} must keep orderAddOnId ownership.`
+    );
+  }
+  if (
+    existingSelectionIdentity.draftOrderAddOnId &&
+    !nextIdentity.draftOrderAddOnId
+  ) {
+    throw new Error(
+      `OrderCommit session configuration reducer failed: draft linked-product selection ${existingSelection.lineId} must keep draftOrderAddOnId ownership.`
+    );
+  }
+
+  const linkedMatches = lines.filter(
+    (line) =>
+      line.lineKind ===
+        ORDER_COMMIT_SNAPSHOT_LINE_KIND
+          .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON &&
+      line.orderEntityId === existingSelection.orderEntityId
+  );
+  if (linkedMatches.length !== 1) {
+    throw new Error(
+      `OrderCommit session configuration reducer failed: linked-product selection ${existingSelection.lineId} must own exactly one linked add-on line before update.`
+    );
+  }
+  const linkedIdentity = metadataLinkedIdentity(linkedMatches[0]);
+  if (!linkedIdentity || linkedIdentity.addOnRef !== nextIdentity.addOnRef) {
+    throw new Error(
+      `OrderCommit session configuration reducer failed: existing linked-product add-on ${linkedMatches[0].lineId} does not match requested ownership.`
+    );
   }
 }
 

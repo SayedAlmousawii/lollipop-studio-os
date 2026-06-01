@@ -275,6 +275,51 @@ test("preserves selected and extra photo counts and rejects invariant violations
   );
 });
 
+test("can defer photo invariant validation for explicit package plus photo composites", () => {
+  const snapshot = snapshotFixture({ lines: [packageLine()] });
+
+  const reduced = reduceOrderCommitDraftPackage(snapshot, {
+    change: packageChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:order-package-1" },
+      packageId: "package-current",
+      sessionTypeId: "session-type-1",
+    }),
+    resolvedPackage: resolvedPackage({
+      packageId: "package-current",
+      packageName: "Current Package",
+      includedPhotoCount: 12,
+    }),
+    deferPhotoInvariantValidation: true,
+  });
+
+  assert.doesNotThrow(() => orderCommitSnapshotV1Schema.parse(reduced));
+  assert.equal(
+    requireLine(reduced, "package:order-package-1").metadata.includedPhotoCount,
+    12
+  );
+
+  assert.throws(
+    () =>
+      reduceOrderCommitDraftPackage(snapshot, {
+        change: packageChange({
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+          action: "CHANGE_PACKAGE",
+          target: { stableKey: "order-package:order-package-1" },
+          packageId: "package-current",
+          sessionTypeId: "session-type-1",
+        }),
+        resolvedPackage: resolvedPackage({
+          packageId: "package-current",
+          packageName: "Current Package",
+          includedPhotoCount: 12,
+        }),
+      }),
+    /selectedPhotoCount must be greater than or equal/
+  );
+});
+
 test("rejects cross-session package changes", () => {
   const snapshot = snapshotFixture({ lines: [packageLine()] });
 
