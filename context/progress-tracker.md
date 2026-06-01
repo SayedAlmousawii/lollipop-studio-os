@@ -5,6 +5,12 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 120 Phase 1 review fixes are complete: OrderCommit snapshots now preserve zero-value OPERATIONAL session-configuration ownership rows, and order-commit tests are wired into the centralization runner.
+- Spec 120 Phase 1 Task 5 is complete: OrderCommit foundation coverage now guards latest lookup, bootstrap/backfill integration, invoice-line independence, stored snapshot immutability after catalog price edits, and app/component DB import boundaries.
+- Spec 120 Phase 1 Task 4 is complete: financially committed orders can be idempotently backfilled into bootstrap OrderCommit snapshots from current Order* rows, with invoice headers used only for selection and inspectable failure details returned.
+- Spec 120 Phase 1 Task 3 is complete: OrderCommit latest snapshot lookup, transactional commit creation, sequence chaining, and idempotent bootstrap helpers are live without POS, invoice, payment, or Adjustment Workspace behavior changes.
+- Spec 120 Phase 1 Task 2.5 is complete: OrderCommit snapshot capture now final-sorts lines and normalizes metadata serialization so repeated captures are deterministic apart from `capturedAt`.
+- Spec 120 Phase 1 Task 2 is complete: `captureOrderCommitSnapshotFromOrderRows` captures the V1 committed operational baseline from materialized `Order*` rows, including package, add-on, item-upgrade, extra-photo, session-configuration, and linked-product ownership, without changing POS, invoice, payment, or Adjustment Workspace behavior.
 - Adjustment Workspace preview composition package-tier display fix is complete: pending full preview now renders the proposed package row for `change_package_tier` while keeping pending delta rows as "Package Change" summaries.
 - Spec 119 package-tier materialization fix is complete: `change_package_tier` is now the canonical Adjustment Workspace package-tier materialization path, legacy `swap_package` remains compatible, mixed tier/add-on finalizes materialize together, and the action path regression proves the UI stages the canonical op.
 - Feature 118 invoice replay collapse is complete: locked composition now delegates to current operational composition rows, finalized ADJ invoice lines are financial documents only, and mixed finalized-workspace projection parity is regression-covered.
@@ -85,6 +91,13 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **120 Phase 1 review fixes** — Preserved OPERATIONAL session-configuration selections as zero-value OrderCommit ownership lines and wired order-commit tests into `test:centralization`.
+- **120 Phase 1 Task 5** — Completed final OrderCommit foundation regression guards for latest lookup, create/bootstrap/backfill cooperation, invoice-line independence, stored snapshot immutability after catalog price edits, source ownership boundaries, and app/component DB import boundaries.
+- **120 Phase 1 Task 4** — Added idempotent OrderCommit bootstrap backfill for financially committed orders, with invoice-header-only selection, structured counts, inspectable per-order failures, and a thin script wrapper.
+- **120 Phase 1 Task 3** — Added latest committed snapshot lookup by order or FinancialCase, transactional commit creation with sequence/previous-commit chaining, idempotent bootstrap behavior, and focused service coverage.
+- **120 Phase 1 Task 2.5** — Hardened OrderCommit snapshot determinism with final line sorting, canonical metadata normalization, and repeated-capture regression coverage.
+- **120 Phase 1 Task 2** — Added operational-row snapshot capture for the V1 `OrderCommit` baseline, with focused coverage for package/add-on/item-upgrade/photo/session-configuration/linked-product lines and the no-invoice-line source guard.
+- **120 Phase 1 Task 1** — Added the additive `OrderCommit` schema/migration, TypeScript/Zod V1 snapshot contracts, source guards, and target-data-model note for the committed operational baseline.
 - **Adjustment Workspace preview package-tier display fix** — Normalized pending package-tier swap metadata back into package rows for the full preview card while preserving pending-delta summaries, with projector regression coverage.
 - **119 package-tier materialization fix** — Made `change_package_tier` the canonical package-tier materialization path while preserving legacy `swap_package`, added action-path staging coverage, and covered canonical single/mixed finalize regressions without invoice replay.
 - **118 OPS7** — Collapsed locked composition projection to current operational rows, deleted invoice-line replay helpers, proved mixed finalized-workspace locked composition parity, preserved FINAL/ADJ invoice line snapshots, and archived superseded materialization review notes.

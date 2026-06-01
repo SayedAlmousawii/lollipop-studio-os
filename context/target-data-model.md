@@ -2,6 +2,12 @@
 
 Current schema-facing notes for implementation work. This document records non-obvious data-shape contracts; `prisma/schema.prisma` remains the executable source of truth.
 
+## Order Commit Baseline
+
+`OrderCommit` is the persisted committed operational baseline for Unified Order Commit. Each row stores a versioned `snapshotJson` captured from current materialized `Order*` rows, with `sequence` ordered per order and the highest sequence representing the latest committed baseline.
+
+`OrderCommit` is additive in Phase 1. It does not change POS routing, invoice emission, payment behavior, or Adjustment Workspace finalization. Invoices remain immutable financial documents; invoice line items are not an operational ownership source for `OrderCommit` snapshots.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.
