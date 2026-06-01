@@ -8,6 +8,12 @@ Current schema-facing notes for implementation work. This document records non-o
 
 `OrderCommit` is additive in Phase 1. It does not change POS routing, invoice emission, payment behavior, or Adjustment Workspace finalization. Invoices remain immutable financial documents; invoice line items are not an operational ownership source for `OrderCommit` snapshots.
 
+## Order Commit Draft Boundary
+
+`OrderCommitDraft` is the additive pending snapshot boundary for Unified Order Commit. V1 allows one active draft per `Order`, stores `pendingSnapshotJson` as the same V1 `OrderCommit` snapshot contract, and stores `pendingOpsJson` as generic history metadata only.
+
+Spec 121 Task 1 does not add lifecycle helpers, POS routing, invoice/payment behavior, or domain-specific staging reducers. Draft rows are schema/contract foundation only until later Phase 2 tasks wire creation, mutation, and commit behavior.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.

@@ -267,6 +267,9 @@ model User {
   ownedAdjustmentWorkspaces  AdjustmentWorkspace[]      @relation("AdjustmentWorkspaceCurrentOwner")
   adjustmentWorkspaceEvents  AdjustmentWorkspaceEvent[]
   orderCommits               OrderCommit[]              @relation("OrderCommitCommittedBy")
+  ownedOrderCommitDrafts     OrderCommitDraft[]         @relation("OrderCommitDraftOwner")
+  openedOrderCommitDrafts    OrderCommitDraft[]         @relation("OrderCommitDraftOpenedBy")
+  touchedOrderCommitDrafts   OrderCommitDraft[]         @relation("OrderCommitDraftLastTouchedBy")
 
   @@map("users")
 }
@@ -304,6 +307,7 @@ model FinancialCase {
   invoices Invoice[]
   payments Payment[]
   orderCommits OrderCommit[]
+  orderCommitDrafts OrderCommitDraft[]
 
   @@index([customerId])
   @@index([jobId])
@@ -638,6 +642,7 @@ model Order {
   packages                OrderPackage[]
   adjustmentWorkspaces    AdjustmentWorkspace[]
   orderCommits            OrderCommit[]
+  orderCommitDraft         OrderCommitDraft?
   refundPending           Boolean                   @default(false) @map("refund_pending")
 
   @@index([jobNumber])
@@ -868,6 +873,7 @@ model OrderCommit {
   financialCase             FinancialCase        @relation(fields: [financialCaseId], references: [id])
   previousCommit            OrderCommit?         @relation("OrderCommitSequence", fields: [previousCommitId], references: [id], onDelete: SetNull)
   nextCommits               OrderCommit[]        @relation("OrderCommitSequence")
+  baseOrderCommitDrafts     OrderCommitDraft[]   @relation("OrderCommitDraftBaseCommit")
   committedByUser           User?                @relation("OrderCommitCommittedBy", fields: [committedByUserId], references: [id], onDelete: SetNull)
   legacyAdjustmentWorkspace AdjustmentWorkspace? @relation("OrderCommitLegacyAdjustmentWorkspace", fields: [legacyAdjustmentWorkspaceId], references: [id], onDelete: SetNull)
 
@@ -878,6 +884,38 @@ model OrderCommit {
   @@index([committedAt])
   @@index([legacyAdjustmentWorkspaceId])
   @@map("order_commits")
+}
+
+model OrderCommitDraft {
+  id                          String   @id @default(cuid())
+  orderId                     String
+  financialCaseId             String
+  baseCommitId                String?
+  pendingSnapshotVersion      Int      @default(1)
+  pendingSnapshotJson         Json
+  pendingOpsJson              Json     @default("{\"schemaVersion\":\"order_commit_draft_pending_ops_v1\",\"operations\":[]}")
+  version                     Int      @default(0)
+  ownerUserId                 String
+  openedByUserId              String
+  lastTouchedByUserId         String
+  legacyAdjustmentWorkspaceId String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  order                     Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  financialCase             FinancialCase        @relation(fields: [financialCaseId], references: [id])
+  baseCommit                OrderCommit?         @relation("OrderCommitDraftBaseCommit", fields: [baseCommitId], references: [id], onDelete: SetNull)
+  ownerUser                 User                 @relation("OrderCommitDraftOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  openedByUser              User                 @relation("OrderCommitDraftOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  lastTouchedByUser         User                 @relation("OrderCommitDraftLastTouchedBy", fields: [lastTouchedByUserId], references: [id], onDelete: Restrict)
+  legacyAdjustmentWorkspace AdjustmentWorkspace? @relation("OrderCommitDraftLegacyAdjustmentWorkspace", fields: [legacyAdjustmentWorkspaceId], references: [id], onDelete: SetNull)
+
+  @@unique([orderId])
+  @@index([financialCaseId])
+  @@index([baseCommitId])
+  @@index([ownerUserId])
+  @@index([legacyAdjustmentWorkspaceId])
+  @@map("order_commit_drafts")
 }
 
 model Invoice {
@@ -952,6 +990,7 @@ model AdjustmentWorkspace {
   finalizedAdjustmentInvoice Invoice?                   @relation("AdjustmentWorkspaceFinalizedInvoice", fields: [finalizedAdjustmentInvoiceId], references: [id], onDelete: SetNull)
   events                     AdjustmentWorkspaceEvent[]
   legacyOrderCommits         OrderCommit[]              @relation("OrderCommitLegacyAdjustmentWorkspace")
+  legacyOrderCommitDrafts    OrderCommitDraft[]         @relation("OrderCommitDraftLegacyAdjustmentWorkspace")
 
   @@index([invoiceId, status])
   @@index([orderId, status])

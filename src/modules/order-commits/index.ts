@@ -1,4 +1,13 @@
 export {
+  ORDER_COMMIT_DRAFT_OPERATION_TYPE,
+  ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+} from "./order-commit-draft.constants";
+export {
+  orderCommitDraftOperationTypeSchema,
+  orderCommitDraftOperationV1Schema,
+  orderCommitDraftPendingOpsV1Schema,
+} from "./order-commit-draft.schema";
+export {
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_ORDER_ENTITY_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
@@ -34,6 +43,12 @@ export {
   type OrderCommitBackfillResult,
   type OrderCommitSnapshotClient,
 } from "./order-commit.service";
+export type {
+  OrderCommitDraftOperationType,
+  OrderCommitDraftOperationV1,
+  OrderCommitDraftPendingOpsV1,
+  OrderCommitDraftPendingSnapshotV1,
+} from "./order-commit-draft.types";
 export type {
   OrderCommitKind,
   OrderCommitOrderEntityKind,

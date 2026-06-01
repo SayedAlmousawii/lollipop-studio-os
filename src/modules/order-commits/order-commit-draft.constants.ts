@@ -1,0 +1,7 @@
+export const ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION =
+  "order_commit_draft_pending_ops_v1";
+
+export const ORDER_COMMIT_DRAFT_OPERATION_TYPE = {
+  SNAPSHOT_REPLACED: "SNAPSHOT_REPLACED",
+  NOTE_APPENDED: "NOTE_APPENDED",
+} as const;
