@@ -9,6 +9,8 @@ import {
   getOrCreateOrderCommitDraft,
   getLatestCommittedOrderSnapshot,
   getOrderCommitDraft,
+  replaceOrderCommitDraftSnapshot,
+  ORDER_COMMIT_DRAFT_OPERATION_TYPE,
   ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_STATUS,
@@ -20,6 +22,7 @@ import {
   type GetOrCreateOrderCommitDraftInput,
   type GetOrderCommitDraftInput,
   type OrderCommitSnapshotV1,
+  type ReplaceOrderCommitDraftSnapshotInput,
 } from "@/modules/order-commits";
 import type { ActorContext } from "@/lib/auth/actor-context";
 
@@ -271,6 +274,264 @@ test("discard enforces owner or manager mutation rules", async () => {
 
   assert.equal(discarded.draft.id, "draft-1");
   assert.equal(client.drafts.length, 0);
+});
+
+test("replace snapshot increments version, touches actor, and appends history", async () => {
+  const replacementSnapshot = fakeSnapshot({
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+    capturedAt: "2026-06-01T11:00:00.000Z",
+  });
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1", version: 2 })],
+  });
+
+  const replaced = await replaceOrderCommitDraftSnapshot({
+    orderId: "order-1",
+    pendingSnapshotJson: replacementSnapshot,
+    expectedVersion: 2,
+    actorContext: {
+      actorUserId: "user-1",
+      actorRole: UserRole.RECEPTIONIST,
+    },
+    client: client.draftRoot,
+  });
+
+  assert.equal(replaced.draft.version, 3);
+  assert.equal(replaced.draft.lastTouchedByUserId, "user-1");
+  assert.deepEqual(replaced.pendingSnapshot, replacementSnapshot);
+  assert.equal(replaced.pendingOps.operations.length, 1);
+  assert.equal(
+    replaced.pendingOps.operations[0]?.type,
+    ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED
+  );
+  assert.equal(replaced.pendingOps.operations[0]?.actorUserId, "user-1");
+});
+
+test("replace snapshot rejects stale expectedVersion and keeps the draft", async () => {
+  const originalSnapshot = fakeSnapshot({
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+  });
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        version: 2,
+        pendingSnapshotJson: originalSnapshot,
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    replaceOrderCommitDraftSnapshot({
+      orderId: "order-1",
+      pendingSnapshotJson: fakeSnapshot({
+        orderId: "order-1",
+        financialCaseId: "financial-case-1",
+        capturedAt: "2026-06-01T11:00:00.000Z",
+      }),
+      expectedVersion: 1,
+      actorContext,
+      client: client.draftRoot,
+    }),
+    /stale expectedVersion/
+  );
+
+  assert.equal(client.drafts[0]?.version, 2);
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, originalSnapshot);
+});
+
+test("replace snapshot enforces owner or manager mutation rules", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1", ownerUserId: "owner-user" })],
+  });
+
+  await assert.rejects(
+    replaceOrderCommitDraftSnapshot({
+      orderId: "order-1",
+      pendingSnapshotJson: fakeSnapshot({
+        orderId: "order-1",
+        financialCaseId: "financial-case-1",
+      }),
+      expectedVersion: 0,
+      actorContext: {
+        actorUserId: "user-2",
+        actorRole: UserRole.RECEPTIONIST,
+      },
+      client: client.draftRoot,
+    }),
+    /cannot mutate draft/
+  );
+
+  const managerReplacement = await replaceOrderCommitDraftSnapshot({
+    orderId: "order-1",
+    pendingSnapshotJson: fakeSnapshot({
+      orderId: "order-1",
+      financialCaseId: "financial-case-1",
+      capturedAt: "2026-06-01T11:00:00.000Z",
+    }),
+    expectedVersion: 0,
+    actorContext: {
+      actorUserId: "manager-user",
+      actorRole: UserRole.MANAGER,
+    },
+    client: client.draftRoot,
+  });
+  assert.equal(managerReplacement.draft.version, 1);
+
+  const adminReplacement = await replaceOrderCommitDraftSnapshot({
+    orderId: "order-1",
+    pendingSnapshotJson: fakeSnapshot({
+      orderId: "order-1",
+      financialCaseId: "financial-case-1",
+      capturedAt: "2026-06-01T12:00:00.000Z",
+    }),
+    expectedVersion: 1,
+    actorContext: {
+      actorUserId: "admin-user",
+      actorRole: UserRole.ADMIN,
+    },
+    client: client.draftRoot,
+  });
+  assert.equal(adminReplacement.draft.version, 2);
+});
+
+test("replace snapshot rejects mismatched snapshot identity", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1" })],
+  });
+
+  await assert.rejects(
+    replaceOrderCommitDraftSnapshot({
+      orderId: "order-1",
+      pendingSnapshotJson: fakeSnapshot({
+        orderId: "order-other",
+        financialCaseId: "financial-case-1",
+      }),
+      expectedVersion: 0,
+      actorContext,
+      client: client.draftRoot,
+    }),
+    /snapshot orderId/
+  );
+  await assert.rejects(
+    replaceOrderCommitDraftSnapshot({
+      orderId: "order-1",
+      pendingSnapshotJson: fakeSnapshot({
+        orderId: "order-1",
+        financialCaseId: "financial-case-other",
+      }),
+      expectedVersion: 0,
+      actorContext,
+      client: client.draftRoot,
+    }),
+    /snapshot financialCaseId/
+  );
+  await assert.rejects(
+    replaceOrderCommitDraftSnapshot({
+      orderId: "order-1",
+      pendingSnapshotJson: {
+        ...fakeSnapshot({
+          orderId: "order-1",
+          financialCaseId: "financial-case-1",
+        }),
+        currency: "USD",
+      },
+      expectedVersion: 0,
+      actorContext,
+      client: client.draftRoot,
+    }),
+    /currency/
+  );
+});
+
+test("replace snapshot accepts only snapshot-replaced operations", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1" })],
+  });
+
+  await assert.rejects(
+    replaceOrderCommitDraftSnapshot({
+      orderId: "order-1",
+      pendingSnapshotJson: fakeSnapshot({
+        orderId: "order-1",
+        financialCaseId: "financial-case-1",
+      }),
+      expectedVersion: 0,
+      actorContext,
+      operation: {
+        id: "op-note",
+        type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+        payload: { note: "not a replacement" },
+        createdAt: "2026-06-01T11:00:00.000Z",
+        actorUserId: "user-1",
+      },
+      client: client.draftRoot,
+    }),
+    /operation type must be SNAPSHOT_REPLACED/
+  );
+
+  const replaced = await replaceOrderCommitDraftSnapshot({
+    orderId: "order-1",
+    pendingSnapshotJson: fakeSnapshot({
+      orderId: "order-1",
+      financialCaseId: "financial-case-1",
+      capturedAt: "2026-06-01T11:00:00.000Z",
+    }),
+    expectedVersion: 0,
+    actorContext,
+    operation: {
+      id: "op-replace",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED,
+      payload: { reason: "test_replace" },
+      createdAt: "2026-06-01T11:05:00.000Z",
+      actorUserId: "user-1",
+    },
+    client: client.draftRoot,
+  });
+
+  assert.deepEqual(replaced.pendingOps.operations, [
+    {
+      id: "op-replace",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED,
+      payload: { reason: "test_replace" },
+      createdAt: "2026-06-01T11:05:00.000Z",
+      actorUserId: "user-1",
+    },
+  ]);
+});
+
+test("replace snapshot does not mutate operational order rows", async () => {
+  const replacementSnapshot = fakeSnapshot({
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+    capturedAt: "2026-06-01T11:00:00.000Z",
+  });
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1" })],
+  });
+
+  await replaceOrderCommitDraftSnapshot({
+    orderId: "order-1",
+    pendingSnapshotJson: replacementSnapshot,
+    expectedVersion: 0,
+    actorContext,
+    client: client.draftRoot,
+  });
+  const committed = await createOrderCommitSnapshot({
+    orderId: "order-1",
+    kind: ORDER_COMMIT_KIND.BASELINE,
+    actorContext,
+    client: client.root,
+  });
+
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, replacementSnapshot);
+  assert.equal(
+    committed.snapshot.lines.find((line) => line.lineId === "package:op-order-1")
+      ?.label,
+    "Operational Package order-1"
+  );
 });
 
 test("backfill creates commits only for financially committed orders", async () => {
@@ -570,6 +831,17 @@ type FakeOrderCommitDraftDeleteManyArgs = {
   where: { id: string; version: number };
 };
 
+type FakeOrderCommitDraftUpdateManyArgs = {
+  where: { id: string; version: number };
+  data: {
+    pendingSnapshotVersion: number;
+    pendingSnapshotJson: unknown;
+    pendingOpsJson: unknown;
+    version: { increment: number };
+    lastTouchedByUserId: string;
+  };
+};
+
 type FakeInvoiceHeader = {
   invoiceType: InvoiceType;
   isLocked: boolean;
@@ -738,6 +1010,22 @@ function fakeOrderCommitClient(
         drafts.splice(index, 1);
         return { count: 1 };
       },
+      updateMany: async (args: FakeOrderCommitDraftUpdateManyArgs) => {
+        const draft = drafts.find(
+          (candidate) =>
+            candidate.id === args.where.id &&
+            candidate.version === args.where.version
+        );
+        if (!draft) return { count: 0 };
+
+        draft.pendingSnapshotVersion = args.data.pendingSnapshotVersion;
+        draft.pendingSnapshotJson = args.data.pendingSnapshotJson;
+        draft.pendingOpsJson = args.data.pendingOpsJson;
+        draft.version += args.data.version.increment;
+        draft.lastTouchedByUserId = args.data.lastTouchedByUserId;
+        draft.updatedAt = new Date("2026-06-01T11:00:00.000Z");
+        return { count: 1 };
+      },
     },
     $transaction: async <T>(fn: (transaction: unknown) => Promise<T>) => fn(root),
   };
@@ -760,6 +1048,7 @@ function fakeOrderCommitClient(
     draftRoot: root as unknown as NonNullable<
       | GetOrCreateOrderCommitDraftInput["client"]
       | DiscardOrderCommitDraftInput["client"]
+      | ReplaceOrderCommitDraftSnapshotInput["client"]
     >,
   };
 }
@@ -903,12 +1192,13 @@ function fakeDraft(overrides: Partial<FakeOrderCommitDraftRow> & { id: string })
 function fakeSnapshot(input: {
   orderId: string;
   financialCaseId: string;
+  capturedAt?: string;
 }): OrderCommitSnapshotV1 {
   return {
     schemaVersion: "order_commit_snapshot_v1",
     orderId: input.orderId,
     financialCaseId: input.financialCaseId,
-    capturedAt: "2026-06-01T09:00:00.000Z",
+    capturedAt: input.capturedAt ?? "2026-06-01T09:00:00.000Z",
     currency: "KWD",
     lines: [],
     totals: {

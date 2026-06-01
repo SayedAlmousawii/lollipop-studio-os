@@ -37,6 +37,7 @@ export {
   getOrCreateOrderCommitDraft,
   getLatestCommittedOrderSnapshot,
   getOrderCommitDraft,
+  replaceOrderCommitDraftSnapshot,
   type BackfillOrderCommitsForFinanciallyCommittedOrdersInput,
   type BootstrapOrderCommitIfMissingInput,
   type CommittedOrderSnapshot,
@@ -50,6 +51,7 @@ export {
   type OrderCommitDraftRow,
   type OrderCommitDraftState,
   type OrderCommitSnapshotClient,
+  type ReplaceOrderCommitDraftSnapshotInput,
 } from "./order-commit.service";
 export type {
   OrderCommitDraftOperationType,

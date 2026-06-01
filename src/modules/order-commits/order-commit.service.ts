@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   InvoiceType,
   MediaType,
@@ -30,10 +31,15 @@ import {
   orderCommitStatusSchema,
 } from "./order-commit.schema";
 import {
+  ORDER_COMMIT_DRAFT_OPERATION_TYPE,
   ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
 } from "./order-commit-draft.constants";
-import { orderCommitDraftPendingOpsV1Schema } from "./order-commit-draft.schema";
+import {
+  orderCommitDraftOperationV1Schema,
+  orderCommitDraftPendingOpsV1Schema,
+} from "./order-commit-draft.schema";
 import type {
+  OrderCommitDraftOperationV1,
   OrderCommitDraftPendingOpsV1,
   OrderCommitDraftPendingSnapshotV1,
 } from "./order-commit-draft.types";
@@ -140,6 +146,15 @@ export type DiscardOrderCommitDraftInput = {
   orderId: string;
   expectedVersion: number;
   actorContext: ActorContext;
+  client?: OrderCommitDraftRootClient;
+};
+
+export type ReplaceOrderCommitDraftSnapshotInput = {
+  orderId: string;
+  pendingSnapshotJson: unknown;
+  expectedVersion: number;
+  actorContext: ActorContext;
+  operation?: OrderCommitDraftOperationV1;
   client?: OrderCommitDraftRootClient;
 };
 
@@ -384,6 +399,72 @@ export async function discardOrderCommitDraft(
     }
 
     return parseOrderCommitDraft(existing);
+  });
+}
+
+export async function replaceOrderCommitDraftSnapshot(
+  input: ReplaceOrderCommitDraftSnapshotInput
+): Promise<OrderCommitDraftState> {
+  assertValidDraftActor(input.actorContext, "replace OrderCommitDraft snapshot");
+  const replacementSnapshot = orderCommitSnapshotV1Schema.parse(
+    input.pendingSnapshotJson
+  );
+  const operation = snapshotReplacementOperation(
+    input.operation,
+    input.actorContext.actorUserId
+  );
+  const client = input.client ?? (await loadDefaultOrderCommitDraftRootClient());
+
+  return client.$transaction(async (transaction) => {
+    const existing = await transaction.orderCommitDraft.findUnique({
+      where: { orderId: input.orderId },
+      select: orderCommitDraftRowSelect,
+    });
+    if (!existing) {
+      throw new Error(
+        `OrderCommitDraft snapshot replacement failed: draft for order ${input.orderId} was not found.`
+      );
+    }
+
+    assertDraftExpectedVersion(existing, input.expectedVersion, "replace snapshot");
+    assertDraftMutationAllowed(existing, input.actorContext, "replace snapshot");
+    assertReplacementSnapshotMatchesDraft(existing, replacementSnapshot);
+
+    const existingPendingOps = orderCommitDraftPendingOpsV1Schema.parse(
+      existing.pendingOpsJson
+    );
+    const pendingOps: OrderCommitDraftPendingOpsV1 = {
+      ...existingPendingOps,
+      operations: [...existingPendingOps.operations, operation],
+    };
+
+    const updated = await transaction.orderCommitDraft.updateMany({
+      where: { id: existing.id, version: input.expectedVersion },
+      data: {
+        pendingSnapshotVersion: ORDER_COMMIT_SNAPSHOT_VERSION,
+        pendingSnapshotJson: replacementSnapshot as unknown as Prisma.InputJsonValue,
+        pendingOpsJson: pendingOps as unknown as Prisma.InputJsonValue,
+        version: { increment: 1 },
+        lastTouchedByUserId: input.actorContext.actorUserId,
+      },
+    });
+    if (updated.count !== 1) {
+      throw new Error(
+        `OrderCommitDraft snapshot replacement failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.id}.`
+      );
+    }
+
+    const row = await transaction.orderCommitDraft.findUnique({
+      where: { id: existing.id },
+      select: orderCommitDraftRowSelect,
+    });
+    if (!row) {
+      throw new Error(
+        `OrderCommitDraft snapshot replacement failed: updated draft ${existing.id} was not found.`
+      );
+    }
+
+    return parseOrderCommitDraft(row);
   });
 }
 
@@ -869,6 +950,50 @@ function assertDraftMutationAllowed(
   throw new Error(
     `OrderCommitDraft ${action} failed: actor ${actorContext.actorUserId} cannot mutate draft ${draft.id}.`
   );
+}
+
+function snapshotReplacementOperation(
+  operation: OrderCommitDraftOperationV1 | undefined,
+  actorUserId: string
+): OrderCommitDraftOperationV1 {
+  if (!operation) {
+    return {
+      id: `snapshot-replaced:${randomUUID()}`,
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED,
+      payload: {},
+      createdAt: new Date().toISOString(),
+      actorUserId,
+    };
+  }
+
+  const parsed = orderCommitDraftOperationV1Schema.parse(operation);
+  if (parsed.type !== ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED) {
+    throw new Error(
+      `OrderCommitDraft snapshot replacement failed: operation type must be ${ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED}.`
+    );
+  }
+  return parsed;
+}
+
+function assertReplacementSnapshotMatchesDraft(
+  draft: SelectedOrderCommitDraftRow,
+  snapshot: OrderCommitSnapshotV1
+): void {
+  if (snapshot.orderId !== draft.orderId) {
+    throw new Error(
+      `OrderCommitDraft snapshot replacement failed: snapshot orderId ${snapshot.orderId} does not match draft order ${draft.orderId}.`
+    );
+  }
+  if (snapshot.financialCaseId !== draft.financialCaseId) {
+    throw new Error(
+      `OrderCommitDraft snapshot replacement failed: snapshot financialCaseId ${snapshot.financialCaseId} does not match draft FinancialCase ${draft.financialCaseId}.`
+    );
+  }
+  if (snapshot.currency !== ORDER_COMMIT_SNAPSHOT_CURRENCY) {
+    throw new Error(
+      `OrderCommitDraft snapshot replacement failed: snapshot currency ${snapshot.currency} is not supported.`
+    );
+  }
 }
 
 type CapturedOrderPackage = CapturedOrder["packages"][number];
