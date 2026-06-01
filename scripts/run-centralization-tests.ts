@@ -16,6 +16,7 @@ const files = [
   "tests/formatting/money-regression.test.ts",
   "tests/formatting/money.test.ts",
   "tests/order-commits/order-commit-contracts.test.ts",
+  "tests/order-commits/order-commit-add-on-reducer.test.ts",
   "tests/order-commits/order-commit-draft-contracts.test.ts",
   "tests/order-commits/order-commit-service.test.ts",
   "tests/order-commits/order-commit-snapshot-capture.test.ts",

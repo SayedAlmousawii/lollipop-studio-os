@@ -35,6 +35,11 @@ export {
   orderCommitSnapshotV1Schema,
   orderCommitStatusSchema,
 } from "./order-commit.schema";
+export {
+  reduceOrderCommitDraftAddOn,
+  type ReduceOrderCommitDraftAddOnInput,
+  type ResolvedOrderCommitDraftAddOnProduct,
+} from "./order-commit-add-on-reducer";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,

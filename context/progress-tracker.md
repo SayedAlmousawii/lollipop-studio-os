@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 122 Task 5 is complete: the pure OrderCommit draft add-on reducer now stages true catalog add-on lines, increments duplicate scoped product adds, preserves stored unit prices on quantity updates, removes zero-quantity lines, protects linked-product session-configuration add-ons, and normalizes every output snapshot.
 - Spec 122 Task 3 is complete: shared OrderCommit snapshot normalization now final-sorts lines, normalizes metadata, recalculates V1 totals, guards duplicate line identities, and validates reducer/capture output through the V1 snapshot schema.
 - Spec 122 Task 1 is complete: OrderCommitDraft staging-change contracts now cover package, add-on, package-item-upgrade, photo-count, and session-configuration domains while keeping `pendingSnapshotJson` as draft truth and storing typed staging history only inside generic snapshot-replacement history.
 - Spec 121 Phase 2 Task 5 is complete: OrderCommitDraft final regression guards now prove draft mutations stay isolated from pending snapshot/ops boundaries plus operational and financial rows, and the order-commit suite remains wired into `test:centralization`.
@@ -98,6 +99,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **122 Task 5** — Added the pure OrderCommitDraft add-on reducer for true `ADD_ON` lines, including service-provided draft id identity, scoped product merge/increment behavior, exact quantity updates, zero/removal behavior, linked-product protection, normalized output, and focused reducer coverage wired into `test:centralization`.
 - **122 Task 3** — Added shared OrderCommit snapshot normalization for reducer/capture output, with deterministic line ordering, recursive metadata key ordering, recalculated V1 totals, duplicate identity guards, schema validation, and focused normalizer coverage wired into `test:centralization`.
 - **122 Task 1** — Added typed OrderCommitDraft staging-change and staging-history payload contracts for the five reducer domains, preserving generic pending operation types and documenting that typed history is audit/UX metadata rather than replayable business truth.
 - **121 Phase 2 Task 5** — Completed final OrderCommitDraft regression guards for pendingOps vs pendingSnapshot isolation, no invoice-line/public Adjustment Workspace source drift, no app/component DB imports, no draft mutation access to financial/operational mutation surfaces, and centralization-gate coverage.
