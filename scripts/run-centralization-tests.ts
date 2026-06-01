@@ -19,6 +19,7 @@ const files = [
   "tests/order-commits/order-commit-draft-contracts.test.ts",
   "tests/order-commits/order-commit-service.test.ts",
   "tests/order-commits/order-commit-snapshot-capture.test.ts",
+  "tests/order-commits/order-commit-snapshot-normalizer.test.ts",
   "tests/orders/canonical-balance-display.test.ts",
   "tests/orders/centralization-cleanup.test.ts",
   "tests/orders/commercial-actions-add-on-catalog-parity.test.tsx",

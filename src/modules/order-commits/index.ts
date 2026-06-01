@@ -35,6 +35,7 @@ export {
   orderCommitSnapshotV1Schema,
   orderCommitStatusSchema,
 } from "./order-commit.schema";
+export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
   backfillOrderCommitsForFinanciallyCommittedOrders,

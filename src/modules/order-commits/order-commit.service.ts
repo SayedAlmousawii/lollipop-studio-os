@@ -38,6 +38,7 @@ import {
   orderCommitDraftOperationV1Schema,
   orderCommitDraftPendingOpsV1Schema,
 } from "./order-commit-draft.schema";
+import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 import type {
   OrderCommitDraftOperationV1,
   OrderCommitDraftPendingOpsV1,
@@ -705,19 +706,17 @@ export async function captureOrderCommitSnapshotFromOrderRows(input: {
     lines.push(packageItemUpgradeLine(upgrade));
   }
 
-  const normalizedLines = normalizeSnapshotLines(lines);
-  const subtotal = sumLines(normalizedLines);
-  return orderCommitSnapshotV1Schema.parse({
+  return normalizeOrderCommitSnapshot({
     schemaVersion: ORDER_COMMIT_SNAPSHOT_SCHEMA_VERSION,
     orderId: order.id,
     financialCaseId,
     capturedAt: new Date().toISOString(),
     currency: ORDER_COMMIT_SNAPSHOT_CURRENCY,
-    lines: normalizedLines,
+    lines,
     totals: {
-      subtotal,
+      subtotal: 0,
       discountTotal: 0,
-      netTotal: subtotal,
+      netTotal: 0,
     },
   });
 }
@@ -1380,50 +1379,6 @@ function extraPhotoLineId(orderPackageId: string, mediaType: MediaType): string 
 
 function extraPhotoPriceKey(sessionTypeId: string, mediaType: MediaType): string {
   return `${sessionTypeId}:${mediaType}`;
-}
-
-function sumLines(lines: OrderCommitSnapshotLineV1[]): number {
-  return roundMoney(lines.reduce((sum, line) => sum + line.lineTotal, 0));
-}
-
-function normalizeSnapshotLines(
-  lines: OrderCommitSnapshotLineV1[]
-): OrderCommitSnapshotLineV1[] {
-  return lines
-    .map((line) => ({
-      ...line,
-      metadata: normalizeMetadataObject(line.metadata),
-    }))
-    .sort((left, right) =>
-      left.stableKey.localeCompare(right.stableKey) ||
-      left.lineId.localeCompare(right.lineId)
-    );
-}
-
-function normalizeMetadataObject(
-  metadata: Record<string, unknown>
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(metadata)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => [key, normalizeMetadataValue(value)])
-  );
-}
-
-function normalizeMetadataValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(normalizeMetadataValue);
-  }
-  if (isPlainMetadataObject(value)) {
-    return normalizeMetadataObject(value);
-  }
-  return value;
-}
-
-function isPlainMetadataObject(value: unknown): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object") return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
 }
 
 function nullableMoney(value: Prisma.Decimal | null): number | null {
