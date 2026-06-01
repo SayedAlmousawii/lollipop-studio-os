@@ -1,11 +1,18 @@
 export {
   ORDER_COMMIT_DRAFT_OPERATION_TYPE,
   ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+  ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
+  ORDER_COMMIT_DRAFT_STAGING_HISTORY_SCHEMA_VERSION,
 } from "./order-commit-draft.constants";
 export {
+  orderCommitDraftLineTargetSchema,
   orderCommitDraftOperationTypeSchema,
   orderCommitDraftOperationV1Schema,
   orderCommitDraftPendingOpsV1Schema,
+  orderCommitDraftStagingChangeSchema,
+  orderCommitDraftStagingDomainSchema,
+  orderCommitDraftStagingHistoryPayloadSchema,
+  orderCommitDraftStagingSnapshotReplacementOperationSchema,
 } from "./order-commit-draft.schema";
 export {
   ORDER_COMMIT_KIND,
@@ -56,10 +63,15 @@ export {
   type ReplaceOrderCommitDraftSnapshotInput,
 } from "./order-commit.service";
 export type {
+  OrderCommitDraftLineTarget,
   OrderCommitDraftOperationType,
   OrderCommitDraftOperationV1,
   OrderCommitDraftPendingOpsV1,
   OrderCommitDraftPendingSnapshotV1,
+  OrderCommitDraftStagingChange,
+  OrderCommitDraftStagingDomain,
+  OrderCommitDraftStagingHistoryPayload,
+  OrderCommitDraftStagingSnapshotReplacementOperation,
 } from "./order-commit-draft.types";
 export type {
   OrderCommitKind,

@@ -1,4 +1,12 @@
 import type { ORDER_COMMIT_DRAFT_OPERATION_TYPE } from "./order-commit-draft.constants";
+import type { z } from "zod";
+import type {
+  orderCommitDraftLineTargetSchema,
+  orderCommitDraftStagingChangeSchema,
+  orderCommitDraftStagingDomainSchema,
+  orderCommitDraftStagingHistoryPayloadSchema,
+  orderCommitDraftStagingSnapshotReplacementOperationSchema,
+} from "./order-commit-draft.schema";
 import type { OrderCommitSnapshotV1 } from "./order-commit.types";
 
 export type OrderCommitDraftOperationType =
@@ -18,3 +26,23 @@ export type OrderCommitDraftPendingOpsV1 = {
 };
 
 export type OrderCommitDraftPendingSnapshotV1 = OrderCommitSnapshotV1;
+
+export type OrderCommitDraftStagingDomain = z.infer<
+  typeof orderCommitDraftStagingDomainSchema
+>;
+
+export type OrderCommitDraftLineTarget = z.infer<
+  typeof orderCommitDraftLineTargetSchema
+>;
+
+export type OrderCommitDraftStagingChange = z.infer<
+  typeof orderCommitDraftStagingChangeSchema
+>;
+
+export type OrderCommitDraftStagingHistoryPayload = z.infer<
+  typeof orderCommitDraftStagingHistoryPayloadSchema
+>;
+
+export type OrderCommitDraftStagingSnapshotReplacementOperation = z.infer<
+  typeof orderCommitDraftStagingSnapshotReplacementOperationSchema
+>;

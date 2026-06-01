@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 122 Task 1 is complete: OrderCommitDraft staging-change contracts now cover package, add-on, package-item-upgrade, photo-count, and session-configuration domains while keeping `pendingSnapshotJson` as draft truth and storing typed staging history only inside generic snapshot-replacement history.
 - Spec 121 Phase 2 Task 5 is complete: OrderCommitDraft final regression guards now prove draft mutations stay isolated from pending snapshot/ops boundaries plus operational and financial rows, and the order-commit suite remains wired into `test:centralization`.
 - Spec 121 Phase 2 Task 4 is complete: OrderCommitDraft generic pending-operation history can append or replace operations by id with expected-version owner/manager mutation checks while leaving pending snapshots and operational/financial rows untouched.
 - Spec 121 Phase 2 Task 3 is complete: OrderCommitDraft snapshot replacement now validates the V1 pending snapshot identity, requires expected-version owner/manager mutation checks, increments draft version, and appends generic SNAPSHOT_REPLACED history without touching operational or financial rows.
@@ -96,6 +97,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **122 Task 1** — Added typed OrderCommitDraft staging-change and staging-history payload contracts for the five reducer domains, preserving generic pending operation types and documenting that typed history is audit/UX metadata rather than replayable business truth.
 - **121 Phase 2 Task 5** — Completed final OrderCommitDraft regression guards for pendingOps vs pendingSnapshot isolation, no invoice-line/public Adjustment Workspace source drift, no app/component DB imports, no draft mutation access to financial/operational mutation surfaces, and centralization-gate coverage.
 - **121 Phase 2 Task 4** — Added OrderCommitDraft generic pending-operation append/replace history with optimistic expected-version writes, owner/manager mutation authorization, and guards that pending snapshots remain unchanged.
 - **121 Phase 2 Task 3** — Added OrderCommitDraft snapshot replacement with V1 identity validation, optimistic expected-version writes, owner/manager mutation authorization, and generic SNAPSHOT_REPLACED history.
