@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 122 Task 8 is complete: the pure OrderCommit draft session-configuration reducer now stages financial selections, preserves zero-value operational selections, keeps linked-product selection/add-on lines coupled with draft vs materialized add-on identity, rejects orphaned linked-product ownership, and normalizes every output snapshot.
 - Spec 122 Task 7 is complete: the pure OrderCommit draft photo reducer now stages per-package selected/extra photo counts, preserves existing media-line unit prices, creates missing media-specific extra-photo lines from service-provided locked pricing input, removes zero-count media lines, enforces selected-photo parity invariants, avoids the order-level selected-photo cache, and normalizes every output snapshot.
 - Spec 122 Task 6 is complete: the pure OrderCommit draft package-item upgrade reducer now stages scoped item-upgrade lines, merges only by package plus package item, preserves stored unit prices on quantity updates, removes zero-quantity lines, rejects package-scope mismatches, and normalizes every output snapshot.
 - Spec 122 Task 5 is complete: the pure OrderCommit draft add-on reducer now stages true catalog add-on lines, increments duplicate scoped product adds, preserves stored unit prices on quantity updates, removes zero-quantity lines, protects linked-product session-configuration add-ons, and normalizes every output snapshot.
@@ -78,6 +79,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `session-configuration-selection.service.ts` is the sole production writer for per-package selection diffs and the only writer of selection-owned add-ons; manual deletion of selection-owned add-ons is blocked.
 - `session-configuration-pricing.ts` is the canonical snapshot-selection money path; `session-configuration-resolver.ts` gates live active required configs.
 - `OrderPackageSessionConfigurationSelection.orderAddOnId` links linked-product selections to real `OrderAddOn` rows. Locked historical selections retain old `SESSION_CONFIGURATION` invoice lines.
+- OrderCommit draft session-configuration staging is reducer-only: callers pass resolved selection/pricing/linked-product inputs, newly staged linked products use `draftOrderAddOnId`, and materialized linked products use `orderAddOnId`.
 - Admin CRUD lives at `/session-configurations` behind `PACKAGE_CATALOG_MANAGE`; `SessionConfiguration.code` is generated from session type code + name and frozen on update.
 
 ### Lifecycle / bookings
@@ -101,6 +103,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **122 Task 8** — Added the pure OrderCommitDraft session-configuration reducer for `SESSION_CONFIGURATION` staging, including financial selection pricing via resolved inputs, zero-value operational ownership lines, linked-product add-on pair creation/update/removal, draft vs materialized add-on identity protection, orphaned ownership guards, normalized output, and focused reducer coverage wired into `test:centralization`.
 - **122 Task 7** — Added the pure OrderCommitDraft selected/extra photo reducer for per-package `PHOTO` staging, including media-specific digital/print line maintenance, locked pricing on newly created extra-photo lines, stored unit-price preservation on updates, zero-count removal, selected-photo parity enforcement, no order-level selected-photo cache dependency, normalized output, and focused reducer coverage wired into `test:centralization`.
 - **122 Task 6** — Added the pure OrderCommitDraft package-item upgrade reducer for `PACKAGE_ITEM_UPGRADE` lines, including service-provided draft id identity, package-plus-item merge behavior, exact quantity updates, zero/removal behavior, package-scope mismatch rejection, normalized output, and focused reducer coverage wired into `test:centralization`.
 - **122 Task 5** — Added the pure OrderCommitDraft add-on reducer for true `ADD_ON` lines, including service-provided draft id identity, scoped product merge/increment behavior, exact quantity updates, zero/removal behavior, linked-product protection, normalized output, and focused reducer coverage wired into `test:centralization`.

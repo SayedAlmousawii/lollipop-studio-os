@@ -50,6 +50,12 @@ export {
   type ReduceOrderCommitDraftPhotoInput,
   type ResolvedOrderCommitDraftExtraPhotoPricing,
 } from "./order-commit-photo-reducer";
+export {
+  reduceOrderCommitDraftSessionConfiguration,
+  type ReduceOrderCommitDraftSessionConfigurationInput,
+  type ResolvedOrderCommitDraftLinkedProduct,
+  type ResolvedOrderCommitDraftSessionConfigurationSelection,
+} from "./order-commit-session-configuration-reducer";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
