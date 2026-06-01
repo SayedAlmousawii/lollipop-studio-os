@@ -12,7 +12,7 @@ Current schema-facing notes for implementation work. This document records non-o
 
 `OrderCommitDraft` is the additive pending snapshot boundary for Unified Order Commit. V1 allows one active draft per `Order`, stores `pendingSnapshotJson` as the same V1 `OrderCommit` snapshot contract, and stores `pendingOpsJson` as generic history metadata only.
 
-Spec 121 Task 1 does not add lifecycle helpers, POS routing, invoice/payment behavior, or domain-specific staging reducers. Draft rows are schema/contract foundation only until later Phase 2 tasks wire creation, mutation, and commit behavior.
+Spec 121 Task 2 adds lifecycle helpers that load one active draft by order, initialize a missing draft from the latest `OrderCommit` snapshot or current operational `Order*` rows, and discard drafts with expected-version plus owner/manager mutation checks. Draft lifecycle writes do not change POS routing, invoice/payment behavior, operational ownership rows, or domain-specific staging reducers.
 
 ## Adjustment Workspace Materialization
 

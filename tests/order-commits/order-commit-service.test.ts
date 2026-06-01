@@ -5,13 +5,20 @@ import {
   backfillOrderCommitsForFinanciallyCommittedOrders,
   bootstrapOrderCommitIfMissing,
   createOrderCommitSnapshot,
+  discardOrderCommitDraft,
+  getOrCreateOrderCommitDraft,
   getLatestCommittedOrderSnapshot,
+  getOrderCommitDraft,
+  ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_STATUS,
   type BackfillOrderCommitsForFinanciallyCommittedOrdersInput,
   type BootstrapOrderCommitIfMissingInput,
   type CreateOrderCommitSnapshotInput,
+  type DiscardOrderCommitDraftInput,
   type GetLatestCommittedOrderSnapshotInput,
+  type GetOrCreateOrderCommitDraftInput,
+  type GetOrderCommitDraftInput,
   type OrderCommitSnapshotV1,
 } from "@/modules/order-commits";
 import type { ActorContext } from "@/lib/auth/actor-context";
@@ -130,6 +137,140 @@ test("bootstrap creates sequence 1 with bootstrap metadata when missing", async 
     reason: "phase_1_bootstrap",
   });
   assert.equal(client.commits.length, 1);
+});
+
+test("getOrCreate creates a first-commit draft from current operational rows", async () => {
+  const client = fakeOrderCommitClient();
+
+  const draft = await getOrCreateOrderCommitDraft({
+    orderId: "order-1",
+    actorContext,
+    client: client.draftRoot,
+  });
+
+  assert.equal(draft.draft.orderId, "order-1");
+  assert.equal(draft.draft.financialCaseId, "financial-case-order-1");
+  assert.equal(draft.draft.baseCommitId, null);
+  assert.equal(draft.draft.version, 0);
+  assert.equal(draft.draft.ownerUserId, "user-1");
+  assert.equal(draft.pendingSnapshot.lines.length, 5);
+  assert.equal(draft.pendingSnapshot.financialCaseId, "financial-case-order-1");
+  assert.deepEqual(draft.pendingOps, {
+    schemaVersion: ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+    operations: [],
+  });
+  assert.equal(client.drafts.length, 1);
+});
+
+test("getOrCreate draft uses the latest committed snapshot when one exists", async () => {
+  const latestSnapshot = fakeSnapshot({
+    orderId: "order-1",
+    financialCaseId: "financial-case-order-1",
+  });
+  const client = fakeOrderCommitClient({
+    commits: [
+      fakeCommit({
+        id: "commit-1",
+        orderId: "order-1",
+        financialCaseId: "financial-case-order-1",
+        sequence: 1,
+      }),
+      fakeCommit({
+        id: "commit-2",
+        orderId: "order-1",
+        financialCaseId: "financial-case-order-1",
+        sequence: 2,
+        snapshotJson: latestSnapshot,
+      }),
+    ],
+  });
+
+  const draft = await getOrCreateOrderCommitDraft({
+    orderId: "order-1",
+    actorContext,
+    client: client.draftRoot,
+  });
+
+  assert.equal(draft.draft.baseCommitId, "commit-2");
+  assert.deepEqual(draft.pendingSnapshot, latestSnapshot);
+});
+
+test("repeated getOrCreate returns the same active draft", async () => {
+  const client = fakeOrderCommitClient();
+
+  const first = await getOrCreateOrderCommitDraft({
+    orderId: "order-1",
+    actorContext,
+    client: client.draftRoot,
+  });
+  const second = await getOrCreateOrderCommitDraft({
+    orderId: "order-1",
+    actorContext: {
+      actorUserId: "user-2",
+      actorRole: UserRole.RECEPTIONIST,
+    },
+    client: client.draftRoot,
+  });
+  const loaded = await getOrderCommitDraft({
+    orderId: "order-1",
+    client: client.draftRead,
+  });
+
+  assert.equal(second.draft.id, first.draft.id);
+  assert.equal(second.draft.ownerUserId, "user-1");
+  assert.equal(loaded?.draft.id, first.draft.id);
+  assert.equal(client.drafts.length, 1);
+});
+
+test("discard rejects stale expectedVersion and keeps the draft", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1", version: 2 })],
+  });
+
+  await assert.rejects(
+    discardOrderCommitDraft({
+      orderId: "order-1",
+      expectedVersion: 1,
+      actorContext,
+      client: client.draftRoot,
+    }),
+    /stale expectedVersion/
+  );
+
+  assert.equal(client.drafts.length, 1);
+});
+
+test("discard enforces owner or manager mutation rules", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1", ownerUserId: "owner-user" })],
+  });
+
+  await assert.rejects(
+    discardOrderCommitDraft({
+      orderId: "order-1",
+      expectedVersion: 0,
+      actorContext: {
+        actorUserId: "user-2",
+        actorRole: UserRole.RECEPTIONIST,
+      },
+      client: client.draftRoot,
+    }),
+    /cannot mutate draft/
+  );
+  assert.equal(client.drafts.length, 1);
+
+  const discarded = await discardOrderCommitDraft({
+    orderId: "order-1",
+    expectedVersion: 0,
+    actorContext: {
+      actorUserId: "manager-user",
+      actorRole: UserRole.MANAGER,
+    },
+    client: client.draftRoot,
+  });
+
+  assert.equal(discarded.draft.id, "draft-1");
+  assert.equal(client.drafts.length, 0);
 });
 
 test("backfill creates commits only for financially committed orders", async () => {
@@ -390,6 +531,45 @@ type FakeOrderCommitCreateArgs = {
   };
 };
 
+type FakeOrderCommitDraftRow = {
+  id: string;
+  orderId: string;
+  financialCaseId: string;
+  baseCommitId: string | null;
+  pendingSnapshotVersion: number;
+  pendingSnapshotJson: unknown;
+  pendingOpsJson: unknown;
+  version: number;
+  ownerUserId: string;
+  openedByUserId: string;
+  lastTouchedByUserId: string;
+  legacyAdjustmentWorkspaceId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type FakeOrderCommitDraftFindUniqueArgs = {
+  where: { orderId?: string; id?: string };
+};
+
+type FakeOrderCommitDraftCreateArgs = {
+  data: {
+    orderId: string;
+    financialCaseId: string;
+    baseCommitId: string | null;
+    pendingSnapshotVersion: number;
+    pendingSnapshotJson: unknown;
+    pendingOpsJson: unknown;
+    ownerUserId: string;
+    openedByUserId: string;
+    lastTouchedByUserId: string;
+  };
+};
+
+type FakeOrderCommitDraftDeleteManyArgs = {
+  where: { id: string; version: number };
+};
+
 type FakeInvoiceHeader = {
   invoiceType: InvoiceType;
   isLocked: boolean;
@@ -424,11 +604,13 @@ type MutableCatalogPrices = {
 function fakeOrderCommitClient(
   options: {
     commits?: FakeOrderCommitRow[];
+    drafts?: FakeOrderCommitDraftRow[];
     orders?: FakeBackfillOrder[];
     catalog?: MutableCatalogPrices;
   } = {}
 ) {
   const commits = [...(options.commits ?? [])];
+  const drafts = [...(options.drafts ?? [])];
   const orders = options.orders ?? [
     fakeOrder({ id: "order-1", invoices: [] }),
   ];
@@ -519,11 +701,50 @@ function fakeOrderCommitClient(
         return row;
       },
     },
+    orderCommitDraft: {
+      findUnique: async (args: FakeOrderCommitDraftFindUniqueArgs) =>
+        drafts.find((draft) => {
+          if (args.where.orderId) return draft.orderId === args.where.orderId;
+          if (args.where.id) return draft.id === args.where.id;
+          return false;
+        }) ?? null,
+      create: async (args: FakeOrderCommitDraftCreateArgs) => {
+        const now = new Date("2026-06-01T10:00:00.000Z");
+        const row: FakeOrderCommitDraftRow = {
+          id: `draft-${drafts.length + 1}`,
+          orderId: args.data.orderId,
+          financialCaseId: args.data.financialCaseId,
+          baseCommitId: args.data.baseCommitId,
+          pendingSnapshotVersion: args.data.pendingSnapshotVersion,
+          pendingSnapshotJson: args.data.pendingSnapshotJson,
+          pendingOpsJson: args.data.pendingOpsJson,
+          version: 0,
+          ownerUserId: args.data.ownerUserId,
+          openedByUserId: args.data.openedByUserId,
+          lastTouchedByUserId: args.data.lastTouchedByUserId,
+          legacyAdjustmentWorkspaceId: null,
+          createdAt: now,
+          updatedAt: now,
+        };
+        drafts.push(row);
+        return row;
+      },
+      deleteMany: async (args: FakeOrderCommitDraftDeleteManyArgs) => {
+        const index = drafts.findIndex(
+          (draft) =>
+            draft.id === args.where.id && draft.version === args.where.version
+        );
+        if (index === -1) return { count: 0 };
+        drafts.splice(index, 1);
+        return { count: 1 };
+      },
+    },
     $transaction: async <T>(fn: (transaction: unknown) => Promise<T>) => fn(root),
   };
 
   return {
     commits,
+    drafts,
     get invoiceLineItemSelectAttempted() {
       return invoiceLineItemSelectAttempted;
     },
@@ -534,6 +755,11 @@ function fakeOrderCommitClient(
       | CreateOrderCommitSnapshotInput["client"]
       | BootstrapOrderCommitIfMissingInput["client"]
       | BackfillOrderCommitsForFinanciallyCommittedOrdersInput["client"]
+    >,
+    draftRead: root as unknown as NonNullable<GetOrderCommitDraftInput["client"]>,
+    draftRoot: root as unknown as NonNullable<
+      | GetOrCreateOrderCommitDraftInput["client"]
+      | DiscardOrderCommitDraftInput["client"]
     >,
   };
 }
@@ -641,6 +867,34 @@ function fakeCommit(
     metadataJson: overrides.metadataJson ?? {},
     committedAt: overrides.committedAt ?? now,
     committedByUserId: overrides.committedByUserId ?? "user-1",
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+  };
+}
+
+function fakeDraft(overrides: Partial<FakeOrderCommitDraftRow> & { id: string }) {
+  const now = new Date("2026-06-01T09:30:00.000Z");
+  const orderId = overrides.orderId ?? "order-1";
+  const financialCaseId = overrides.financialCaseId ?? "financial-case-1";
+  return {
+    id: overrides.id,
+    orderId,
+    financialCaseId,
+    baseCommitId: overrides.baseCommitId ?? null,
+    pendingSnapshotVersion: overrides.pendingSnapshotVersion ?? 1,
+    pendingSnapshotJson:
+      overrides.pendingSnapshotJson ?? fakeSnapshot({ orderId, financialCaseId }),
+    pendingOpsJson:
+      overrides.pendingOpsJson ??
+      {
+        schemaVersion: ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+        operations: [],
+      },
+    version: overrides.version ?? 0,
+    ownerUserId: overrides.ownerUserId ?? "user-1",
+    openedByUserId: overrides.openedByUserId ?? "user-1",
+    lastTouchedByUserId: overrides.lastTouchedByUserId ?? "user-1",
+    legacyAdjustmentWorkspaceId: overrides.legacyAdjustmentWorkspaceId ?? null,
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
   };

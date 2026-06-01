@@ -29,6 +29,14 @@ import {
   orderCommitSnapshotV1Schema,
   orderCommitStatusSchema,
 } from "./order-commit.schema";
+import {
+  ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+} from "./order-commit-draft.constants";
+import { orderCommitDraftPendingOpsV1Schema } from "./order-commit-draft.schema";
+import type {
+  OrderCommitDraftPendingOpsV1,
+  OrderCommitDraftPendingSnapshotV1,
+} from "./order-commit-draft.types";
 import type {
   OrderCommitKind,
   OrderCommitStatus,
@@ -44,6 +52,10 @@ type OrderCommitReadClient =
   | Pick<PrismaClient, "orderCommit">
   | Pick<Prisma.TransactionClient, "orderCommit">;
 
+type OrderCommitDraftReadClient =
+  | Pick<PrismaClient, "orderCommitDraft">
+  | Pick<Prisma.TransactionClient, "orderCommitDraft">;
+
 type OrderCommitTransactionClient = Pick<
   Prisma.TransactionClient,
   "order" | "orderCommit" | "sessionTypeExtraPhotoPricing"
@@ -56,6 +68,17 @@ type OrderCommitRootClient = OrderCommitTransactionClient & {
 };
 
 type OrderCommitBackfillClient = OrderCommitRootClient;
+
+type OrderCommitDraftTransactionClient = Pick<
+  Prisma.TransactionClient,
+  "order" | "orderCommit" | "orderCommitDraft" | "sessionTypeExtraPhotoPricing"
+>;
+
+type OrderCommitDraftRootClient = OrderCommitDraftTransactionClient & {
+  $transaction<T>(
+    fn: (transaction: OrderCommitDraftTransactionClient) => Promise<T>
+  ): Promise<T>;
+};
 
 type OrderCommitRow = {
   id: string;
@@ -78,9 +101,47 @@ export type CommittedOrderSnapshot = {
   snapshot: OrderCommitSnapshotV1;
 };
 
+export type OrderCommitDraftRow = {
+  id: string;
+  orderId: string;
+  financialCaseId: string;
+  baseCommitId: string | null;
+  pendingSnapshotVersion: number;
+  version: number;
+  ownerUserId: string;
+  openedByUserId: string;
+  lastTouchedByUserId: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type OrderCommitDraftState = {
+  draft: OrderCommitDraftRow;
+  pendingSnapshot: OrderCommitDraftPendingSnapshotV1;
+  pendingOps: OrderCommitDraftPendingOpsV1;
+};
+
 export type GetLatestCommittedOrderSnapshotInput =
   | { orderId: string; financialCaseId?: never; client?: OrderCommitReadClient }
   | { financialCaseId: string; orderId?: never; client?: OrderCommitReadClient };
+
+export type GetOrderCommitDraftInput = {
+  orderId: string;
+  client?: OrderCommitDraftReadClient;
+};
+
+export type GetOrCreateOrderCommitDraftInput = {
+  orderId: string;
+  actorContext: ActorContext;
+  client?: OrderCommitDraftRootClient;
+};
+
+export type DiscardOrderCommitDraftInput = {
+  orderId: string;
+  expectedVersion: number;
+  actorContext: ActorContext;
+  client?: OrderCommitDraftRootClient;
+};
 
 export type CreateOrderCommitSnapshotInput = {
   orderId: string;
@@ -133,6 +194,26 @@ const orderCommitRowSelect = {
 
 type SelectedOrderCommitRow = Prisma.OrderCommitGetPayload<{
   select: typeof orderCommitRowSelect;
+}>;
+
+const orderCommitDraftRowSelect = {
+  id: true,
+  orderId: true,
+  financialCaseId: true,
+  baseCommitId: true,
+  pendingSnapshotVersion: true,
+  pendingSnapshotJson: true,
+  pendingOpsJson: true,
+  version: true,
+  ownerUserId: true,
+  openedByUserId: true,
+  lastTouchedByUserId: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.OrderCommitDraftSelect;
+
+type SelectedOrderCommitDraftRow = Prisma.OrderCommitDraftGetPayload<{
+  select: typeof orderCommitDraftRowSelect;
 }>;
 
 const orderCommitSnapshotOrderSelect = {
@@ -233,6 +314,77 @@ export async function getLatestCommittedOrderSnapshot(
   const client = input.client ?? (await loadDefaultOrderCommitReadClient());
   const row = await findLatestCommittedOrderSnapshotRow(client, input);
   return row ? parseCommittedOrderSnapshot(row) : null;
+}
+
+export async function getOrderCommitDraft(
+  input: GetOrderCommitDraftInput
+): Promise<OrderCommitDraftState | null> {
+  const client = input.client ?? (await loadDefaultOrderCommitDraftReadClient());
+  const row = await client.orderCommitDraft.findUnique({
+    where: { orderId: input.orderId },
+    select: orderCommitDraftRowSelect,
+  });
+
+  return row ? parseOrderCommitDraft(row) : null;
+}
+
+export async function getOrCreateOrderCommitDraft(
+  input: GetOrCreateOrderCommitDraftInput
+): Promise<OrderCommitDraftState> {
+  assertValidDraftActor(input.actorContext, "create OrderCommitDraft");
+  const client = input.client ?? (await loadDefaultOrderCommitDraftRootClient());
+
+  return withRetry(
+    () =>
+      client.$transaction(async (transaction) => {
+        const existing = await transaction.orderCommitDraft.findUnique({
+          where: { orderId: input.orderId },
+          select: orderCommitDraftRowSelect,
+        });
+        if (existing) return parseOrderCommitDraft(existing);
+
+        return createOrderCommitDraftWithTransaction(transaction, {
+          orderId: input.orderId,
+          actorContext: input.actorContext,
+        });
+      }),
+    "OrderCommitDraft creation failed",
+    3,
+    isUniqueOrderCommitDraftOrderConflict
+  );
+}
+
+export async function discardOrderCommitDraft(
+  input: DiscardOrderCommitDraftInput
+): Promise<OrderCommitDraftState> {
+  assertValidDraftActor(input.actorContext, "discard OrderCommitDraft");
+  const client = input.client ?? (await loadDefaultOrderCommitDraftRootClient());
+
+  return client.$transaction(async (transaction) => {
+    const existing = await transaction.orderCommitDraft.findUnique({
+      where: { orderId: input.orderId },
+      select: orderCommitDraftRowSelect,
+    });
+    if (!existing) {
+      throw new Error(
+        `OrderCommitDraft discard failed: draft for order ${input.orderId} was not found.`
+      );
+    }
+
+    assertDraftExpectedVersion(existing, input.expectedVersion, "discard");
+    assertDraftMutationAllowed(existing, input.actorContext, "discard");
+
+    const deleted = await transaction.orderCommitDraft.deleteMany({
+      where: { id: existing.id, version: input.expectedVersion },
+    });
+    if (deleted.count !== 1) {
+      throw new Error(
+        `OrderCommitDraft discard failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.id}.`
+      );
+    }
+
+    return parseOrderCommitDraft(existing);
+  });
 }
 
 export async function createOrderCommitSnapshot(
@@ -524,9 +676,19 @@ async function loadDefaultOrderCommitReadClient(): Promise<OrderCommitReadClient
   return db;
 }
 
+async function loadDefaultOrderCommitDraftReadClient(): Promise<OrderCommitDraftReadClient> {
+  const { db } = await import("@/lib/db");
+  return db;
+}
+
 async function loadDefaultOrderCommitRootClient(): Promise<OrderCommitRootClient> {
   const { db } = await import("@/lib/db");
   return db as unknown as OrderCommitRootClient;
+}
+
+async function loadDefaultOrderCommitDraftRootClient(): Promise<OrderCommitDraftRootClient> {
+  const { db } = await import("@/lib/db");
+  return db as unknown as OrderCommitDraftRootClient;
 }
 
 function defaultBackfillActorContext(): ActorContext {
@@ -556,15 +718,157 @@ function isUniqueOrderCommitSequenceConflict(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002" &&
-    isOrderCommitSequenceTarget(error.meta?.target)
+    isUniqueTarget(error.meta?.target, ["orderId", "sequence"], "orderId_sequence")
   );
 }
 
-function isOrderCommitSequenceTarget(target: unknown): boolean {
+function isUniqueOrderCommitDraftOrderConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002" &&
+    isUniqueTarget(error.meta?.target, ["orderId"], "orderId")
+  );
+}
+
+function isUniqueTarget(
+  target: unknown,
+  fields: string[],
+  fallbackName: string
+): boolean {
   if (Array.isArray(target)) {
-    return target.includes("orderId") && target.includes("sequence");
+    return fields.every((field) => target.includes(field));
   }
-  return typeof target === "string" && target.includes("orderId_sequence");
+  return typeof target === "string" && target.includes(fallbackName);
+}
+
+async function createOrderCommitDraftWithTransaction(
+  transaction: OrderCommitDraftTransactionClient,
+  input: {
+    orderId: string;
+    actorContext: ActorContext;
+  }
+): Promise<OrderCommitDraftState> {
+  const order = await transaction.order.findUnique({
+    where: { id: input.orderId },
+    select: {
+      id: true,
+      booking: {
+        select: {
+          financialCase: { select: { id: true } },
+        },
+      },
+    },
+  });
+
+  if (!order) {
+    throw new Error(
+      `OrderCommitDraft creation failed: order ${input.orderId} was not found.`
+    );
+  }
+  const financialCaseId = order.booking.financialCase?.id;
+  if (!financialCaseId) {
+    throw new Error(
+      `OrderCommitDraft creation failed: order ${input.orderId} has no FinancialCase.`
+    );
+  }
+
+  const latest = await findLatestCommittedOrderSnapshotRow(transaction, {
+    orderId: input.orderId,
+  });
+  const baseSnapshot = latest
+    ? parseCommittedOrderSnapshot(latest).snapshot
+    : await captureOrderCommitSnapshotFromOrderRows({
+        orderId: input.orderId,
+        client: transaction,
+      });
+
+  if (baseSnapshot.orderId !== input.orderId || baseSnapshot.financialCaseId !== financialCaseId) {
+    throw new Error(
+      `OrderCommitDraft creation failed: order ${input.orderId} resolved inconsistent snapshot identity.`
+    );
+  }
+
+  const pendingOps: OrderCommitDraftPendingOpsV1 = {
+    schemaVersion: ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+    operations: [],
+  };
+  const row = await transaction.orderCommitDraft.create({
+    data: {
+      orderId: input.orderId,
+      financialCaseId,
+      baseCommitId: latest?.id ?? null,
+      pendingSnapshotVersion: ORDER_COMMIT_SNAPSHOT_VERSION,
+      pendingSnapshotJson: baseSnapshot as unknown as Prisma.InputJsonValue,
+      pendingOpsJson: pendingOps as unknown as Prisma.InputJsonValue,
+      ownerUserId: input.actorContext.actorUserId,
+      openedByUserId: input.actorContext.actorUserId,
+      lastTouchedByUserId: input.actorContext.actorUserId,
+    },
+    select: orderCommitDraftRowSelect,
+  });
+
+  return parseOrderCommitDraft(row);
+}
+
+function parseOrderCommitDraft(
+  row: SelectedOrderCommitDraftRow
+): OrderCommitDraftState {
+  return {
+    draft: {
+      id: row.id,
+      orderId: row.orderId,
+      financialCaseId: row.financialCaseId,
+      baseCommitId: row.baseCommitId,
+      pendingSnapshotVersion: row.pendingSnapshotVersion,
+      version: row.version,
+      ownerUserId: row.ownerUserId,
+      openedByUserId: row.openedByUserId,
+      lastTouchedByUserId: row.lastTouchedByUserId,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    },
+    pendingSnapshot: orderCommitSnapshotV1Schema.parse(row.pendingSnapshotJson),
+    pendingOps: orderCommitDraftPendingOpsV1Schema.parse(row.pendingOpsJson),
+  };
+}
+
+function assertValidDraftActor(actorContext: ActorContext, action: string): void {
+  if (!actorContext.actorUserId.trim()) {
+    throw new Error(`Cannot ${action}: actorUserId is required.`);
+  }
+  if (!actorContext.actorRole) {
+    throw new Error(`Cannot ${action}: actorRole is required.`);
+  }
+}
+
+function assertDraftExpectedVersion(
+  draft: SelectedOrderCommitDraftRow,
+  expectedVersion: number,
+  action: string
+): void {
+  if (draft.version !== expectedVersion) {
+    throw new Error(
+      `OrderCommitDraft ${action} failed: stale expectedVersion ${expectedVersion} for draft ${draft.id}; current version is ${draft.version}.`
+    );
+  }
+}
+
+function assertDraftMutationAllowed(
+  draft: SelectedOrderCommitDraftRow,
+  actorContext: ActorContext,
+  action: string
+): void {
+  if (
+    draft.ownerUserId === actorContext.actorUserId ||
+    actorContext.actorRole === UserRole.ADMIN ||
+    actorContext.actorRole === UserRole.MANAGER
+  ) {
+    return;
+  }
+
+  throw new Error(
+    `OrderCommitDraft ${action} failed: actor ${actorContext.actorUserId} cannot mutate draft ${draft.id}.`
+  );
 }
 
 type CapturedOrderPackage = CapturedOrder["packages"][number];
