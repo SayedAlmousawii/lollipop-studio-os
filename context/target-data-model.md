@@ -18,6 +18,8 @@ Spec 121 Task 3 adds snapshot replacement for an existing draft. Replacement par
 
 Spec 121 Task 4 adds generic pending-operation history mutation. The helper appends a parsed V1 operation or replaces an existing operation with the same operation id, requires expected-version plus owner/manager mutation checks, increments the draft `version`, and updates `lastTouchedByUserId`. It does not change `pendingSnapshotJson`, interpret operations as business reducers, read catalog/order domain rows for diffs, or mutate operational or financial rows.
 
+Spec 122 Task 1 adds typed staging-change contracts for package, add-on, package-item-upgrade, photo-count, and session-configuration draft staging. These contracts are service input commands only. After a stage request succeeds, the replacement `pendingSnapshotJson` remains the durable draft business truth. `pendingOpsJson` keeps generic `SNAPSHOT_REPLACED` / `NOTE_APPENDED` operations; domain staging history is stored as a typed payload on snapshot-replacement history and must not be replayed as the source for commit preview, commit execution, or draft reconstruction.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.

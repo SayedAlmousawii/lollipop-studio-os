@@ -12,9 +12,14 @@ import {
   getLatestCommittedOrderSnapshot,
   getOrderCommitDraft,
   replaceOrderCommitDraftSnapshot,
+  stageOrderCommitDraftChange,
   ORDER_COMMIT_DRAFT_OPERATION_TYPE,
   ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+  ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
   ORDER_COMMIT_KIND,
+  ORDER_COMMIT_ORDER_ENTITY_KIND,
+  ORDER_COMMIT_PRICE_SOURCE,
+  ORDER_COMMIT_SNAPSHOT_LINE_KIND,
   ORDER_COMMIT_STATUS,
   type BackfillOrderCommitsForFinanciallyCommittedOrdersInput,
   type BootstrapOrderCommitIfMissingInput,
@@ -26,6 +31,7 @@ import {
   type OrderCommitSnapshotV1,
   type AppendOrderCommitDraftOperationInput,
   type ReplaceOrderCommitDraftSnapshotInput,
+  type StageOrderCommitDraftChangeInput,
 } from "@/modules/order-commits";
 import type { ActorContext } from "@/lib/auth/actor-context";
 
@@ -809,6 +815,202 @@ test("append operation enforces owner or manager mutation rules", async () => {
   );
 });
 
+test("stage change rejects stale expectedVersion before changing draft state", async () => {
+  const originalSnapshot = fakeStagingSnapshot();
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        version: 2,
+        pendingSnapshotJson: originalSnapshot,
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    stageOrderCommitDraftChange({
+      orderId: "order-1",
+      change: {
+        domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO,
+        action: "SET_COUNTS",
+        target: { stableKey: "order-package:op-order-1" },
+        selectedPhotoCount: 12,
+        extraDigitalCount: 1,
+        extraPrintCount: 1,
+      },
+      expectedVersion: 1,
+      actorContext,
+      client: client.draftRoot,
+    }),
+    /stale expectedVersion/
+  );
+
+  assert.equal(client.drafts[0]?.version, 2);
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, originalSnapshot);
+  assert.deepEqual(
+    client.drafts[0]?.pendingOpsJson,
+    emptyPendingOps()
+  );
+});
+
+test("stage change enforces owner or manager rules through replacement path", async () => {
+  const originalSnapshot = fakeStagingSnapshot();
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        ownerUserId: "owner-user",
+        pendingSnapshotJson: originalSnapshot,
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    stageOrderCommitDraftChange({
+      orderId: "order-1",
+      change: {
+        domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO,
+        action: "SET_COUNTS",
+        target: { stableKey: "order-package:op-order-1" },
+        selectedPhotoCount: 12,
+        extraDigitalCount: 1,
+        extraPrintCount: 1,
+      },
+      expectedVersion: 0,
+      actorContext: {
+        actorUserId: "user-2",
+        actorRole: UserRole.RECEPTIONIST,
+      },
+      client: client.draftRoot,
+    }),
+    /cannot mutate draft/
+  );
+
+  assert.equal(client.drafts[0]?.version, 0);
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, originalSnapshot);
+  assert.deepEqual(client.drafts[0]?.pendingOpsJson, emptyPendingOps());
+});
+
+test("stage change persists through snapshot replacement with one history operation", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        ownerUserId: "owner-user",
+        pendingSnapshotJson: fakeStagingSnapshot(),
+      }),
+    ],
+  });
+
+  const staged = await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:op-order-1" },
+      packageId: "package-new",
+      intendedPhotoOutcome: {
+        selectedPhotoCount: 13,
+        extraDigitalCount: 1,
+        extraPrintCount: 1,
+      },
+    },
+    expectedVersion: 0,
+    actorContext: {
+      actorUserId: "manager-user",
+      actorRole: UserRole.MANAGER,
+    },
+    client: client.draftRoot,
+  });
+
+  const packageLine = requireSnapshotLine(
+    staged.pendingSnapshot,
+    "order-package:op-order-1"
+  );
+  assert.equal(staged.draft.version, 1);
+  assert.equal(staged.draft.lastTouchedByUserId, "manager-user");
+  assert.equal(packageLine.catalogEntityId, "package-new");
+  assert.equal(packageLine.metadata.includedPhotoCount, 11);
+  assert.equal(packageLine.metadata.selectedPhotoCount, 13);
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, staged.pendingSnapshot);
+  assert.equal(staged.pendingOps.operations.length, 1);
+  assert.equal(
+    staged.pendingOps.operations[0]?.type,
+    ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED
+  );
+  assert.equal(
+    staged.pendingOps.operations[0]?.payload.historyKind,
+    "STAGING_CHANGE"
+  );
+  assert.equal(
+    staged.pendingOps.operations[0]?.payload.domain,
+    ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE
+  );
+
+  const loaded = await getOrderCommitDraft({
+    orderId: "order-1",
+    client: client.draftRead,
+  });
+  assert.deepEqual(loaded?.pendingSnapshot, staged.pendingSnapshot);
+  assert.deepEqual(loaded?.pendingOps, staged.pendingOps);
+
+  const adminStaged = await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+      action: "ADD",
+      parentPackageTarget: { stableKey: "order-package:op-order-1" },
+      productId: "product-stage",
+      quantity: 2,
+    },
+    expectedVersion: 1,
+    actorContext: {
+      actorUserId: "admin-user",
+      actorRole: UserRole.ADMIN,
+    },
+    client: client.draftRoot,
+  });
+  const addedLine = adminStaged.pendingSnapshot.lines.find(
+    (line) => line.catalogEntityId === "product-stage"
+  );
+  assert.equal(adminStaged.draft.version, 2);
+  assert.equal(adminStaged.pendingOps.operations.length, 2);
+  assert.equal(addedLine?.orderEntityId.startsWith("draft:"), true);
+  assert.equal(addedLine?.quantity, 2);
+  assert.equal(addedLine?.unitPrice, 33);
+});
+
+test("stage change leaves operational and financial rows untouched", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: fakeStagingSnapshot(),
+      }),
+    ],
+  });
+  const beforeOperational = await captureOperationalSnapshot(client);
+  const beforeFinancialRows = client.financialRowsSnapshot();
+
+  const staged = await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+      action: "ADD",
+      parentPackageTarget: { stableKey: "order-package:op-order-1" },
+      productId: "product-stage",
+      quantity: 1,
+    },
+    expectedVersion: 0,
+    actorContext,
+    client: client.draftRoot,
+  });
+
+  assert.notDeepEqual(staged.pendingSnapshot, fakeStagingSnapshot());
+  assert.deepEqual(await captureOperationalSnapshot(client), beforeOperational);
+  assert.deepEqual(client.financialRowsSnapshot(), beforeFinancialRows);
+});
+
 test("backfill creates commits only for financially committed orders", async () => {
   const client = fakeOrderCommitClient({
     orders: [
@@ -1150,6 +1352,10 @@ type FakeOrderFindUniqueArgs = {
   where: { id: string };
 };
 
+type FakeCatalogFindUniqueArgs = {
+  where: { id: string };
+};
+
 type MutableCatalogPrices = {
   packagePrice: Prisma.Decimal;
   productPrice: Prisma.Decimal;
@@ -1210,6 +1416,50 @@ function fakeOrderCommitClient(
           ...fakeOperationalRows(args.where.id, catalog),
         };
       },
+    },
+    package: {
+      findUnique: async (args: FakeCatalogFindUniqueArgs) => {
+        if (args.where.id !== "package-new") return null;
+        return {
+          id: "package-new",
+          name: "Composite Package",
+          price: decimal("200.000"),
+          photoCount: 11,
+          isActive: true,
+          packageFamily: {
+            sessionType: {
+              id: "session-type-1",
+              name: "Portrait",
+            },
+          },
+        };
+      },
+    },
+    product: {
+      findUnique: async (args: FakeCatalogFindUniqueArgs) => {
+        if (args.where.id !== "product-stage") return null;
+        return {
+          id: "product-stage",
+          name: "Framed Desk Print",
+          canonicalPrice: decimal("33.000"),
+          isActive: true,
+          isAddOn: true,
+        };
+      },
+    },
+    packageItem: {
+      findUnique: async (args: FakeCatalogFindUniqueArgs) => {
+        if (args.where.id !== "package-item-stage") return null;
+        return {
+          id: "package-item-stage",
+          packageId: "package-new",
+          priceSnapshot: decimal("44.000"),
+          product: { name: "Premium Album Spread" },
+        };
+      },
+    },
+    sessionConfiguration: {
+      findUnique: async () => null,
     },
     sessionTypeExtraPhotoPricing: {
       findMany: async () => [
@@ -1348,6 +1598,7 @@ function fakeOrderCommitClient(
       | GetOrCreateOrderCommitDraftInput["client"]
       | DiscardOrderCommitDraftInput["client"]
       | ReplaceOrderCommitDraftSnapshotInput["client"]
+      | StageOrderCommitDraftChangeInput["client"]
     >,
     snapshotClient: root as unknown as NonNullable<
       Parameters<typeof captureOrderCommitSnapshotFromOrderRows>[0]["client"]
@@ -1561,6 +1812,108 @@ function fakeSnapshot(input: {
       discountTotal: 0,
       netTotal: 0,
     },
+  };
+}
+
+function fakeStagingSnapshot(
+  input: {
+    orderId?: string;
+    financialCaseId?: string;
+    capturedAt?: string;
+  } = {}
+): OrderCommitSnapshotV1 {
+  const orderId = input.orderId ?? "order-1";
+  const financialCaseId = input.financialCaseId ?? "financial-case-1";
+  const orderPackageId = "op-order-1";
+  return {
+    schemaVersion: "order_commit_snapshot_v1",
+    orderId,
+    financialCaseId,
+    capturedAt: input.capturedAt ?? "2026-06-01T09:00:00.000Z",
+    currency: "KWD",
+    lines: [
+      {
+        lineId: `package:${orderPackageId}`,
+        lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE,
+        orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE,
+        orderEntityId: orderPackageId,
+        parentOrderPackageId: null,
+        catalogEntityId: "pkg-current-order-1",
+        stableKey: `order-package:${orderPackageId}`,
+        label: "Operational Package order-1",
+        quantity: 1,
+        unitPrice: 150,
+        lineTotal: 150,
+        priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
+        metadata: {
+          originalPackageId: "pkg-original-order-1",
+          originalPackageNameSnapshot: "Original Package order-1",
+          originalPackagePriceSnapshot: 100,
+          bookingPackageId: "booking-package-order-1",
+          currentPackageId: "pkg-current-order-1",
+          currentPackageNameSnapshot: "Operational Package order-1",
+          finalPackagePriceSnapshot: 150,
+          selectedPhotoCount: 12,
+          includedPhotoCount: 10,
+          extraDigitalCount: 1,
+          extraPrintCount: 1,
+          sessionTypeId: "session-type-1",
+          sessionTypeName: "Portrait",
+          sortOrder: 1,
+        },
+      },
+      {
+        lineId: `extra-photo:${orderPackageId}:digital`,
+        lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA,
+        orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE_PHOTO_EXTRA,
+        orderEntityId: `${orderPackageId}:DIGITAL`,
+        parentOrderPackageId: orderPackageId,
+        catalogEntityId: null,
+        stableKey: `order-package:${orderPackageId}:extra-photo:digital`,
+        label: "Extra photos - Digital (Operational Package order-1)",
+        quantity: 1,
+        unitPrice: 5,
+        lineTotal: 5,
+        priceSource: ORDER_COMMIT_PRICE_SOURCE.SESSION_TYPE_EXTRA_PHOTO_PRICING,
+        metadata: { mediaType: "DIGITAL", sessionTypeId: "session-type-1" },
+      },
+      {
+        lineId: `extra-photo:${orderPackageId}:print`,
+        lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA,
+        orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE_PHOTO_EXTRA,
+        orderEntityId: `${orderPackageId}:PRINT`,
+        parentOrderPackageId: orderPackageId,
+        catalogEntityId: null,
+        stableKey: `order-package:${orderPackageId}:extra-photo:print`,
+        label: "Extra photos - Print (Operational Package order-1)",
+        quantity: 1,
+        unitPrice: 7.5,
+        lineTotal: 7.5,
+        priceSource: ORDER_COMMIT_PRICE_SOURCE.SESSION_TYPE_EXTRA_PHOTO_PRICING,
+        metadata: { mediaType: "PRINT", sessionTypeId: "session-type-1" },
+      },
+    ],
+    totals: {
+      subtotal: 162.5,
+      discountTotal: 0,
+      netTotal: 162.5,
+    },
+  };
+}
+
+function requireSnapshotLine(
+  snapshot: OrderCommitSnapshotV1,
+  stableKey: string
+) {
+  const line = snapshot.lines.find((candidate) => candidate.stableKey === stableKey);
+  assert.ok(line, `Expected snapshot line ${stableKey}`);
+  return line;
+}
+
+function emptyPendingOps() {
+  return {
+    schemaVersion: ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+    operations: [],
   };
 }
 

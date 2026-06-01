@@ -1,11 +1,18 @@
 export {
   ORDER_COMMIT_DRAFT_OPERATION_TYPE,
   ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+  ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
+  ORDER_COMMIT_DRAFT_STAGING_HISTORY_SCHEMA_VERSION,
 } from "./order-commit-draft.constants";
 export {
+  orderCommitDraftLineTargetSchema,
   orderCommitDraftOperationTypeSchema,
   orderCommitDraftOperationV1Schema,
   orderCommitDraftPendingOpsV1Schema,
+  orderCommitDraftStagingChangeSchema,
+  orderCommitDraftStagingDomainSchema,
+  orderCommitDraftStagingHistoryPayloadSchema,
+  orderCommitDraftStagingSnapshotReplacementOperationSchema,
 } from "./order-commit-draft.schema";
 export {
   ORDER_COMMIT_KIND,
@@ -29,6 +36,33 @@ export {
   orderCommitStatusSchema,
 } from "./order-commit.schema";
 export {
+  reduceOrderCommitDraftAddOn,
+  type ReduceOrderCommitDraftAddOnInput,
+  type ResolvedOrderCommitDraftAddOnProduct,
+} from "./order-commit-add-on-reducer";
+export {
+  reduceOrderCommitDraftPackageItemUpgrade,
+  type ReduceOrderCommitDraftPackageItemUpgradeInput,
+  type ResolvedOrderCommitDraftPackageItemUpgrade,
+} from "./order-commit-package-item-upgrade-reducer";
+export {
+  reduceOrderCommitDraftPackage,
+  type ReduceOrderCommitDraftPackageInput,
+  type ResolvedOrderCommitDraftPackage,
+} from "./order-commit-package-reducer";
+export {
+  reduceOrderCommitDraftPhoto,
+  type ReduceOrderCommitDraftPhotoInput,
+  type ResolvedOrderCommitDraftExtraPhotoPricing,
+} from "./order-commit-photo-reducer";
+export {
+  reduceOrderCommitDraftSessionConfiguration,
+  type ReduceOrderCommitDraftSessionConfigurationInput,
+  type ResolvedOrderCommitDraftLinkedProduct,
+  type ResolvedOrderCommitDraftSessionConfigurationSelection,
+} from "./order-commit-session-configuration-reducer";
+export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
+export {
   appendOrderCommitDraftOperation,
   backfillOrderCommitsForFinanciallyCommittedOrders,
   bootstrapOrderCommitIfMissing,
@@ -39,6 +73,7 @@ export {
   getLatestCommittedOrderSnapshot,
   getOrderCommitDraft,
   replaceOrderCommitDraftSnapshot,
+  stageOrderCommitDraftChange,
   type AppendOrderCommitDraftOperationInput,
   type BackfillOrderCommitsForFinanciallyCommittedOrdersInput,
   type BootstrapOrderCommitIfMissingInput,
@@ -54,12 +89,18 @@ export {
   type OrderCommitDraftState,
   type OrderCommitSnapshotClient,
   type ReplaceOrderCommitDraftSnapshotInput,
+  type StageOrderCommitDraftChangeInput,
 } from "./order-commit.service";
 export type {
+  OrderCommitDraftLineTarget,
   OrderCommitDraftOperationType,
   OrderCommitDraftOperationV1,
   OrderCommitDraftPendingOpsV1,
   OrderCommitDraftPendingSnapshotV1,
+  OrderCommitDraftStagingChange,
+  OrderCommitDraftStagingDomain,
+  OrderCommitDraftStagingHistoryPayload,
+  OrderCommitDraftStagingSnapshotReplacementOperation,
 } from "./order-commit-draft.types";
 export type {
   OrderCommitKind,
