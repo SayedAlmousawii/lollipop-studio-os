@@ -123,6 +123,19 @@ test("order commit draft public module avoids legacy workspace terminology", () 
   assert.deepEqual(publicWorkspaceNaming, []);
 });
 
+test("order commit draft public module does not read invoice line items", () => {
+  const sources = listSourceFiles("src/modules/order-commits").map((file) => ({
+    file,
+    source: readFileSync(join(process.cwd(), file), "utf8"),
+  }));
+
+  const invoiceLineReads = sources
+    .filter(({ source }) => /invoiceLineItem/i.test(source))
+    .map(({ file }) => file);
+
+  assert.deepEqual(invoiceLineReads, []);
+});
+
 test("order commit draft foundation does not introduce app or component DB imports", () => {
   const sources = [
     ...listSourceFiles("app"),
@@ -141,19 +154,24 @@ test("order commit draft foundation does not introduce app or component DB impor
   assert.deepEqual(dbImportFiles, []);
 });
 
-test("append operation helper remains generic history only", () => {
+test("draft mutating helpers stay isolated from operational and financial mutation surfaces", () => {
   const source = readFileSync(
     join(process.cwd(), "src/modules/order-commits/order-commit.service.ts"),
     "utf8"
   );
-  const helper = source.slice(
-    source.indexOf("export async function appendOrderCommitDraftOperation"),
-    source.indexOf("export async function createOrderCommitSnapshot")
-  );
+  const helpers = [
+    sourceForFunction(source, "discardOrderCommitDraft"),
+    sourceForFunction(source, "replaceOrderCommitDraftSnapshot"),
+    sourceForFunction(source, "appendOrderCommitDraftOperation"),
+  ].join("\n");
 
-  assert.doesNotMatch(helper, /invoiceLineItem/i);
-  assert.doesNotMatch(helper, /OrderAddOn|OrderPackage|Product|PackageItem/);
-  assert.doesNotMatch(helper, /priceSelections|sessionConfiguration/i);
+  assert.doesNotMatch(helpers, /invoiceLineItem/i);
+  assert.doesNotMatch(
+    helpers,
+    /\.(?:invoice|payment|paymentAllocation|documentApplication|refund|creditNote|adjustmentWorkspace)\b/
+  );
+  assert.doesNotMatch(helpers, /OrderAddOn|OrderPackage|Product|PackageItem/);
+  assert.doesNotMatch(helpers, /priceSelections|sessionConfiguration/i);
 });
 
 function listSourceFiles(relativePath: string): string[] {
@@ -166,4 +184,12 @@ function listSourceFiles(relativePath: string): string[] {
   return readdirSync(absolutePath).flatMap((entry) =>
     listSourceFiles(join(relativePath, entry))
   );
+}
+
+function sourceForFunction(source: string, functionName: string): string {
+  const start = source.indexOf(`export async function ${functionName}`);
+  assert.notEqual(start, -1, `Expected ${functionName} to be exported`);
+
+  const nextExport = source.indexOf("\nexport async function ", start + 1);
+  return source.slice(start, nextExport === -1 ? undefined : nextExport);
 }

@@ -5,6 +5,7 @@ import {
   appendOrderCommitDraftOperation,
   backfillOrderCommitsForFinanciallyCommittedOrders,
   bootstrapOrderCommitIfMissing,
+  captureOrderCommitSnapshotFromOrderRows,
   createOrderCommitSnapshot,
   discardOrderCommitDraft,
   getOrCreateOrderCommitDraft,
@@ -278,6 +279,25 @@ test("discard enforces owner or manager mutation rules", async () => {
   assert.equal(client.drafts.length, 0);
 });
 
+test("discard removes only draft state and leaves operational and financial rows unchanged", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1" })],
+  });
+  const beforeOperational = await captureOperationalSnapshot(client);
+  const beforeFinancialRows = client.financialRowsSnapshot();
+
+  await discardOrderCommitDraft({
+    orderId: "order-1",
+    expectedVersion: 0,
+    actorContext,
+    client: client.draftRoot,
+  });
+
+  assert.equal(client.drafts.length, 0);
+  assert.deepEqual(await captureOperationalSnapshot(client), beforeOperational);
+  assert.deepEqual(client.financialRowsSnapshot(), beforeFinancialRows);
+});
+
 test("replace snapshot increments version, touches actor, and appends history", async () => {
   const replacementSnapshot = fakeSnapshot({
     orderId: "order-1",
@@ -504,7 +524,7 @@ test("replace snapshot accepts only snapshot-replaced operations", async () => {
   ]);
 });
 
-test("replace snapshot does not mutate operational order rows", async () => {
+test("replace snapshot does not mutate operational or financial rows", async () => {
   const replacementSnapshot = fakeSnapshot({
     orderId: "order-1",
     financialCaseId: "financial-case-1",
@@ -513,6 +533,8 @@ test("replace snapshot does not mutate operational order rows", async () => {
   const client = fakeOrderCommitClient({
     drafts: [fakeDraft({ id: "draft-1" })],
   });
+  const beforeOperational = await captureOperationalSnapshot(client);
+  const beforeFinancialRows = client.financialRowsSnapshot();
 
   await replaceOrderCommitDraftSnapshot({
     orderId: "order-1",
@@ -521,19 +543,10 @@ test("replace snapshot does not mutate operational order rows", async () => {
     actorContext,
     client: client.draftRoot,
   });
-  const committed = await createOrderCommitSnapshot({
-    orderId: "order-1",
-    kind: ORDER_COMMIT_KIND.BASELINE,
-    actorContext,
-    client: client.root,
-  });
 
   assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, replacementSnapshot);
-  assert.equal(
-    committed.snapshot.lines.find((line) => line.lineId === "package:op-order-1")
-      ?.label,
-    "Operational Package order-1"
-  );
+  assert.deepEqual(await captureOperationalSnapshot(client), beforeOperational);
+  assert.deepEqual(client.financialRowsSnapshot(), beforeFinancialRows);
 });
 
 test("append operation increments version and leaves the pending snapshot unchanged", async () => {
@@ -647,6 +660,43 @@ test("append operation replaces an existing operation by id", async () => {
     createdAt: "2026-06-01T11:00:00.000Z",
     actorUserId: "manager-user",
   });
+});
+
+test("append operation changes only pendingOpsJson", async () => {
+  const originalSnapshot = fakeSnapshot({
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+  });
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: originalSnapshot,
+      }),
+    ],
+  });
+  const beforeOperational = await captureOperationalSnapshot(client);
+  const beforeFinancialRows = client.financialRowsSnapshot();
+
+  const appended = await appendOrderCommitDraftOperation({
+    orderId: "order-1",
+    operation: {
+      id: "op-note",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+      payload: { note: "history only" },
+      createdAt: "2026-06-01T11:00:00.000Z",
+      actorUserId: "user-1",
+    },
+    expectedVersion: 0,
+    actorContext,
+    client: client.draftRoot,
+  });
+
+  assert.notDeepEqual(appended.pendingOps.operations, []);
+  assert.deepEqual(appended.pendingSnapshot, originalSnapshot);
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, originalSnapshot);
+  assert.deepEqual(await captureOperationalSnapshot(client), beforeOperational);
+  assert.deepEqual(client.financialRowsSnapshot(), beforeFinancialRows);
 });
 
 test("append operation rejects stale expectedVersion and keeps pending ops", async () => {
@@ -1078,6 +1128,16 @@ type FakeBackfillOrder = {
   invoices: FakeInvoiceHeader[];
 };
 
+type FakeFinancialRows = {
+  invoices: Array<{ id: string; totalAmount: string; remainingAmount: string }>;
+  payments: Array<{ id: string; amount: string; paymentType: string }>;
+  paymentAllocations: Array<{ id: string; amount: string; invoiceId: string }>;
+  documentApplications: Array<{ id: string; amount: string; sourceInvoiceId: string }>;
+  refunds: Array<{ id: string; amount: string; sourcePaymentId: string }>;
+  creditNotes: Array<{ id: string; amount: string; sourceInvoiceId: string }>;
+  adjustmentWorkspaces: Array<{ id: string; pendingChangesJson: unknown }>;
+};
+
 type FakeOrderFindManyArgs = {
   select?: {
     invoices?: {
@@ -1104,6 +1164,7 @@ function fakeOrderCommitClient(
     drafts?: FakeOrderCommitDraftRow[];
     orders?: FakeBackfillOrder[];
     catalog?: MutableCatalogPrices;
+    financialRows?: FakeFinancialRows;
   } = {}
 ) {
   const commits = [...(options.commits ?? [])];
@@ -1111,6 +1172,7 @@ function fakeOrderCommitClient(
   const orders = options.orders ?? [
     fakeOrder({ id: "order-1", invoices: [] }),
   ];
+  const financialRows = options.financialRows ?? fakeFinancialRows();
   const catalog = options.catalog ?? {
     packagePrice: decimal("999.000"),
     productPrice: decimal("77.000"),
@@ -1268,6 +1330,7 @@ function fakeOrderCommitClient(
   return {
     commits,
     drafts,
+    financialRowsSnapshot: () => structuredClone(financialRows),
     get invoiceLineItemSelectAttempted() {
       return invoiceLineItemSelectAttempted;
     },
@@ -1286,6 +1349,9 @@ function fakeOrderCommitClient(
       | DiscardOrderCommitDraftInput["client"]
       | ReplaceOrderCommitDraftSnapshotInput["client"]
     >,
+    snapshotClient: root as unknown as NonNullable<
+      Parameters<typeof captureOrderCommitSnapshotFromOrderRows>[0]["client"]
+    >,
   };
 }
 
@@ -1299,6 +1365,59 @@ function fakeOrder(input: {
     financialCaseId:
       input.hasFinancialCase === false ? null : `financial-case-${input.id}`,
     invoices: input.invoices,
+  };
+}
+
+function fakeFinancialRows(): FakeFinancialRows {
+  return {
+    invoices: [
+      {
+        id: "invoice-1",
+        totalAmount: "150.125",
+        remainingAmount: "25.000",
+      },
+    ],
+    payments: [
+      {
+        id: "payment-1",
+        amount: "125.125",
+        paymentType: "FINAL",
+      },
+    ],
+    paymentAllocations: [
+      {
+        id: "allocation-1",
+        amount: "125.125",
+        invoiceId: "invoice-1",
+      },
+    ],
+    documentApplications: [
+      {
+        id: "application-1",
+        amount: "10.000",
+        sourceInvoiceId: "invoice-1",
+      },
+    ],
+    refunds: [
+      {
+        id: "refund-1",
+        amount: "5.000",
+        sourcePaymentId: "payment-1",
+      },
+    ],
+    creditNotes: [
+      {
+        id: "credit-note-1",
+        amount: "10.000",
+        sourceInvoiceId: "invoice-1",
+      },
+    ],
+    adjustmentWorkspaces: [
+      {
+        id: "workspace-1",
+        pendingChangesJson: { untouched: true },
+      },
+    ],
   };
 }
 
@@ -1442,6 +1561,30 @@ function fakeSnapshot(input: {
       discountTotal: 0,
       netTotal: 0,
     },
+  };
+}
+
+async function captureOperationalSnapshot(
+  client: ReturnType<typeof fakeOrderCommitClient>
+): Promise<Omit<OrderCommitSnapshotV1, "capturedAt">> {
+  const snapshot = await captureOrderCommitSnapshotFromOrderRows({
+    orderId: "order-1",
+    client: client.snapshotClient,
+  });
+
+  return withoutCapturedAt(snapshot);
+}
+
+function withoutCapturedAt(
+  snapshot: OrderCommitSnapshotV1
+): Omit<OrderCommitSnapshotV1, "capturedAt"> {
+  return {
+    schemaVersion: snapshot.schemaVersion,
+    orderId: snapshot.orderId,
+    financialCaseId: snapshot.financialCaseId,
+    currency: snapshot.currency,
+    lines: snapshot.lines,
+    totals: snapshot.totals,
   };
 }
 
