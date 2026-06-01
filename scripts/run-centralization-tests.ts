@@ -18,6 +18,7 @@ const files = [
   "tests/order-commits/order-commit-contracts.test.ts",
   "tests/order-commits/order-commit-add-on-reducer.test.ts",
   "tests/order-commits/order-commit-package-item-upgrade-reducer.test.ts",
+  "tests/order-commits/order-commit-photo-reducer.test.ts",
   "tests/order-commits/order-commit-draft-contracts.test.ts",
   "tests/order-commits/order-commit-service.test.ts",
   "tests/order-commits/order-commit-snapshot-capture.test.ts",

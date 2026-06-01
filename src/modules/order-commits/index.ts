@@ -45,6 +45,11 @@ export {
   type ReduceOrderCommitDraftPackageItemUpgradeInput,
   type ResolvedOrderCommitDraftPackageItemUpgrade,
 } from "./order-commit-package-item-upgrade-reducer";
+export {
+  reduceOrderCommitDraftPhoto,
+  type ReduceOrderCommitDraftPhotoInput,
+  type ResolvedOrderCommitDraftExtraPhotoPricing,
+} from "./order-commit-photo-reducer";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
