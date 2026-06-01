@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { InvoiceType, MediaType, Prisma, UserRole } from "@prisma/client";
 import {
+  appendOrderCommitDraftOperation,
   backfillOrderCommitsForFinanciallyCommittedOrders,
   bootstrapOrderCommitIfMissing,
   createOrderCommitSnapshot,
@@ -22,6 +23,7 @@ import {
   type GetOrCreateOrderCommitDraftInput,
   type GetOrderCommitDraftInput,
   type OrderCommitSnapshotV1,
+  type AppendOrderCommitDraftOperationInput,
   type ReplaceOrderCommitDraftSnapshotInput,
 } from "@/modules/order-commits";
 import type { ActorContext } from "@/lib/auth/actor-context";
@@ -534,6 +536,229 @@ test("replace snapshot does not mutate operational order rows", async () => {
   );
 });
 
+test("append operation increments version and leaves the pending snapshot unchanged", async () => {
+  const originalSnapshot = fakeSnapshot({
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+  });
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: originalSnapshot,
+        version: 2,
+      }),
+    ],
+  });
+
+  const appended = await appendOrderCommitDraftOperation({
+    orderId: "order-1",
+    operation: {
+      id: "op-note",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+      payload: { note: "manager note" },
+      createdAt: "2026-06-01T11:00:00.000Z",
+      actorUserId: "user-1",
+    },
+    expectedVersion: 2,
+    actorContext: {
+      actorUserId: "user-1",
+      actorRole: UserRole.RECEPTIONIST,
+    },
+    client: client.draftRoot,
+  });
+
+  assert.equal(appended.draft.version, 3);
+  assert.equal(appended.draft.lastTouchedByUserId, "user-1");
+  assert.deepEqual(appended.pendingSnapshot, originalSnapshot);
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, originalSnapshot);
+  assert.deepEqual(appended.pendingOps.operations, [
+    {
+      id: "op-note",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+      payload: { note: "manager note" },
+      createdAt: "2026-06-01T11:00:00.000Z",
+      actorUserId: "user-1",
+    },
+  ]);
+});
+
+test("append operation replaces an existing operation by id", async () => {
+  const originalSnapshot = fakeSnapshot({
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+  });
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: originalSnapshot,
+        pendingOpsJson: {
+          schemaVersion: ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+          operations: [
+            {
+              id: "op-note",
+              type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+              payload: { note: "old note" },
+              createdAt: "2026-06-01T10:00:00.000Z",
+              actorUserId: "user-1",
+            },
+            {
+              id: "op-replace",
+              type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.SNAPSHOT_REPLACED,
+              payload: {},
+              createdAt: "2026-06-01T10:05:00.000Z",
+              actorUserId: "user-1",
+            },
+          ],
+        },
+        version: 4,
+      }),
+    ],
+  });
+
+  const appended = await appendOrderCommitDraftOperation({
+    orderId: "order-1",
+    operation: {
+      id: "op-note",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+      payload: { note: "updated note" },
+      createdAt: "2026-06-01T11:00:00.000Z",
+      actorUserId: "manager-user",
+    },
+    expectedVersion: 4,
+    actorContext: {
+      actorUserId: "manager-user",
+      actorRole: UserRole.MANAGER,
+    },
+    client: client.draftRoot,
+  });
+
+  assert.equal(appended.draft.version, 5);
+  assert.deepEqual(appended.pendingSnapshot, originalSnapshot);
+  assert.deepEqual(
+    appended.pendingOps.operations.map((operation) => operation.id),
+    ["op-note", "op-replace"]
+  );
+  assert.deepEqual(appended.pendingOps.operations[0], {
+    id: "op-note",
+    type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+    payload: { note: "updated note" },
+    createdAt: "2026-06-01T11:00:00.000Z",
+    actorUserId: "manager-user",
+  });
+});
+
+test("append operation rejects stale expectedVersion and keeps pending ops", async () => {
+  const existingOps = {
+    schemaVersion: ORDER_COMMIT_DRAFT_PENDING_OPS_SCHEMA_VERSION,
+    operations: [
+      {
+        id: "op-note",
+        type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+        payload: { note: "old note" },
+        createdAt: "2026-06-01T10:00:00.000Z",
+        actorUserId: "user-1",
+      },
+    ],
+  };
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingOpsJson: existingOps,
+        version: 2,
+      }),
+    ],
+  });
+
+  await assert.rejects(
+    appendOrderCommitDraftOperation({
+      orderId: "order-1",
+      operation: {
+        id: "op-note-2",
+        type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+        payload: { note: "new note" },
+        createdAt: "2026-06-01T11:00:00.000Z",
+        actorUserId: "user-1",
+      },
+      expectedVersion: 1,
+      actorContext,
+      client: client.draftRoot,
+    }),
+    /stale expectedVersion/
+  );
+
+  assert.equal(client.drafts[0]?.version, 2);
+  assert.deepEqual(client.drafts[0]?.pendingOpsJson, existingOps);
+});
+
+test("append operation enforces owner or manager mutation rules", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [fakeDraft({ id: "draft-1", ownerUserId: "owner-user" })],
+  });
+
+  await assert.rejects(
+    appendOrderCommitDraftOperation({
+      orderId: "order-1",
+      operation: {
+        id: "op-note",
+        type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+        payload: { note: "blocked note" },
+        createdAt: "2026-06-01T11:00:00.000Z",
+        actorUserId: "user-2",
+      },
+      expectedVersion: 0,
+      actorContext: {
+        actorUserId: "user-2",
+        actorRole: UserRole.RECEPTIONIST,
+      },
+      client: client.draftRoot,
+    }),
+    /cannot mutate draft/
+  );
+
+  const managerAppend = await appendOrderCommitDraftOperation({
+    orderId: "order-1",
+    operation: {
+      id: "op-manager",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+      payload: { note: "manager note" },
+      createdAt: "2026-06-01T11:05:00.000Z",
+      actorUserId: "manager-user",
+    },
+    expectedVersion: 0,
+    actorContext: {
+      actorUserId: "manager-user",
+      actorRole: UserRole.MANAGER,
+    },
+    client: client.draftRoot,
+  });
+  assert.equal(managerAppend.draft.version, 1);
+
+  const adminAppend = await appendOrderCommitDraftOperation({
+    orderId: "order-1",
+    operation: {
+      id: "op-admin",
+      type: ORDER_COMMIT_DRAFT_OPERATION_TYPE.NOTE_APPENDED,
+      payload: { note: "admin note" },
+      createdAt: "2026-06-01T11:10:00.000Z",
+      actorUserId: "admin-user",
+    },
+    expectedVersion: 1,
+    actorContext: {
+      actorUserId: "admin-user",
+      actorRole: UserRole.ADMIN,
+    },
+    client: client.draftRoot,
+  });
+  assert.equal(adminAppend.draft.version, 2);
+  assert.deepEqual(
+    adminAppend.pendingOps.operations.map((operation) => operation.id),
+    ["op-manager", "op-admin"]
+  );
+});
+
 test("backfill creates commits only for financially committed orders", async () => {
   const client = fakeOrderCommitClient({
     orders: [
@@ -834,11 +1059,11 @@ type FakeOrderCommitDraftDeleteManyArgs = {
 type FakeOrderCommitDraftUpdateManyArgs = {
   where: { id: string; version: number };
   data: {
-    pendingSnapshotVersion: number;
-    pendingSnapshotJson: unknown;
-    pendingOpsJson: unknown;
-    version: { increment: number };
-    lastTouchedByUserId: string;
+    pendingSnapshotVersion?: number;
+    pendingSnapshotJson?: unknown;
+    pendingOpsJson?: unknown;
+    version?: { increment: number };
+    lastTouchedByUserId?: string;
   };
 };
 
@@ -1018,11 +1243,21 @@ function fakeOrderCommitClient(
         );
         if (!draft) return { count: 0 };
 
-        draft.pendingSnapshotVersion = args.data.pendingSnapshotVersion;
-        draft.pendingSnapshotJson = args.data.pendingSnapshotJson;
-        draft.pendingOpsJson = args.data.pendingOpsJson;
-        draft.version += args.data.version.increment;
-        draft.lastTouchedByUserId = args.data.lastTouchedByUserId;
+        if (args.data.pendingSnapshotVersion !== undefined) {
+          draft.pendingSnapshotVersion = args.data.pendingSnapshotVersion;
+        }
+        if (args.data.pendingSnapshotJson !== undefined) {
+          draft.pendingSnapshotJson = args.data.pendingSnapshotJson;
+        }
+        if (args.data.pendingOpsJson !== undefined) {
+          draft.pendingOpsJson = args.data.pendingOpsJson;
+        }
+        if (args.data.version) {
+          draft.version += args.data.version.increment;
+        }
+        if (args.data.lastTouchedByUserId !== undefined) {
+          draft.lastTouchedByUserId = args.data.lastTouchedByUserId;
+        }
         draft.updatedAt = new Date("2026-06-01T11:00:00.000Z");
         return { count: 1 };
       },
@@ -1046,6 +1281,7 @@ function fakeOrderCommitClient(
     >,
     draftRead: root as unknown as NonNullable<GetOrderCommitDraftInput["client"]>,
     draftRoot: root as unknown as NonNullable<
+      | AppendOrderCommitDraftOperationInput["client"]
       | GetOrCreateOrderCommitDraftInput["client"]
       | DiscardOrderCommitDraftInput["client"]
       | ReplaceOrderCommitDraftSnapshotInput["client"]

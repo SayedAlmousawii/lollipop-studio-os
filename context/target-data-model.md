@@ -16,6 +16,8 @@ Spec 121 Task 2 adds lifecycle helpers that load one active draft by order, init
 
 Spec 121 Task 3 adds snapshot replacement for an existing draft. Replacement parses `pendingSnapshotJson` as the V1 `OrderCommit` snapshot contract, requires matching `orderId`, `financialCaseId`, schema version, and currency, increments the draft `version` through an expected-version write, and appends generic `SNAPSHOT_REPLACED` pending-operation history. Replacement does not compute business deltas, read invoice line items, or mutate operational, invoice, payment, allocation, document-application, refund, credit-note, or Adjustment Workspace rows.
 
+Spec 121 Task 4 adds generic pending-operation history mutation. The helper appends a parsed V1 operation or replaces an existing operation with the same operation id, requires expected-version plus owner/manager mutation checks, increments the draft `version`, and updates `lastTouchedByUserId`. It does not change `pendingSnapshotJson`, interpret operations as business reducers, read catalog/order domain rows for diffs, or mutate operational or financial rows.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.

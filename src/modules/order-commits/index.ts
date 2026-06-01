@@ -29,6 +29,7 @@ export {
   orderCommitStatusSchema,
 } from "./order-commit.schema";
 export {
+  appendOrderCommitDraftOperation,
   backfillOrderCommitsForFinanciallyCommittedOrders,
   bootstrapOrderCommitIfMissing,
   captureOrderCommitSnapshotFromOrderRows,
@@ -38,6 +39,7 @@ export {
   getLatestCommittedOrderSnapshot,
   getOrderCommitDraft,
   replaceOrderCommitDraftSnapshot,
+  type AppendOrderCommitDraftOperationInput,
   type BackfillOrderCommitsForFinanciallyCommittedOrdersInput,
   type BootstrapOrderCommitIfMissingInput,
   type CommittedOrderSnapshot,

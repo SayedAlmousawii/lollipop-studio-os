@@ -141,6 +141,21 @@ test("order commit draft foundation does not introduce app or component DB impor
   assert.deepEqual(dbImportFiles, []);
 });
 
+test("append operation helper remains generic history only", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/modules/order-commits/order-commit.service.ts"),
+    "utf8"
+  );
+  const helper = source.slice(
+    source.indexOf("export async function appendOrderCommitDraftOperation"),
+    source.indexOf("export async function createOrderCommitSnapshot")
+  );
+
+  assert.doesNotMatch(helper, /invoiceLineItem/i);
+  assert.doesNotMatch(helper, /OrderAddOn|OrderPackage|Product|PackageItem/);
+  assert.doesNotMatch(helper, /priceSelections|sessionConfiguration/i);
+});
+
 function listSourceFiles(relativePath: string): string[] {
   const absolutePath = join(process.cwd(), relativePath);
   const stat = statSync(absolutePath);

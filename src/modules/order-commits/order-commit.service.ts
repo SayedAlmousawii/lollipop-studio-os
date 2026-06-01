@@ -158,6 +158,14 @@ export type ReplaceOrderCommitDraftSnapshotInput = {
   client?: OrderCommitDraftRootClient;
 };
 
+export type AppendOrderCommitDraftOperationInput = {
+  orderId: string;
+  operation: unknown;
+  expectedVersion: number;
+  actorContext: ActorContext;
+  client?: OrderCommitDraftRootClient;
+};
+
 export type CreateOrderCommitSnapshotInput = {
   orderId: string;
   kind: OrderCommitKind;
@@ -461,6 +469,72 @@ export async function replaceOrderCommitDraftSnapshot(
     if (!row) {
       throw new Error(
         `OrderCommitDraft snapshot replacement failed: updated draft ${existing.id} was not found.`
+      );
+    }
+
+    return parseOrderCommitDraft(row);
+  });
+}
+
+export async function appendOrderCommitDraftOperation(
+  input: AppendOrderCommitDraftOperationInput
+): Promise<OrderCommitDraftState> {
+  assertValidDraftActor(input.actorContext, "append OrderCommitDraft operation");
+  const operation = orderCommitDraftOperationV1Schema.parse(input.operation);
+  const client = input.client ?? (await loadDefaultOrderCommitDraftRootClient());
+
+  return client.$transaction(async (transaction) => {
+    const existing = await transaction.orderCommitDraft.findUnique({
+      where: { orderId: input.orderId },
+      select: orderCommitDraftRowSelect,
+    });
+    if (!existing) {
+      throw new Error(
+        `OrderCommitDraft operation append failed: draft for order ${input.orderId} was not found.`
+      );
+    }
+
+    assertDraftExpectedVersion(existing, input.expectedVersion, "append operation");
+    assertDraftMutationAllowed(existing, input.actorContext, "append operation");
+
+    const existingPendingOps = orderCommitDraftPendingOpsV1Schema.parse(
+      existing.pendingOpsJson
+    );
+    const existingIndex = existingPendingOps.operations.findIndex(
+      (candidate) => candidate.id === operation.id
+    );
+    const operations =
+      existingIndex === -1
+        ? [...existingPendingOps.operations, operation]
+        : existingPendingOps.operations.map((candidate, index) =>
+            index === existingIndex ? operation : candidate
+          );
+    const pendingOps: OrderCommitDraftPendingOpsV1 = {
+      ...existingPendingOps,
+      operations,
+    };
+
+    const updated = await transaction.orderCommitDraft.updateMany({
+      where: { id: existing.id, version: input.expectedVersion },
+      data: {
+        pendingOpsJson: pendingOps as unknown as Prisma.InputJsonValue,
+        version: { increment: 1 },
+        lastTouchedByUserId: input.actorContext.actorUserId,
+      },
+    });
+    if (updated.count !== 1) {
+      throw new Error(
+        `OrderCommitDraft operation append failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.id}.`
+      );
+    }
+
+    const row = await transaction.orderCommitDraft.findUnique({
+      where: { id: existing.id },
+      select: orderCommitDraftRowSelect,
+    });
+    if (!row) {
+      throw new Error(
+        `OrderCommitDraft operation append failed: updated draft ${existing.id} was not found.`
       );
     }
 
