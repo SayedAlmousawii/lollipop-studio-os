@@ -46,6 +46,11 @@ export {
   type ResolvedOrderCommitDraftPackageItemUpgrade,
 } from "./order-commit-package-item-upgrade-reducer";
 export {
+  reduceOrderCommitDraftPackage,
+  type ReduceOrderCommitDraftPackageInput,
+  type ResolvedOrderCommitDraftPackage,
+} from "./order-commit-package-reducer";
+export {
   reduceOrderCommitDraftPhoto,
   type ReduceOrderCommitDraftPhotoInput,
   type ResolvedOrderCommitDraftExtraPhotoPricing,
