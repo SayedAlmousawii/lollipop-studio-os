@@ -40,6 +40,11 @@ export {
   type ReduceOrderCommitDraftAddOnInput,
   type ResolvedOrderCommitDraftAddOnProduct,
 } from "./order-commit-add-on-reducer";
+export {
+  reduceOrderCommitDraftPackageItemUpgrade,
+  type ReduceOrderCommitDraftPackageItemUpgradeInput,
+  type ResolvedOrderCommitDraftPackageItemUpgrade,
+} from "./order-commit-package-item-upgrade-reducer";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
