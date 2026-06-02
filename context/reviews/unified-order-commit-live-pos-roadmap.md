@@ -990,56 +990,67 @@ Captured here so future readers understand why Phases 5–7 were rewritten.
 
 ## Recommended Phase 5 Spec Breakdown
 
-Phase 5 splits cleanly along seams that can each land as its own PR. Recommended ordering — earlier specs unblock later ones.
+Phase 5 splits cleanly along seams that can each land as its own PR. Recommended ordering — earlier specs unblock later ones. Specs 126 and 127 are independent and may land in either order; both must land before Spec 129.
 
-### Spec 125 — Sales page view-model and projector foundation
+### Spec 125 — Sales page view-model and projector foundation ✓ shipped
 
-- New: `SalesPageView` type and RSC loader composing `Order*` projection, `OrderCommitDraft`, `OrderCommitPreview`, `FinancialCaseSummary`, permissions.
-- New projectors (display-only): composition-from-snapshot, staged-changes, financial-preview.
-- No UI rewiring yet — projectors are exported but unused.
-- Projector purity tests.
+- `SalesPageView` type and RSC loader composing `Order*` projection, `OrderCommitDraft`, `OrderCommitPreview`, `FinancialCaseSummary`, permissions.
+- Display-only projectors: composition-from-snapshot, staged-changes, financial-preview.
+- No UI rewiring; projectors exported but unused.
 - Establishes the canonical-source / projector boundary for the rest of Phase 5.
 
 ### Spec 126 — Sales staging actions over OrderCommitDraft
 
-- New: `stageSalesChangeAction(orderId, change, expectedVersion)` wrapping `getOrCreateOrderCommitDraft` + `stageOrderCommitDraftChange`.
+- New: `stageSalesChangeAction(orderId, expectedVersion, change)` wrapping `getOrCreateOrderCommitDraft` + `stageOrderCommitDraftChange`.
 - New: `discardSalesDraftAction(orderId, expectedVersion)`.
-- Replaces the five legacy direct-mutator actions on the Sales page.
 - Legacy direct-mutator guard at the service layer (AW finalize exempted).
 - Lazy draft creation invariant test.
+- Independent of Spec 127; may land before or after it.
 
-### Spec 127 — Sales commit action and Review & commit dialog
+### Spec 127 — OrderCommitPreview totals amendment
+
+- Adds `preview.totals = { baselineTotal, netDelta, pendingTotal }` to `OrderCommitPreview`.
+- Totals computed inside the preview layer from `baselineSnapshot.totals.netTotal` and `pendingSnapshot.totals.netTotal`.
+- Sales-page financial-preview projector updated to pass `totals` through to `overlay.{previousTotal, pendingDelta, pendingTotal}` with no arithmetic.
+- Top-level `preview.netDelta` retained as back-compat alias; internal consumers unchanged.
+- Parity invariant: `preview.totals.netDelta === preview.netDelta`.
+- Identified during Spec 125 review as a Spec 129 prerequisite.
+- Independent of Spec 126; may land before or after it. Must land before Spec 129.
+
+### Spec 128 — Sales commit action and Review & commit dialog
 
 - New: `commitSalesChangesAction(orderId, expectedDraftVersion, approvalActorUserId?)` calling `commitOrderChanges`.
 - Review & commit confirmation dialog: renders preview diff, `documentPlan`, approval requirement; reuses existing manager-actor selection.
 - Error mapping for `OrderCommitStaleDraftError`, `OrderCommitConcurrentCommitError`, `OrderCommitApprovalRequiredError`, `OrderCommitCreditCapacityExhaustedError`.
 - `revalidatePath` after success.
 
-### Spec 128 — Sales page composition surface wired to projected ownership
+### Spec 129 — Sales page composition surface wired to projected ownership
 
 - Wires `POSPackageComposition`, `POSAddOnMarketplace`, photo-selection cards to consume `SalesPageView.composition` regardless of source (current `Order*` or projected from `pendingSnapshotJson`).
 - Folds `FinancialSidebarDraft` and `FinancialSidebarLocked` into a single `FinancialSidebar` reading `FinancialCaseSummary` + `preview.totals` when draft exists.
 - Staged-changes panel renders from staged-changes projector output.
 - Adjustment-mode visual cue (per mockup) driven by draft presence.
+- Addresses the projected-composition residual gaps surfaced in Spec 125 review (`extraPhotoTotal`, `upgradeDelta`, total internal consistency, `parentLabel` quality, `photographerName`).
+- Depends on Spec 127 for the financial sidebar trio.
 
-### Spec 129 — Co-editor concurrency and ownership UX
+### Spec 130 — Co-editor concurrency and ownership UX
 
 - Co-editor banner from `draft.ownerUserId` / `lastTouchedByUserId` / `updatedAt`.
 - Stage controls disabled for non-owner-non-manager actors.
 - Concurrent commit and stale-draft error handling end-to-end.
 - Two-actor integration tests.
 
-### Spec 130 — Locked-invoice path unification and parity tests
+### Spec 131 — Locked-invoice path unification and parity tests
 
 - Removes the locked-invoice branch from the Sales page (no more `getOpenWorkspaceForInvoice` on the Sales surface).
 - Sales page drives locked orders through the same draft → preview → commit pipeline.
 - Parity tests: identical input proposals on AW finalize vs `commitOrderChanges` produce equivalent `Invoice` rows, `Order.refundPending`, document linkage.
 - Gates Phase 6 approval.
 
-### Optional Spec 131 — "Save draft" semantics decision
+### Optional Spec 132 — "Save draft" semantics decision
 
 - Either confirm Save draft is a label-only no-op (drafts persist on every stage) or wire it to `replaceOrderCommitDraftSnapshot` for explicit checkpoints.
-- Lightweight; may collapse into Spec 128 if decided early.
+- Lightweight; may collapse into Spec 129 if decided early.
 
 ---
 
@@ -1059,6 +1070,15 @@ Inter-spec judgment calls that are too small for their own spec section but load
 - **Single draft per order.** Concurrency is via `OrderCommitDraft.version` + the existing `committedFromDraftVersion` DB constraint from Spec 124.
 - **Discard paths:** explicit `discardSalesDraftAction` (Spec 126); implicit on commit success (`commitOrderChanges` deletes the draft per Spec 124).
 
+### Preview totals contract (Spec 127)
+
+- `OrderCommitPreview` exposes `totals: { baselineTotal, netDelta, pendingTotal }`, computed inside the preview layer from `baselineSnapshot.totals.netTotal` and `pendingSnapshot.totals.netTotal`.
+- `baselineSource === "EMPTY"` (first commit) → `baselineTotal = 0`.
+- Parity invariant enforced at assembly time: `preview.totals.netDelta === preview.netDelta`.
+- Top-level `preview.netDelta` retained as back-compat alias for existing internal consumers (financial emission, classification, approval/document preview, execution).
+- UI / Sales-page projectors read `preview.totals.*` and pass through. No projector or component may recompute the trio.
+- Identified during Spec 125 review as the prerequisite that lets the unified financial sidebar render Previous total / Pending delta / After commit without violating the projector rule.
+
 ### `stageSalesChangeAction` shape (Spec 126)
 
 - Single thin wrapper replacing the five legacy direct-mutator actions on the Sales page.
@@ -1067,20 +1087,20 @@ Inter-spec judgment calls that are too small for their own spec section but load
 
 ### Legacy direct-mutator guard (Spec 126, safety rail)
 
-- Lands in Spec 126 **before** any UI rewiring in Spec 128.
+- Lands in Spec 126 **before** any UI rewiring in Spec 129.
 - Guard sits at the service entry of `updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`.
 - When an `OrderCommitDraft` exists for the order, the guard refuses execution.
 - Sole exemption: calls made from `finalizeAdjustmentWorkspace` (AW finalize). The exemption is removed when AW is deleted in Phase 6.
 - Rationale: prevents any code path from bypassing the staged workflow once a draft exists.
 
-### Commit-confirmation dialog (Spec 127)
+### Commit-confirmation dialog (Spec 128)
 
 - Trigger: Review & commit button in the footer.
 - Renders preview diff summary, `preview.documentPlan`, `preview.requiresApproval`, `preview.approvalReasons`.
 - Reuses the existing `PendingCreditNoteApprovalError` manager-actor selection pattern.
 - Confirms → `commitSalesChangesAction(orderId, expectedDraftVersion, approvalActorUserId?)` → `commitOrderChanges`.
 
-### OrderCommit error classes the UI must map (Spec 127)
+### OrderCommit error classes the UI must map (Spec 128)
 
 UI surfaces — toast or in-dialog error — for each of these. UI does not decide the message content; it maps the error to a copy key.
 
@@ -1089,7 +1109,7 @@ UI surfaces — toast or in-dialog error — for each of these. UI does not deci
 - `OrderCommitApprovalRequiredError` — re-open the dialog with the approval-actor field highlighted.
 - `OrderCommitCreditCapacityExhaustedError` — surface the refund-needed explanation from `preview.documentPlan`.
 
-### Co-editor concurrency (Spec 129)
+### Co-editor concurrency (Spec 130)
 
 - Banner sources: `draft.ownerUserId`, `draft.lastTouchedByUserId`, `draft.updatedAt`.
 - Non-owner-non-manager actors: stage controls disabled at the UI layer; server-side guard inside `stageOrderCommitDraftChange` is the authoritative defense.
@@ -1101,13 +1121,13 @@ UI surfaces — toast or in-dialog error — for each of these. UI does not deci
 - Two acceptable resolutions:
   1. Label-only no-op (reassurance UI), or
   2. Wire to `replaceOrderCommitDraftSnapshot` for an explicit checkpoint.
-- Decide and document during Spec 128. May collapse into optional Spec 131 if deferred.
+- Decide and document during Spec 129. May collapse into optional Spec 132 if deferred.
 
-### Locked-invoice unification (Spec 130)
+### Locked-invoice unification (Spec 131)
 
-- Phase 5 removes the locked-invoice branch from the Sales page. There is no `getOpenWorkspaceForInvoice` call from the Sales surface after Spec 130.
+- Phase 5 removes the locked-invoice branch from the Sales page. There is no `getOpenWorkspaceForInvoice` call from the Sales surface after Spec 131.
 - Both lock states drive the same draft → preview → commit pipeline.
-- Spec 130 includes the **parity test suite**: identical input proposals applied via AW `finalizeAdjustmentWorkspace` vs `commitOrderChanges` must produce equivalent `Invoice` rows, `Order.refundPending` state, and `OrderCommitDocument` linkage outcomes. These tests gate Phase 6 approval.
+- Spec 131 includes the **parity test suite**: identical input proposals applied via AW `finalizeAdjustmentWorkspace` vs `commitOrderChanges` must produce equivalent `Invoice` rows, `Order.refundPending` state, and `OrderCommitDocument` linkage outcomes. These tests gate Phase 6 approval.
 
 ### Implementation cadence
 
