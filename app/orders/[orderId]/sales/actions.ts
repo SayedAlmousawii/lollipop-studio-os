@@ -11,11 +11,15 @@ import { z } from "zod";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import {
+  commitOrderChanges,
   discardOrderCommitDraft,
   getOrCreateOrderCommitDraft,
   stageOrderCommitDraftChange,
   type OrderCommitDraftStagingChange,
 } from "@/modules/order-commits";
+import {
+  commitSalesChangesActionWithDependencies,
+} from "@/modules/order-commits/sales-commit-actions";
 import {
   discardSalesDraftActionWithDependencies,
   stageSalesChangeActionWithDependencies,
@@ -83,6 +87,24 @@ export async function discardSalesDraftAction(
     discardOrderCommitDraft,
     revalidateSalesPaths: revalidatePOSPaths,
   });
+}
+
+export async function commitSalesChangesAction(
+  orderId: string,
+  expectedDraftVersion: number,
+  approvalActorUserId?: string
+): Promise<POSMutationActionState> {
+  return commitSalesChangesActionWithDependencies(
+    orderId,
+    expectedDraftVersion,
+    approvalActorUserId,
+    {
+      requireOrderFinancialUpdate: () =>
+        requireCurrentAppUserPermission(PERMISSIONS.ORDER_FINANCIAL_UPDATE),
+      commitOrderChanges,
+      revalidateSalesPaths: revalidatePOSPaths,
+    }
+  );
 }
 
 const posPaymentDateTimeSchema = z.object({
