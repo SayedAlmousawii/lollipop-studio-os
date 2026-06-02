@@ -391,7 +391,7 @@ test("buildOpenAdjustmentLineMap returns canonical ordered open lines", async ()
   );
 });
 
-test("order commit execution source stays inside Task 4 boundaries", () => {
+test("order commit execution source avoids out-of-scope integrations", () => {
   const source = readFileSync(
     join(
       process.cwd(),
@@ -400,10 +400,7 @@ test("order commit execution source stays inside Task 4 boundaries", () => {
     "utf8"
   );
 
-  assert.doesNotMatch(source, /commitOrderChanges/);
-  assert.doesNotMatch(source, /createOrderCommitDocumentLinks/);
   assert.doesNotMatch(source, /pendingOpsJson/);
-  assert.doesNotMatch(source, /orderCommitDraft|orderCommit\.create|orderCommit\.delete/i);
   assert.doesNotMatch(source, /payment\.create|issueRefundWithPayment|refund\.service/);
   assert.doesNotMatch(source, /adjustment-workspace|AdjustmentWorkspace/);
   assert.doesNotMatch(source, /app\/orders|src\/components/);

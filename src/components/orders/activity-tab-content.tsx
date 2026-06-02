@@ -12,6 +12,7 @@ const ACTIVITY_TYPE_LABELS: Record<OrderActivityType, string> = {
   ORDER_PACKAGE_ADDED: "Package Line Added",
   ORDER_PACKAGE_LINE_CHANGED: "Package Line Changed",
   ORDER_PACKAGE_EXTRAS_CHANGED: "Package Extras Changed",
+  ORDER_COMMITTED: "Order Committed",
   ADD_ON_CHANGED: "Add-on Changed",
   PAYMENT_RECEIVED: "Payment Received",
   INVOICE_ADJUSTED: "Invoice Adjusted",

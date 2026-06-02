@@ -1,5 +1,7 @@
 export const ORDER_COMMIT_KIND = {
   BASELINE: "BASELINE",
+  ADJUSTMENT: "ADJUSTMENT",
+  AUDIT: "AUDIT",
 } as const;
 
 export const ORDER_COMMIT_STATUS = {

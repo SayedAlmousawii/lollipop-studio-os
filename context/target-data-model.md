@@ -40,7 +40,9 @@ Spec 123 Phase 3 Task 7 completes regression guards for the preview boundary. Gu
 
 Spec 124 Phase 4 Task 1 adds the execution schema guard for Unified Order Commit. `OrderCommit.committedFromDraftVersion` records the draft version that produced a commit once execution is wired, and the `(orderId, committedFromDraftVersion)` unique constraint is the database-level double-submit guard. Existing Phase 1 bootstrap commits can keep this field null.
 
-`OrderCommitDocument` is the commit-to-financial-document link model. It links an `OrderCommit` to emitted invoices only, with role values `BASE_INVOICE`, `ADJUSTMENT_INVOICE`, and `CREDIT_NOTE`. It does not link payments, refunds, audit rows, or existing locked deposit invoices. Task 1 is schema/contract-only; materialization, financial emission, document writing, draft deletion, and POS routing remain later Spec 124 tasks.
+`OrderCommitDocument` is the commit-to-financial-document link model. It links an `OrderCommit` to emitted invoices only, with role values `BASE_INVOICE`, `ADJUSTMENT_INVOICE`, and `CREDIT_NOTE`. It does not link payments, refunds, audit rows, or existing locked deposit invoices.
+
+Spec 124 Phase 4 Task 6 adds `commitOrderChanges` as the public commit execution entry point. Commit execution runs in a serializable transaction, locks the order/draft/latest commit/parent final invoice when applicable, recomputes preview from the persisted draft and baseline state, materializes `OrderCommitDraft.pendingSnapshotJson` into `Order*` rows, delegates document emission to the mapper-driven emission helper, creates the new `OrderCommit`, writes invoice-only `OrderCommitDocument` links, records audit/activity, checks financial invariants, and deletes the draft only after those steps succeed. `committedFromDraftVersion` is populated from the observed draft version, and conflicts on `(orderId, committedFromDraftVersion)` surface as concurrent commit errors. `REFUND_NEEDED` commits set `Order.refundPending` through the emission helper and do not issue refund payments.
 
 ## Adjustment Workspace Materialization
 

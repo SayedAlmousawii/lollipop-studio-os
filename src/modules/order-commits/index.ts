@@ -137,6 +137,18 @@ export {
   createOrderCommitDocumentLinks,
   type CreateOrderCommitDocumentLinksInput,
 } from "./order-commit-document.service";
+export {
+  commitOrderChanges,
+  emitOrderCommitFinancialDocuments,
+  OrderCommitApprovalRequiredError,
+  OrderCommitConcurrentCommitError,
+  OrderCommitCreditCapacityExhaustedError,
+  OrderCommitStaleDraftError,
+  type CommitOrderChangesInput,
+  type EmitOrderCommitFinancialDocumentsInput,
+  type OrderCommitEmissionResult,
+  type OrderCommitExecutionResult,
+} from "./order-commit-execution.service";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,

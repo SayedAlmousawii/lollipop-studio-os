@@ -3,8 +3,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  AuditAction,
+  AuditEntityType,
+  OrderActivityType,
+} from "@prisma/client";
+import {
   ORDER_COMMIT_DOCUMENT_ROLE,
+  ORDER_COMMIT_KIND,
   orderCommitDocumentRoleSchema,
+  orderCommitKindSchema,
 } from "@/modules/order-commits";
 
 test("order commit document role contract accepts only Task 1 values", () => {
@@ -19,6 +26,19 @@ test("order commit document role contract accepts only Task 1 values", () => {
 
   assert.equal(orderCommitDocumentRoleSchema.safeParse("PAYMENT").success, false);
   assert.equal(orderCommitDocumentRoleSchema.safeParse("REFUND").success, false);
+});
+
+test("order commit execution contracts include Task 6 commit and log values", () => {
+  assert.deepEqual(
+    Object.values(ORDER_COMMIT_KIND).sort(),
+    ["ADJUSTMENT", "AUDIT", "BASELINE"].sort()
+  );
+  for (const kind of Object.values(ORDER_COMMIT_KIND)) {
+    assert.equal(orderCommitKindSchema.parse(kind), kind);
+  }
+  assert.equal(AuditEntityType.ORDER_COMMIT, "ORDER_COMMIT");
+  assert.equal(AuditAction.ORDER_COMMIT_CREATED, "ORDER_COMMIT_CREATED");
+  assert.equal(OrderActivityType.ORDER_COMMITTED, "ORDER_COMMITTED");
 });
 
 test("schema defines the order commit document link model", () => {

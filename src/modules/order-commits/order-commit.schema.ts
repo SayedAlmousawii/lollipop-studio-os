@@ -14,6 +14,8 @@ const rawMoneySchema = z.number().finite();
 
 export const orderCommitKindSchema = z.enum([
   ORDER_COMMIT_KIND.BASELINE,
+  ORDER_COMMIT_KIND.ADJUSTMENT,
+  ORDER_COMMIT_KIND.AUDIT,
 ]);
 
 export const orderCommitStatusSchema = z.enum([
