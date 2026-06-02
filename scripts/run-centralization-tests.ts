@@ -43,6 +43,7 @@ const files = [
   "tests/order-commits/sales-staging-actions/discard-stale-version.test.ts",
   "tests/order-commits/sales-commit-actions/sales-commit-actions.test.ts",
   "tests/order-commits/sales-commit-dialog/order-commit-review-dialog.test.tsx",
+  "tests/order-commits/sales-commit-dialog/order-commit-review-dialog-behavior.test.tsx",
   "tests/order-commits/sales-page-view/sales-page-view-projectors.test.ts",
   "tests/order-commits/sales-page-view/sales-page-view-loader.test.ts",
   "tests/order-commits/order-commit-service.test.ts",

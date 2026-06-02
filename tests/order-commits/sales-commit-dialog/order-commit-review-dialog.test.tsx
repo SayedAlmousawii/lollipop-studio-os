@@ -32,7 +32,11 @@ type DialogModule = {
     preview: SalesPagePreviewState | null;
     stagedChanges: SalesPageStagedChangesRow[];
     financialPreview: SalesPageFinancialPreview;
-    commitAction?: () => Promise<POSMutationActionState>;
+    commitAction?: (
+      orderId: string,
+      expectedDraftVersion: number,
+      approvalActorUserId?: string
+    ) => Promise<POSMutationActionState>;
   }>;
   OrderCommitReviewDialogBody: ComponentType<{
     preview: SalesPagePreviewState;
