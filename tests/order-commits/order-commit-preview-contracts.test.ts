@@ -142,10 +142,26 @@ test("preview contract modules avoid invoice lines, mutation services, and legac
   const publicWorkspaceNaming = sources
     .filter(({ source }) => /AdjustmentWorkspace/.test(source))
     .map(({ file }) => file);
+  const mutatingCalls = sources
+    .filter(({ source }) =>
+      /\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(/.test(
+        source
+      )
+    )
+    .map(({ file }) => file);
+  const appOrComponentImports = sources
+    .filter(({ source }) =>
+      /from\s+["'](?:@\/(?:app|components)(?:\/|$)|\.{1,2}\/.*\/(?:app|components)(?:\/|$))/.test(
+        source
+      )
+    )
+    .map(({ file }) => file);
 
   assert.deepEqual(invoiceLineReads, []);
   assert.deepEqual(forbiddenMutationImports, []);
   assert.deepEqual(publicWorkspaceNaming, []);
+  assert.deepEqual(mutatingCalls, []);
+  assert.deepEqual(appOrComponentImports, []);
 });
 
 function snapshot({ netTotal }: { netTotal: number }) {

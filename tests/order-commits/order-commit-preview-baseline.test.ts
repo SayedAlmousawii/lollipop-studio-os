@@ -119,6 +119,43 @@ test("preview original baseline keeps Basic 100 as the first-commit comparison",
   assert.equal(baseline.snapshot.totals.netTotal, 100);
 });
 
+test("preview original baseline never falls back to current package metadata", async () => {
+  const client = fakePreviewBaselineClient({
+    order: fakeOrder({
+      packages: [
+        fakeOrderPackage({
+          id: "order-package-1",
+          originalPackageId: "package-basic",
+          originalPackageNameSnapshot: "Basic",
+          originalPackagePriceSnapshot: decimal("100.000"),
+          currentPackageId: "package-premium",
+          currentPackageNameSnapshot: "Premium",
+          finalPackagePriceSnapshot: decimal("180.000"),
+          originalIncludedPhotoCount: 10,
+          selectedPhotoCount: 20,
+          extraDigitalCount: 4,
+          extraPrintCount: 2,
+        }),
+      ],
+    }),
+  });
+
+  const baseline = await resolveOrderCommitPreviewBaseline({
+    orderId: "order-1",
+    client: client.client,
+  });
+  const packageLine = requireLine(baseline.snapshot, "order-package:order-package-1");
+
+  assert.equal(packageLine.catalogEntityId, "package-basic");
+  assert.equal(packageLine.label, "Basic");
+  assert.equal(packageLine.unitPrice, 100);
+  assert.equal(packageLine.metadata.originalPackagePriceSnapshot, 100);
+  assert.equal(packageLine.metadata.includedPhotoCount, 10);
+  assert.equal(packageLine.metadata.selectedPhotoCount, 10);
+  assert.equal(packageLine.metadata.extraDigitalCount, 0);
+  assert.equal(packageLine.metadata.extraPrintCount, 0);
+});
+
 test("preview original baseline keeps one ordered line per original package", async () => {
   const client = fakePreviewBaselineClient({
     order: fakeOrder({
@@ -229,6 +266,31 @@ test("preview original baseline blocks unresolved included photo count", async (
   );
 });
 
+test("preview original baseline blocks unsafe partial composition instead of empty fallback", async () => {
+  const client = fakePreviewBaselineClient({
+    order: fakeOrder({
+      packages: [
+        fakeOrderPackage({
+          id: "order-package-safe",
+          originalPackagePriceSnapshot: decimal("100.000"),
+        }),
+        fakeOrderPackage({
+          id: "order-package-unsafe",
+          originalPackagePriceSnapshot: null,
+        }),
+      ],
+    }),
+  });
+
+  await assert.rejects(
+    resolveOrderCommitPreviewBaseline({
+      orderId: "order-1",
+      client: client.client,
+    }),
+    /unsafe original baseline data-integrity error.*order-package-unsafe.*missing original package price/i
+  );
+});
+
 test("preview baseline source avoids invoice rows and mutation-service imports", () => {
   const source = readFileSync(
     join(
@@ -241,6 +303,20 @@ test("preview baseline source avoids invoice rows and mutation-service imports",
   assert.equal(/invoiceLineItem/i.test(source), false);
   assert.equal(
     /from\s+["'][^"']*(adjustment-workspace|invoice\.service|payment\.service|refund)[^"']*["']/i.test(
+      source
+    ),
+    false
+  );
+  assert.equal(/\bcurrentPackageId:\s*true/.test(source), false);
+  assert.equal(/\bcurrentPackageNameSnapshot:\s*true/.test(source), false);
+  assert.equal(/\bfinalPackagePriceSnapshot:\s*true/.test(source), false);
+  assert.equal(/\bselectedPhotoCount:\s*true/.test(source), false);
+  assert.equal(/\bextraDigitalCount:\s*true/.test(source), false);
+  assert.equal(/\bextraPrintCount:\s*true/.test(source), false);
+  assert.equal(/\borderAddOns?\b|\baddOns?\s*:/.test(source), false);
+  assert.equal(/\borderPackageItemUpgrades?\b|\bpackageItemUpgrades?\s*:/.test(source), false);
+  assert.equal(
+    /\borderPackageSessionConfigurationSelections?\b|\bsessionConfigurationSelections?\s*:/.test(
       source
     ),
     false
