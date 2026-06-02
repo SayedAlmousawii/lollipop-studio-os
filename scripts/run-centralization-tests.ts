@@ -32,6 +32,7 @@ const files = [
   "tests/order-commits/order-commit-execution-schema.test.ts",
   "tests/order-commits/order-commit-materialization.test.ts",
   "tests/order-commits/order-commit-financial-emission.test.ts",
+  "tests/order-commits/order-commit-invoice-emission.test.ts",
   "tests/order-commits/order-commit-service.test.ts",
   "tests/order-commits/order-commit-snapshot-capture.test.ts",
   "tests/order-commits/order-commit-snapshot-normalizer.test.ts",
