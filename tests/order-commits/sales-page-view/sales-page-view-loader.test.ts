@@ -87,7 +87,9 @@ test("loader composes with-draft view from pending snapshot and preview once", a
   assert.equal(view.preview?.netDelta, 22);
   assert.equal(view.composition.source, "projected");
   assert.equal(view.composition.packageLines[0]?.orderPackageId, "draft:package-1");
+  assert.equal(view.financialPreview.overlay.previousTotal, 100);
   assert.equal(view.financialPreview.overlay.pendingDelta, 22);
+  assert.equal(view.financialPreview.overlay.pendingTotal, 122);
   assert.equal(view.permissions.canUpdateOrderFinancial, true);
 });
 
@@ -454,6 +456,11 @@ function previewFixture(
       },
     ],
     netDelta,
+    totals: input.totals ?? {
+      baselineTotal: 100,
+      netDelta,
+      pendingTotal: 100 + netDelta,
+    },
     requiresApproval: false,
     approvalReasons: [],
     documentPlan: {

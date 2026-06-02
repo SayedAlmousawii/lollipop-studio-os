@@ -59,6 +59,7 @@ export {
   orderCommitPreviewLineSummarySchema,
   orderCommitPreviewOperationalFlagsSchema,
   orderCommitPreviewPaymentImpactKindSchema,
+  orderCommitPreviewTotalsSchema,
   orderCommitPreviewSchema,
   orderCommitRefundImpactSchema,
   orderCommitSnapshotDiffSchema,
@@ -206,6 +207,7 @@ export type {
   OrderCommitPreviewLineSummary,
   OrderCommitPreviewOperationalFlags,
   OrderCommitPreviewPaymentImpactKind,
+  OrderCommitPreviewTotals,
   OrderCommitRefundImpact,
   OrderCommitSnapshotDiff,
 } from "./order-commit-preview.types";

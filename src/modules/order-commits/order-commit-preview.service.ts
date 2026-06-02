@@ -1,5 +1,8 @@
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
 import {
+  ORDER_COMMIT_PREVIEW_BASELINE_SOURCE,
+} from "./order-commit-preview.constants";
+import {
   buildOrderCommitApprovalAndDocumentPreview,
   type OrderCommitPreviewPaymentState,
 } from "./order-commit-approval-document-preview.service";
@@ -51,6 +54,19 @@ export async function getOrderCommitPreview(
     pendingSnapshot: draftState.pendingSnapshot,
   });
   const classification = classifyOrderCommitPreview({ diff });
+  const totals = buildOrderCommitPreviewTotals({
+    baseline,
+    pendingSnapshotNetTotal: draftState.pendingSnapshot.totals.netTotal,
+  });
+  if (totals.netDelta !== classification.netDelta) {
+    throw new Error(
+      `OrderCommit preview failed: totals netDelta ${totals.netDelta.toFixed(
+        3
+      )} does not match classification netDelta ${classification.netDelta.toFixed(
+        3
+      )} for order ${input.orderId}.`
+    );
+  }
   const paymentState = await loadOrderCommitPreviewPaymentState({
     orderId: input.orderId,
     financialSummaryLoader: input.financialSummaryLoader,
@@ -70,6 +86,7 @@ export async function getOrderCommitPreview(
     commitKind: classification.commitKind,
     lineDiffs: classification.lineDiffs,
     netDelta: classification.netDelta,
+    totals,
     requiresApproval: approvalAndDocumentPreview.requiresApproval,
     approvalReasons: approvalAndDocumentPreview.approvalReasons,
     documentPlan: approvalAndDocumentPreview.documentPlan,
@@ -77,6 +94,22 @@ export async function getOrderCommitPreview(
     refundImpact: approvalAndDocumentPreview.refundImpact,
     zeroNetReason: classification.zeroNetReason,
   });
+}
+
+function buildOrderCommitPreviewTotals(input: {
+  baseline: Awaited<ReturnType<typeof resolveOrderCommitPreviewBaseline>>;
+  pendingSnapshotNetTotal: number;
+}): OrderCommitPreview["totals"] {
+  const baselineTotal =
+    input.baseline.baselineSource === ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.EMPTY
+      ? 0
+      : input.baseline.snapshot.totals.netTotal;
+  const pendingTotal = input.pendingSnapshotNetTotal;
+  return {
+    baselineTotal,
+    netDelta: roundMoney(pendingTotal - baselineTotal),
+    pendingTotal,
+  };
 }
 
 async function loadOrderCommitPreviewPaymentState(input: {
@@ -113,4 +146,8 @@ async function loadFinancialCaseSummary(input: {
 }): Promise<FinancialCaseSummary | null> {
   const { getFinancialCaseSummary } = await import("@/modules/financial-cases");
   return getFinancialCaseSummary({ orderId: input.orderId });
+}
+
+function roundMoney(value: number): number {
+  return Number(value.toFixed(3));
 }

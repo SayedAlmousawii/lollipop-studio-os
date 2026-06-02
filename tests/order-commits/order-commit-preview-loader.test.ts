@@ -10,6 +10,7 @@ import {
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_ORDER_ENTITY_KIND,
   ORDER_COMMIT_PREVIEW_BASELINE_SOURCE,
+  ORDER_COMMIT_PREVIEW_COMMIT_KIND,
   ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
   ORDER_COMMIT_SNAPSHOT_CURRENCY,
@@ -96,6 +97,16 @@ test("preview loader uses pending snapshot instead of pending operation history"
 
   assert.equal(firstPreview.netDelta, 80);
   assert.equal(secondPreview.netDelta, 80);
+  assertPreviewTotals(firstPreview, {
+    baselineTotal: 100,
+    netDelta: 80,
+    pendingTotal: 180,
+  });
+  assertPreviewTotals(secondPreview, {
+    baselineTotal: 100,
+    netDelta: 80,
+    pendingTotal: 180,
+  });
   assert.deepEqual(firstPreview.lineDiffs, secondPreview.lineDiffs);
   assert.deepEqual(firstPreview.documentPlan, secondPreview.documentPlan);
 });
@@ -141,6 +152,11 @@ test("preview loader maps first original positive delta to base invoice", async 
     ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.ORIGINAL_ORDER_COMPOSITION
   );
   assert.equal(preview.netDelta, 80);
+  assertPreviewTotals(preview, {
+    baselineTotal: 100,
+    netDelta: 80,
+    pendingTotal: 180,
+  });
   assert.equal(
     preview.documentPlan.kind,
     ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE
@@ -191,6 +207,11 @@ test("preview loader maps latest committed positive delta to adjustment invoice"
   assert.equal(preview.draftId, "draft-1");
   assert.equal(preview.draftVersion, 3);
   assert.equal(preview.netDelta, 25);
+  assertPreviewTotals(preview, {
+    baselineTotal: 180,
+    netDelta: 25,
+    pendingTotal: 205,
+  });
   assert.equal(
     preview.documentPlan.kind,
     ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE
@@ -225,6 +246,131 @@ test("preview loader maps booking-stage payment state as pre-final-invoice only"
   assert.equal(preview.paymentImpact.remainingAfterCommit, 100);
   assert.equal(preview.refundImpact.creditNoteAmount, 0);
   assert.equal(preview.refundImpact.refundableAmount, 0);
+  assertPreviewTotals(preview, {
+    baselineTotal: 0,
+    netDelta: 100,
+    pendingTotal: 100,
+  });
+});
+
+test("preview loader exposes zero-net swap totals without changing audit classification", async () => {
+  const client = fakePreviewClient({
+    commits: [
+      fakeCommit({
+        id: "commit-1",
+        sequence: 1,
+        snapshotJson: snapshotFixture({
+          lines: [
+            packageLine({
+              catalogEntityId: "package-basic",
+              label: "Basic",
+              unitPrice: 100,
+            }),
+          ],
+        }),
+      }),
+    ],
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: snapshotFixture({
+          lines: [
+            packageLine({
+              catalogEntityId: "package-alt",
+              label: "Alternate",
+              unitPrice: 100,
+            }),
+          ],
+        }),
+      }),
+    ],
+  });
+
+  const preview = await getOrderCommitPreview({
+    orderId: "order-1",
+    client: client.client,
+    financialSummaryLoader: fakeSummaryLoader(activeSummary()),
+  });
+
+  assert.equal(preview.commitKind, ORDER_COMMIT_PREVIEW_COMMIT_KIND.ZERO_NET_AUDIT);
+  assertPreviewTotals(preview, {
+    baselineTotal: 100,
+    netDelta: 0,
+    pendingTotal: 100,
+  });
+});
+
+test("preview loader exposes no-op totals for identical snapshots", async () => {
+  const unchangedLine = packageLine({
+    catalogEntityId: "package-basic",
+    label: "Basic",
+    unitPrice: 100,
+  });
+  const client = fakePreviewClient({
+    commits: [
+      fakeCommit({
+        id: "commit-1",
+        sequence: 1,
+        snapshotJson: snapshotFixture({ lines: [unchangedLine] }),
+      }),
+    ],
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: snapshotFixture({ lines: [unchangedLine] }),
+      }),
+    ],
+  });
+
+  const preview = await getOrderCommitPreview({
+    orderId: "order-1",
+    client: client.client,
+    financialSummaryLoader: fakeSummaryLoader(activeSummary()),
+  });
+
+  assert.equal(preview.commitKind, ORDER_COMMIT_PREVIEW_COMMIT_KIND.NO_OP);
+  assert.equal(preview.lineDiffs.every((diff) => diff.moneyDelta === 0), true);
+  assertPreviewTotals(preview, {
+    baselineTotal: 100,
+    netDelta: 0,
+    pendingTotal: 100,
+  });
+});
+
+test("preview loader exposes reduction totals with negative net delta", async () => {
+  const client = fakePreviewClient({
+    commits: [
+      fakeCommit({
+        id: "commit-1",
+        sequence: 1,
+        snapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 180 })],
+        }),
+      }),
+    ],
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 100 })],
+        }),
+      }),
+    ],
+  });
+
+  const preview = await getOrderCommitPreview({
+    orderId: "order-1",
+    client: client.client,
+    financialSummaryLoader: fakeSummaryLoader(
+      activeSummary({ creditNoteCapacity: 200 })
+    ),
+  });
+
+  assertPreviewTotals(preview, {
+    baselineTotal: 180,
+    netDelta: -80,
+    pendingTotal: 100,
+  });
 });
 
 test("preview loader source stays read-only and uses FinancialCaseSummary boundary", () => {
@@ -593,4 +739,16 @@ function decimal(value: string): Prisma.Decimal {
 
 function money(value: number): number {
   return Number(value.toFixed(3));
+}
+
+function assertPreviewTotals(
+  preview: Awaited<ReturnType<typeof getOrderCommitPreview>>,
+  expected: {
+    baselineTotal: number;
+    netDelta: number;
+    pendingTotal: number;
+  }
+): void {
+  assert.deepEqual(preview.totals, expected);
+  assert.equal(preview.totals.netDelta, preview.netDelta);
 }
