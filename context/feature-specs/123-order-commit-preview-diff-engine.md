@@ -26,6 +26,16 @@ Add the Phase 3 preview layer for Unified Order Commit by comparing the correct 
   2. If no `OrderCommit` exists but original booking/order operational composition exists, baseline is an original booking/order package snapshot.
   3. If no `OrderCommit` exists and no original booking/order operational composition exists, baseline is an explicit empty baseline snapshot.
 - Do not default to an empty baseline when original booking/order composition exists. Example: booked package Basic 100 KD and draft package Premium 180 KD must preview as upgrade `+80 KD`, not full Premium `180 KD`.
+- Booking-time original composition is package-only. During booking, customers can choose packages only. They cannot choose add-ons, albums, extra photos, package-item upgrades, or session-configuration extras.
+- The first-commit original baseline contains only original booked package lines:
+  - `selectedPhotoCount = includedPhotoCount`
+  - `extraDigitalCount = 0`
+  - `extraPrintCount = 0`
+  - no add-on lines
+  - no package-item-upgrade lines
+  - no selected-photo extra lines
+  - no session-configuration lines
+  - no linked-product add-on lines
 - Do not read `InvoiceLineItem` for baseline, ownership, package, add-on, photo, package-item upgrade, session-configuration, linked-product, or current customer ownership truth.
 - Do not read current catalog prices for existing committed, original, or already-staged lines. Existing prices come from snapshots.
 - Do not add schema changes, POS routing changes, UI changes, commit execution, document emission, payment behavior, refund behavior, or Adjustment Workspace finalization changes.
@@ -113,6 +123,16 @@ Resolution rules:
 - Load latest committed `OrderCommit` by order. If present, return its parsed `snapshotJson` with `baselineSource = LATEST_ORDER_COMMIT`.
 - If no commit exists, derive an original booking/order composition baseline from operational order rows using immutable original package metadata and original price snapshots where available.
 - The original baseline must represent what the customer originally booked/owned before draft upgrades or swaps, not the current draft target.
+- The original baseline is package-only:
+  - build one package line per original booked `OrderPackage`
+  - use `OrderPackage.originalPackageId` for package id
+  - use `OrderPackage.originalPackageNameSnapshot` for package name
+  - use `OrderPackage.originalPackagePriceSnapshot` for package price
+  - set `selectedPhotoCount` to the resolved original `includedPhotoCount`
+  - set `extraDigitalCount = 0`
+  - set `extraPrintCount = 0`
+  - omit add-ons, selected-photo extras, package-item upgrades, session configurations, and linked-product add-ons even if current operational rows contain them
+- Resolve original `includedPhotoCount` from the original package reference when available. This is intentionally catalog-dependent because `OrderPackage` does not yet store an `originalIncludedPhotoCountSnapshot`.
 - If original package/order composition cannot be identified, return an explicit empty V1 snapshot with zero totals and `baselineSource = EMPTY`.
 - Do not read invoice lines.
 - Do not mutate rows.
@@ -205,6 +225,9 @@ Required first-commit baseline tests:
 - first commit with latest `OrderCommit` uses `OrderCommit.snapshotJson`.
 - first commit without `OrderCommit` but with original booking/order package composition uses the original baseline.
 - Basic 100 KD original package to Premium 180 KD draft previews as `+80 KD`.
+- booked Basic package with 10 included photos to Premium with 20 included photos compares the package price delta correctly.
+- first-commit original baseline package metadata has `selectedPhotoCount` equal to the original included photo count.
+- first-commit original baseline does not infer add-ons, selected-photo extras, session configurations, linked-product add-ons, or package-item upgrades from current operational rows.
 - first commit uses empty baseline only when no committed or original operational composition exists.
 - original-baseline derivation does not read invoice lines.
 - catalog price changes do not change original or committed baseline comparison.
@@ -255,16 +278,25 @@ Required source/isolation guards:
 - Update `context/target-data-model.md` with Phase 3 preview semantics:
   - committed truth is `OrderCommit.snapshotJson`.
   - draft truth is `OrderCommitDraft.pendingSnapshotJson`.
-  - first-commit baseline uses original booking/order operational composition when no commit exists.
+  - first-commit baseline uses package-only original booking/order operational composition when no commit exists.
   - empty baseline is only a fallback when no committed or original composition exists.
   - `pendingOpsJson` remains history-only.
 - Leave roadmap docs unchanged unless implementation discovers approved-roadmap drift.
+
+## Future Follow-Up
+
+- Consider adding `originalIncludedPhotoCountSnapshot` to `OrderPackage` or capturing a booking-time composition snapshot so first-commit original baselines do not depend on mutable package catalog data.
 
 ## Acceptance Criteria
 
 - `getOrderCommitPreview`, `resolveOrderCommitPreviewBaseline`, `diffOrderCommitSnapshots`, `classifyOrderCommitPreview`, and `buildOrderCommitApprovalAndDocumentPreview` exist under `src/modules/order-commits/`.
 - Preview baseline selection follows the three-step rule: latest commit, original booking/order composition, then empty baseline.
 - Basic 100 KD original booking package to Premium 180 KD draft previews as upgrade `+80 KD`, not full Premium `180 KD`.
+- First-commit original baseline includes only original booked package lines.
+- First-commit original baseline uses original package id/name/price from `OrderPackage` original package fields.
+- First-commit original baseline sets `selectedPhotoCount` equal to original included photos and extra digital/print counts to zero.
+- First-commit original baseline omits add-ons, package-item upgrades, selected-photo extras, session configurations, and linked-product add-ons.
+- Original included-photo count resolution is documented as catalog-dependent until a durable original included-photo snapshot exists.
 - Preview compares baseline snapshot to active draft snapshot.
 - `pendingOpsJson` is not replayed or treated as business truth.
 - No invoice line items are used for ownership, baseline, or diff reconstruction.
