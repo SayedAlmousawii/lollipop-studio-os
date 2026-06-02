@@ -125,15 +125,23 @@ Resolution rules:
 - The original baseline must represent what the customer originally booked/owned before draft upgrades or swaps, not the current draft target.
 - The original baseline is package-only:
   - build one package line per original booked `OrderPackage`
+  - support multi-package bookings by building one baseline line per original `OrderPackage`
+  - order original baseline package lines deterministically by `sortOrder`, then `createdAt`, then `id`
   - use `OrderPackage.originalPackageId` for package id
   - use `OrderPackage.originalPackageNameSnapshot` for package name
   - use `OrderPackage.originalPackagePriceSnapshot` for package price
   - set `selectedPhotoCount` to the resolved original `includedPhotoCount`
   - set `extraDigitalCount = 0`
   - set `extraPrintCount = 0`
+  - preserve per-line original package id, original name, original price, original included photo count, stable identity, and sort order
+  - do not collapse multiple packages into one baseline total
+  - do not derive the baseline from `packages[0]` only
   - omit add-ons, selected-photo extras, package-item upgrades, session configurations, and linked-product add-ons even if current operational rows contain them
 - Resolve original `includedPhotoCount` from the original package reference when available. This is intentionally catalog-dependent because `OrderPackage` does not yet store an `originalIncludedPhotoCountSnapshot`.
-- If original package/order composition cannot be identified, return an explicit empty V1 snapshot with zero totals and `baselineSource = EMPTY`.
+- If any original `OrderPackage` has `originalPackagePriceSnapshot = null`, do not fall back to current catalog/package price and do not return `EMPTY`. Fail/block preview with an explicit unsafe original baseline / data-integrity error.
+- If `originalPackageId` cannot resolve to a `Package` and `includedPhotoCount` cannot be safely resolved, do not infer from current package and do not return `EMPTY`. Fail/block preview with an explicit unsafe original baseline / data-integrity error.
+- Return an explicit empty V1 snapshot with zero totals and `baselineSource = EMPTY` only when no committed baseline exists and no original operational composition exists at all.
+- If original composition partially exists but is unsafe or incomplete, fail/block preview instead of silently falling back to `EMPTY`.
 - Do not read invoice lines.
 - Do not mutate rows.
 - Return a V1 snapshot compatible with `diffOrderCommitSnapshots`.
@@ -226,9 +234,14 @@ Required first-commit baseline tests:
 - first commit without `OrderCommit` but with original booking/order package composition uses the original baseline.
 - Basic 100 KD original package to Premium 180 KD draft previews as `+80 KD`.
 - booked Basic package with 10 included photos to Premium with 20 included photos compares the package price delta correctly.
+- multi-package original baseline creates one ordered package line per original `OrderPackage`.
 - first-commit original baseline package metadata has `selectedPhotoCount` equal to the original included photo count.
 - first-commit original baseline does not infer add-ons, selected-photo extras, session configurations, linked-product add-ons, or package-item upgrades from current operational rows.
-- first commit uses empty baseline only when no committed or original operational composition exists.
+- null `originalPackagePriceSnapshot` blocks preview with an unsafe original baseline / data-integrity error.
+- missing `originalPackageId` / package reference blocks preview when included photos cannot be safely resolved.
+- first commit uses empty baseline only when no committed or original operational composition exists at all.
+- unsafe or incomplete partial original composition fails instead of falling back to `EMPTY`.
+- original baseline never falls back to `currentPackageId`, current package price, or current included photo count.
 - original-baseline derivation does not read invoice lines.
 - catalog price changes do not change original or committed baseline comparison.
 
