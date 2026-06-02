@@ -15,6 +15,7 @@ export {
   orderCommitDraftStagingSnapshotReplacementOperationSchema,
 } from "./order-commit-draft.schema";
 export {
+  ORDER_COMMIT_DOCUMENT_ROLE,
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_ORDER_ENTITY_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
@@ -32,6 +33,7 @@ export {
   ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND,
 } from "./order-commit-preview.constants";
 export {
+  orderCommitDocumentRoleSchema,
   orderCommitKindSchema,
   orderCommitMetadataSchema,
   orderCommitOrderEntityKindSchema,
@@ -172,6 +174,7 @@ export type {
   OrderCommitSnapshotDiff,
 } from "./order-commit-preview.types";
 export type {
+  OrderCommitDocumentRole,
   OrderCommitKind,
   OrderCommitOrderEntityKind,
   OrderCommitPriceSource,

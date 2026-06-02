@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  ORDER_COMMIT_DOCUMENT_ROLE,
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_ORDER_ENTITY_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
@@ -17,6 +18,12 @@ export const orderCommitKindSchema = z.enum([
 
 export const orderCommitStatusSchema = z.enum([
   ORDER_COMMIT_STATUS.COMMITTED,
+]);
+
+export const orderCommitDocumentRoleSchema = z.enum([
+  ORDER_COMMIT_DOCUMENT_ROLE.BASE_INVOICE,
+  ORDER_COMMIT_DOCUMENT_ROLE.ADJUSTMENT_INVOICE,
+  ORDER_COMMIT_DOCUMENT_ROLE.CREDIT_NOTE,
 ]);
 
 export const orderCommitMetadataSchema = z.record(z.string(), z.unknown());

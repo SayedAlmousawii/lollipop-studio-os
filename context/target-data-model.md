@@ -36,6 +36,12 @@ Spec 123 Phase 3 Task 6 adds the read-only `getOrderCommitPreview({ orderId })` 
 
 Spec 123 Phase 3 Task 7 completes regression guards for the preview boundary. Guarded semantics are: committed baseline truth comes from the latest `OrderCommit.snapshotJson`; draft preview truth comes from the active `OrderCommitDraft.pendingSnapshotJson`; first-commit previews use only original booked package composition when no commit exists; explicit empty baselines are allowed only when no committed or original operational composition exists; unsafe partial original composition blocks preview; and `pendingOpsJson` remains history-only. Preview tests also guard that package-only original baselines do not fall back to current package identity, current package price, current selected/extra photo counts, dependent operational rows, invoice lines, or mutation services.
 
+## Order Commit Execution Schema Boundary
+
+Spec 124 Phase 4 Task 1 adds the execution schema guard for Unified Order Commit. `OrderCommit.committedFromDraftVersion` records the draft version that produced a commit once execution is wired, and the `(orderId, committedFromDraftVersion)` unique constraint is the database-level double-submit guard. Existing Phase 1 bootstrap commits can keep this field null.
+
+`OrderCommitDocument` is the commit-to-financial-document link model. It links an `OrderCommit` to emitted invoices only, with role values `BASE_INVOICE`, `ADJUSTMENT_INVOICE`, and `CREDIT_NOTE`. It does not link payments, refunds, audit rows, or existing locked deposit invoices. Task 1 is schema/contract-only; materialization, financial emission, document writing, draft deletion, and POS routing remain later Spec 124 tasks.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.
