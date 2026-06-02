@@ -67,6 +67,10 @@ export {
   type ResolveOrderCommitPreviewBaselineInput,
 } from "./order-commit-preview-baseline.service";
 export {
+  diffOrderCommitSnapshots,
+  type DiffOrderCommitSnapshotsInput,
+} from "./order-commit-preview-diff.service";
+export {
   reduceOrderCommitDraftAddOn,
   type ReduceOrderCommitDraftAddOnInput,
   type ResolvedOrderCommitDraftAddOnProduct,

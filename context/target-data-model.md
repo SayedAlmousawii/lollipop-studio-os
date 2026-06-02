@@ -26,6 +26,8 @@ Spec 123 Phase 3 Task 1 adds the public preview DTO contract for centralized Ord
 
 Committed truth remains `OrderCommit.snapshotJson`. Draft truth remains `OrderCommitDraft.pendingSnapshotJson`. `pendingOpsJson` remains history-only and is not part of the preview diff contract. The first-commit baseline selection contract is latest `OrderCommit` snapshot first, then package-only original booking/order operational composition when no commit exists, and explicit empty baseline only when neither committed nor original operational composition exists. Original-baseline included-photo resolution remains catalog-dependent until `OrderPackage` stores a durable original included-photo snapshot.
 
+Spec 123 Phase 3 Task 3 adds pure snapshot diff semantics. Preview diff compares two parsed V1 snapshots by `stableKey` only, requires matching `orderId`, `financialCaseId`, schema version, and currency, returns raw numeric line and net deltas, and reports meaningful zero-net operational changes without reading `pendingOpsJson` or any database-backed operational/financial rows. If a package change produces different stable keys, the diff reports removed and added lines; later classification owns interpreting that as a package swap/change.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.
