@@ -27,6 +27,7 @@ const files = [
   "tests/order-commits/order-commit-preview-baseline.test.ts",
   "tests/order-commits/order-commit-preview-diff.test.ts",
   "tests/order-commits/order-commit-preview-classification.test.ts",
+  "tests/order-commits/order-commit-approval-document-preview.test.ts",
   "tests/order-commits/order-commit-service.test.ts",
   "tests/order-commits/order-commit-snapshot-capture.test.ts",
   "tests/order-commits/order-commit-snapshot-normalizer.test.ts",

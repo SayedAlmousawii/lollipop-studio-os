@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 123 Phase 3 Task 5 is complete: `buildOrderCommitApprovalAndDocumentPreview` now turns pure operational classifications plus explicit baseline source and loader-provided payment state into approval, document-plan, payment-impact, and refund-impact preview DTOs without DB reads, document emission, loader wiring, UI, schema, or mutation behavior.
 - Spec 123 Phase 3 Task 4 is complete: `classifyOrderCommitPreview` now consumes only the pure snapshot diff DTO, aggregates operational change flags, maps positive/negative/zero/no-op deltas to preview commit kinds, and leaves approval, document-plan, payment/refund, loader, UI, schema, DB, and mutation behavior untouched.
 - Spec 123 Phase 3 Task 3 is complete: `diffOrderCommitSnapshots` now purely compares baseline and pending V1 snapshots by stable line identity, returns raw line/net deltas and zero-net meaningful-change reasons, and stays isolated from DB, loader, classification, approval, document, payment, refund, invoice, UI, schema, and mutation behavior.
 - Spec 123 Phase 3 Task 2 is complete: `resolveOrderCommitPreviewBaseline` now selects latest committed snapshots, original package-only first-commit baselines, or explicit empty baselines while blocking unsafe original package metadata and staying read-only.
@@ -113,6 +114,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **123 Phase 3 Task 5** — Added pure OrderCommit approval/document preview policy for base invoice, adjustment invoice, credit-note, refund-needed, zero-net audit, and no-op outcomes, with focused policy tests wired into `test:centralization`.
 - **123 Phase 3 Task 3** — Added the pure OrderCommit snapshot diff engine with V1 identity validation, stable-key line comparison, raw numeric line/net deltas, meaningful zero-net detection, operational line flags, no forced package rematching, source isolation guards, and centralization wiring.
 - **123 Phase 3 Task 2** — Added the read-only OrderCommit preview baseline resolver for latest commit, original package-only composition, and empty baseline selection, including unsafe original metadata guards and focused baseline coverage.
 - **123 Phase 3 Task 1** — Added OrderCommit preview DTO/schema/type contracts for baseline source metadata, snapshot line diffs, classification, approval/document-plan preview, payment impact, refund impact, and zero-net outcomes, with source guards wired into `test:centralization`.

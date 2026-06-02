@@ -30,6 +30,8 @@ Spec 123 Phase 3 Task 3 adds pure snapshot diff semantics. Preview diff compares
 
 Spec 123 Phase 3 Task 4 adds pure preview classification semantics. Classification consumes only the snapshot diff DTO, aggregates operational change flags, and determines the preview `commitKind` for no-op, positive delta, negative delta, and meaningful zero-net changes. It does not read snapshots again, inspect `pendingOpsJson`, query the database, decide approval policy, build document plans, compute payment/refund impact, load drafts, or mutate operational/financial rows.
 
+Spec 123 Phase 3 Task 5 adds pure approval and financial-document preview semantics. Approval/document preview consumes the operational classification, explicit baseline source, and a loader-provided raw payment state; it does not query the database, inspect `pendingOpsJson`, or create invoices, payments, credit notes, refunds, allocations, applications, commits, or operational rows. Positive first-commit deltas with `ORIGINAL_ORDER_COMPOSITION` or `EMPTY` preview a base invoice, positive latest-commit deltas preview an adjustment invoice, reductions require approval and preview either credit-note or refund-needed outcomes based on current remaining balance, zero-net meaningful changes preview an audit commit, and no-op changes preview no financial document.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.

@@ -75,6 +75,11 @@ export {
   type ClassifyOrderCommitPreviewInput,
 } from "./order-commit-preview-classification.service";
 export {
+  buildOrderCommitApprovalAndDocumentPreview,
+  type BuildOrderCommitApprovalAndDocumentPreviewInput,
+  type OrderCommitPreviewPaymentState,
+} from "./order-commit-approval-document-preview.service";
+export {
   reduceOrderCommitDraftAddOn,
   type ReduceOrderCommitDraftAddOnInput,
   type ResolvedOrderCommitDraftAddOnProduct,
