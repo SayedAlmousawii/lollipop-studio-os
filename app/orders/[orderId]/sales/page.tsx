@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { stageSalesChangeAction } from "@/app/orders/[orderId]/sales/actions";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { CurrentCompositionCard } from "@/components/orders/current-composition-card";
-import { FinancialSidebarDraft } from "@/components/orders/financial-sidebar-draft";
 import { FinancialSidebarLocked } from "@/components/orders/financial-sidebar-locked";
+import { OrderCommitFinancialSidebar } from "@/components/orders/order-commit-financial-sidebar";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import {
   POSPackageComposition,
@@ -206,9 +206,11 @@ export default async function SalesPage(
           financialPreview={salesPageView.financialPreview}
         />
       </main>
-      <FinancialSidebarDraft
+      <OrderCommitFinancialSidebar
         workspace={workspace}
-        composition={salesPageView.composition}
+        financialPreview={salesPageView.financialPreview}
+        financialCase={salesPageView.financialCase}
+        preview={salesPageView.preview}
         editPolicies={financialSidebarPolicies}
         className={styles.financialSidebar}
       />

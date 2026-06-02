@@ -48,6 +48,7 @@ const files = [
   "tests/order-commits/sales-page-view/sales-page-view-loader.test.ts",
   "tests/order-commits/sales-page-surface/sales-staging-handler-adapter.test.ts",
   "tests/order-commits/sales-page-surface/sales-page-view-page-mount.test.ts",
+  "tests/order-commits/sales-page-surface/order-commit-financial-sidebar.test.tsx",
   "tests/order-commits/order-commit-service.test.ts",
   "tests/order-commits/order-commit-snapshot-capture.test.ts",
   "tests/order-commits/order-commit-snapshot-normalizer.test.ts",

@@ -10,6 +10,10 @@ const stagedControlsSource = readFileSync(
   "src/components/orders/sales-staged-commit-controls.tsx",
   "utf8"
 );
+const orderCommitFinancialSidebarSource = readFileSync(
+  "src/components/orders/order-commit-financial-sidebar.tsx",
+  "utf8"
+);
 const unlockedSource = pageSource.slice(
   pageSource.indexOf("const salesPageView = await getSalesPageView"),
   pageSource.indexOf("function LockedCompositionView")
@@ -26,7 +30,7 @@ test("unlocked Sales page mounts SalesPageView as the composition source", () =>
   assert.equal(
     [...unlockedSource.matchAll(/composition=\{salesPageView\.composition\}/g)]
       .length,
-    3
+    2
   );
   assert.match(unlockedSource, /marketplace=\{addOnMarketplace\}/);
   assert.doesNotMatch(unlockedSource, /draftComposition/);
@@ -57,7 +61,6 @@ test("unlocked Sales page uses OrderCommit staging handlers", () => {
 test("unlocked Sales page mounts staged commit controls", () => {
   assert.match(pageSource, /getOpenWorkspaceForInvoice/);
   assert.match(pageSource, /FinancialSidebarLocked/);
-  assert.match(pageSource, /FinancialSidebarDraft/);
   assert.match(pageSource, /SalesStagedCommitControls/);
   assert.match(unlockedSource, /<SalesStagedCommitControls/);
   assert.match(unlockedSource, /orderId=\{workspace\.orderId\}/);
@@ -69,6 +72,23 @@ test("unlocked Sales page mounts staged commit controls", () => {
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
   assert.doesNotMatch(pageSource, /commitSalesChangesAction/);
+});
+
+test("unlocked Sales page mounts OrderCommit financial sidebar only", () => {
+  assert.match(pageSource, /OrderCommitFinancialSidebar/);
+  assert.match(unlockedSource, /<OrderCommitFinancialSidebar/);
+  assert.match(
+    unlockedSource,
+    /financialPreview=\{salesPageView\.financialPreview\}/
+  );
+  assert.match(unlockedSource, /financialCase=\{salesPageView\.financialCase\}/);
+  assert.match(unlockedSource, /preview=\{salesPageView\.preview\}/);
+  assert.doesNotMatch(pageSource, /FinancialSidebarDraft/);
+  const sidebarMountSource = unlockedSource.slice(
+    unlockedSource.indexOf("<OrderCommitFinancialSidebar"),
+    unlockedSource.indexOf("</div>", unlockedSource.indexOf("<OrderCommitFinancialSidebar"))
+  );
+  assert.doesNotMatch(sidebarMountSource, /composition=\{salesPageView\.composition\}/);
 });
 
 test("Sales page mount keeps source boundaries", () => {
@@ -104,4 +124,24 @@ test("staged changes panel stays display-only", () => {
   assert.doesNotMatch(stagedControlsSource, /@\/lib\/db/);
   assert.doesNotMatch(stagedControlsSource, /commitOrderChanges/);
   assert.doesNotMatch(stagedControlsSource, /AdjustmentWorkspace/);
+});
+
+test("OrderCommit financial sidebar stays display-only", () => {
+  assert.match(orderCommitFinancialSidebarSource, /financialPreview\.baseline/);
+  assert.match(orderCommitFinancialSidebarSource, /financialPreview\.overlay/);
+  assert.match(orderCommitFinancialSidebarSource, /Previous total/);
+  assert.match(orderCommitFinancialSidebarSource, /Pending delta/);
+  assert.match(orderCommitFinancialSidebarSource, /After commit/);
+  assert.match(orderCommitFinancialSidebarSource, /Document plan/);
+  assert.match(orderCommitFinancialSidebarSource, /Payment impact/);
+  assert.match(orderCommitFinancialSidebarSource, /Refund impact/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /@\/lib\/db/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /commitOrderChanges/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /AdjustmentWorkspace/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /\.reduce\(/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /lineDiffs/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /stagedChanges/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /pendingTotal\s*[-+*/]/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /pendingDelta\s*[-+*/]/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /previousTotal\s*[-+*/]/);
 });
