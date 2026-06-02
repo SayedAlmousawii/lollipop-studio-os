@@ -4,6 +4,7 @@ import {
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
+  OrderActivityType,
   OrderStatus,
   PaymentMethod,
   PaymentType,
@@ -709,8 +710,9 @@ async function runEc25EqualPricePackageSwap(
     editId: "ec25-equal-package-swap",
   });
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
-  const directActivityCount = await db.orderActivity.count({
+  const packageLineActivities = await db.orderActivity.findMany({
     where: { orderId: workflow.orderId, title: "Package line changed" },
+    select: { type: true, title: true, metadata: true },
   });
   const workspaceActivityCount = await db.orderActivity.count({
     where: { orderId: workflow.orderId, title: "Adjustment workspace finalized" },
@@ -718,7 +720,20 @@ async function runEc25EqualPricePackageSwap(
   const afterFinancial = await invoiceTypeSnapshot(db, workflow.orderId);
   assert.equal(afterFinancial.length, beforeFinancial.length + 1);
   assertMoney(adjustment.totalAmount, "0", "zero-net package swap emits composition ADJ");
-  assert.equal(directActivityCount, 0);
+  assert.equal(packageLineActivities.length, 1);
+  assert.equal(
+    packageLineActivities[0]?.type,
+    OrderActivityType.ORDER_PACKAGE_LINE_CHANGED
+  );
+  assert.equal(packageLineActivities[0]?.title, "Package line changed");
+  const packageLineMetadata = packageLineActivities[0]?.metadata as Record<
+    string,
+    unknown
+  >;
+  assert.equal(packageLineMetadata.previousPackageId, fixtures.basePackageId);
+  assert.equal(packageLineMetadata.previousPackageName, "Phase C Base Package");
+  assert.equal(packageLineMetadata.nextPackageId, fixtures.equalPackageId);
+  assert.equal(packageLineMetadata.nextPackageName, "Phase C Equal Package");
   assert.equal(workspaceActivityCount, 1);
 }
 
