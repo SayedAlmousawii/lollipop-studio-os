@@ -62,6 +62,11 @@ export {
   orderCommitSnapshotDiffSchema,
 } from "./order-commit-preview.schema";
 export {
+  resolveOrderCommitPreviewBaseline,
+  type OrderCommitPreviewBaselineClient,
+  type ResolveOrderCommitPreviewBaselineInput,
+} from "./order-commit-preview-baseline.service";
+export {
   reduceOrderCommitDraftAddOn,
   type ReduceOrderCommitDraftAddOnInput,
   type ResolvedOrderCommitDraftAddOnProduct,
