@@ -113,6 +113,13 @@ export {
   type ResolvedOrderCommitDraftLinkedProduct,
   type ResolvedOrderCommitDraftSessionConfigurationSelection,
 } from "./order-commit-session-configuration-reducer";
+export {
+  materializeOrderCommitDraftIntoOrderRows,
+  OrderCommitUnsupportedPackageMembershipError,
+  type MaterializeOrderCommitDraftIntoOrderRowsInput,
+  type MaterializeOrderCommitDraftIntoOrderRowsResult,
+  type OrderCommitMaterializationClient,
+} from "./order-commit-materialization.service";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
