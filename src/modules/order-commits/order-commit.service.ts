@@ -66,6 +66,11 @@ import {
   type ResolvedOrderCommitDraftSessionConfigurationSelection,
 } from "./order-commit-session-configuration-reducer";
 import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
+import {
+  OrderCommitDraftMissingError,
+  OrderCommitDraftPermissionError,
+  OrderCommitDraftStaleVersionError,
+} from "./order-commit-draft.errors";
 import { resolveOrderCommitDraftTargetLine } from "./order-commit-target-resolver";
 import type {
   OrderCommitDraftLineTarget,
@@ -435,20 +440,20 @@ export async function discardOrderCommitDraft(
       select: orderCommitDraftRowSelect,
     });
     if (!existing) {
-      throw new Error(
-        `OrderCommitDraft discard failed: draft for order ${input.orderId} was not found.`
-      );
+      throw new OrderCommitDraftMissingError(input.orderId, "discard");
     }
 
-    assertDraftExpectedVersion(existing, input.expectedVersion, "discard");
+    assertDraftExpectedVersion(existing, input.expectedVersion);
     assertDraftMutationAllowed(existing, input.actorContext, "discard");
 
     const deleted = await transaction.orderCommitDraft.deleteMany({
       where: { id: existing.id, version: input.expectedVersion },
     });
     if (deleted.count !== 1) {
-      throw new Error(
-        `OrderCommitDraft discard failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.id}.`
+      throw new OrderCommitDraftStaleVersionError(
+        input.expectedVersion,
+        existing.version,
+        existing.id
       );
     }
 
@@ -475,12 +480,10 @@ export async function replaceOrderCommitDraftSnapshot(
       select: orderCommitDraftRowSelect,
     });
     if (!existing) {
-      throw new Error(
-        `OrderCommitDraft snapshot replacement failed: draft for order ${input.orderId} was not found.`
-      );
+      throw new OrderCommitDraftMissingError(input.orderId, "replace snapshot");
     }
 
-    assertDraftExpectedVersion(existing, input.expectedVersion, "replace snapshot");
+    assertDraftExpectedVersion(existing, input.expectedVersion);
     assertDraftMutationAllowed(existing, input.actorContext, "replace snapshot");
     assertReplacementSnapshotMatchesDraft(existing, replacementSnapshot);
 
@@ -503,8 +506,10 @@ export async function replaceOrderCommitDraftSnapshot(
       },
     });
     if (updated.count !== 1) {
-      throw new Error(
-        `OrderCommitDraft snapshot replacement failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.id}.`
+      throw new OrderCommitDraftStaleVersionError(
+        input.expectedVersion,
+        existing.version,
+        existing.id
       );
     }
 
@@ -534,13 +539,13 @@ export async function stageOrderCommitDraftChange(
     client,
   });
   if (!existing) {
-    throw new Error(
-      `OrderCommitDraft staging failed: draft for order ${input.orderId} was not found.`
-    );
+    throw new OrderCommitDraftMissingError(input.orderId, "stage");
   }
   if (existing.draft.version !== input.expectedVersion) {
-    throw new Error(
-      `OrderCommitDraft staging failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.draft.id}; current version is ${existing.draft.version}.`
+    throw new OrderCommitDraftStaleVersionError(
+      input.expectedVersion,
+      existing.draft.version,
+      existing.draft.id
     );
   }
 
@@ -580,12 +585,10 @@ export async function appendOrderCommitDraftOperation(
       select: orderCommitDraftRowSelect,
     });
     if (!existing) {
-      throw new Error(
-        `OrderCommitDraft operation append failed: draft for order ${input.orderId} was not found.`
-      );
+      throw new OrderCommitDraftMissingError(input.orderId, "append operation");
     }
 
-    assertDraftExpectedVersion(existing, input.expectedVersion, "append operation");
+    assertDraftExpectedVersion(existing, input.expectedVersion);
     assertDraftMutationAllowed(existing, input.actorContext, "append operation");
 
     const existingPendingOps = orderCommitDraftPendingOpsV1Schema.parse(
@@ -614,8 +617,10 @@ export async function appendOrderCommitDraftOperation(
       },
     });
     if (updated.count !== 1) {
-      throw new Error(
-        `OrderCommitDraft operation append failed: stale expectedVersion ${input.expectedVersion} for draft ${existing.id}.`
+      throw new OrderCommitDraftStaleVersionError(
+        input.expectedVersion,
+        existing.version,
+        existing.id
       );
     }
 
@@ -1087,12 +1092,13 @@ function assertValidDraftActor(actorContext: ActorContext, action: string): void
 
 function assertDraftExpectedVersion(
   draft: SelectedOrderCommitDraftRow,
-  expectedVersion: number,
-  action: string
+  expectedVersion: number
 ): void {
   if (draft.version !== expectedVersion) {
-    throw new Error(
-      `OrderCommitDraft ${action} failed: stale expectedVersion ${expectedVersion} for draft ${draft.id}; current version is ${draft.version}.`
+    throw new OrderCommitDraftStaleVersionError(
+      expectedVersion,
+      draft.version,
+      draft.id
     );
   }
 }
@@ -1110,8 +1116,10 @@ function assertDraftMutationAllowed(
     return;
   }
 
-  throw new Error(
-    `OrderCommitDraft ${action} failed: actor ${actorContext.actorUserId} cannot mutate draft ${draft.id}.`
+  throw new OrderCommitDraftPermissionError(
+    actorContext.actorUserId,
+    draft.id,
+    action
   );
 }
 

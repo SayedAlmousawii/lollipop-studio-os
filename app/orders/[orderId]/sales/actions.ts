@@ -11,6 +11,16 @@ import { z } from "zod";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import {
+  discardOrderCommitDraft,
+  getOrCreateOrderCommitDraft,
+  stageOrderCommitDraftChange,
+  type OrderCommitDraftStagingChange,
+} from "@/modules/order-commits";
+import {
+  discardSalesDraftActionWithDependencies,
+  stageSalesChangeActionWithDependencies,
+} from "@/modules/order-commits/sales-staging-actions";
+import {
   addOrderProductAddOnSchema,
   removeOrderAddOnSchema,
   updateOrderPackageSchema,
@@ -48,6 +58,32 @@ export type POSRecordPaymentActionState = {
   errors?: Partial<Record<string, string[]>>;
   success?: string;
 };
+
+export async function stageSalesChangeAction(
+  orderId: string,
+  expectedVersion: number,
+  change: OrderCommitDraftStagingChange
+): Promise<POSMutationActionState> {
+  return stageSalesChangeActionWithDependencies(orderId, expectedVersion, change, {
+    requireOrderFinancialUpdate: () =>
+      requireCurrentAppUserPermission(PERMISSIONS.ORDER_FINANCIAL_UPDATE),
+    getOrCreateOrderCommitDraft,
+    stageOrderCommitDraftChange,
+    revalidateSalesPaths: revalidatePOSPaths,
+  });
+}
+
+export async function discardSalesDraftAction(
+  orderId: string,
+  expectedVersion: number
+): Promise<POSMutationActionState> {
+  return discardSalesDraftActionWithDependencies(orderId, expectedVersion, {
+    requireOrderFinancialUpdate: () =>
+      requireCurrentAppUserPermission(PERMISSIONS.ORDER_FINANCIAL_UPDATE),
+    discardOrderCommitDraft,
+    revalidateSalesPaths: revalidatePOSPaths,
+  });
+}
 
 const posPaymentDateTimeSchema = z.object({
   paidDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Payment date is required"),

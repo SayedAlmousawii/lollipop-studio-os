@@ -734,8 +734,12 @@ export async function finalizeWorkspace(
   },
   actorContext: ActorContext
 ): Promise<{ adjustmentInvoiceId: string | null; proposal: AdjustmentWorkspaceProposal }> {
-  assertStaffActor(actorContext);
-  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
+  const finalizeActorContext: ActorContext = {
+    ...actorContext,
+    bypassOrderCommitDraftGuard: true,
+  };
+  assertStaffActor(finalizeActorContext);
+  assertActorPermission(finalizeActorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
 
   return withRetry(
     () =>
@@ -767,14 +771,23 @@ export async function finalizeWorkspace(
         }
         assertOpenWorkspace(workspace.status);
         assertWorkspaceVersion(workspace.version, input.version);
-        assertWorkspaceOwnerOrManager(workspace.currentOwnerUserId, actorContext);
+        assertWorkspaceOwnerOrManager(
+          workspace.currentOwnerUserId,
+          finalizeActorContext
+        );
         if (workspace.invoice.invoiceType !== InvoiceType.FINAL || !workspace.invoice.isLocked) {
           throw new Error("Workspace parent invoice is no longer a locked final invoice");
         }
 
         const proposal = await buildProposalForWorkspace(workspace, tx);
         if (!proposal.hasEdits) {
-          await markWorkspaceFinalized(tx, workspaceId, actorContext.actorUserId, null, proposal);
+          await markWorkspaceFinalized(
+            tx,
+            workspaceId,
+            finalizeActorContext.actorUserId,
+            null,
+            proposal
+          );
           return { adjustmentInvoiceId: null, proposal };
         }
 
@@ -793,13 +806,13 @@ export async function finalizeWorkspace(
         const invoiceActorUserId =
           proposal.requiresManagerApproval && approvalUserId
             ? approvalUserId
-            : actorContext.actorUserId;
+            : finalizeActorContext.actorUserId;
         const sessionConfigurationSelectionIds =
           await finalizeSessionConfigurationSelectionEdits(
             tx,
             proposal.edits,
             workspace.orderId,
-            actorContext.actorUserId
+            finalizeActorContext.actorUserId
           );
         const finalizedProposal = remapSessionConfigurationProposal(
           proposal,
@@ -839,28 +852,28 @@ export async function finalizeWorkspace(
         if (finalizedProposal.deltas.length === 0) {
           await recordMaterializedPackageSwapActivities(tx, {
             orderId: workspace.orderId,
-            actorUserId: actorContext.actorUserId,
+            actorUserId: finalizeActorContext.actorUserId,
             activities: materializedPackageTierActivities,
           });
           await recordMaterializedAddOnActivities(tx, {
             orderId: workspace.orderId,
-            actorUserId: actorContext.actorUserId,
+            actorUserId: finalizeActorContext.actorUserId,
             activities: materializedAddOnActivities,
           });
           await recordMaterializedItemUpgradeActivities(tx, {
             orderId: workspace.orderId,
-            actorUserId: actorContext.actorUserId,
+            actorUserId: finalizeActorContext.actorUserId,
             activities: materializedItemUpgradeActivities,
           });
           await recordMaterializedPhotoCountActivities(tx, {
             orderId: workspace.orderId,
-            actorUserId: actorContext.actorUserId,
+            actorUserId: finalizeActorContext.actorUserId,
             activities: materializedPhotoCountActivities,
           });
           await markWorkspaceFinalized(
             tx,
             workspaceId,
-            actorContext.actorUserId,
+            finalizeActorContext.actorUserId,
             null,
             finalizedProposal,
             operationalStateAppliedAt
@@ -893,29 +906,29 @@ export async function finalizeWorkspace(
 
         await recordMaterializedPackageSwapActivities(tx, {
           orderId: workspace.orderId,
-          actorUserId: actorContext.actorUserId,
+          actorUserId: finalizeActorContext.actorUserId,
           activities: materializedPackageTierActivities,
         });
         await recordMaterializedAddOnActivities(tx, {
           orderId: workspace.orderId,
-          actorUserId: actorContext.actorUserId,
+          actorUserId: finalizeActorContext.actorUserId,
           activities: materializedAddOnActivities,
         });
         await recordMaterializedItemUpgradeActivities(tx, {
           orderId: workspace.orderId,
-          actorUserId: actorContext.actorUserId,
+          actorUserId: finalizeActorContext.actorUserId,
           activities: materializedItemUpgradeActivities,
         });
         await recordMaterializedPhotoCountActivities(tx, {
           orderId: workspace.orderId,
-          actorUserId: actorContext.actorUserId,
+          actorUserId: finalizeActorContext.actorUserId,
           activities: materializedPhotoCountActivities,
         });
 
         await markWorkspaceFinalized(
           tx,
           workspaceId,
-          actorContext.actorUserId,
+          finalizeActorContext.actorUserId,
           adjustmentInvoice.id,
           finalizedProposal,
           operationalStateAppliedAt

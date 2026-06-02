@@ -90,6 +90,7 @@ import {
 } from "./order.schema";
 import { getOrderTotalSelectedPhotoCount } from "./order.utils";
 import { ORDER_EDIT_MODE_MESSAGES } from "./policies/edit-mode-policy";
+import { assertNoActiveOrderCommitDraft } from "./policies/order-commit-draft-guard";
 import {
   assertEditingReadyToStartPolicy,
   buildEditingWorkflowPolicy,
@@ -1214,6 +1215,7 @@ export async function updateOrderPackage(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        await assertNoActiveOrderCommitDraft({ orderId, actorContext, tx });
         assertDirectPOSMutationAllowed(order.invoices[0]);
         if (!selectedPackage || !selectedPackage.isActive) {
           throw new Error("Selected package is not available");
@@ -1365,6 +1367,7 @@ export async function upgradeOrderPackageItem(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        await assertNoActiveOrderCommitDraft({ orderId, actorContext, tx });
         assertDirectPOSMutationAllowed(order.invoices[0]);
 
         const orderPackage = order.packages[0] ?? null;
@@ -1562,6 +1565,7 @@ export async function addOrderProductAddOn(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        await assertNoActiveOrderCommitDraft({ orderId, actorContext, tx });
         assertDirectPOSMutationAllowed(order.invoices[0]);
         if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
           throw new Error("Selected add-on product is not available");
@@ -1679,6 +1683,7 @@ export async function removeOrderAddOn(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        await assertNoActiveOrderCommitDraft({ orderId, actorContext, tx });
         assertDirectPOSMutationAllowed(order.invoices[0]);
 
         const previousAddOns = mapStructuredAddOns(
@@ -1835,6 +1840,7 @@ export async function updateOrderSelectedPhotoCount(
         if (order.status === OrderStatus.DELIVERED) {
           throw new Error("Delivered orders cannot be edited");
         }
+        await assertNoActiveOrderCommitDraft({ orderId, actorContext, tx });
         assertDirectPOSMutationAllowed(order.invoices[0]);
 
         const orderPackage = order.packages[0] ?? null;
