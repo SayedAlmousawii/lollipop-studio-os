@@ -4,6 +4,7 @@ import {
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
+  OrderEntityKind,
   OrderDeliveryStatus,
   OrderEditingStatus,
   OrderSelectionStatus,
@@ -601,8 +602,18 @@ async function runInt13PackageUpgradeCreatesDeltaAdjustment(
     where: { id: workflow.finalInvoiceId },
   });
 
-  assert.equal(refreshedPackage.currentPackageId, orderPackage.currentPackageId);
+  assert.equal(refreshedPackage.currentPackageId, fixtures.upgradePackageId);
   assertMoney(adjustment.totalAmount, "100", "upgrade adjustment is delta only");
+  assert.ok(
+    adjustment.lineItems.every(
+      (line) => line.causeOrderEntityKind === OrderEntityKind.PACKAGE_TIER_UPGRADE
+    )
+  );
+  assert.ok(
+    adjustment.lineItems.some(
+      (line) => line.causeOrderEntityId === fixtures.upgradePackageId
+    )
+  );
   assertMoney(finalInvoice.totalAmount, "500", "locked final remains original amount");
   await assertOrderActivity(db, {
     orderId: workflow.orderId,
