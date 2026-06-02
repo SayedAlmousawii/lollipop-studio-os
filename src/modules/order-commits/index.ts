@@ -133,6 +133,10 @@ export {
   type OrderCommitFinancialEmissionErrorCode,
   type OrderCommitOpenAdjustmentLine,
 } from "./order-commit-financial-emission.service";
+export {
+  createOrderCommitDocumentLinks,
+  type CreateOrderCommitDocumentLinksInput,
+} from "./order-commit-document.service";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
