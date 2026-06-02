@@ -15,6 +15,19 @@ This roadmap is intentionally split into separate phases and separate PRs. Do no
 - `context/target-data-model.md`
 - Repo investigation findings for current Adjustment Workspace, POS, invoice delta, and composition behavior.
 
+## Phase Status (revised 2026-06-02)
+
+- Phase 1 — **Complete** (Spec 120, OrderCommit snapshot foundation).
+- Phase 2 — **Complete** (Spec 121, OrderCommitDraft foundation).
+- Phase 2.5 / Staging reducers — **Complete** (Spec 122).
+- Phase 3 — **Complete** (Spec 123, preview/diff engine).
+- Phase 4 — **Complete** (Spec 124, commit execution).
+- Phase 5 — **Revised below**: unified Sales page over OrderCommit for both locked and unlocked orders.
+- Phase 6 — **Revised below**: Adjustment Workspace retirement after parity checks.
+- Phase 7 — **Revised below**: polish, redesign, history, and takeover.
+
+The original Phase 5 ("POS routing through OrderCommit services") assumed the locked-invoice workflow would remain in Adjustment Workspace. Capability review against shipped Specs 120–124 confirms that assumption is outdated — `commitOrderChanges` already handles locked-invoice ADJ / CREDIT_NOTE / refund-needed routing. Phase 5 now unifies both states under OrderCommit. See "Assumptions Changed" at the end of this document.
+
 ## Cross-Phase Architecture Rules
 
 - Public target name: `OrderCommit`, never `AdjustmentWorkspace`.
@@ -26,32 +39,50 @@ This roadmap is intentionally split into separate phases and separate PRs. Do no
 - Pending draft truth comes from `OrderCommitDraft.pendingSnapshotJson`.
 - `pendingOpsJson` may be retained for audit, history, and UX, but commit diffing compares snapshot to snapshot.
 - `OrderCommitDocument` links commits to emitted financial documents.
-- Adjustment Workspace may be reused internally only as a temporary adapter.
+- Adjustment Workspace remains as **frozen legacy** through Phase 5 and is deleted in Phase 6. No new code calls it.
 - No new public service, DTO, route, prop, copy, or employee-facing UI should expose Adjustment Workspace naming.
-- UI components must not recompute ownership, deltas, approval rules, payment impact, or financial documents.
+
+### Canonical Sources (single source of truth per concern)
+
+- Current ownership → `Order*` rows / composition projection
+- Pending ownership → `OrderCommitDraft.pendingSnapshotJson`
+- Commit consequences (deltas, approval, refund-needed, document plan) → `OrderCommitPreview`
+- Financial state (invoices, payments, balances) → `FinancialCaseSummary`
+
+### Projector Rule
+
+UI helpers introduced in Phase 5+ are **display/projector helpers only**. They map, label, and format. They MUST NOT recompute:
+
+- financial deltas
+- approval rules
+- refund-needed state
+- document plans
+- invoice / credit-note routing
+- ownership truth
+- workflow state
+
+Any logic in those categories belongs in `src/modules/order-commits/` or its peer financial modules — not in `app/`, `src/components/`, or projector files.
 
 ## Review Gates
 
 Review before implementation:
 
-- Phase 1 schema and snapshot shape.
-- Phase 3 financial diff and approval model.
-- Phase 4 commit execution and document emission.
-- Phase 6 UI design details, after the redesigned POS mockup is reviewed.
+- Phase 5 service-action shape and projector boundary, before draft staging is wired into the Sales page.
+- Phase 5 parity-test plan (AW finalize vs `commitOrderChanges` on identical input proposals), before AW retirement is approved.
+- Phase 6 deletion plan, after parity tests pass.
 
 ## Phase Dependencies
 
-- Phase 1 is prerequisite for all later work.
-- Phase 2 depends on Phase 1 latest snapshot helpers.
-- Phase 3 depends on Phase 1 snapshots and Phase 2 drafts.
-- Phase 4 depends on Phase 3 preview correctness.
-- Phase 5 depends on Phase 4 commit execution.
-- Phase 6 depends on Phase 5 service routing and the reviewed POS mockup.
-- Phase 7 depends on parity from Phases 5 and 6.
+- Phases 1–4 are complete and prerequisite for Phase 5.
+- Phase 5 depends on Specs 120–124 being shipped and stable.
+- Phase 6 depends on Phase 5 parity tests proving AW finalize and `commitOrderChanges` produce equivalent financial outcomes.
+- Phase 7 depends on Phase 6 retirement landing cleanly.
 
 ---
 
 ## Phase 1 - OrderCommit Snapshot Foundation
+
+**Status: Complete — shipped as Spec 120.** Section retained for historical reference.
 
 ### Objective
 
@@ -225,6 +256,8 @@ Codex GPT-5.5 High.
 
 ## Phase 2 - OrderCommitDraft Pending Snapshot Foundation
 
+**Status: Complete — shipped as Spec 121.** Section retained for historical reference.
+
 ### Objective
 
 Introduce the pending draft boundary that will eventually replace public Adjustment Workspace staging.
@@ -346,7 +379,9 @@ Codex GPT-5.5 High.
 
 ---
 
-## Spec 122 - OrderCommitDraft Staging Reducers (Deferred)
+## Spec 122 - OrderCommitDraft Staging Reducers
+
+**Status: Complete — shipped as Spec 122.** Section retained for historical reference.
 
 ### Purpose
 
@@ -369,6 +404,8 @@ Detailed design is intentionally deferred until Spec 121 implementation is compl
 ---
 
 ## Phase 3 - Commit Preview And Diff Engine
+
+**Status: Complete — shipped as Spec 123.** Section retained for historical reference.
 
 ### Objective
 
@@ -512,6 +549,8 @@ Codex GPT-5.5 High or XHigh.
 
 ## Phase 4 - Commit Execution And Financial Document Emission
 
+**Status: Complete — shipped as Spec 124.** Section retained for historical reference.
+
 ### Objective
 
 Make order changes financially durable through an atomic commit transaction.
@@ -651,93 +690,116 @@ Codex GPT-5.5 High or XHigh.
 
 ---
 
-## Phase 5 - POS Routing Through OrderCommit Services
+## Phase 5 - Unified Sales Page Over OrderCommit
+
+**Status: Planned. Specs 125–12N to be drafted.**
 
 ### Objective
 
-Route `/orders/[orderId]/sales` staging, preview, and commit behavior through OrderCommit services while preserving current staff workflows.
+Make `/orders/[orderId]/sales` the single continuous sales workflow — current composition → stage changes → preview impact → commit — backed by OrderCommit for **both locked and unlocked orders**. Adjustment Workspace remains in the codebase as frozen legacy until Phase 6.
 
 ### Scope
 
-- Route sales staging actions through `OrderCommitDraft`.
-- Route sales preview through `OrderCommitPreview`.
-- Route commit action through `commitOrderChanges`.
-- Keep the same employee workflow where possible.
-- Hide Adjustment Workspace behind adapters.
-- Preserve existing functionality for packages, add-ons, selected photos, item upgrades, session configuration, and payments.
+- One unified Sales page driving the draft → preview → commit pipeline for every order, regardless of invoice lock state.
+- Lazy draft creation on first stage action (not on page load).
+- Display-only `SalesPageView` view-model assembled in an RSC loader, composed from canonical sources:
+  - current ownership: `Order*` composition projection
+  - pending ownership: `OrderCommitDraft.pendingSnapshotJson`
+  - commit consequences: `OrderCommitPreview`
+  - financial state: `FinancialCaseSummary`
+- Display-only projectors:
+  - composition-from-snapshot (maps `OrderCommitSnapshotV1.lines[]` into existing `POSPackage` / `POSAddOn` shapes)
+  - staged-changes (formats `preview.lineDiffs` into right-rail rows)
+  - financial-preview (binds `preview.totals` and `preview.documentPlan` to sidebar fields)
+- Single server-action wrapper `stageSalesChangeAction(orderId, change, expectedVersion)` replacing the five legacy direct-mutator actions on the Sales page (`updateOrderPackageAction`, `upgradeOrderPackageItemAction`, `addOrderProductAddOnAction`, `removeOrderAddOnAction`, `updateOrderSelectedPhotoCountAction`).
+- New actions: `commitSalesChangesAction(orderId, expectedDraftVersion, approvalActorUserId?)` and `discardSalesDraftAction(orderId, expectedVersion)`.
+- Approval flow driven by `preview.requiresApproval` and `preview.approvalReasons`, surfaced in the Review & commit confirmation dialog. Manager-actor selection reuses the existing `PendingCreditNoteApprovalError` UI pattern.
+- Co-editor banner powered by `draft.ownerUserId`, `draft.lastTouchedByUserId`, and `draft.updatedAt`. Non-owner-non-manager actors see stage controls disabled.
+- Legacy direct-mutator guard: when an `OrderCommitDraft` exists for an order, the underlying service functions (`updateOrderPackage`, `addOrderProductAddOn`, etc.) refuse to execute. AW finalize is exempted as the only remaining legitimate caller until Phase 6.
+- Maximum reuse of existing components: `POSPackageComposition`, `POSAddOnMarketplace`, `CurrentCompositionCard`, package cards, photo-selection cards, add-on marketplace, approval dialog scaffolding, permission/actor plumbing.
+- Folded financial sidebar: `FinancialSidebarDraft` and `FinancialSidebarLocked` collapse into a single `FinancialSidebar` reading `FinancialCaseSummary` + (optionally) `preview.totals`.
+- Parity tests: identical input proposals applied via AW `finalizeAdjustmentWorkspace` vs `commitOrderChanges` must produce equivalent `Invoice` rows, `Order.refundPending` state, and `OrderCommitDocument` linkage outcomes.
 
 ### Out Of Scope
 
-- No final POS visual redesign.
-- No wholesale component rewrite.
-- No legacy route deletion yet.
+- No visual redesign or layout overhaul (deferred to Phase 7).
+- No AW deletion (deferred to Phase 6).
+- No new financial behavior — Phase 5 is a routing and projection change only.
+- No typed `pendingOpsJson` operation kinds (deferred to Phase 7 if needed).
+- No takeover action (deferred to Phase 7 if needed).
+- No order-timeline / history surface (deferred to Phase 7).
 
 ### Files Likely Affected
 
 - `app/orders/[orderId]/sales/page.tsx`
 - `app/orders/[orderId]/sales/actions.ts`
-- `src/components/orders/*`
-- `src/modules/orders/pos-handlers.types.ts`
-- `src/modules/orders/policies/edit-mode-policy.ts`
-- `src/modules/order-commits/*`
-- targeted POS and composition tests
+- `src/components/orders/financial-sidebar-*.tsx` (fold into one)
+- new: `src/modules/order-commits/projections/sales-page-view.projector.ts`
+- new: `src/modules/order-commits/projections/staged-changes.projector.ts`
+- new: `src/modules/order-commits/projections/composition-from-snapshot.projector.ts`
+- `src/modules/orders/composition/*` (consumed by projectors; not modified semantically)
+- `src/modules/orders/order.service.ts` (add draft-presence guard at direct-mutator entry points)
+- targeted Sales-page and projector tests
 
 ### Schema Impact
 
-None expected.
+None.
 
 ### Service-Layer Impact
 
-- Replace direct post-commit staging paths with `stageOrderCommitDraftChange`.
-- Replace locked Adjustment Workspace routing decisions with OrderCommit state/policy.
-- Keep current pre-commit direct-write behavior only where explicitly required during migration.
-- Target direction is draft snapshot staging before financial commit.
-- Payment actions continue through financial services and FinancialCase projections.
+- No new domain logic. All behavior comes from existing OrderCommit services.
+- Projectors are pure mappers — no DB writes, no business rules.
+- Direct-mutator guard added at service entry, not in projectors.
+- Sales-page actions become thin orchestrators of `getOrCreateOrderCommitDraft` + `stageOrderCommitDraftChange` / `commitOrderChanges` / `discardOrderCommitDraft`.
 
 ### UI Impact
 
-- Staff stays on `/orders/[orderId]/sales`.
-- No new employee-facing Adjustment Workspace links or copy.
-- Same POS controls should work before and after commit, subject to service policy.
-- UI consumes DTOs and projectors only.
-- UI must not compute ownership, deltas, approval rules, or money.
+- Single Sales page for all order states.
+- Center composition surface is editable; renders current ownership when no draft, projected ownership when draft exists. Component shape is unchanged.
+- Right rail renders staged-changes panel + folded financial sidebar.
+- Footer hosts Save draft (no-op or `replaceOrderCommitDraftSnapshot`) and Review & commit (opens confirmation dialog).
+- Review & commit dialog: renders preview diff summary, document plan, approval requirement; on confirm calls `commitSalesChangesAction`.
+- Co-editor banner appears when current viewer is not the draft owner.
+- No new mental model. No employee-facing Adjustment Workspace copy or route.
 
 ### Migration / Backfill Impact
 
-- Existing open Adjustment Workspaces may need lazy conversion or adapter-backed display.
-- Do not destroy legacy workspaces until Phase 7.
-- Preserve rollback path to legacy route during migration, but do not expose it as the target workflow.
+- No data migration in Phase 5.
+- Any existing open `AdjustmentWorkspace` rows remain reachable only via the legacy AW route (frozen, no new code paths).
+- Dev environments reset between specs; production has no order data per [[project_dev_data_reset]].
 
 ### Tests / Invariants
 
-Add or update tests proving:
-
-- same package controls work before and after commit.
-- same add-on controls work before and after commit.
-- selected photo and extra-photo changes stage correctly.
-- package item upgrade changes stage correctly.
-- session configuration changes stage correctly.
-- payments still flow through financial services.
-- POS has no public Adjustment Workspace route or copy dependency.
-- UI does not compute ownership, deltas, approval, or money.
+- Projector purity: projectors do not call services, do not mutate, do not compute deltas.
+- Loader correctness: `SalesPageView` populates `composition` from the right canonical source based on draft presence.
+- Lazy draft creation: page load does not create a draft.
+- Stage / commit / discard happy paths.
+- Approval-required path: dialog requires manager-actor selection; commit rejects without it.
+- Concurrency: two-actor scenario produces co-editor banner; non-owner-non-manager stage attempts are rejected.
+- Legacy direct-mutator guard: when a draft exists, legacy service functions refuse non-AW-finalize callers.
+- Parity (with AW finalize) on the locked-invoice path: ADJ / CREDIT_NOTE / refund-needed outcomes are equivalent.
+- No UI surface recomputes financial, approval, refund, document-plan, ownership, or workflow state.
 
 ### Acceptance Criteria
 
-- `/orders/[orderId]/sales` is the single employee sales workspace.
-- New public actions and DTOs use OrderCommit naming.
-- Existing critical POS flows remain intact.
-- Locked invoices remain immutable.
-- Adjustment Workspace naming is private adapter-only.
+- `/orders/[orderId]/sales` is the single Sales workspace for locked and unlocked orders.
+- Every staged change goes through `OrderCommitDraft`; every commit goes through `commitOrderChanges`.
+- All financial / approval / refund / document-plan / ownership values shown to the user come from canonical sources (`Order*`, `OrderCommitDraft.pendingSnapshotJson`, `OrderCommitPreview`, `FinancialCaseSummary`).
+- No new projector or component recomputes any of those values.
+- AW finalize is the only legacy caller of legacy direct-mutator service functions.
+- Parity tests against AW finalize pass.
 - `npm run test:centralization` passes.
 - `npm run test:backend-invariants` passes.
+- `npm run test:financial-invariants` passes.
 - `npm run build` passes.
 - `npm run lint` passes.
 
 ### Rollback Risks
 
-- Workflow risk: staff may lose access to a current edit path if adapter coverage misses a case.
-- Keep legacy route available but unlinked until parity is proven.
-- Preserve legacy data and adapter logs until Phase 7.
+- Parity drift between AW finalize and `commitOrderChanges` on edge cases (voucher-forfeit, partial credit capacity, multi-document emission). Parity tests are the defense.
+- Projector temptation: a projector quietly recomputing a delta. Review gate: reject any projector that performs arithmetic on financial fields.
+- Eager draft creation: must remain lazy or page loads will pollute orders with orphan drafts.
+- Co-editor confusion: insufficient banner clarity → users stage on top of each other. Disable stage controls for non-owners as primary defense.
 
 ### Recommended Codex Model Level
 
@@ -745,178 +807,323 @@ Codex GPT-5.5 High.
 
 ---
 
-## Phase 6 - Unified Live POS UI Integration / Terminology Alignment
+## Phase 6 - Adjustment Workspace Retirement
+
+**Status: Planned. Begins after Phase 5 parity tests pass.**
 
 ### Objective
 
-Align employee-facing UI architecture with Unified Live POS without finalizing layout or component design before the redesigned POS mockup is reviewed.
+Delete Adjustment Workspace. After Phase 5, AW has zero live callers from the Sales page; Phase 6 removes the module, its tables, and its public route once parity is proven and no other surface depends on it.
 
 ### Scope
 
-This phase is intentionally high-level for now.
-
-Architectural UI requirements:
-
-- POS must use OrderCommit DTOs and projectors.
-- UI must not recompute ownership, deltas, approval rules, or financial impact.
-- Adjustment Workspace language should eventually be removed from employee-facing UI.
-- Future UI should support current ownership, pending changes, commit preview, balance/payment state, approval outcomes, credit outcomes, and refund-needed outcomes.
-- Actual layout, component structure, and visual redesign are deferred until the redesigned POS mockup is reviewed.
-
-### Out Of Scope
-
-- No final UI specs yet.
-- No component tree redesign yet.
-- No visual polish requirements yet.
-- No implementation until the redesigned POS mockup is reviewed.
-
-### Files Likely Affected
-
-- `app/orders/[orderId]/sales/page.tsx`
-- `src/components/orders/*`
-- `src/modules/order-commits/projections/*`
-- `src/modules/financial-cases/projections/*`
-
-### Schema Impact
-
-None expected.
-
-### Service-Layer Impact
-
-- Add or adjust projectors only if required for UI consumption.
-- No UI should call low-level diff helpers directly.
-- UI consumes preview/state DTOs only.
-
-### UI Impact
-
-Final UI must express:
-
-- current operational ownership.
-- pending draft changes.
-- commit preview.
-- balance and payment state.
-- approval-required state.
-- refund-needed or credit-note outcomes.
-- no Adjustment Workspace mental model.
-
-### Migration / Backfill Impact
-
-None expected.
-
-### Tests / Invariants
-
-Add tests for:
-
-- no employee-facing Adjustment Workspace copy in POS.
-- no employee-facing Adjustment Workspace route link in POS.
-- components consume DTOs/projectors.
-- same controls remain available before and after commit.
-- no money or composition calculations in components.
-
-### Acceptance Criteria
-
-- Detailed UI spec remains deferred until mockup review.
-- Architecture contract is clear enough for future UI design.
-- No page or component owns financial or ownership semantics.
-- `npm run test:centralization` passes.
-- `npm run build` passes.
-- `npm run lint` passes.
-
-### Rollback Risks
-
-- Low if kept to UI/projector alignment.
-- Main risk is premature UI decisions before design review.
-
-### Recommended Codex Model Level
-
-- Codex GPT-5.5 Medium for spec refinement.
-- Codex GPT-5.5 High for implementation after design approval.
-
----
-
-## Phase 7 - Legacy Adjustment Workspace Quarantine / Removal
-
-### Objective
-
-Remove or isolate legacy Adjustment Workspace once OrderCommit parity is proven.
-
-### Scope
-
-- Remove or quarantine employee-facing Adjustment Workspace route and contracts.
-- Delete temporary adapters when no longer needed.
-- Rename remaining tests, docs, logs, and metrics toward OrderCommit where practical.
-- Keep explicit legacy compatibility only if required for old data or rollback.
+- Migrate or freeze any remaining open `AdjustmentWorkspace` rows. Dev environments reset; production data is empty per [[project_dev_data_reset]].
+- Delete `src/modules/adjustment-workspace/**` including:
+  - workspace lifecycle service
+  - per-domain materializers (package tier, add-on, item upgrade, photo count, session config)
+  - `createWorkspaceAdjustmentInvoice` (the workspace-specific invoice emitter)
+  - `getOpenWorkspaceForInvoice`
+- Delete the legacy direct-mutator service functions if no callers remain (`updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`) — these stay live in Phase 5 only because AW finalize calls them.
+- Replace the Phase 5 draft-presence guard with the sole gate: all mutation flows go through `OrderCommitDraft` staging.
+- Remove `assertDirectPOSMutationAllowed`'s `LOCKED_INVOICE_WORKSPACE_REQUIRED` branch.
+- Delete `app/orders/[orderId]/adjustment-workspace/` if it still exists.
+- Drop `AdjustmentWorkspace` and `AdjustmentWorkspaceEvent` tables.
+- Delete `tests/adjustment-workspace/**`.
+- Confirm `createAdjustmentInvoiceWithClient` and `createCreditNoteWithClient` (shared financial primitives) remain in place — they are not AW-specific.
 
 ### Out Of Scope
 
 - No new business behavior.
-- No financial rule changes.
 - No UI redesign.
+- No replacement for AW's typed event history (deferred to Phase 7 if needed).
 
 ### Files Likely Affected
 
-- `app/orders/[orderId]/adjustment-workspace/page.tsx`
-- `src/modules/adjustment-workspace/*`
-- `tests/adjustment-workspace/*`
-- `src/components/orders/financial-sidebar-locked.tsx`
-- `src/modules/orders/policies/edit-mode-policy.ts`
-- docs that still describe Adjustment Workspace as the target employee workflow
+- `src/modules/adjustment-workspace/**` (deleted)
+- `tests/adjustment-workspace/**` (deleted)
+- `app/orders/[orderId]/adjustment-workspace/**` (deleted if present)
+- `src/modules/orders/order.service.ts` (legacy mutator guard becomes unconditional draft guard, or mutators removed)
+- `src/modules/orders/policies/edit-mode-policy.ts` (lock-state branching removed)
+- `prisma/schema.prisma` (drop AW tables)
+- `src/components/orders/financial-sidebar-locked.tsx` (deleted; folded in Phase 5)
 
 ### Schema Impact
 
-- Keep legacy tables initially if historical data or rollback needs them.
-- Later migration may archive or drop `AdjustmentWorkspace` only after production data review.
-- Do not delete historical financial documents.
+- Drop `AdjustmentWorkspace`.
+- Drop `AdjustmentWorkspaceEvent`.
+- Verify no foreign keys point at these tables before drop.
 
 ### Service-Layer Impact
 
-- Remove direct public imports of Adjustment Workspace services.
-- Keep private migration readers only if old rows still need display or audit access.
-- Ensure all active flows use `order-commits`.
-- Quarantine any remaining legacy adapter under explicit legacy naming and ownership.
+- AW module deleted.
+- All locked-invoice and unlocked-invoice flows go through `commitOrderChanges` exclusively.
 
 ### UI Impact
 
-- No employee-facing Adjustment Workspace route.
-- No employee-facing Adjustment Workspace copy.
-- Old workspace links should redirect to sales or an admin-only legacy view if required.
+- No employee-facing AW route or copy anywhere.
+- Source guards (lint rule or grep test) block re-introduction of AW naming in `app/` and `src/components/`.
 
 ### Migration / Backfill Impact
 
-- Convert or close open legacy workspaces before removal.
-- Preserve audit history.
-- Define rollback plan before dropping any columns or tables.
-- Keep compatibility readers until production data is verified.
+- Verify zero open `AdjustmentWorkspace` rows in any environment that retains data.
+- Preserve historical financial documents — they are not AW-owned and remain valid.
+- `OrderCommitDocument` is the forward-going link between commits and emitted documents.
 
 ### Tests / Invariants
 
-Add tests proving:
-
-- no public UI route depends on Adjustment Workspace.
-- no OrderCommit tests import page-level Adjustment Workspace contracts.
-- legacy compatibility tests exist only while compatibility code remains.
-- source guards block reintroduction of public Adjustment Workspace naming.
+- Repo-level grep test: no `AdjustmentWorkspace` import in `app/`, `src/components/`, or `src/modules/order-commits/`.
+- All centralization, backend-invariant, and financial-invariant suites pass without AW.
+- No regression in locked-invoice flow on Sales page.
 
 ### Acceptance Criteria
 
-- Active employee workflow is fully `/orders/[orderId]/sales`.
-- All new public surfaces use OrderCommit naming.
-- Legacy code is either deleted or explicitly quarantined.
-- Historical audit and financial records remain accessible where required.
+- AW module, tables, route, and tests are deleted.
+- Legacy direct-mutator service functions are deleted (or have no callers).
+- All Sales page flows route through `commitOrderChanges`.
 - `npm run test:centralization` passes.
 - `npm run test:backend-invariants` passes.
+- `npm run test:financial-invariants` passes.
 - `npm run build` passes.
 - `npm run lint` passes.
 
 ### Rollback Risks
 
-- Data access risk if old workspaces still need audit review.
-- Keep schema and admin-only legacy reader until production confidence is high.
-- Do not drop old tables in the same PR that removes employee-facing route dependencies.
+- Deletion is destructive. Rollback requires restoring schema + module from git history; immutable financial documents already emitted remain valid because they don't reference AW.
+- Mitigate by landing Phase 6 only after Phase 5 has been in production for an agreed bake period (or, given dev-only data, after parity tests prove equivalence).
 
 ### Recommended Codex Model Level
 
 Codex GPT-5.5 High.
+
+---
+
+## Phase 7 - Polish, Redesign, History, Takeover
+
+**Status: Planned. Sequenced after Phase 6.**
+
+### Objective
+
+Layer UX polish and optional capabilities onto the unified Sales workflow once AW is gone. Items in this phase are independent and may ship in any order or be deferred.
+
+### Scope
+
+Independent workstreams, prioritize per business need:
+
+1. **Visual redesign / layout overhaul** of the Sales page, informed by the target mockup. Composition surface, staged-changes rail, financial sidebar, footer adjustment-mode treatment.
+2. **Typed `pendingOpsJson` operation kinds** (e.g. `PACKAGE_UPGRADED`, `ADDON_ADDED`, `PHOTO_COUNT_CHANGED`) for richer staff-facing history. Replaces the current generic `SNAPSHOT_REPLACED` / `NOTE_APPENDED` ops. Audit-only; not used for state reconstruction (per Spec 124 invariant).
+3. **`takeOverOrderCommitDraft` action** for explicit manager handoff (parity with the removed `takeOverWorkspace`).
+4. **Order timeline / commit history** surface backed by `OrderCommit` sequence + `OrderCommitDocument` joins. Read-only.
+5. **"Save draft" semantics**: either confirm it's a label-only no-op (drafts are persisted on every stage) or wire it to `replaceOrderCommitDraftSnapshot` for explicit checkpoints. Decide and document.
+6. **Optimistic UI on stage** if latency becomes a UX issue.
+
+### Out Of Scope
+
+- Any change to canonical sources or projector rules.
+- Any financial behavior change.
+- Any reintroduction of AW.
+
+### Files Likely Affected
+
+- Sales page and components
+- `src/modules/order-commits/order-commit-draft.service.ts` (typed ops, takeover)
+- New: timeline component + projector
+
+### Schema Impact
+
+- Optional: extend `pendingOpsJson` type union.
+- Optional: no schema changes required for takeover (just owner reassignment).
+
+### Service-Layer Impact
+
+- Additive only.
+- Projector rule still applies: new helpers are display-only.
+
+### UI Impact
+
+- Visual redesign per mockup.
+- Timeline view.
+- Optional optimistic UI.
+
+### Migration / Backfill Impact
+
+- None if typed ops are forward-only.
+- Backfill of typed ops for existing drafts not required (audit-only field).
+
+### Tests / Invariants
+
+- Typed ops do not feed state reconstruction.
+- Takeover requires manager role.
+- Timeline is read-only and consumes canonical sources only.
+
+### Acceptance Criteria
+
+- Each workstream ships independently with its own acceptance.
+- Canonical-source and projector rules unchanged.
+- `npm run build` and `npm run lint` pass.
+
+### Rollback Risks
+
+- Low — additive polish.
+- Visual redesign carries normal UX-regression risk; gate behind design review.
+
+### Recommended Codex Model Level
+
+- Codex GPT-5.5 Medium for individual polish items.
+- Codex GPT-5.5 High for redesign and timeline.
+
+---
+
+## Assumptions Changed From The Old Roadmap
+
+Captured here so future readers understand why Phases 5–7 were rewritten.
+
+1. **"AW handles locked orders, OrderCommit handles unlocked orders" → false.** Capability review of shipped Specs 120–124 confirms `commitOrderChanges` already handles locked-invoice ADJ / CREDIT_NOTE / refund-needed routing, including reversal of prior open ADJ lines and credit-capacity exhaustion. The lock-state split exists in routing, not in capability.
+2. **"Phase 5 is service-layer routing only; UI integration is Phase 6" → folded.** With the target mockup defining the workflow (current → stage → preview → commit) and the backend already supporting both order states, Phase 5 now owns both service rewiring and the projector-only UI integration. Visual redesign remains a Phase 7 concern.
+3. **"AW retirement is the final phase" → moved earlier.** Old Phase 7. New Phase 6. AW has no remaining capability advantage; keeping it past Phase 5 only invites parity drift.
+4. **"Drafts may be lazily adapted from open `AdjustmentWorkspace` rows" → dropped.** Dev environments reset between specs and production has no order data, so adapter complexity is not justified.
+5. **"`pendingOpsJson` may eventually drive UX history" → deferred and re-scoped.** Spec 124 fixed `pendingOpsJson` as audit-only; it must not be replayed for state. Typed ops in Phase 7 are for display, not reconstruction.
+6. **"UI integration deferred until redesigned POS mockup is reviewed" → mockup is now in hand for workflow purposes.** The mockup is treated as workflow architecture (not visual design) for Phase 5; visual redesign stays deferred to Phase 7.
+7. **"Existing pre-commit direct-write behavior may be preserved where required during migration" → tightened.** Phase 5 disables direct mutators on the Sales page entirely. AW finalize is the only allowed remaining caller, and only until Phase 6 deletes both.
+8. **New canonical-source contract added.** The roadmap now names the four canonical sources (Order\*, pendingSnapshotJson, OrderCommitPreview, FinancialCaseSummary) and an explicit projector rule forbidding UI recomputation of financial deltas, approval, refund-needed, document plans, invoice routing, ownership, or workflow state.
+
+---
+
+## Recommended Phase 5 Spec Breakdown
+
+Phase 5 splits cleanly along seams that can each land as its own PR. Recommended ordering — earlier specs unblock later ones.
+
+### Spec 125 — Sales page view-model and projector foundation
+
+- New: `SalesPageView` type and RSC loader composing `Order*` projection, `OrderCommitDraft`, `OrderCommitPreview`, `FinancialCaseSummary`, permissions.
+- New projectors (display-only): composition-from-snapshot, staged-changes, financial-preview.
+- No UI rewiring yet — projectors are exported but unused.
+- Projector purity tests.
+- Establishes the canonical-source / projector boundary for the rest of Phase 5.
+
+### Spec 126 — Sales staging actions over OrderCommitDraft
+
+- New: `stageSalesChangeAction(orderId, change, expectedVersion)` wrapping `getOrCreateOrderCommitDraft` + `stageOrderCommitDraftChange`.
+- New: `discardSalesDraftAction(orderId, expectedVersion)`.
+- Replaces the five legacy direct-mutator actions on the Sales page.
+- Legacy direct-mutator guard at the service layer (AW finalize exempted).
+- Lazy draft creation invariant test.
+
+### Spec 127 — Sales commit action and Review & commit dialog
+
+- New: `commitSalesChangesAction(orderId, expectedDraftVersion, approvalActorUserId?)` calling `commitOrderChanges`.
+- Review & commit confirmation dialog: renders preview diff, `documentPlan`, approval requirement; reuses existing manager-actor selection.
+- Error mapping for `OrderCommitStaleDraftError`, `OrderCommitConcurrentCommitError`, `OrderCommitApprovalRequiredError`, `OrderCommitCreditCapacityExhaustedError`.
+- `revalidatePath` after success.
+
+### Spec 128 — Sales page composition surface wired to projected ownership
+
+- Wires `POSPackageComposition`, `POSAddOnMarketplace`, photo-selection cards to consume `SalesPageView.composition` regardless of source (current `Order*` or projected from `pendingSnapshotJson`).
+- Folds `FinancialSidebarDraft` and `FinancialSidebarLocked` into a single `FinancialSidebar` reading `FinancialCaseSummary` + `preview.totals` when draft exists.
+- Staged-changes panel renders from staged-changes projector output.
+- Adjustment-mode visual cue (per mockup) driven by draft presence.
+
+### Spec 129 — Co-editor concurrency and ownership UX
+
+- Co-editor banner from `draft.ownerUserId` / `lastTouchedByUserId` / `updatedAt`.
+- Stage controls disabled for non-owner-non-manager actors.
+- Concurrent commit and stale-draft error handling end-to-end.
+- Two-actor integration tests.
+
+### Spec 130 — Locked-invoice path unification and parity tests
+
+- Removes the locked-invoice branch from the Sales page (no more `getOpenWorkspaceForInvoice` on the Sales surface).
+- Sales page drives locked orders through the same draft → preview → commit pipeline.
+- Parity tests: identical input proposals on AW finalize vs `commitOrderChanges` produce equivalent `Invoice` rows, `Order.refundPending`, document linkage.
+- Gates Phase 6 approval.
+
+### Optional Spec 131 — "Save draft" semantics decision
+
+- Either confirm Save draft is a label-only no-op (drafts persist on every stage) or wire it to `replaceOrderCommitDraftSnapshot` for explicit checkpoints.
+- Lightweight; may collapse into Spec 128 if decided early.
+
+---
+
+## Phase 5 Design Notes
+
+Inter-spec judgment calls that are too small for their own spec section but load-bearing for drafting Specs 126–131 consistently. Pinned here so future drafting sessions don't drift.
+
+### Mockup interpretation
+
+- The target Sales-page mockup is treated as **workflow architecture and information architecture**, not visual design.
+- Visual redesign (layout overhaul, styling, polish) is deferred to Phase 7.
+- Phase 5 must maximize reuse of existing components: `POSPackageComposition`, `POSAddOnMarketplace`, `CurrentCompositionCard`, package cards, photo-selection cards, add-on marketplace, approval dialog scaffolding, permission / actor plumbing.
+
+### Draft lifecycle
+
+- **Lazy creation only.** Page load must not create an `OrderCommitDraft`. First stage action calls `getOrCreateOrderCommitDraft` + `stageOrderCommitDraftChange` in the same server action.
+- **Single draft per order.** Concurrency is via `OrderCommitDraft.version` + the existing `committedFromDraftVersion` DB constraint from Spec 124.
+- **Discard paths:** explicit `discardSalesDraftAction` (Spec 126); implicit on commit success (`commitOrderChanges` deletes the draft per Spec 124).
+
+### `stageSalesChangeAction` shape (Spec 126)
+
+- Single thin wrapper replacing the five legacy direct-mutator actions on the Sales page.
+- Body: `getOrCreateOrderCommitDraft({ orderId, actorContext })` → `stageOrderCommitDraftChange({ orderId, change, expectedVersion, actorContext })` → `revalidatePath`.
+- No business logic in the action — it is an orchestrator only.
+
+### Legacy direct-mutator guard (Spec 126, safety rail)
+
+- Lands in Spec 126 **before** any UI rewiring in Spec 128.
+- Guard sits at the service entry of `updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`.
+- When an `OrderCommitDraft` exists for the order, the guard refuses execution.
+- Sole exemption: calls made from `finalizeAdjustmentWorkspace` (AW finalize). The exemption is removed when AW is deleted in Phase 6.
+- Rationale: prevents any code path from bypassing the staged workflow once a draft exists.
+
+### Commit-confirmation dialog (Spec 127)
+
+- Trigger: Review & commit button in the footer.
+- Renders preview diff summary, `preview.documentPlan`, `preview.requiresApproval`, `preview.approvalReasons`.
+- Reuses the existing `PendingCreditNoteApprovalError` manager-actor selection pattern.
+- Confirms → `commitSalesChangesAction(orderId, expectedDraftVersion, approvalActorUserId?)` → `commitOrderChanges`.
+
+### OrderCommit error classes the UI must map (Spec 127)
+
+UI surfaces — toast or in-dialog error — for each of these. UI does not decide the message content; it maps the error to a copy key.
+
+- `OrderCommitStaleDraftError` — "Draft changed since you opened it. Refresh to see the latest."
+- `OrderCommitConcurrentCommitError` — "Another commit just landed. Refresh and try again."
+- `OrderCommitApprovalRequiredError` — re-open the dialog with the approval-actor field highlighted.
+- `OrderCommitCreditCapacityExhaustedError` — surface the refund-needed explanation from `preview.documentPlan`.
+
+### Co-editor concurrency (Spec 129)
+
+- Banner sources: `draft.ownerUserId`, `draft.lastTouchedByUserId`, `draft.updatedAt`.
+- Non-owner-non-manager actors: stage controls disabled at the UI layer; server-side guard inside `stageOrderCommitDraftChange` is the authoritative defense.
+- No takeover action in Phase 5. Takeover, if needed, ships in Phase 7.
+
+### "Save draft" semantics (open question)
+
+- Drafts are already persisted on every stage. A button labeled "Save draft" therefore has no inherent server work to do.
+- Two acceptable resolutions:
+  1. Label-only no-op (reassurance UI), or
+  2. Wire to `replaceOrderCommitDraftSnapshot` for an explicit checkpoint.
+- Decide and document during Spec 128. May collapse into optional Spec 131 if deferred.
+
+### Locked-invoice unification (Spec 130)
+
+- Phase 5 removes the locked-invoice branch from the Sales page. There is no `getOpenWorkspaceForInvoice` call from the Sales surface after Spec 130.
+- Both lock states drive the same draft → preview → commit pipeline.
+- Spec 130 includes the **parity test suite**: identical input proposals applied via AW `finalizeAdjustmentWorkspace` vs `commitOrderChanges` must produce equivalent `Invoice` rows, `Order.refundPending` state, and `OrderCommitDocument` linkage outcomes. These tests gate Phase 6 approval.
+
+### Implementation cadence
+
+- Specs are drafted and merged one at a time. Each spec's design depends on what the previous one actually shipped.
+- Each spec implements all its tasks on a single `spec/<NN>-<slug>` branch cut from `development`. One PR per spec, not per task.
+- Acceptance criteria are spec-level gates, not task-level.
+- Update `context/progress-tracker.md` inside the implementing PR, not as a follow-up.
+
+### What stays out of Phase 5 (re-stated for clarity)
+
+- Visual redesign — Phase 7.
+- Typed `pendingOpsJson` operation kinds — Phase 7 if needed.
+- `takeOverOrderCommitDraft` — Phase 7 if needed.
+- Order timeline / commit-history surface — Phase 7.
+- AW deletion — Phase 6.
+- Any new financial / approval / refund / document-plan behavior — none in Phase 5.
 
 ---
 
