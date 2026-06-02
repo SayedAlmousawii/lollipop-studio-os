@@ -120,6 +120,19 @@ export {
   type MaterializeOrderCommitDraftIntoOrderRowsResult,
   type OrderCommitMaterializationClient,
 } from "./order-commit-materialization.service";
+export {
+  mapOrderCommitDiffToFinancialLines,
+  OrderCommitFinancialEmissionError,
+  ORDER_COMMIT_CREDIT_NOTE_REASON,
+  type MapOrderCommitDiffToFinancialLinesInput,
+  type OrderCommitAdjustmentLineInput,
+  type OrderCommitAdjustmentReversal,
+  type OrderCommitCreditNoteLineInput,
+  type OrderCommitCreditNoteReason,
+  type OrderCommitFinancialEmission,
+  type OrderCommitFinancialEmissionErrorCode,
+  type OrderCommitOpenAdjustmentLine,
+} from "./order-commit-financial-emission.service";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
