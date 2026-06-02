@@ -198,8 +198,8 @@ test("financial preview passes through financial case and preview fields", () =>
   assert.equal(projected.baseline.effectivePaid, 140);
   assert.equal(projected.baseline.remaining, 176);
   assert.equal(projected.overlay.pendingDelta, 44);
-  assert.equal(projected.overlay.previousTotal, null);
-  assert.equal(projected.overlay.pendingTotal, null);
+  assert.equal(projected.overlay.previousTotal, 100);
+  assert.equal(projected.overlay.pendingTotal, 144);
   assert.equal(projected.overlay.documentPlan, preview.documentPlan);
   assert.equal(projected.overlay.paymentImpact, preview.paymentImpact);
   assert.equal(projected.overlay.refundImpact, preview.refundImpact);
@@ -219,6 +219,8 @@ test("financial preview passes through financial case and preview fields", () =>
     financialCase,
   });
   assert.equal(unchanged.overlay.pendingDelta, 44);
+  assert.equal(unchanged.overlay.previousTotal, 100);
+  assert.equal(unchanged.overlay.pendingTotal, 144);
   assert.equal(unchanged.baseline.remaining, 176);
 });
 
@@ -437,6 +439,11 @@ function previewFixture(
     commitKind: "ADJUSTMENT_INVOICE",
     lineDiffs: input.lineDiffs ?? [lineDiff({ moneyDelta: input.netDelta ?? 10 })],
     netDelta: input.netDelta ?? 10,
+    totals: input.totals ?? {
+      baselineTotal: 100,
+      netDelta: input.netDelta ?? 10,
+      pendingTotal: 100 + (input.netDelta ?? 10),
+    },
     requiresApproval: input.requiresApproval ?? false,
     approvalReasons: input.approvalReasons ?? [],
     documentPlan: input.documentPlan ?? {

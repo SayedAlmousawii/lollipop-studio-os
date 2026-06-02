@@ -14,6 +14,7 @@ import {
   orderCommitPreviewBaselineSchema,
   orderCommitPreviewClassificationSchema,
   orderCommitPreviewLineDiffSchema,
+  orderCommitPreviewTotalsSchema,
   orderCommitPreviewSchema,
   orderCommitSnapshotDiffSchema,
 } from "@/modules/order-commits";
@@ -81,7 +82,21 @@ test("order commit preview classification contract separates operational output"
   assert.equal(parsed.lineDiffs[0]?.operationalFlags.isPackageChange, true);
 });
 
-test("order commit preview DTO includes approval, document, payment, and refund contracts", () => {
+test("order commit preview totals contract exposes canonical preview money trio", () => {
+  const parsed = orderCommitPreviewTotalsSchema.parse({
+    baselineTotal: 100,
+    netDelta: 80,
+    pendingTotal: 180,
+  });
+
+  assert.deepEqual(parsed, {
+    baselineTotal: 100,
+    netDelta: 80,
+    pendingTotal: 180,
+  });
+});
+
+test("order commit preview DTO includes totals, approval, document, payment, and refund contracts", () => {
   const parsed = orderCommitPreviewSchema.parse({
     baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.ORIGINAL_ORDER_COMPOSITION,
     baselineCommitId: null,
@@ -91,6 +106,11 @@ test("order commit preview DTO includes approval, document, payment, and refund 
     commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.BASE_INVOICE,
     lineDiffs: [lineDiff()],
     netDelta: 80,
+    totals: {
+      baselineTotal: 100,
+      netDelta: 80,
+      pendingTotal: 180,
+    },
     requiresApproval: false,
     approvalReasons: [],
     documentPlan: {
@@ -117,8 +137,45 @@ test("order commit preview DTO includes approval, document, payment, and refund 
   });
 
   assert.equal(parsed.draftId, "draft-1");
+  assert.deepEqual(parsed.totals, {
+    baselineTotal: 100,
+    netDelta: 80,
+    pendingTotal: 180,
+  });
   assert.equal(parsed.documentPlan.kind, "BASE_INVOICE");
   assert.equal(parsed.paymentImpact.amountDue, 80);
+});
+
+test("order commit preview DTO rejects totals arithmetic and netDelta parity drift", () => {
+  assert.throws(
+    () =>
+      orderCommitPreviewSchema.parse(
+        previewPayload({
+          netDelta: 80,
+          totals: {
+            baselineTotal: 100,
+            netDelta: 81,
+            pendingTotal: 180,
+          },
+        })
+      ),
+    /totals\.netDelta/
+  );
+
+  assert.throws(
+    () =>
+      orderCommitPreviewSchema.parse(
+        previewPayload({
+          netDelta: 79,
+          totals: {
+            baselineTotal: 100,
+            netDelta: 80,
+            pendingTotal: 180,
+          },
+        })
+      ),
+    /top-level netDelta/
+  );
 });
 
 test("preview contract modules avoid invoice lines, mutation services, and legacy public naming", () => {
@@ -215,6 +272,50 @@ function lineSummary({
     lineTotal,
     priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
     metadata: { sortOrder: 0 },
+  };
+}
+
+function previewPayload(input: {
+  netDelta: number;
+  totals: {
+    baselineTotal: number;
+    netDelta: number;
+    pendingTotal: number;
+  };
+}) {
+  return {
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.ORIGINAL_ORDER_COMPOSITION,
+    baselineCommitId: null,
+    baselineSequence: null,
+    draftId: "draft-1",
+    draftVersion: 2,
+    commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.BASE_INVOICE,
+    lineDiffs: [lineDiff()],
+    netDelta: input.netDelta,
+    totals: input.totals,
+    requiresApproval: false,
+    approvalReasons: [],
+    documentPlan: {
+      kind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE,
+      amount: 80,
+      requiresPaymentCollection: true,
+      requiresRefundReview: false,
+      reason: null,
+    },
+    paymentImpact: {
+      kind: ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.PAYMENT_DUE,
+      amountDue: 80,
+      creditAmount: 0,
+      alreadyPaidAmount: 0,
+      remainingAfterCommit: 80,
+    },
+    refundImpact: {
+      refundRequired: false,
+      refundableAmount: 0,
+      creditNoteAmount: 0,
+      reason: null,
+    },
+    zeroNetReason: null,
   };
 }
 

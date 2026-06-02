@@ -16,6 +16,7 @@ import type {
   orderCommitPreviewLineDiffSchema,
   orderCommitPreviewLineSummarySchema,
   orderCommitPreviewOperationalFlagsSchema,
+  orderCommitPreviewTotalsSchema,
   orderCommitPreviewSchema,
   orderCommitRefundImpactSchema,
   orderCommitSnapshotDiffSchema,
@@ -78,6 +79,10 @@ export type OrderCommitRefundImpact = z.infer<
 
 export type OrderCommitApprovalAndDocumentPreview = z.infer<
   typeof orderCommitApprovalAndDocumentPreviewSchema
+>;
+
+export type OrderCommitPreviewTotals = z.infer<
+  typeof orderCommitPreviewTotalsSchema
 >;
 
 export type OrderCommitPreview = z.infer<typeof orderCommitPreviewSchema>;

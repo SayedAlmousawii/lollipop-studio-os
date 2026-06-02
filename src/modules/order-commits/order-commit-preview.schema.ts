@@ -135,6 +135,14 @@ export const orderCommitPreviewClassificationSchema = z
   })
   .strict();
 
+export const orderCommitPreviewTotalsSchema = z
+  .object({
+    baselineTotal: rawMoneySchema,
+    netDelta: rawMoneySchema,
+    pendingTotal: rawMoneySchema,
+  })
+  .strict();
+
 export const orderCommitApprovalReasonSchema = z
   .object({
     code: z.string().min(1),
@@ -191,6 +199,7 @@ export const orderCommitPreviewSchema = z
     commitKind: orderCommitPreviewCommitKindSchema,
     lineDiffs: z.array(orderCommitPreviewLineDiffSchema),
     netDelta: rawMoneySchema,
+    totals: orderCommitPreviewTotalsSchema,
     requiresApproval: z.boolean(),
     approvalReasons: z.array(orderCommitApprovalReasonSchema),
     documentPlan: orderCommitDocumentPlanPreviewSchema,
@@ -198,4 +207,30 @@ export const orderCommitPreviewSchema = z
     refundImpact: orderCommitRefundImpactSchema,
     zeroNetReason: z.string().min(1).nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((preview, context) => {
+    const expectedNetDelta = roundPreviewMoney(
+      preview.totals.pendingTotal - preview.totals.baselineTotal
+    );
+    if (preview.totals.netDelta !== expectedNetDelta) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["totals", "netDelta"],
+        message:
+          "OrderCommitPreview totals.netDelta must equal pendingTotal - baselineTotal.",
+      });
+    }
+
+    if (preview.totals.netDelta !== preview.netDelta) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["totals", "netDelta"],
+        message:
+          "OrderCommitPreview totals.netDelta must equal top-level netDelta.",
+      });
+    }
+  });
+
+function roundPreviewMoney(value: number): number {
+  return z.number().finite().parse(Number(value.toFixed(3)));
+}
