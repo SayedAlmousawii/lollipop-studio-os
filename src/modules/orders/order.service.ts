@@ -392,6 +392,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
               booking: {
                 select: {
                   sessionDate: true,
+                  assignedPhotographer: { select: { name: true } },
                   financialCase: {
                     select: {
                       id: true,
@@ -428,6 +429,11 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                       },
                     },
                   },
+                },
+              },
+              job: {
+                select: {
+                  assignedPhotographer: { select: { name: true } },
                 },
               },
               packages: {
@@ -640,6 +646,10 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     sessionDate: formatDateTime(order.booking.sessionDate),
     customerName: order.customer.name,
     customerPhone: formatCustomerPhone(order.customer.phone),
+    photographerName:
+      order.job.assignedPhotographer?.name ??
+      order.booking.assignedPhotographer?.name ??
+      null,
     packageLines,
     packageItems,
     rawDeliverableTotal: sumPOSPackageItemsDecimal(packageItems).toNumber(),

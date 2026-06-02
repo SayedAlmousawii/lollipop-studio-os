@@ -124,7 +124,7 @@ export async function getSalesPageView({
       sessionDate: workspace.sessionDate,
       customerName: workspace.customerName,
       customerPhone: workspace.customerPhone,
-      photographerName: null,
+      photographerName: workspace.photographerName ?? null,
       invoiceId: workspace.invoice?.invoiceId ?? null,
       invoiceNumber: workspace.invoice?.invoiceNumber ?? null,
     },

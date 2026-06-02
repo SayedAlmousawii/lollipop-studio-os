@@ -36,6 +36,30 @@ export function toSalesPageComposition({
           child.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA &&
           child.metadata.mediaType === "PRINT"
       );
+      const extraPhotoTotal = sumLineTotals(
+        childLines.filter(
+          (child) =>
+            child.lineKind ===
+            ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA
+        )
+      );
+      const upgradeDelta = sumLineTotals(
+        childLines.filter(
+          (child) =>
+            child.lineKind ===
+            ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE
+        )
+      );
+      const packageScopedConfigurationTotal = sumLineTotals(
+        childLines.filter(
+          (child) =>
+            child.lineKind ===
+              ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION ||
+            child.lineKind ===
+              ORDER_COMMIT_SNAPSHOT_LINE_KIND
+                .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
+        )
+      );
 
       return {
         id: line.lineId,
@@ -56,9 +80,14 @@ export function toSalesPageComposition({
           (extraDigitalLine?.quantity ?? 0) + (extraPrintLine?.quantity ?? 0),
         extraDigitalUnitPrice: extraDigitalLine?.unitPrice ?? 0,
         extraPrintUnitPrice: extraPrintLine?.unitPrice ?? 0,
-        extraPhotoTotal: 0,
-        packageSubtotal: line.lineTotal,
-        upgradeDelta: 0,
+        extraPhotoTotal,
+        packageSubtotal: roundMoney(
+          line.lineTotal +
+            upgradeDelta +
+            extraPhotoTotal +
+            packageScopedConfigurationTotal
+        ),
+        upgradeDelta,
         packageItems: childLines
           .filter(
             (child) =>
@@ -145,4 +174,12 @@ function metadataNumber(
 ): number | null {
   const value = line.metadata[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function sumLineTotals(lines: OrderCommitSnapshotLineV1[]): number {
+  return roundMoney(lines.reduce((sum, line) => sum + line.lineTotal, 0));
+}
+
+function roundMoney(value: number): number {
+  return Number(value.toFixed(3));
 }
