@@ -205,6 +205,8 @@ This task owns financial and approval policy:
 
 Classification and document-plan tests must be independent so operational change detection can be verified without payment/refund policy fixtures.
 
+`documentPlan.kind` is informational. When `diff.netDelta > 0` and the diff also contains negative-delta lines, the preview returns `documentPlan.kind = ADJUSTMENT_INVOICE` chosen by net sign. Spec 124 commit execution emits whichever documents the financial-line mapper actually produces, possibly an `ADJUSTMENT` invoice and a `CREDIT_NOTE` in the same commit. The DTO's `documentPlan.kind` must not be used as the document-emission routing gate. Approval requirement, payment impact, and refund impact remain driven by net sign plus payment state.
+
 This is preview only. It must not create invoices, applications, payments, refunds, audit logs, or commits.
 
 ### Task 6 - Preview Loader

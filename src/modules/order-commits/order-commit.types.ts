@@ -1,4 +1,5 @@
 import type {
+  ORDER_COMMIT_DOCUMENT_ROLE,
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_ORDER_ENTITY_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
@@ -11,6 +12,9 @@ export type OrderCommitKind =
 
 export type OrderCommitStatus =
   (typeof ORDER_COMMIT_STATUS)[keyof typeof ORDER_COMMIT_STATUS];
+
+export type OrderCommitDocumentRole =
+  (typeof ORDER_COMMIT_DOCUMENT_ROLE)[keyof typeof ORDER_COMMIT_DOCUMENT_ROLE];
 
 export type OrderCommitSnapshotLineKind =
   (typeof ORDER_COMMIT_SNAPSHOT_LINE_KIND)[keyof typeof ORDER_COMMIT_SNAPSHOT_LINE_KIND];

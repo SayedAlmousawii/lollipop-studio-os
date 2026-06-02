@@ -224,6 +224,12 @@ The session-configuration reducer should:
 - refuse to let add-on reducers delete selection-owned linked-product add-on lines.
 - preserve operational-only selections even when they do not affect money.
 
+Decomposition of price-affecting or quantity-affecting session-configuration changes:
+
+Any session-configuration change that would alter the snapshot `unitPrice` on a selection line, or the snapshot `quantity` or `unitPrice` on its paired `LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON` line, must decompose into a `REMOVED` of the baseline pair plus an `ADDED` of the pending pair. The reducer must not emit a `PRICE_CHANGED` snapshot line on either side, and must not emit a `QUANTITY_CHANGED` snapshot line on the linked-product side when the change derives from a selection edit. This keeps `pendingSnapshotJson` line identity stable, preserves the paired-ownership invariant, and lets the Spec 124 financial-line mapper remain pure.
+
+The decomposition rule covers catalog price restages, financial-behavior shifts, pricing-mode shifts, counter-pricing-mode shifts, numeric value changes on per-unit selections, option changes that resolve to different prices, and option-label changes that derive from a different priced option. Pure label normalization that does not alter `unitPrice` or linked quantity may continue to produce `METADATA_CHANGED`. Operational-only selections with `unitPrice = 0` are not subject to this rule unless they cross the operational/financial price boundary.
+
 Tests must cover financial selections, zero-value operational selections, linked-product add-on creation/update/removal, and protection against orphaned linked-product add-on ownership.
 
 ### Task 9 - Tests And Regression Guards

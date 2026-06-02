@@ -15,6 +15,7 @@ export {
   orderCommitDraftStagingSnapshotReplacementOperationSchema,
 } from "./order-commit-draft.schema";
 export {
+  ORDER_COMMIT_DOCUMENT_ROLE,
   ORDER_COMMIT_KIND,
   ORDER_COMMIT_ORDER_ENTITY_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
@@ -32,6 +33,7 @@ export {
   ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND,
 } from "./order-commit-preview.constants";
 export {
+  orderCommitDocumentRoleSchema,
   orderCommitKindSchema,
   orderCommitMetadataSchema,
   orderCommitOrderEntityKindSchema,
@@ -111,6 +113,42 @@ export {
   type ResolvedOrderCommitDraftLinkedProduct,
   type ResolvedOrderCommitDraftSessionConfigurationSelection,
 } from "./order-commit-session-configuration-reducer";
+export {
+  materializeOrderCommitDraftIntoOrderRows,
+  OrderCommitUnsupportedPackageMembershipError,
+  type MaterializeOrderCommitDraftIntoOrderRowsInput,
+  type MaterializeOrderCommitDraftIntoOrderRowsResult,
+  type OrderCommitMaterializationClient,
+} from "./order-commit-materialization.service";
+export {
+  mapOrderCommitDiffToFinancialLines,
+  OrderCommitFinancialEmissionError,
+  ORDER_COMMIT_CREDIT_NOTE_REASON,
+  type MapOrderCommitDiffToFinancialLinesInput,
+  type OrderCommitAdjustmentLineInput,
+  type OrderCommitAdjustmentReversal,
+  type OrderCommitCreditNoteLineInput,
+  type OrderCommitCreditNoteReason,
+  type OrderCommitFinancialEmission,
+  type OrderCommitFinancialEmissionErrorCode,
+  type OrderCommitOpenAdjustmentLine,
+} from "./order-commit-financial-emission.service";
+export {
+  createOrderCommitDocumentLinks,
+  type CreateOrderCommitDocumentLinksInput,
+} from "./order-commit-document.service";
+export {
+  commitOrderChanges,
+  emitOrderCommitFinancialDocuments,
+  OrderCommitApprovalRequiredError,
+  OrderCommitConcurrentCommitError,
+  OrderCommitCreditCapacityExhaustedError,
+  OrderCommitStaleDraftError,
+  type CommitOrderChangesInput,
+  type EmitOrderCommitFinancialDocumentsInput,
+  type OrderCommitEmissionResult,
+  type OrderCommitExecutionResult,
+} from "./order-commit-execution.service";
 export { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 export {
   appendOrderCommitDraftOperation,
@@ -172,6 +210,7 @@ export type {
   OrderCommitSnapshotDiff,
 } from "./order-commit-preview.types";
 export type {
+  OrderCommitDocumentRole,
   OrderCommitKind,
   OrderCommitOrderEntityKind,
   OrderCommitPriceSource,

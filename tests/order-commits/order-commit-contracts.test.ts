@@ -16,17 +16,25 @@ import {
   orderCommitStatusSchema,
 } from "@/modules/order-commits";
 
-test("order commit kind and status accept the Phase 1 contract values", () => {
+test("order commit kind and status accept the execution contract values", () => {
   assert.equal(
     orderCommitKindSchema.parse(ORDER_COMMIT_KIND.BASELINE),
     "BASELINE"
+  );
+  assert.equal(
+    orderCommitKindSchema.parse(ORDER_COMMIT_KIND.ADJUSTMENT),
+    "ADJUSTMENT"
+  );
+  assert.equal(
+    orderCommitKindSchema.parse(ORDER_COMMIT_KIND.AUDIT),
+    "AUDIT"
   );
   assert.equal(
     orderCommitStatusSchema.parse(ORDER_COMMIT_STATUS.COMMITTED),
     "COMMITTED"
   );
 
-  assert.equal(orderCommitKindSchema.safeParse("ADJUSTMENT").success, false);
+  assert.equal(orderCommitKindSchema.safeParse("OPEN").success, false);
   assert.equal(orderCommitStatusSchema.safeParse("OPEN").success, false);
 });
 
