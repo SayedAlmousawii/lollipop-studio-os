@@ -28,6 +28,8 @@ Committed truth remains `OrderCommit.snapshotJson`. Draft truth remains `OrderCo
 
 Spec 123 Phase 3 Task 3 adds pure snapshot diff semantics. Preview diff compares two parsed V1 snapshots by `stableKey` only, requires matching `orderId`, `financialCaseId`, schema version, and currency, returns raw numeric line and net deltas, and reports meaningful zero-net operational changes without reading `pendingOpsJson` or any database-backed operational/financial rows. If a package change produces different stable keys, the diff reports removed and added lines; later classification owns interpreting that as a package swap/change.
 
+Spec 123 Phase 3 Task 4 adds pure preview classification semantics. Classification consumes only the snapshot diff DTO, aggregates operational change flags, and determines the preview `commitKind` for no-op, positive delta, negative delta, and meaningful zero-net changes. It does not read snapshots again, inspect `pendingOpsJson`, query the database, decide approval policy, build document plans, compute payment/refund impact, load drafts, or mutate operational/financial rows.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.

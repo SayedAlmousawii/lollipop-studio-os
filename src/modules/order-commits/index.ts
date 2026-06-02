@@ -71,6 +71,10 @@ export {
   type DiffOrderCommitSnapshotsInput,
 } from "./order-commit-preview-diff.service";
 export {
+  classifyOrderCommitPreview,
+  type ClassifyOrderCommitPreviewInput,
+} from "./order-commit-preview-classification.service";
+export {
   reduceOrderCommitDraftAddOn,
   type ReduceOrderCommitDraftAddOnInput,
   type ResolvedOrderCommitDraftAddOnProduct,
