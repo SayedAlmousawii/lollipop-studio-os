@@ -22,6 +22,7 @@ export function toSalesPageComposition({
   }
 
   const linesByParent = groupLinesByParent(draftSnapshot.lines);
+  const totals = projectedTotalsFromSnapshot(draftSnapshot);
   const packageLines = draftSnapshot.lines
     .filter((line) => line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE)
     .map((line) => {
@@ -35,6 +36,30 @@ export function toSalesPageComposition({
         (child) =>
           child.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA &&
           child.metadata.mediaType === "PRINT"
+      );
+      const extraPhotoTotal = sumLineTotals(
+        childLines.filter(
+          (child) =>
+            child.lineKind ===
+            ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA
+        )
+      );
+      const upgradeDelta = sumLineTotals(
+        childLines.filter(
+          (child) =>
+            child.lineKind ===
+            ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE
+        )
+      );
+      const packageScopedConfigurationTotal = sumLineTotals(
+        childLines.filter(
+          (child) =>
+            child.lineKind ===
+              ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION ||
+            child.lineKind ===
+              ORDER_COMMIT_SNAPSHOT_LINE_KIND
+                .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
+        )
       );
 
       return {
@@ -56,9 +81,14 @@ export function toSalesPageComposition({
           (extraDigitalLine?.quantity ?? 0) + (extraPrintLine?.quantity ?? 0),
         extraDigitalUnitPrice: extraDigitalLine?.unitPrice ?? 0,
         extraPrintUnitPrice: extraPrintLine?.unitPrice ?? 0,
-        extraPhotoTotal: 0,
-        packageSubtotal: line.lineTotal,
-        upgradeDelta: 0,
+        extraPhotoTotal,
+        packageSubtotal: roundMoney(
+          line.lineTotal +
+            upgradeDelta +
+            extraPhotoTotal +
+            packageScopedConfigurationTotal
+        ),
+        upgradeDelta,
         packageItems: childLines
           .filter(
             (child) =>
@@ -111,10 +141,41 @@ export function toSalesPageComposition({
         priceDelta: line.lineTotal,
       })),
     totals: {
-      ...currentComposition.totals,
-      netCompositionTotal: draftSnapshot.totals.netTotal,
+      ...totals,
     },
     source: "projected",
+  };
+}
+
+function projectedTotalsFromSnapshot(
+  draftSnapshot: OrderCommitSnapshotV1
+): SalesPageComposition["totals"] {
+  return {
+    packageBaseTotal: sumSnapshotLineTotals(
+      draftSnapshot.lines,
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE
+    ),
+    packageUpgradeDeltaTotal: sumSnapshotLineTotals(
+      draftSnapshot.lines,
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE
+    ),
+    // OrderCommit snapshots do not carry included deliverables as separate lines;
+    // paid package-item upgrades are represented by PACKAGE_ITEM_UPGRADE totals.
+    deliverablesTotal: 0,
+    addOnTotal: sumSnapshotLineTotals(
+      draftSnapshot.lines,
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON
+    ),
+    extraPhotoTotal: sumSnapshotLineTotals(
+      draftSnapshot.lines,
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA
+    ),
+    sessionConfigurationTotal: sumSnapshotLineTotals(
+      draftSnapshot.lines,
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION,
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND.LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
+    ),
+    netCompositionTotal: draftSnapshot.totals.netTotal,
   };
 }
 
@@ -145,4 +206,22 @@ function metadataNumber(
 ): number | null {
   const value = line.metadata[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function sumLineTotals(lines: OrderCommitSnapshotLineV1[]): number {
+  return roundMoney(lines.reduce((sum, line) => sum + line.lineTotal, 0));
+}
+
+function sumSnapshotLineTotals(
+  lines: OrderCommitSnapshotLineV1[],
+  ...lineKinds: OrderCommitSnapshotLineV1["lineKind"][]
+): number {
+  const includedLineKinds = new Set(lineKinds);
+  return sumLineTotals(
+    lines.filter((line) => includedLineKinds.has(line.lineKind))
+  );
+}
+
+function roundMoney(value: number): number {
+  return Number(value.toFixed(3));
 }

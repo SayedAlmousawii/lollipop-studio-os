@@ -304,6 +304,7 @@ export interface POSWorkspace {
   sessionDate: string;
   customerName: string;
   customerPhone: string;
+  photographerName?: string | null;
   packageLines: POSPackageLine[];
   packageItems: POSPackageItem[];
   rawDeliverableTotal: number;

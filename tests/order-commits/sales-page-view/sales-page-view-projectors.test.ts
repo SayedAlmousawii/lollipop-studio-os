@@ -106,6 +106,12 @@ test("composition projector maps draft snapshot lines as projected source", () =
         quantity: 3,
         unitPrice: 5,
       }),
+      extraPhotoLine({
+        parentOrderPackageId: "draft:package-1",
+        mediaType: "PRINT",
+        quantity: 2,
+        unitPrice: 4,
+      }),
       addOnLine({
         orderEntityId: "draft:addon-1",
         label: "Canvas",
@@ -115,6 +121,11 @@ test("composition projector maps draft snapshot lines as projected source", () =
         parentOrderPackageId: "draft:package-1",
         label: "Backdrop",
         lineTotal: 7,
+      }),
+      linkedProductSessionConfigurationAddOnLine({
+        parentOrderPackageId: "draft:package-1",
+        label: "Linked album",
+        lineTotal: 6,
       }),
     ],
     netTotal: 242,
@@ -132,9 +143,73 @@ test("composition projector maps draft snapshot lines as projected source", () =
   assert.equal(projected.packageLines[0]?.packageName, "Premium Package");
   assert.equal(projected.packageLines[0]?.selectedPhotoCount, 13);
   assert.equal(projected.packageLines[0]?.extraDigitalCount, 3);
+  assert.equal(projected.packageLines[0]?.extraPrintCount, 2);
+  assert.equal(projected.packageLines[0]?.extraPhotoTotal, 23);
+  assert.equal(projected.packageLines[0]?.upgradeDelta, 25);
+  assert.equal(projected.packageLines[0]?.packageSubtotal, 241);
   assert.equal(projected.packageLines[0]?.packageItems[0]?.id, "draft:item-upgrade-1");
   assert.equal(projected.addOns[0]?.orderAddOnId, "draft:addon-1");
   assert.equal(projected.sessionConfigurations[0]?.priceDelta, 7);
+  assert.deepEqual(projected.totals, {
+    packageBaseTotal: 180,
+    packageUpgradeDeltaTotal: 25,
+    deliverablesTotal: 0,
+    addOnTotal: 30,
+    extraPhotoTotal: 23,
+    sessionConfigurationTotal: 13,
+    netCompositionTotal: 242,
+  });
+});
+
+test("composition projector derives projected totals only from snapshot fields", () => {
+  const draftSnapshot = snapshotFixture({
+    lines: [
+      packageLine({ lineTotal: 100.123 }),
+      packageItemLine({ lineTotal: 25, parentOrderPackageId: "order-package-1" }),
+      addOnLine({ lineTotal: 30.111 }),
+      extraPhotoLine({
+        parentOrderPackageId: "order-package-1",
+        mediaType: "DIGITAL",
+        quantity: 1,
+        unitPrice: 5,
+      }),
+      sessionConfigurationLine({
+        parentOrderPackageId: "order-package-1",
+        lineTotal: 7.222,
+      }),
+      linkedProductSessionConfigurationAddOnLine({
+        parentOrderPackageId: "order-package-1",
+        lineTotal: 6.333,
+      }),
+    ],
+    netTotal: 456.789,
+  });
+
+  const projected = toSalesPageComposition({
+    draftSnapshot,
+    currentComposition: currentCompositionFixture({
+      totals: {
+        packageBaseTotal: 999,
+        packageUpgradeDeltaTotal: 999,
+        deliverablesTotal: 999,
+        addOnTotal: 999,
+        extraPhotoTotal: 999,
+        sessionConfigurationTotal: 999,
+        netCompositionTotal: 999,
+      },
+    }),
+  });
+
+  assert.equal(projected.packageLines[0]?.packageSubtotal, 143.678);
+  assert.deepEqual(projected.totals, {
+    packageBaseTotal: 100.123,
+    packageUpgradeDeltaTotal: 25,
+    deliverablesTotal: 0,
+    addOnTotal: 30.111,
+    extraPhotoTotal: 5,
+    sessionConfigurationTotal: 13.555,
+    netCompositionTotal: 456.789,
+  });
 });
 
 test("staged changes projector preserves diff deltas and presentational order", () => {
@@ -176,6 +251,61 @@ test("staged changes projector preserves diff deltas and presentational order", 
     [11.875, 2.25, -9.125]
   );
   assert.equal(rows[1]?.label, "Album cover -> Atelier leather");
+});
+
+test("staged changes projector prefers package labels before raw parent ids", () => {
+  const childWithoutParentLabel = lineDiff({
+    stableKey: "addon-child",
+    changeKind: ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.ADDED,
+    moneyDelta: 12,
+    pendingLabel: "Gift frame",
+  });
+  childWithoutParentLabel.pendingLine = lineSummary({
+    label: "Gift frame",
+    lineTotal: 12,
+    parentOrderPackageId: "order-package-labeled",
+  });
+
+  const fallbackChild = lineDiff({
+    stableKey: "addon-fallback",
+    changeKind: ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.ADDED,
+    moneyDelta: 8,
+    pendingLabel: "Loose print",
+  });
+  fallbackChild.pendingLine = lineSummary({
+    label: "Loose print",
+    lineTotal: 8,
+    parentOrderPackageId: "order-package-unlabeled",
+  });
+
+  const packageDiff = lineDiff({
+    stableKey: "package-labeled",
+    changeKind: ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.PRICE_CHANGED,
+    moneyDelta: 0,
+    pendingLabel: "Signature Package",
+  });
+  packageDiff.pendingLine = lineSummary({
+    label: "Signature Package",
+    lineTotal: 100,
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE,
+    orderEntityId: "order-package-labeled",
+    parentOrderPackageId: null,
+  });
+
+  const rows = toSalesPageStagedChanges({
+    preview: previewFixture({
+      lineDiffs: [childWithoutParentLabel, fallbackChild, packageDiff],
+    }),
+  });
+
+  assert.equal(
+    rows.find((row) => row.id === "addon-child")?.parentLabel,
+    "Signature Package"
+  );
+  assert.equal(
+    rows.find((row) => row.id === "addon-fallback")?.parentLabel,
+    "order-package-unlabeled"
+  );
 });
 
 test("financial preview passes through financial case and preview fields", () => {
@@ -403,6 +533,30 @@ function sessionConfigurationLine(
   });
 }
 
+function linkedProductSessionConfigurationAddOnLine(
+  input: Partial<OrderCommitSnapshotLineV1> = {}
+): OrderCommitSnapshotLineV1 {
+  return snapshotLine({
+    lineId: "linked-product:draft:selection-1",
+    lineKind:
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND
+        .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON,
+    orderEntityKind:
+      ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+    orderEntityId: "draft:selection-1",
+    parentOrderPackageId: "order-package-1",
+    catalogEntityId: "linked-product-1",
+    stableKey:
+      "order-package:order-package-1:session-configuration:configuration-1:linked-product",
+    label: "Linked album",
+    quantity: 1,
+    unitPrice: 6,
+    lineTotal: 6,
+    metadata: { configurationId: "configuration-1", linkedProductId: "linked-product-1" },
+    ...input,
+  });
+}
+
 function snapshotLine(
   input: Partial<OrderCommitSnapshotLineV1> &
     Pick<
@@ -519,14 +673,20 @@ function lineSummary(input: {
   label: string;
   lineTotal: number;
   parentLabel?: string;
+  lineKind?: OrderCommitSnapshotLineV1["lineKind"];
+  orderEntityId?: string;
+  parentOrderPackageId?: string | null;
 }) {
   return {
     stableKey: "summary-1",
     lineId: "summary-1",
-    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON,
+    lineKind: input.lineKind ?? ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON,
     orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_ADD_ON,
-    orderEntityId: "addon-1",
-    parentOrderPackageId: "order-package-1",
+    orderEntityId: input.orderEntityId ?? "addon-1",
+    parentOrderPackageId:
+      input.parentOrderPackageId === undefined
+        ? "order-package-1"
+        : input.parentOrderPackageId,
     catalogEntityId: "product-1",
     label: input.label,
     quantity: 1,

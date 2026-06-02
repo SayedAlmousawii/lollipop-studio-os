@@ -1,21 +1,15 @@
 import { notFound } from "next/navigation";
-import {
-  addOrderProductAddOnAction,
-  removeOrderAddOnAction,
-  updateOrderPackageAction,
-  updateOrderSelectedPhotoCountAction,
-  upgradeOrderPackageItemAction,
-  type POSCompositionActionState,
-} from "@/app/orders/[orderId]/sales/actions";
+import { stageSalesChangeAction } from "@/app/orders/[orderId]/sales/actions";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { CurrentCompositionCard } from "@/components/orders/current-composition-card";
-import { FinancialSidebarDraft } from "@/components/orders/financial-sidebar-draft";
 import { FinancialSidebarLocked } from "@/components/orders/financial-sidebar-locked";
+import { OrderCommitFinancialSidebar } from "@/components/orders/order-commit-financial-sidebar";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
+import { SalesStagedCommitControls } from "@/components/orders/sales-staged-commit-controls";
 import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -26,10 +20,8 @@ import {
   toSalesSidebarLocked,
 } from "@/modules/financial-cases";
 import {
-  getDraftOrderCompositionViewModel,
   getLockedOrderCompositionViewModel,
   toCurrentCompositionCard,
-  toDraftPOSComposition,
   toPOSAddOnMarketplace,
 } from "@/modules/orders/composition";
 import {
@@ -43,11 +35,11 @@ import {
   orderEditModeContextFromWorkspace,
 } from "@/modules/orders/policies/edit-mode-policy";
 import type { POSWorkspace } from "@/modules/orders/order.types";
-import type {
-  HandlerResult,
-  POSAddOnHandlers,
-  POSCompositionHandlers,
-} from "@/modules/orders/pos-handlers.types";
+import { getSalesPageView } from "@/modules/order-commits/projections";
+import {
+  createOrderCommitSalesAddOnHandlers,
+  createOrderCommitSalesCompositionHandlers,
+} from "@/modules/order-commits/sales-staging-handler-adapter";
 import styles from "./sales-page.module.css";
 
 export default async function SalesPage(
@@ -156,10 +148,17 @@ export default async function SalesPage(
     );
   }
 
-  const compositionModel = await getDraftOrderCompositionViewModel(orderId);
-  if (!compositionModel) notFound();
-  const draftComposition = toDraftPOSComposition(compositionModel);
-  const addOnMarketplace = toPOSAddOnMarketplace(draftComposition);
+  const salesPageView = await getSalesPageView({
+    orderId,
+    actorContext: {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    },
+    dependencies: {
+      getPOSWorkspace: async () => workspace,
+    },
+  });
+  const addOnMarketplace = toPOSAddOnMarketplace(salesPageView.composition);
   const draftPolicyContext = orderEditModeContextFromWorkspace({
     orderId: workspace.orderId,
     orderStatus: workspace.orderStatusRaw,
@@ -171,21 +170,25 @@ export default async function SalesPage(
   const addOnEditPolicies = buildPOSAddOnEditPolicies(draftPolicyContext);
   const financialSidebarPolicies =
     buildPOSFinancialSidebarEditPolicies(draftPolicyContext);
-  const compositionHandlers = createPOSCompositionHandlers(orderId, workspace);
-  const addOnHandlers = createPOSAddOnHandlers(orderId);
+  const compositionHandlers = createOrderCommitSalesCompositionHandlers({
+    orderId,
+    expectedVersion: salesPageView.draft?.version ?? 0,
+    stageSalesChangeAction,
+  });
+  const addOnHandlers = createOrderCommitSalesAddOnHandlers();
 
   return (
     <div className={styles.salesGrid}>
       <main className="space-y-5">
         <POSPackageComposition
           workspace={workspace}
-          composition={draftComposition}
+          composition={salesPageView.composition}
           handlers={compositionHandlers}
           editPolicies={packageEditPolicies}
         />
         <POSPhotoCountCard
           workspace={workspace}
-          composition={draftComposition}
+          composition={salesPageView.composition}
           handlers={compositionHandlers}
           editPolicies={packageEditPolicies}
         />
@@ -195,162 +198,24 @@ export default async function SalesPage(
           handlers={addOnHandlers}
           editPolicies={addOnEditPolicies}
         />
+        <SalesStagedCommitControls
+          orderId={workspace.orderId}
+          draft={salesPageView.draft}
+          preview={salesPageView.preview}
+          stagedChanges={salesPageView.stagedChanges}
+          financialPreview={salesPageView.financialPreview}
+        />
       </main>
-      <FinancialSidebarDraft
+      <OrderCommitFinancialSidebar
         workspace={workspace}
-        composition={draftComposition}
+        financialPreview={salesPageView.financialPreview}
+        financialCase={salesPageView.financialCase}
+        preview={salesPageView.preview}
         editPolicies={financialSidebarPolicies}
         className={styles.financialSidebar}
       />
     </div>
   );
-}
-
-function createPOSCompositionHandlers(
-  orderId: string,
-  workspace: POSWorkspace
-): POSCompositionHandlers {
-  async function changePackageTier(input: {
-    orderPackageId: string;
-    toPackageRefId: string;
-  }): Promise<HandlerResult> {
-    "use server";
-
-    return callPOSServerAction(updateOrderPackageAction, orderId, {
-      orderPackageId: input.orderPackageId,
-      packageId: input.toPackageRefId,
-    });
-  }
-
-  async function upgradePackageItem(input: {
-    orderPackageId: string;
-    packageItemId: string;
-    toProductId: string;
-    quantity: number;
-  }): Promise<HandlerResult> {
-    "use server";
-
-    const currentQuantity = workspace.packageLines
-      .flatMap((line) => line.packageItems)
-      .find((item) => item.id === input.packageItemId)?.quantity;
-    if (currentQuantity !== input.quantity) {
-      return {
-        ok: false,
-        errors: {
-          _global: ["Package item quantity changed. Refresh before applying this upgrade."],
-        },
-      };
-    }
-    // Sales package-item actions replace the existing item quantity; they do not accept a quantity override.
-    return callPOSServerAction(upgradeOrderPackageItemAction, orderId, {
-      orderPackageId: input.orderPackageId,
-      packageItemId: input.packageItemId,
-      newProductId: input.toProductId,
-    });
-  }
-
-  async function changeSelectedPhotoCount(input: {
-    orderPackageId: string;
-    selectedPhotoCount: number;
-    extraDigitalCount: number;
-    extraPrintCount: number;
-  }): Promise<HandlerResult> {
-    "use server";
-
-    return callPOSServerAction(updateOrderSelectedPhotoCountAction, orderId, {
-      orderPackageId: input.orderPackageId,
-      selectedPhotoCount: input.selectedPhotoCount,
-      extraDigitalCount: input.extraDigitalCount,
-      extraPrintCount: input.extraPrintCount,
-    });
-  }
-
-  return {
-    changePackageTier,
-    upgradePackageItem,
-    changeSelectedPhotoCount,
-    shouldPromptInlineApproval: true,
-  };
-}
-
-function createPOSAddOnHandlers(orderId: string): POSAddOnHandlers {
-  async function addAddOn(input: {
-    productId: string;
-    quantity: number;
-  }): Promise<HandlerResult> {
-    "use server";
-
-    // Sales add-on actions add one row per submit; they do not accept a quantity override.
-    return callPOSServerAction(addOrderProductAddOnAction, orderId, {
-      productId: input.productId,
-    });
-  }
-
-  async function removeAddOn(input: {
-    addOnId: string;
-  }): Promise<HandlerResult> {
-    "use server";
-
-    return callPOSServerAction(removeOrderAddOnAction, orderId, {
-      addOnId: input.addOnId,
-    });
-  }
-
-  return {
-    addAddOn,
-    removeAddOn,
-    shouldPromptInlineApproval: true,
-  };
-}
-
-type POSServerAction = (
-  orderId: string,
-  previousState: POSCompositionActionState,
-  formData: FormData
-) => Promise<POSCompositionActionState>;
-
-async function callPOSServerAction(
-  action: POSServerAction,
-  orderId: string,
-  fields: Record<string, string | number>
-): Promise<HandlerResult> {
-  const formData = new FormData();
-  for (const [field, value] of Object.entries(fields)) {
-    formData.set(field, String(value));
-  }
-
-  // POS composition actions ignore previousState; adapters always submit a fresh state.
-  return handlerResultFromActionState(await action(orderId, {}, formData));
-}
-
-function handlerResultFromActionState(
-  state: POSCompositionActionState
-): HandlerResult {
-  if (state.kind === "success") {
-    return { ok: true };
-  }
-
-  return {
-    ok: false,
-    errors: normalizeActionErrors(state.errors),
-    approval: state.kind === "approval-required" ? state.payload : undefined,
-  };
-}
-
-function normalizeActionErrors(
-  errors: POSCompositionActionState["errors"]
-): Record<string, string[]> {
-  if (!errors) {
-    return {};
-  }
-
-  const normalized: Record<string, string[]> = {};
-  for (const [field, messages] of Object.entries(errors)) {
-    if (messages?.length) {
-      normalized[field] = messages;
-    }
-  }
-  return normalized;
 }
 
 function LockedCompositionView({

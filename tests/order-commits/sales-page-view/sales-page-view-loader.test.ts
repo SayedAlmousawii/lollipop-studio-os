@@ -162,6 +162,9 @@ test("loader keeps SalesPageView fields bound to their canonical sources", async
     draft,
     preview,
     financialCase,
+    workspace: workspaceFixture({
+      photographerName: "Mona Photographer",
+    }),
     currentComposition: currentCompositionFixture({
       packageName: "Source Current Package",
       netCompositionTotal: 123,
@@ -175,6 +178,7 @@ test("loader keeps SalesPageView fields bound to their canonical sources", async
   });
 
   assert.equal(view.order.customerName, "Customer Source");
+  assert.equal(view.order.photographerName, "Mona Photographer");
   assert.equal(view.draft?.version, 12);
   assert.equal(view.composition.packageLines[0]?.packageName, "Source Draft Package");
   assert.equal(view.preview, preview);
