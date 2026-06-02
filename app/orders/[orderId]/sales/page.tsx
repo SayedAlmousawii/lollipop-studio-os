@@ -9,6 +9,7 @@ import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
+import { SalesStagedCommitControls } from "@/components/orders/sales-staged-commit-controls";
 import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -196,6 +197,13 @@ export default async function SalesPage(
           marketplace={addOnMarketplace}
           handlers={addOnHandlers}
           editPolicies={addOnEditPolicies}
+        />
+        <SalesStagedCommitControls
+          orderId={workspace.orderId}
+          draft={salesPageView.draft}
+          preview={salesPageView.preview}
+          stagedChanges={salesPageView.stagedChanges}
+          financialPreview={salesPageView.financialPreview}
         />
       </main>
       <FinancialSidebarDraft
