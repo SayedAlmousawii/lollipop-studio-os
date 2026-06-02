@@ -150,18 +150,36 @@ test("composition projector maps draft snapshot lines as projected source", () =
   assert.equal(projected.packageLines[0]?.packageItems[0]?.id, "draft:item-upgrade-1");
   assert.equal(projected.addOns[0]?.orderAddOnId, "draft:addon-1");
   assert.equal(projected.sessionConfigurations[0]?.priceDelta, 7);
+  assert.deepEqual(projected.totals, {
+    packageBaseTotal: 180,
+    packageUpgradeDeltaTotal: 25,
+    deliverablesTotal: 0,
+    addOnTotal: 30,
+    extraPhotoTotal: 23,
+    sessionConfigurationTotal: 13,
+    netCompositionTotal: 242,
+  });
 });
 
-test("composition projector keeps projected net total sourced from snapshot totals", () => {
+test("composition projector derives projected totals only from snapshot fields", () => {
   const draftSnapshot = snapshotFixture({
     lines: [
-      packageLine({ lineTotal: 100 }),
+      packageLine({ lineTotal: 100.123 }),
       packageItemLine({ lineTotal: 25, parentOrderPackageId: "order-package-1" }),
+      addOnLine({ lineTotal: 30.111 }),
       extraPhotoLine({
         parentOrderPackageId: "order-package-1",
         mediaType: "DIGITAL",
         quantity: 1,
         unitPrice: 5,
+      }),
+      sessionConfigurationLine({
+        parentOrderPackageId: "order-package-1",
+        lineTotal: 7.222,
+      }),
+      linkedProductSessionConfigurationAddOnLine({
+        parentOrderPackageId: "order-package-1",
+        lineTotal: 6.333,
       }),
     ],
     netTotal: 456.789,
@@ -169,11 +187,29 @@ test("composition projector keeps projected net total sourced from snapshot tota
 
   const projected = toSalesPageComposition({
     draftSnapshot,
-    currentComposition: currentCompositionFixture({ netCompositionTotal: 100 }),
+    currentComposition: currentCompositionFixture({
+      totals: {
+        packageBaseTotal: 999,
+        packageUpgradeDeltaTotal: 999,
+        deliverablesTotal: 999,
+        addOnTotal: 999,
+        extraPhotoTotal: 999,
+        sessionConfigurationTotal: 999,
+        netCompositionTotal: 999,
+      },
+    }),
   });
 
-  assert.equal(projected.packageLines[0]?.packageSubtotal, 130);
-  assert.equal(projected.totals.netCompositionTotal, 456.789);
+  assert.equal(projected.packageLines[0]?.packageSubtotal, 143.678);
+  assert.deepEqual(projected.totals, {
+    packageBaseTotal: 100.123,
+    packageUpgradeDeltaTotal: 25,
+    deliverablesTotal: 0,
+    addOnTotal: 30.111,
+    extraPhotoTotal: 5,
+    sessionConfigurationTotal: 13.555,
+    netCompositionTotal: 456.789,
+  });
 });
 
 test("staged changes projector preserves diff deltas and presentational order", () => {
