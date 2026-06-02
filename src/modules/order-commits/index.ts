@@ -5,6 +5,11 @@ export {
   ORDER_COMMIT_DRAFT_STAGING_HISTORY_SCHEMA_VERSION,
 } from "./order-commit-draft.constants";
 export {
+  OrderCommitDraftMissingError,
+  OrderCommitDraftPermissionError,
+  OrderCommitDraftStaleVersionError,
+} from "./order-commit-draft.errors";
+export {
   orderCommitDraftLineTargetSchema,
   orderCommitDraftOperationTypeSchema,
   orderCommitDraftOperationV1Schema,
