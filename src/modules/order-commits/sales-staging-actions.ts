@@ -18,19 +18,25 @@ type SalesDraftActionUser = {
   role: UserRole;
 };
 
-export type SalesDraftActionDependencies = {
+type SalesDraftActionBaseDependencies = {
   requireOrderFinancialUpdate: () => Promise<SalesDraftActionUser>;
+  revalidateSalesPaths: (orderId: string) => void;
+};
+
+export type StageSalesDraftActionDependencies = SalesDraftActionBaseDependencies & {
   getOrCreateOrderCommitDraft: typeof getOrCreateOrderCommitDraft;
   stageOrderCommitDraftChange: typeof stageOrderCommitDraftChange;
+};
+
+export type DiscardSalesDraftActionDependencies = SalesDraftActionBaseDependencies & {
   discardOrderCommitDraft: typeof discardOrderCommitDraft;
-  revalidateSalesPaths: (orderId: string) => void;
 };
 
 export async function stageSalesChangeActionWithDependencies(
   orderId: string,
   expectedVersion: number,
   change: OrderCommitDraftStagingChange,
-  dependencies: SalesDraftActionDependencies
+  dependencies: StageSalesDraftActionDependencies
 ): Promise<POSMutationActionState> {
   try {
     const appUser = await dependencies.requireOrderFinancialUpdate();
@@ -60,7 +66,7 @@ export async function stageSalesChangeActionWithDependencies(
 export async function discardSalesDraftActionWithDependencies(
   orderId: string,
   expectedVersion: number,
-  dependencies: SalesDraftActionDependencies
+  dependencies: DiscardSalesDraftActionDependencies
 ): Promise<POSMutationActionState> {
   try {
     const appUser = await dependencies.requireOrderFinancialUpdate();

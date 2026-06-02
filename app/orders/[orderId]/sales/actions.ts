@@ -69,7 +69,6 @@ export async function stageSalesChangeAction(
       requireCurrentAppUserPermission(PERMISSIONS.ORDER_FINANCIAL_UPDATE),
     getOrCreateOrderCommitDraft,
     stageOrderCommitDraftChange,
-    discardOrderCommitDraft,
     revalidateSalesPaths: revalidatePOSPaths,
   });
 }
@@ -81,8 +80,6 @@ export async function discardSalesDraftAction(
   return discardSalesDraftActionWithDependencies(orderId, expectedVersion, {
     requireOrderFinancialUpdate: () =>
       requireCurrentAppUserPermission(PERMISSIONS.ORDER_FINANCIAL_UPDATE),
-    getOrCreateOrderCommitDraft,
-    stageOrderCommitDraftChange,
     discardOrderCommitDraft,
     revalidateSalesPaths: revalidatePOSPaths,
   });
