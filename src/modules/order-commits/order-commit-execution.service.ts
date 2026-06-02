@@ -54,6 +54,7 @@ import type {
 } from "./order-commit-preview.types";
 import type {
   OrderCommitAdjustmentReversal,
+  OrderCommitCreditNoteReason,
   OrderCommitFinancialEmission,
   OrderCommitOpenAdjustmentLine,
 } from "./order-commit-financial-emission.service";
@@ -986,20 +987,14 @@ function groupAdjustmentReversals(
 
 function creditReasonForReversals(
   reversals: readonly OrderCommitAdjustmentReversal[]
-): string {
-  const reasons = new Set(reversals.map((reversal) => reversal.reason));
-  return reasons.size === 1
-    ? reversals[0]!.reason
-    : "ORDER_COMMIT_ADJUSTMENT_REVERSAL";
+): OrderCommitCreditNoteReason {
+  return reversals[0]!.reason;
 }
 
 function creditReasonForFinalLines(
   lines: OrderCommitFinancialEmission["creditNoteFinalLines"]
-): string {
-  const reasons = new Set(lines.map((entry) => entry.reason));
-  return reasons.size === 1
-    ? lines[0]!.reason
-    : "ORDER_COMMIT_FINAL_RESIDUAL_CREDIT";
+): OrderCommitCreditNoteReason {
+  return lines[0]!.reason;
 }
 
 function decimalLikeToNumber(value: Prisma.Decimal | number): number {

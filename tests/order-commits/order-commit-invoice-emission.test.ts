@@ -243,6 +243,10 @@ test("groups adjustment reversals into line-targeted credit notes", async () => 
       .targetAdjustmentInvoiceId,
     "adjustment-parent"
   );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.reason,
+    "REMOVED_ADDON"
+  );
   assert.deepEqual(dependencies.createCreditNoteWithClient.calls[0]?.input.lines, [
     {
       lineType: InvoiceLineType.MANUAL_DISCOUNT,
@@ -255,6 +259,99 @@ test("groups adjustment reversals into line-targeted credit notes", async () => 
       targetInvoiceLineId: "adjustment-line-1",
     },
   ]);
+});
+
+test("uses the first reversal reason when a parent ADJ groups mixed reasons", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      adjustmentReversals: [
+        {
+          reason: "REMOVED_ADDON",
+          parentAdjustmentInvoiceId: "adjustment-parent",
+          targetInvoiceLineId: "adjustment-line-addon",
+          causeOrderEntityKind: OrderEntityKind.ADDON,
+          causeOrderEntityId: "addon-1",
+          amount: 5,
+          description: "Removed: Add-on",
+        },
+        {
+          reason: "REMOVED_PACKAGE_ITEM_UPGRADE",
+          parentAdjustmentInvoiceId: "adjustment-parent",
+          targetInvoiceLineId: "adjustment-line-upgrade",
+          causeOrderEntityKind: OrderEntityKind.UPGRADE,
+          causeOrderEntityId: "upgrade-1",
+          amount: 7,
+          description: "Removed: Item upgrade",
+        },
+      ],
+    },
+  });
+
+  await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 1);
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.reason,
+    "REMOVED_ADDON"
+  );
+});
+
+test("uses the first final-residual reason when mixed reasons overflow to FINAL", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      creditNoteFinalLines: [
+        {
+          reason: "REMOVED_ADDON",
+          line: creditLine("Removed: Add-on", 10),
+        },
+        {
+          reason: "PACKAGE_TIER_DOWNGRADE",
+          line: {
+            lineType: InvoiceLineType.MANUAL_DISCOUNT,
+            description: "Package downgrade: A -> B",
+            quantity: 1,
+            unitPrice: 20,
+            causeOrderEntityKind: OrderEntityKind.PACKAGE_TIER_UPGRADE,
+            causeOrderEntityId: "order-package-1",
+          },
+        },
+      ],
+    },
+  });
+
+  await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 1);
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.reason,
+    "REMOVED_ADDON"
+  );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.targetFinalInvoiceId,
+    "final-invoice"
+  );
 });
 
 test("emits mixed-sign adjustment and final credit documents", async () => {
@@ -524,6 +621,7 @@ function fakeDependencies(options: {
     input: {
       targetFinalInvoiceId?: string;
       targetAdjustmentInvoiceId?: string;
+      reason?: string;
       lines: unknown[];
     };
   }>;
