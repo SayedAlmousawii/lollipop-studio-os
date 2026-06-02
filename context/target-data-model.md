@@ -20,6 +20,12 @@ Spec 121 Task 4 adds generic pending-operation history mutation. The helper appe
 
 Spec 122 Task 1 adds typed staging-change contracts for package, add-on, package-item-upgrade, photo-count, and session-configuration draft staging. These contracts are service input commands only. After a stage request succeeds, the replacement `pendingSnapshotJson` remains the durable draft business truth. `pendingOpsJson` keeps generic `SNAPSHOT_REPLACED` / `NOTE_APPENDED` operations; domain staging history is stored as a typed payload on snapshot-replacement history and must not be replayed as the source for commit preview, commit execution, or draft reconstruction.
 
+## Order Commit Preview Boundary
+
+Spec 123 Phase 3 Task 1 adds the public preview DTO contract for centralized OrderCommit preview/diff work. Preview contracts expose baseline source metadata, draft identity/version, line-level snapshot diffs, operational classification flags, approval reasons, document-plan preview, payment impact, refund impact, and zero-net reasons.
+
+Committed truth remains `OrderCommit.snapshotJson`. Draft truth remains `OrderCommitDraft.pendingSnapshotJson`. `pendingOpsJson` remains history-only and is not part of the preview diff contract. The first-commit baseline selection contract is latest `OrderCommit` snapshot first, then package-only original booking/order operational composition when no commit exists, and explicit empty baseline only when neither committed nor original operational composition exists. Original-baseline included-photo resolution remains catalog-dependent until `OrderPackage` stores a durable original included-photo snapshot.
+
 ## Adjustment Workspace Materialization
 
 `AdjustmentWorkspace` is a staging and audit boundary for post-lock order changes. Its `baseSnapshotJson` and `pendingChangesJson` support preview/proposal workflows, while `operationalStateAppliedAt` is retained as an idempotency and debugging marker for finalize-time operational materialization.
