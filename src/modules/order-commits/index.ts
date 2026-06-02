@@ -25,6 +25,13 @@ export {
   ORDER_COMMIT_STATUS,
 } from "./order-commit.constants";
 export {
+  ORDER_COMMIT_PREVIEW_BASELINE_SOURCE,
+  ORDER_COMMIT_PREVIEW_COMMIT_KIND,
+  ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND,
+  ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND,
+  ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND,
+} from "./order-commit-preview.constants";
+export {
   orderCommitKindSchema,
   orderCommitMetadataSchema,
   orderCommitOrderEntityKindSchema,
@@ -35,6 +42,49 @@ export {
   orderCommitSnapshotV1Schema,
   orderCommitStatusSchema,
 } from "./order-commit.schema";
+export {
+  orderCommitApprovalAndDocumentPreviewSchema,
+  orderCommitApprovalReasonSchema,
+  orderCommitDocumentPlanPreviewSchema,
+  orderCommitPaymentImpactSchema,
+  orderCommitPreviewBaselineSchema,
+  orderCommitPreviewBaselineSourceSchema,
+  orderCommitPreviewClassificationSchema,
+  orderCommitPreviewCommitKindSchema,
+  orderCommitPreviewDocumentPlanKindSchema,
+  orderCommitPreviewLineChangeKindSchema,
+  orderCommitPreviewLineDiffSchema,
+  orderCommitPreviewLineSummarySchema,
+  orderCommitPreviewOperationalFlagsSchema,
+  orderCommitPreviewPaymentImpactKindSchema,
+  orderCommitPreviewSchema,
+  orderCommitRefundImpactSchema,
+  orderCommitSnapshotDiffSchema,
+} from "./order-commit-preview.schema";
+export {
+  resolveOrderCommitPreviewBaseline,
+  type OrderCommitPreviewBaselineClient,
+  type ResolveOrderCommitPreviewBaselineInput,
+} from "./order-commit-preview-baseline.service";
+export {
+  diffOrderCommitSnapshots,
+  type DiffOrderCommitSnapshotsInput,
+} from "./order-commit-preview-diff.service";
+export {
+  classifyOrderCommitPreview,
+  type ClassifyOrderCommitPreviewInput,
+} from "./order-commit-preview-classification.service";
+export {
+  buildOrderCommitApprovalAndDocumentPreview,
+  type BuildOrderCommitApprovalAndDocumentPreviewInput,
+  type OrderCommitPreviewPaymentState,
+} from "./order-commit-approval-document-preview.service";
+export {
+  getOrderCommitPreview,
+  type GetOrderCommitPreviewInput,
+  type OrderCommitFinancialSummaryLoader,
+  type OrderCommitPreviewClient,
+} from "./order-commit-preview.service";
 export {
   reduceOrderCommitDraftAddOn,
   type ReduceOrderCommitDraftAddOnInput,
@@ -102,6 +152,25 @@ export type {
   OrderCommitDraftStagingHistoryPayload,
   OrderCommitDraftStagingSnapshotReplacementOperation,
 } from "./order-commit-draft.types";
+export type {
+  OrderCommitApprovalAndDocumentPreview,
+  OrderCommitApprovalReason,
+  OrderCommitDocumentPlanPreview,
+  OrderCommitPaymentImpact,
+  OrderCommitPreview,
+  OrderCommitPreviewBaseline,
+  OrderCommitPreviewBaselineSource,
+  OrderCommitPreviewClassification,
+  OrderCommitPreviewCommitKind,
+  OrderCommitPreviewDocumentPlanKind,
+  OrderCommitPreviewLineChangeKind,
+  OrderCommitPreviewLineDiff,
+  OrderCommitPreviewLineSummary,
+  OrderCommitPreviewOperationalFlags,
+  OrderCommitPreviewPaymentImpactKind,
+  OrderCommitRefundImpact,
+  OrderCommitSnapshotDiff,
+} from "./order-commit-preview.types";
 export type {
   OrderCommitKind,
   OrderCommitOrderEntityKind,
