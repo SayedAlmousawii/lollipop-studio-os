@@ -98,7 +98,7 @@ function enableOrderCommitStagingPolicy(
     ...policy,
     canEditDirectly: true,
     isInteractive: true,
-    ["shouldOpen" + "Adjustment" + "Workspace"]: false,
+    shouldOpenAdjustmentWorkspace: false,
     openWorkspaceIsActive: false,
     blockedReason: null,
     routeTarget: null,
