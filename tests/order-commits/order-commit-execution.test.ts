@@ -118,6 +118,7 @@ test("commitOrderChanges atomically creates an audit commit and deletes the draf
   const createdCommit = harness.calls.orderCommitCreates[0]?.data;
   assert.equal(createdCommit?.kind, ORDER_COMMIT_KIND.AUDIT);
   assert.equal(createdCommit?.status, ORDER_COMMIT_STATUS.COMMITTED);
+  assert.equal(createdCommit?.committedFromDraftId, "draft-1");
   assert.equal(createdCommit?.committedFromDraftVersion, 2);
   assert.equal(createdCommit?.committedByUserId, "staff-user");
   assert.deepEqual(createdCommit?.snapshotJson, harness.pendingSnapshot);
@@ -166,7 +167,7 @@ test("commitOrderChanges rebuilds unlocked FINAL without document links", async 
   assert.equal(createdCommit?.kind, ORDER_COMMIT_KIND.BASELINE);
   assert.deepEqual(createdCommit?.metadataJson, {
     commitKind: "ADJUSTMENT_INVOICE",
-    documentPlanKind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE,
+    documentPlanKind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD,
     approvalActorUserId: null,
     netDelta: 25,
     finalInvoiceMode: "REBUILD_UNLOCKED",
@@ -188,6 +189,118 @@ test("commitOrderChanges rebuilds unlocked FINAL without document links", async 
     activityMetadata.finalInvoiceMode,
     "REBUILD_UNLOCKED"
   );
+});
+
+test("draft identity allows version 1 commits from different draft sessions", async () => {
+  const harness = fakeExecutionHarness({
+    draftId: "draft-B",
+    draftVersion: 1,
+    initialCommits: [
+      {
+        id: "order-commit-A",
+        orderId: "order-1",
+        sequence: 1,
+        committedFromDraftId: "draft-A",
+        committedFromDraftVersion: 1,
+      },
+    ],
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 1,
+    actorContext,
+    client: harness.client,
+  });
+
+  const createdCommit = harness.calls.orderCommitCreates[0]?.data;
+  assert.equal(createdCommit?.previousCommitId, "order-commit-A");
+  assert.equal(createdCommit?.sequence, 2);
+  assert.equal(createdCommit?.committedFromDraftId, "draft-B");
+  assert.equal(createdCommit?.committedFromDraftVersion, 1);
+  assert.deepEqual(harness.calls.draftDeletes, [{ id: "draft-B" }]);
+});
+
+test("double-submit of the same draft id is rejected cleanly", async () => {
+  const harness = fakeExecutionHarness({
+    draftId: "draft-A",
+    draftVersion: 1,
+    initialCommits: [
+      {
+        id: "order-commit-A",
+        orderId: "order-1",
+        sequence: 1,
+        committedFromDraftId: "draft-A",
+        committedFromDraftVersion: 1,
+      },
+    ],
+  });
+  activeHarness = harness;
+  const { commitOrderChanges, OrderCommitConcurrentCommitError } =
+    await loadExecutionService();
+
+  await assert.rejects(
+    commitOrderChanges({
+      orderId: "order-1",
+      expectedDraftVersion: 1,
+      actorContext,
+      client: harness.client,
+    }),
+    OrderCommitConcurrentCommitError
+  );
+  assert.equal(harness.calls.transactionOptions.length, 1);
+  assert.deepEqual(harness.calls.draftDeletes, []);
+});
+
+test("repeated unlocked FINAL rebuild works across version 1 draft sessions", async () => {
+  const harness = fakeExecutionHarness({
+    draftId: "draft-B",
+    draftVersion: 1,
+    finalInvoice: { id: "final-invoice-1", isLocked: false },
+    initialInvoiceTotal: 100,
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 125,
+    }),
+    initialCommits: [
+      {
+        id: "order-commit-A",
+        orderId: "order-1",
+        sequence: 1,
+        committedFromDraftId: "draft-A",
+        committedFromDraftVersion: 1,
+      },
+    ],
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 1,
+    actorContext,
+    client: harness.client,
+  });
+
+  const createdCommit = harness.calls.orderCommitCreates[0]?.data;
+  assert.equal(createdCommit?.sequence, 2);
+  assert.equal(createdCommit?.committedFromDraftId, "draft-B");
+  assert.equal(createdCommit?.committedFromDraftVersion, 1);
+  assert.equal(createdCommit?.kind, ORDER_COMMIT_KIND.BASELINE);
+  assert.deepEqual(createdCommit?.metadataJson, {
+    commitKind: "ADJUSTMENT_INVOICE",
+    documentPlanKind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD,
+    approvalActorUserId: null,
+    netDelta: 25,
+    finalInvoiceMode: "REBUILD_UNLOCKED",
+    finalInvoiceId: "final-invoice-1",
+    rebuiltInvoiceId: "final-invoice-1",
+  });
+  assert.deepEqual(harness.calls.documentCreateMany, []);
+  assert.equal(harness.state.invoiceTotal, 125);
 });
 
 test("post-rebuild invariant failure rolls back invoice and preserves draft", async () => {
@@ -241,8 +354,29 @@ test("commitOrderChanges rejects stale draft versions before writes", async () =
   assert.deepEqual(harness.calls.draftDeletes, []);
 });
 
-test("committedFromDraftVersion conflicts surface as concurrent commit errors without retry", async () => {
-  const harness = fakeExecutionHarness({ throwConcurrentOnCommit: true });
+test("Prisma adapter draft-id conflicts surface as concurrent commit errors without retry", async () => {
+  const harness = fakeExecutionHarness({ throwConcurrentOnCommit: "draftIdAdapter" });
+  activeHarness = harness;
+  const { commitOrderChanges, OrderCommitConcurrentCommitError } =
+    await loadExecutionService();
+
+  await assert.rejects(
+    commitOrderChanges({
+      orderId: "order-1",
+      expectedDraftVersion: 2,
+      actorContext,
+      client: harness.client,
+    }),
+    OrderCommitConcurrentCommitError
+  );
+  assert.equal(harness.calls.transactionOptions.length, 1);
+  assert.deepEqual(harness.calls.draftDeletes, []);
+});
+
+test("legacy draft-version conflicts still surface as concurrent commit errors", async () => {
+  const harness = fakeExecutionHarness({
+    throwConcurrentOnCommit: "draftVersionTarget",
+  });
   activeHarness = harness;
   const { commitOrderChanges, OrderCommitConcurrentCommitError } =
     await loadExecutionService();
@@ -319,12 +453,14 @@ function invoiceServiceShim() {
 }
 
 function fakeExecutionHarness(input?: {
+  draftId?: string;
   draftVersion?: number;
   finalInvoice?: { id: string; isLocked: boolean };
   initialInvoiceTotal?: number;
   pendingSnapshot?: OrderCommitSnapshotV1;
+  initialCommits?: Array<Record<string, unknown>>;
   throwInvariant?: boolean;
-  throwConcurrentOnCommit?: boolean;
+  throwConcurrentOnCommit?: "draftIdAdapter" | "draftVersionTarget";
 }) {
   const pendingSnapshot =
     input?.pendingSnapshot ??
@@ -347,7 +483,9 @@ function fakeExecutionHarness(input?: {
       role: string;
       createdAt: Date;
     }>,
-    commits: [] as Array<Record<string, unknown>>,
+    commits: (input?.initialCommits ?? []).map((commit) =>
+      fakeCommittedOrderCommitRow(commit)
+    ) as Array<Record<string, unknown>>,
   };
   const calls = {
     transactionOptions: [] as unknown[],
@@ -441,7 +579,7 @@ function fakeExecutionHarness(input?: {
     },
     orderCommitDraft: {
       findUnique: async () => ({
-        id: "draft-1",
+        id: input?.draftId ?? "draft-1",
         orderId: "order-1",
         financialCaseId: "financial-case-1",
         pendingSnapshotJson: pendingSnapshot,
@@ -451,15 +589,23 @@ function fakeExecutionHarness(input?: {
         calls.sequence.push("draft.delete");
         calls.draftDeletes.push((args as { where: unknown }).where);
         state.draftExists = false;
-        return { id: "draft-1" };
+        return { id: input?.draftId ?? "draft-1" };
       },
     },
     orderCommit: {
-      findFirst: async () => null,
+      findFirst: async (args?: { select?: Record<string, unknown> }) => {
+        const latest = latestCommitRow(state.commits);
+        if (!latest) return null;
+        if (args?.select?.snapshotJson) return latest;
+        return {
+          id: latest.id,
+          sequence: latest.sequence,
+        };
+      },
       create: async (args: { data: Record<string, unknown> }) => {
         calls.sequence.push("orderCommit.create");
         calls.orderCommitCreates.push(args);
-        if (input?.throwConcurrentOnCommit) {
+        if (input?.throwConcurrentOnCommit === "draftVersionTarget") {
           throw new Prisma.PrismaClientKnownRequestError(
             "Unique constraint failed on committedFromDraftVersion",
             {
@@ -471,9 +617,45 @@ function fakeExecutionHarness(input?: {
             }
           );
         }
-        state.commits.push(args.data);
+        if (input?.throwConcurrentOnCommit === "draftIdAdapter") {
+          throw new Prisma.PrismaClientKnownRequestError(
+            'Unique constraint failed on the fields: ("orderId", "committedFromDraftId")',
+            {
+              code: "P2002",
+              clientVersion: "test",
+              meta: {
+                modelName: "OrderCommit",
+                driverAdapterError: new Error("UniqueConstraintViolation"),
+              },
+            }
+          );
+        }
+        if (
+          args.data.committedFromDraftId &&
+          state.commits.some(
+            (commit) =>
+              commit.orderId === args.data.orderId &&
+              commit.committedFromDraftId === args.data.committedFromDraftId
+          )
+        ) {
+          throw new Prisma.PrismaClientKnownRequestError(
+            'Unique constraint failed on the fields: ("orderId", "committedFromDraftId")',
+            {
+              code: "P2002",
+              clientVersion: "test",
+              meta: {
+                modelName: "OrderCommit",
+                driverAdapterError: new Error("UniqueConstraintViolation"),
+              },
+            }
+          );
+        }
+        state.commits.push({
+          id: `order-commit-${state.commits.length + 1}`,
+          ...args.data,
+        });
         return {
-          id: "order-commit-1",
+          id: `order-commit-${state.commits.length}`,
           sequence: args.data.sequence as number,
           kind: args.data.kind as string,
         };
@@ -652,6 +834,38 @@ function fakeExecutionHarness(input?: {
       linkedDocuments: [],
     },
     pendingSnapshot,
+  };
+}
+
+function latestCommitRow(commits: Array<Record<string, unknown>>) {
+  return [...commits].sort(
+    (left, right) => Number(right.sequence ?? 0) - Number(left.sequence ?? 0)
+  )[0];
+}
+
+function fakeCommittedOrderCommitRow(
+  overrides: Record<string, unknown>
+): Record<string, unknown> {
+  return {
+    id: "order-commit-existing",
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+    previousCommitId: null,
+    sequence: 1,
+    kind: ORDER_COMMIT_KIND.BASELINE,
+    status: ORDER_COMMIT_STATUS.COMMITTED,
+    snapshotVersion: 1,
+    snapshotJson: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 100,
+    }),
+    metadataJson: {},
+    committedAt: new Date("2026-06-02T00:00:00.000Z"),
+    committedByUserId: "staff-user",
+    committedFromDraftId: "draft-existing",
+    committedFromDraftVersion: 1,
+    ...overrides,
   };
 }
 

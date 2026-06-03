@@ -296,10 +296,15 @@ async function commitOrderChangesWithTransaction(
   });
   const classification = classifyOrderCommitPreview({ diff });
   const paymentState = await loadPreviewPaymentState(input.orderId, client);
+  const resolvedFinalInvoice = await resolvePrimaryFinalInvoiceForOrderCommit({
+    financialCaseId: pendingSnapshot.financialCaseId,
+    client,
+  });
   const approvalAndDocumentPreview =
     buildOrderCommitApprovalAndDocumentPreview({
       baselineSource: baseline.baselineSource,
       classification,
+      finalInvoiceMode: resolveFinalInvoiceMode(resolvedFinalInvoice),
       paymentState,
     });
 
@@ -311,10 +316,6 @@ async function commitOrderChangesWithTransaction(
       client,
     });
 
-  const resolvedFinalInvoice = await resolvePrimaryFinalInvoiceForOrderCommit({
-    financialCaseId: pendingSnapshot.financialCaseId,
-    client,
-  });
   if (shouldEmitFinancialDocuments(approvalAndDocumentPreview.documentPlan)) {
     await lockParentInvoiceForEmissionIfPresent({
       finalInvoice: resolvedFinalInvoice,
@@ -350,6 +351,7 @@ async function commitOrderChangesWithTransaction(
       documentPlanKind: approvalAndDocumentPreview.documentPlan.kind,
     }),
     pendingSnapshot,
+    draftId: activeDraft.id,
     draftVersion: activeDraft.version,
     metadata: {
       commitKind: classification.commitKind,
@@ -577,6 +579,7 @@ async function createCommittedOrderCommitRow(input: {
   sequence: number;
   kind: OrderCommitKind;
   pendingSnapshot: OrderCommitSnapshotV1;
+  draftId: string;
   draftVersion: number;
   metadata: Record<string, unknown>;
   actorContext: ActorContext;
@@ -599,6 +602,7 @@ async function createCommittedOrderCommitRow(input: {
         snapshotJson: input.pendingSnapshot as unknown as Prisma.InputJsonValue,
         metadataJson: input.metadata as Prisma.InputJsonObject,
         committedByUserId: input.actorContext.actorUserId.trim() || null,
+        committedFromDraftId: input.draftId,
         committedFromDraftVersion: input.draftVersion,
       },
       select: { id: true, sequence: true, kind: true },
@@ -610,7 +614,7 @@ async function createCommittedOrderCommitRow(input: {
       kind: orderCommitKindSchema.parse(row.kind),
     };
   } catch (error) {
-    if (isUniqueCommittedFromDraftVersionConflict(error)) {
+    if (isUniqueCommittedFromDraftIdConflict(error)) {
       throw new OrderCommitConcurrentCommitError({
         orderId: input.orderId,
         draftVersion: input.draftVersion,
@@ -1094,7 +1098,7 @@ function shouldRetryOrderCommitExecution(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
   if (error.code === "P2034") return true;
   if (error.code !== "P2002") return false;
-  if (isUniqueCommittedFromDraftVersionConflict(error)) return false;
+  if (isUniqueCommittedFromDraftIdConflict(error)) return false;
   return isUniqueOrderCommitSequenceConflict(error);
 }
 
@@ -1102,16 +1106,28 @@ function isUniqueOrderCommitSequenceConflict(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002" &&
-    isUniqueTarget(error.meta?.target, ["orderId", "sequence"], "orderId_sequence")
+    isUniqueTarget(error, ["orderId", "sequence"], "orderId_sequence")
   );
 }
 
-function isUniqueCommittedFromDraftVersionConflict(error: unknown): boolean {
+function isUniqueCommittedFromDraftIdConflict(error: unknown): boolean {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002" &&
+    isUniqueTarget(
+      error,
+      ["orderId", "committedFromDraftId"],
+      "orderId_committedFromDraftId"
+    )
+  ) {
+    return true;
+  }
+
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002" &&
     isUniqueTarget(
-      error.meta?.target,
+      error,
       ["orderId", "committedFromDraftVersion"],
       "orderId_committedFromDraftVersion"
     )
@@ -1119,14 +1135,18 @@ function isUniqueCommittedFromDraftVersionConflict(error: unknown): boolean {
 }
 
 function isUniqueTarget(
-  target: unknown,
+  error: Prisma.PrismaClientKnownRequestError,
   fields: string[],
   fallbackName: string
 ): boolean {
+  const target = error.meta?.target;
   if (Array.isArray(target)) {
     return fields.every((field) => target.includes(field));
   }
-  return typeof target === "string" && target.includes(fallbackName);
+  if (typeof target === "string" && target.includes(fallbackName)) {
+    return true;
+  }
+  return fields.every((field) => error.message.includes(field));
 }
 
 async function loadDefaultOrderCommitExecutionClient(): Promise<OrderCommitExecutionClient> {

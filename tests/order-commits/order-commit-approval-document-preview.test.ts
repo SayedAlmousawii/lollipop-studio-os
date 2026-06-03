@@ -42,6 +42,7 @@ test("approval preview maps first positive delta to base invoice payment due", (
 test("approval preview maps later positive delta to adjustment invoice", () => {
   const preview = buildOrderCommitApprovalAndDocumentPreview({
     baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
     classification: classificationFixture({
       commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
       netDelta: 25,
@@ -58,9 +59,59 @@ test("approval preview maps later positive delta to adjustment invoice", () => {
   assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
 });
 
+test("approval preview maps unlocked final positive delta to final rebuild", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "REBUILD_UNLOCKED",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      netDelta: 25,
+    }),
+    paymentState: paymentStateFixture({ currentRemainingAmount: 10 }),
+  });
+
+  assert.equal(
+    preview.documentPlan.kind,
+    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD
+  );
+  assert.equal(preview.documentPlan.amount, 25);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, true);
+  assert.equal(preview.paymentImpact.amountDue, 25);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
+});
+
+test("approval preview maps unlocked final reduction to final rebuild", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "REBUILD_UNLOCKED",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.CREDIT_NOTE,
+      netDelta: -40,
+    }),
+    paymentState: paymentStateFixture({ currentRemainingAmount: 100 }),
+  });
+
+  assert.equal(preview.requiresApproval, true);
+  assert.equal(
+    preview.documentPlan.kind,
+    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD
+  );
+  assert.equal(preview.documentPlan.amount, 40);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, false);
+  assert.equal(preview.documentPlan.requiresRefundReview, false);
+  assert.equal(
+    preview.paymentImpact.kind,
+    ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.CREDIT_AVAILABLE
+  );
+  assert.equal(preview.paymentImpact.creditAmount, 40);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 60);
+  assert.equal(preview.refundImpact.creditNoteAmount, 40);
+});
+
 test("approval preview maps reduction within remaining balance to credit note", () => {
   const preview = buildOrderCommitApprovalAndDocumentPreview({
     baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
     classification: classificationFixture({
       commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.CREDIT_NOTE,
       netDelta: -40,
@@ -92,6 +143,7 @@ test("approval preview maps reduction within remaining balance to credit note", 
 test("approval preview maps reduction beyond remaining balance to refund-needed", () => {
   const preview = buildOrderCommitApprovalAndDocumentPreview({
     baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
     classification: classificationFixture({
       commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.CREDIT_NOTE,
       netDelta: -80,

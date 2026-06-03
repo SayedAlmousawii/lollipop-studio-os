@@ -69,8 +69,13 @@ test("schema links order commits and invoices to order commit documents", () => 
   const orderCommit = schemaModelBlock(schema, "OrderCommit");
   const invoice = schemaModelBlock(schema, "Invoice");
 
+  assert.match(orderCommit, /committedFromDraftId\s+String\?/);
   assert.match(orderCommit, /committedFromDraftVersion\s+Int\?/);
-  assert.match(orderCommit, /@@unique\(\[orderId, committedFromDraftVersion\]\)/);
+  assert.match(orderCommit, /@@unique\(\[orderId, committedFromDraftId\]\)/);
+  assert.doesNotMatch(
+    orderCommit,
+    /@@unique\(\[orderId, committedFromDraftVersion\]\)/
+  );
   assert.match(
     orderCommit,
     /orderCommitDocuments\s+OrderCommitDocument\[\]\s+@relation\("OrderCommitDocumentOrderCommit"\)/

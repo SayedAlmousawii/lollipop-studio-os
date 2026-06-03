@@ -861,6 +861,7 @@ model OrderCommit {
   financialCaseId             String
   previousCommitId            String?
   sequence                    Int
+  committedFromDraftId        String?
   committedFromDraftVersion   Int?
   kind                        String
   status                      String
@@ -883,7 +884,7 @@ model OrderCommit {
   legacyAdjustmentWorkspace AdjustmentWorkspace? @relation("OrderCommitLegacyAdjustmentWorkspace", fields: [legacyAdjustmentWorkspaceId], references: [id], onDelete: SetNull)
 
   @@unique([orderId, sequence])
-  @@unique([orderId, committedFromDraftVersion])
+  @@unique([orderId, committedFromDraftId])
   @@index([orderId])
   @@index([financialCaseId])
   @@index([previousCommitId])
