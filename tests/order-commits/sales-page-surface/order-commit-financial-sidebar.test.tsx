@@ -36,6 +36,12 @@ type OrderCommitFinancialSidebarComponent = ComponentType<{
 }>;
 
 const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
+let paymentDialogPropsCapture:
+  | Array<{
+      targets?: Array<{ invoiceId: string }>;
+      defaultTargetInvoiceId?: string;
+    }>
+  | undefined;
 
 test("OrderCommitFinancialSidebar renders baseline and overlay from financial preview", async () => {
   const OrderCommitFinancialSidebar = await loadOrderCommitFinancialSidebar();
@@ -163,7 +169,7 @@ test("OrderCommitFinancialSidebar keeps no-preview state baseline-only", async (
   assert.doesNotMatch(markup, /Refund impact/);
 });
 
-test("OrderCommitFinancialSidebar preserves existing invoice affordance behavior", async () => {
+test("OrderCommitFinancialSidebar preserves single-target invoice affordance behavior", async () => {
   const OrderCommitFinancialSidebar = await loadOrderCommitFinancialSidebar();
   const payableWorkspace = workspaceFixture({
     remainingAmount: 55,
@@ -173,6 +179,15 @@ test("OrderCommitFinancialSidebar preserves existing invoice affordance behavior
   });
   const noInvoiceWorkspace = workspaceFixture({
     invoice: null,
+  });
+  const fullySettledPreview = financialPreviewFixture({
+    baseline: {
+      ...financialPreviewFixture().baseline,
+      remaining: 0,
+      outstandingAmount: 0,
+      isFullySettled: true,
+      collectPaymentTargetInvoiceId: null,
+    },
   });
 
   const payableMarkup = renderToStaticMarkup(
@@ -187,7 +202,7 @@ test("OrderCommitFinancialSidebar preserves existing invoice affordance behavior
   const paidMarkup = renderToStaticMarkup(
     createElement(OrderCommitFinancialSidebar, {
       workspace: paidWorkspace,
-      financialPreview: financialPreviewFixture(),
+      financialPreview: fullySettledPreview,
       financialCase: activeFinancialCase(),
       preview: previewFixture(),
       editPolicies: financialPolicies(paidWorkspace),
@@ -208,6 +223,106 @@ test("OrderCommitFinancialSidebar preserves existing invoice affordance behavior
   assert.match(noInvoiceMarkup, /Create Invoice/);
 });
 
+test("OrderCommitFinancialSidebar renders case documents and targets open adjustments", async () => {
+  const paymentDialogProps: Array<{
+    targets?: Array<{ invoiceId: string }>;
+    defaultTargetInvoiceId?: string;
+  }> = [];
+  paymentDialogPropsCapture = paymentDialogProps;
+  const OrderCommitFinancialSidebar = await loadOrderCommitFinancialSidebar();
+  const adjustmentInvoice = invoiceFixture({
+    invoiceId: "adjustment-1",
+    invoiceNumber: "ADJ-1",
+    invoiceType: "ADJUSTMENT",
+    invoiceStatus: "Issued",
+    invoiceTotal: 42,
+    remainingAmount: 42,
+  });
+  const workspace = workspaceFixture({
+    remainingAmount: 0,
+    adjustmentInvoices: [adjustmentInvoice],
+  });
+  const financialPreview = financialPreviewFixture({
+    baseline: {
+      ...financialPreviewFixture().baseline,
+      finalInvoice: {
+        id: "final-1",
+        invoiceNumber: "INV-1",
+        invoiceType: InvoiceType.FINAL,
+        total: 300,
+        remaining: 0,
+        status: InvoiceStatus.CLOSED,
+        isLocked: true,
+        depositPaidAmount: 50,
+      },
+      finalizedAdjustments: [
+        {
+          id: "adjustment-1",
+          invoiceNumber: "ADJ-1",
+          invoiceType: InvoiceType.ADJUSTMENT,
+          total: 42,
+          remaining: 42,
+          status: InvoiceStatus.ISSUED,
+          isLocked: true,
+        },
+      ],
+      creditNotes: [
+        {
+          id: "credit-1",
+          invoiceNumber: "CN-1",
+          invoiceType: InvoiceType.CREDIT_NOTE,
+          total: -8,
+          remaining: 0,
+          status: InvoiceStatus.CLOSED,
+          isLocked: true,
+        },
+      ],
+      refunds: [
+        {
+          id: "refund-1",
+          invoiceNumber: "REF-1",
+          invoiceType: InvoiceType.REFUND,
+          total: -3,
+          remaining: 0,
+          status: InvoiceStatus.CLOSED,
+          isLocked: true,
+        },
+      ],
+      remaining: 42,
+      outstandingAmount: 42,
+      totalAdjustments: 42,
+      isFullySettled: false,
+      collectPaymentTargetInvoiceId: "adjustment-1",
+    },
+  });
+
+  const markup = renderToStaticMarkup(
+    createElement(OrderCommitFinancialSidebar, {
+      workspace,
+      financialPreview,
+      financialCase: activeFinancialCase(),
+      preview: previewFixture(),
+      editPolicies: financialPolicies(workspace),
+    })
+  );
+
+  assert.match(markup, /Partial/);
+  assert.match(markup, /Reference #INV-1/);
+  assert.match(markup, /Adjustments/);
+  assert.match(markup, /ADJ-1/);
+  assert.match(markup, /Credit notes/);
+  assert.match(markup, /CN-1/);
+  assert.match(markup, /Refunds/);
+  assert.match(markup, /REF-1/);
+  assert.doesNotMatch(markup, /Fully Paid/);
+  assert.equal(paymentDialogProps[0]?.defaultTargetInvoiceId, "adjustment-1");
+  assert.deepEqual(
+    paymentDialogProps[0]?.targets?.map((target) => target.invoiceId),
+    ["adjustment-1"]
+  );
+  paymentDialogPropsCapture = undefined;
+});
+
 async function loadOrderCommitFinancialSidebar(): Promise<OrderCommitFinancialSidebarComponent> {
   const originalModuleLoad = moduleWithLoader._load;
   moduleWithLoader._load = function loadWithActionStubs(request, parent, isMain) {
@@ -218,7 +333,13 @@ async function loadOrderCommitFinancialSidebar(): Promise<OrderCommitFinancialSi
     }
     if (request === "@/components/orders/pos-record-payment-dialog") {
       return {
-        POSRecordPaymentDialog: () => createElement("button", null, "Record Payment"),
+        POSRecordPaymentDialog: (props: {
+          targets?: Array<{ invoiceId: string }>;
+          defaultTargetInvoiceId?: string;
+        }) => {
+          paymentDialogPropsCapture?.push(props);
+          return createElement("button", null, "Record Payment");
+        },
       };
     }
     return originalModuleLoad.call(this, request, parent, isMain);
@@ -276,8 +397,14 @@ function financialPreviewFixture(
       paidSoFar: 125,
       effectivePaid: 140,
       remaining: 176,
+      finalizedAdjustments: [],
+      creditNotes: [],
+      refunds: [],
+      totalAdjustments: 0,
+      outstandingAmount: 176,
+      isFullySettled: false,
       paymentStatusEnum: "PARTIAL",
-      collectPaymentInvoiceId: "final-1",
+      collectPaymentTargetInvoiceId: "final-1",
     },
     overlay: {
       previousTotal: 100,
@@ -396,6 +523,7 @@ function workspaceFixture(
   input: {
     invoice?: POSWorkspace["invoice"];
     remainingAmount?: number;
+    adjustmentInvoices?: POSWorkspace["adjustmentInvoices"];
   } = {}
 ): POSWorkspace {
   const invoice =
@@ -443,8 +571,32 @@ function workspaceFixture(
     productOptions: [],
     addOnCatalog: [],
     invoice,
-    adjustmentInvoices: [],
+    adjustmentInvoices: input.adjustmentInvoices ?? [],
     paidAdjustmentInvoices: [],
     aggregateOutstanding: input.remainingAmount ?? 176,
   } as POSWorkspace;
+}
+
+function invoiceFixture(
+  input: Partial<NonNullable<POSWorkspace["invoice"]>> = {}
+): NonNullable<POSWorkspace["invoice"]> {
+  return {
+    invoiceId: input.invoiceId ?? "invoice-1",
+    financialCaseId: input.financialCaseId ?? "financial-case-1",
+    invoiceNumber: input.invoiceNumber ?? "INV-1",
+    invoiceType: input.invoiceType ?? "FINAL",
+    invoiceStatus: input.invoiceStatus ?? "Issued",
+    isLocked: input.isLocked ?? false,
+    renderMode: input.renderMode ?? "COMPUTED",
+    packageBaseTotal: input.packageBaseTotal ?? 300,
+    bundleAdjustment: input.bundleAdjustment ?? 0,
+    addOnTotal: input.addOnTotal ?? 0,
+    extraPhotoTotal: input.extraPhotoTotal ?? 0,
+    invoiceTotal: input.invoiceTotal ?? 300,
+    paidAmount: input.paidAmount ?? 125,
+    depositInvoiceNumber: input.depositInvoiceNumber ?? "DEP-1",
+    depositPaidAmount: input.depositPaidAmount ?? 50,
+    remainingAmount: input.remainingAmount ?? 176,
+    lineItems: input.lineItems ?? [],
+  };
 }

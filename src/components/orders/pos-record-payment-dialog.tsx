@@ -24,6 +24,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { TimePicker } from "@/components/ui/time-picker";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -34,6 +41,8 @@ import type { POSInvoiceSummary } from "@/modules/orders/order.types";
 interface POSRecordPaymentDialogProps {
   orderId: string;
   invoice: POSInvoiceSummary;
+  targets?: POSInvoiceSummary[];
+  defaultTargetInvoiceId?: string;
   orderStatus: OrderStatus;
   customerName: string;
   jobNumber: string;
@@ -55,21 +64,33 @@ const PAYMENT_MINUTES = Array.from({ length: 60 }, (_, index) =>
 export function POSRecordPaymentDialog({
   orderId,
   invoice,
+  targets,
+  defaultTargetInvoiceId,
   orderStatus,
   customerName,
   jobNumber,
   trigger,
 }: POSRecordPaymentDialogProps) {
+  const targetOptions = targets?.length ? targets : [invoice];
+  const initialTargetInvoiceId =
+    targetOptions.find((target) => target.invoiceId === defaultTargetInvoiceId)
+      ?.invoiceId ?? invoice.invoiceId;
+  const [selectedTargetInvoiceId, setSelectedTargetInvoiceId] = useState(
+    initialTargetInvoiceId
+  );
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [state, setState] = useState<POSRecordPaymentActionState>({});
   const router = useRouter();
+  const selectedTarget =
+    targetOptions.find((target) => target.invoiceId === selectedTargetInvoiceId) ??
+    invoice;
 
   async function submitPayment(formData: FormData) {
     setIsSubmitting(true);
     const nextState = await recordPOSPaymentAction(
       orderId,
-      invoice.invoiceId,
+      selectedTarget.invoiceId,
       state,
       formData
     );
@@ -102,7 +123,10 @@ export function POSRecordPaymentDialog({
           <DialogDescription>Record a payment for this invoice</DialogDescription>
         </DialogHeader>
         <PaymentForm
-          invoice={invoice}
+          invoice={selectedTarget}
+          targets={targetOptions}
+          selectedTargetInvoiceId={selectedTarget.invoiceId}
+          onSelectedTargetInvoiceIdChange={setSelectedTargetInvoiceId}
           orderStatus={orderStatus}
           customerName={customerName}
           jobNumber={jobNumber}
@@ -117,6 +141,9 @@ export function POSRecordPaymentDialog({
 
 function PaymentForm({
   invoice,
+  targets,
+  selectedTargetInvoiceId,
+  onSelectedTargetInvoiceIdChange,
   orderStatus,
   customerName,
   jobNumber,
@@ -125,6 +152,9 @@ function PaymentForm({
   onCancel,
 }: {
   invoice: POSInvoiceSummary;
+  targets: POSInvoiceSummary[];
+  selectedTargetInvoiceId: string;
+  onSelectedTargetInvoiceIdChange: (invoiceId: string) => void;
   orderStatus: OrderStatus;
   customerName: string;
   jobNumber: string;
@@ -150,6 +180,15 @@ function PaymentForm({
   const selectionStatusError =
     state.errors?.selectionStatus ?? (showSelectionError ? ["Selection status is required"] : undefined);
 
+  function selectPaymentTarget(invoiceId: string) {
+    const nextTarget = targets.find((target) => target.invoiceId === invoiceId);
+    onSelectedTargetInvoiceIdChange(invoiceId);
+    if (!nextTarget) return;
+    setAmount(nextTarget.remainingAmount.toFixed(3));
+    setSelectedSelectionStatus("");
+    setShowSelectionError(false);
+  }
+
   return (
     <form
       action={formAction}
@@ -162,6 +201,27 @@ function PaymentForm({
       }}
     >
       <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
+        {targets.length > 1 ? (
+          <div className="space-y-2">
+            <Label htmlFor="pos-payment-target">Payment Target</Label>
+            <Select
+              value={selectedTargetInvoiceId}
+              onValueChange={selectPaymentTarget}
+            >
+              <SelectTrigger id="pos-payment-target">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {targets.map((target) => (
+                  <SelectItem key={target.invoiceId} value={target.invoiceId}>
+                    {target.invoiceType} #{target.invoiceNumber} ·{" "}
+                    {formatMoney(target.remainingAmount)} remaining
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <InvoiceSummary invoice={invoice} customerName={customerName} jobNumber={jobNumber} />
         {state.errors?._global ? (
           <p

@@ -8,7 +8,7 @@ import { POSRecordPaymentDialog } from "@/components/orders/pos-record-payment-d
 import { MoneyRow, formatEnumLabel } from "@/components/financial";
 import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
-import type { POSWorkspace } from "@/modules/orders/order.types";
+import type { POSInvoiceSummary, POSWorkspace } from "@/modules/orders/order.types";
 import type { POSFinancialSidebarEditPolicies } from "@/modules/orders/policies/edit-mode-policy";
 import type {
   SalesPageFinancialPreview,
@@ -31,6 +31,14 @@ export function OrderCommitFinancialSidebar({
   className?: string;
 }) {
   const invoice = workspace.invoice;
+  const paymentTargets = getOpenChargeTargets(workspace);
+  const defaultTargetInvoiceId =
+    paymentTargets.find(
+      (target) =>
+        target.invoiceId ===
+        financialPreview.baseline.collectPaymentTargetInvoiceId
+    )?.invoiceId ?? paymentTargets[0]?.invoiceId;
+  const paymentDialogInvoice = paymentTargets[0] ?? invoice;
 
   return (
     <aside className={className}>
@@ -54,12 +62,12 @@ export function OrderCommitFinancialSidebar({
           {invoice ? (
             <section className="space-y-2">
               <div className="space-y-1">
-                <p className="text-sm font-medium text-text-primary">
-                  Invoice #{invoice.invoiceNumber}
+                <p className="text-xs uppercase tracking-[0.18em] text-text-muted">
+                  Final invoice
                 </p>
-                <Badge variant="secondary" className="w-fit rounded-md">
-                  {invoice.invoiceStatus}
-                </Badge>
+                <p className="text-sm text-text-secondary">
+                  Reference #{invoice.invoiceNumber}
+                </p>
               </div>
               {editPolicies.invoiceLocked.blockedReason ? (
                 <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
@@ -89,8 +97,8 @@ export function OrderCommitFinancialSidebar({
           </section>
 
           <section className="border-t border-border pt-4">
-            {invoice ? (
-              invoice.remainingAmount <= 0 ? (
+            {paymentDialogInvoice ? (
+              financialPreview.baseline.isFullySettled ? (
                 <div className="space-y-2">
                   <Button className="w-full" disabled>
                     Fully Paid
@@ -103,7 +111,9 @@ export function OrderCommitFinancialSidebar({
                 <div className="space-y-2">
                   <POSRecordPaymentDialog
                     orderId={workspace.orderId}
-                    invoice={invoice}
+                    invoice={paymentDialogInvoice}
+                    targets={paymentTargets}
+                    defaultTargetInvoiceId={defaultTargetInvoiceId}
                     orderStatus={workspace.orderStatusRaw}
                     customerName={workspace.customerName}
                     jobNumber={workspace.jobNumber}
@@ -142,17 +152,27 @@ function BaselineSummary({
       </div>
       <div className="space-y-2">
         {baseline.depositInvoice ? (
-          <MoneyRow
+          <DocumentMoneyRow
             label={`Deposit (${baseline.depositInvoice.invoiceNumber})`}
-            value={formatMoney(baseline.depositInvoice.total)}
+            amount={formatMoney(baseline.depositInvoice.total)}
+            status={baseline.depositInvoice.status}
           />
         ) : null}
         {baseline.finalInvoice ? (
-          <MoneyRow
+          <DocumentMoneyRow
             label={`Final invoice (${baseline.finalInvoice.invoiceNumber})`}
-            value={formatMoney(baseline.finalInvoice.total)}
+            amount={formatMoney(baseline.finalInvoice.total)}
+            remaining={formatMoney(baseline.finalInvoice.remaining)}
+            status={baseline.finalInvoice.status}
           />
         ) : null}
+        <DocumentSection
+          title="Adjustments"
+          documents={baseline.finalizedAdjustments}
+          signed
+        />
+        <DocumentSection title="Credit notes" documents={baseline.creditNotes} signed />
+        <DocumentSection title="Refunds" documents={baseline.refunds} signed />
         <MoneyRow
           label="Customer total"
           value={formatOptionalMoney(baseline.customerTotal)}
@@ -171,12 +191,78 @@ function BaselineSummary({
           value={formatOptionalMoney(baseline.effectivePaid)}
         />
         <MoneyRow
+          label="Total adjustments"
+          value={formatOptionalSignedMoney(baseline.totalAdjustments)}
+        />
+        <MoneyRow
           label="Remaining"
-          value={formatOptionalMoney(baseline.remaining)}
+          value={formatOptionalMoney(baseline.outstandingAmount)}
           strong
         />
       </div>
     </section>
+  );
+}
+
+function DocumentSection({
+  title,
+  documents,
+  signed,
+}: {
+  title: string;
+  documents: SalesPageFinancialPreview["baseline"]["finalizedAdjustments"];
+  signed?: boolean;
+}) {
+  if (documents.length === 0) return null;
+
+  return (
+    <div className="space-y-1 border-t border-border/70 pt-2">
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-text-muted">
+        {title}
+      </p>
+      {documents.map((document) => (
+        <DocumentMoneyRow
+          key={document.id}
+          label={`${formatEnumLabel(document.invoiceType)} (${document.invoiceNumber})`}
+          amount={
+            signed
+              ? formatSignedMoney(document.total)
+              : formatMoney(document.total)
+          }
+          remaining={formatMoney(document.remaining)}
+          status={document.status}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DocumentMoneyRow({
+  label,
+  amount,
+  remaining,
+  status,
+}: {
+  label: string;
+  amount: string;
+  remaining?: string;
+  status: string;
+}) {
+  return (
+    <div className="space-y-1 rounded-md border border-border bg-surface px-3 py-2">
+      <div className="flex items-start justify-between gap-3 text-sm">
+        <span className="text-text-secondary">{label}</span>
+        <span className="text-right font-medium tabular-nums text-text-primary">
+          {amount}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-3 text-xs text-text-muted">
+        <Badge variant="secondary" className="rounded-md">
+          {formatEnumLabel(status)}
+        </Badge>
+        {remaining ? <span>Remaining {remaining}</span> : null}
+      </div>
+    </div>
   );
 }
 
@@ -342,4 +428,13 @@ function formatOptionalMoney(value: number | null): string {
 function formatOptionalSignedMoney(value: number | null): string {
   if (value === null) return "Not available";
   return formatSignedMoney(value);
+}
+
+function getOpenChargeTargets(workspace: POSWorkspace): POSInvoiceSummary[] {
+  const targets: POSInvoiceSummary[] = [];
+  if (workspace.invoice && workspace.invoice.remainingAmount > 0) {
+    targets.push(workspace.invoice);
+  }
+  targets.push(...workspace.adjustmentInvoices);
+  return targets;
 }
