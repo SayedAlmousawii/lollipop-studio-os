@@ -23,12 +23,7 @@ const orderCommitReviewDialogSource = readFileSync(
   "src/components/orders/order-commit-review-dialog.tsx",
   "utf8"
 );
-const unlockedSource = pageSource.slice(
-  pageSource.indexOf("const salesPageView = await getSalesPageView"),
-  pageSource.indexOf("function LockedCompositionView")
-);
-const lockedSource = pageSource.slice(
-  pageSource.indexOf("if (workspace.invoice?.isLocked)"),
+const salesViewSource = pageSource.slice(
   pageSource.indexOf("const salesPageView = await getSalesPageView")
 );
 
@@ -45,118 +40,124 @@ const ORDER_COMMIT_SALES_SURFACE_FILES = [
   "src/modules/order-commits/projections/to-sales-page-staged-changes.ts",
 ];
 
-test("unlocked Sales page mounts SalesPageView as the composition source", () => {
+test("Sales page mounts SalesPageView as the unified composition source", () => {
   assert.match(pageSource, /getSalesPageView,\n\} from "@\/modules\/order-commits\/projections"/);
-  assert.match(unlockedSource, /const salesPageView = await getSalesPageView/);
-  assert.match(unlockedSource, /getPOSWorkspace:\s*async \(\) => workspace/);
+  assert.match(salesViewSource, /const salesPageView = await getSalesPageView/);
+  assert.match(salesViewSource, /getPOSWorkspace:\s*async \(\) => workspace/);
   assert.match(
-    unlockedSource,
+    salesViewSource,
     /const addOnMarketplace = toPOSAddOnMarketplace\(salesPageView\.composition\)/
   );
   assert.equal(
-    [...unlockedSource.matchAll(/composition=\{salesPageView\.composition\}/g)]
+    [...salesViewSource.matchAll(/composition=\{salesPageView\.composition\}/g)]
       .length,
     2
   );
-  assert.match(unlockedSource, /marketplace=\{addOnMarketplace\}/);
-  assert.doesNotMatch(unlockedSource, /draftComposition/);
-  assert.doesNotMatch(unlockedSource, /getDraftOrderCompositionViewModel/);
-  assert.doesNotMatch(unlockedSource, /toDraftPOSComposition/);
+  assert.match(salesViewSource, /marketplace=\{addOnMarketplace\}/);
+  assert.doesNotMatch(salesViewSource, /draftComposition/);
+  assert.doesNotMatch(salesViewSource, /getDraftOrderCompositionViewModel/);
+  assert.doesNotMatch(salesViewSource, /toDraftPOSComposition/);
 });
 
-test("unlocked Sales page load is read-only and does not create or stage drafts", () => {
-  assert.match(unlockedSource, /const salesPageView = await getSalesPageView/);
-  assert.doesNotMatch(unlockedSource, /getOrCreateOrderCommitDraft/);
-  assert.doesNotMatch(unlockedSource, /stageOrderCommitDraftChange/);
-  assert.doesNotMatch(unlockedSource, /await\s+stageSalesChangeAction/);
-  assert.doesNotMatch(unlockedSource, /stageSalesChangeAction\(/);
+test("Sales page load is read-only and does not create or stage drafts", () => {
+  assert.match(salesViewSource, /const salesPageView = await getSalesPageView/);
+  assert.doesNotMatch(salesViewSource, /getOrCreateOrderCommitDraft/);
+  assert.doesNotMatch(salesViewSource, /stageOrderCommitDraftChange/);
+  assert.doesNotMatch(salesViewSource, /await\s+stageSalesChangeAction/);
+  assert.doesNotMatch(salesViewSource, /stageSalesChangeAction\(/);
 });
 
-test("unlocked Sales page uses OrderCommit staging handlers", () => {
+test("Sales page uses OrderCommit staging handlers for all invoice states", () => {
   assert.match(pageSource, /import \{ stageSalesChangeAction \}/);
   assert.match(pageSource, /createOrderCommitSalesCompositionHandlers/);
   assert.match(pageSource, /createOrderCommitSalesAddOnHandlers/);
-  assert.match(unlockedSource, /createOrderCommitSalesCompositionHandlers\(\{/);
+  assert.match(salesViewSource, /createOrderCommitSalesCompositionHandlers\(\{/);
   assert.match(
-    unlockedSource,
+    salesViewSource,
     /expectedVersion:\s*salesPageView\.draft\?\.version \?\? 0/
   );
-  assert.match(unlockedSource, /stageSalesChangeAction/);
-  assert.match(unlockedSource, /createOrderCommitSalesAddOnHandlers\(\)/);
-  assert.doesNotMatch(unlockedSource, /createPOSCompositionHandlers/);
-  assert.doesNotMatch(unlockedSource, /createPOSAddOnHandlers/);
-  assert.doesNotMatch(unlockedSource, /callPOSServerAction/);
-  assert.doesNotMatch(unlockedSource, /updateOrderPackageAction/);
-  assert.doesNotMatch(unlockedSource, /updateOrderSelectedPhotoCountAction/);
-  assert.doesNotMatch(unlockedSource, /addOrderProductAddOnAction/);
-  assert.doesNotMatch(unlockedSource, /removeOrderAddOnAction/);
+  assert.match(salesViewSource, /stageSalesChangeAction/);
+  assert.match(salesViewSource, /createOrderCommitSalesAddOnHandlers\(\)/);
+  assert.doesNotMatch(salesViewSource, /createPOSCompositionHandlers/);
+  assert.doesNotMatch(salesViewSource, /createPOSAddOnHandlers/);
+  assert.doesNotMatch(salesViewSource, /callPOSServerAction/);
+  assert.doesNotMatch(salesViewSource, /updateOrderPackageAction/);
+  assert.doesNotMatch(salesViewSource, /updateOrderSelectedPhotoCountAction/);
+  assert.doesNotMatch(salesViewSource, /addOrderProductAddOnAction/);
+  assert.doesNotMatch(salesViewSource, /removeOrderAddOnAction/);
 });
 
-test("unlocked Sales page forwards SalesPageView pieces to mounted surfaces", () => {
+test("Sales page forwards SalesPageView pieces to mounted surfaces", () => {
   assert.match(
-    unlockedSource,
+    salesViewSource,
     /const addOnMarketplace = toPOSAddOnMarketplace\(salesPageView\.composition\)/
   );
-  assert.match(unlockedSource, /composition=\{salesPageView\.composition\}/);
-  assert.match(unlockedSource, /marketplace=\{addOnMarketplace\}/);
-  assert.match(unlockedSource, /draft=\{salesPageView\.draft\}/);
-  assert.match(unlockedSource, /preview=\{salesPageView\.preview\}/);
-  assert.match(unlockedSource, /stagedChanges=\{salesPageView\.stagedChanges\}/);
+  assert.match(salesViewSource, /composition=\{salesPageView\.composition\}/);
+  assert.match(salesViewSource, /marketplace=\{addOnMarketplace\}/);
+  assert.match(salesViewSource, /draft=\{salesPageView\.draft\}/);
+  assert.match(salesViewSource, /preview=\{salesPageView\.preview\}/);
+  assert.match(salesViewSource, /stagedChanges=\{salesPageView\.stagedChanges\}/);
   assert.match(
-    unlockedSource,
+    salesViewSource,
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
-  assert.match(unlockedSource, /financialCase=\{salesPageView\.financialCase\}/);
-  assert.match(unlockedSource, /ownership=\{salesPageView\.ownership\}/);
+  assert.match(salesViewSource, /financialCase=\{salesPageView\.financialCase\}/);
+  assert.match(salesViewSource, /ownership=\{salesPageView\.ownership\}/);
 });
 
-test("unlocked Sales page applies co-editor ownership UI and policy overlay", () => {
+test("Sales page applies co-editor ownership UI and policy overlay", () => {
   assert.match(pageSource, /SalesDraftOwnershipBanner/);
-  assert.match(unlockedSource, /<SalesDraftOwnershipBanner/);
-  assert.match(unlockedSource, /ownership=\{salesPageView\.ownership\}/);
+  assert.match(salesViewSource, /<SalesDraftOwnershipBanner/);
+  assert.match(salesViewSource, /ownership=\{salesPageView\.ownership\}/);
   assert.match(pageSource, /applySalesDraftOwnershipToPackagePolicies/);
   assert.match(pageSource, /applySalesDraftOwnershipToAddOnPolicies/);
+  assert.match(pageSource, /applyOrderCommitSalesSurfaceToFinancialPolicies/);
   assert.match(
-    unlockedSource,
+    salesViewSource,
     /applySalesDraftOwnershipToPackagePolicies\([\s\S]*buildPOSPackageCompositionEditPolicies/
   );
   assert.match(
-    unlockedSource,
+    salesViewSource,
     /applySalesDraftOwnershipToAddOnPolicies\([\s\S]*buildPOSAddOnEditPolicies/
   );
-  assert.doesNotMatch(unlockedSource, /Take Over|takeOver/);
+  assert.doesNotMatch(salesViewSource, /Take Over|takeOver/);
 });
 
-test("unlocked Sales page mounts staged commit controls", () => {
-  assert.match(pageSource, /getOpenWorkspaceForInvoice/);
-  assert.match(pageSource, /FinancialSidebarLocked/);
+test("Sales page mounts staged commit controls for locked and unlocked orders", () => {
+  assert.doesNotMatch(pageSource, /getOpenWorkspaceForInvoice/);
+  assert.doesNotMatch(pageSource, /FinancialSidebarLocked/);
   assert.match(pageSource, /SalesStagedCommitControls/);
-  assert.match(unlockedSource, /<SalesStagedCommitControls/);
-  assert.match(unlockedSource, /orderId=\{workspace\.orderId\}/);
-  assert.match(unlockedSource, /draft=\{salesPageView\.draft\}/);
-  assert.match(unlockedSource, /preview=\{salesPageView\.preview\}/);
-  assert.match(unlockedSource, /stagedChanges=\{salesPageView\.stagedChanges\}/);
+  assert.match(salesViewSource, /<SalesStagedCommitControls/);
+  assert.match(salesViewSource, /orderId=\{workspace\.orderId\}/);
+  assert.match(salesViewSource, /draft=\{salesPageView\.draft\}/);
+  assert.match(salesViewSource, /preview=\{salesPageView\.preview\}/);
+  assert.match(salesViewSource, /stagedChanges=\{salesPageView\.stagedChanges\}/);
   assert.match(
-    unlockedSource,
+    salesViewSource,
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
-  assert.match(unlockedSource, /ownership=\{salesPageView\.ownership\}/);
+  assert.match(salesViewSource, /ownership=\{salesPageView\.ownership\}/);
   assert.doesNotMatch(pageSource, /commitSalesChangesAction/);
 });
 
-test("unlocked Sales page mounts OrderCommit financial sidebar only", () => {
+test("Sales page mounts OrderCommit financial sidebar only", () => {
   assert.match(pageSource, /OrderCommitFinancialSidebar/);
-  assert.match(unlockedSource, /<OrderCommitFinancialSidebar/);
+  assert.match(salesViewSource, /<OrderCommitFinancialSidebar/);
   assert.match(
-    unlockedSource,
+    salesViewSource,
+    /applyOrderCommitSalesSurfaceToFinancialPolicies\([\s\S]*buildPOSFinancialSidebarEditPolicies/
+  );
+  assert.match(
+    salesViewSource,
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
-  assert.match(unlockedSource, /financialCase=\{salesPageView\.financialCase\}/);
-  assert.match(unlockedSource, /preview=\{salesPageView\.preview\}/);
+  assert.match(salesViewSource, /financialCase=\{salesPageView\.financialCase\}/);
+  assert.match(salesViewSource, /preview=\{salesPageView\.preview\}/);
   assert.doesNotMatch(pageSource, /FinancialSidebarDraft/);
-  const sidebarMountSource = unlockedSource.slice(
-    unlockedSource.indexOf("<OrderCommitFinancialSidebar"),
-    unlockedSource.indexOf("</div>", unlockedSource.indexOf("<OrderCommitFinancialSidebar"))
+  assert.doesNotMatch(pageSource, /FinancialSidebarLocked/);
+  const sidebarMountSource = salesViewSource.slice(
+    salesViewSource.indexOf("<OrderCommitFinancialSidebar"),
+    salesViewSource.indexOf("</div>", salesViewSource.indexOf("<OrderCommitFinancialSidebar"))
   );
   assert.doesNotMatch(sidebarMountSource, /composition=\{salesPageView\.composition\}/);
 });
@@ -164,18 +165,20 @@ test("unlocked Sales page mounts OrderCommit financial sidebar only", () => {
 test("Sales page mount keeps source boundaries", () => {
   assert.doesNotMatch(pageSource, /@\/lib\/db/);
   assert.doesNotMatch(pageSource, /commitOrderChanges/);
-  assert.doesNotMatch(unlockedSource, /getOpenWorkspaceForInvoice/);
-  assert.doesNotMatch(unlockedSource, /FinancialSidebarLocked/);
+  assert.doesNotMatch(salesViewSource, /getOpenWorkspaceForInvoice/);
+  assert.doesNotMatch(salesViewSource, /FinancialSidebarLocked/);
 });
 
-test("locked Sales branch remains on the legacy locked surface", () => {
-  assert.match(lockedSource, /getLockedOrderCompositionViewModel/);
-  assert.match(lockedSource, /getOpenWorkspaceForInvoice/);
-  assert.match(lockedSource, /toSalesSidebarLocked/);
-  assert.match(lockedSource, /<FinancialSidebarLocked/);
-  assert.doesNotMatch(lockedSource, /getSalesPageView/);
-  assert.doesNotMatch(lockedSource, /OrderCommitFinancialSidebar/);
-  assert.doesNotMatch(lockedSource, /SalesStagedCommitControls/);
+test("locked Sales branch is removed from the active Sales page", () => {
+  assert.doesNotMatch(pageSource, /if \(workspace\.invoice\?\.isLocked\)/);
+  assert.doesNotMatch(pageSource, /getLockedOrderCompositionViewModel/);
+  assert.doesNotMatch(pageSource, /getOpenWorkspaceForInvoice/);
+  assert.doesNotMatch(pageSource, /toSalesSidebarLocked/);
+  assert.doesNotMatch(pageSource, /<FinancialSidebarLocked/);
+  assert.doesNotMatch(pageSource, /LockedCompositionView/);
+  assert.match(salesViewSource, /getSalesPageView/);
+  assert.match(salesViewSource, /OrderCommitFinancialSidebar/);
+  assert.match(salesViewSource, /SalesStagedCommitControls/);
 });
 
 test("staged commit controls mount the Spec 128 dialog and exact discard version", () => {
@@ -288,8 +291,8 @@ test("pages and components do not import commit execution directly", () => {
 });
 
 test("OrderCommit Sales surface does not expose public Adjustment Workspace naming", () => {
-  assert.doesNotMatch(unlockedSource, /Adjustment Workspace/);
-  assert.doesNotMatch(unlockedSource, /AdjustmentWorkspace/);
+  assert.doesNotMatch(salesViewSource, /Adjustment Workspace/);
+  assert.doesNotMatch(salesViewSource, /AdjustmentWorkspace/);
 
   for (const file of ORDER_COMMIT_SALES_SURFACE_FILES) {
     const source = readFileSync(file, "utf8");

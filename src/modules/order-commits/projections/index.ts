@@ -1,4 +1,7 @@
 export {
+  applyOrderCommitSalesSurfaceToAddOnPolicies,
+  applyOrderCommitSalesSurfaceToFinancialPolicies,
+  applyOrderCommitSalesSurfaceToPackagePolicies,
   applySalesDraftOwnershipToAddOnPolicies,
   applySalesDraftOwnershipToPackagePolicies,
 } from "./sales-draft-ownership-policy";

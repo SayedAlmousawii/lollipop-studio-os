@@ -3,12 +3,16 @@ import test from "node:test";
 import {
   applySalesDraftOwnershipToAddOnPolicies,
   applySalesDraftOwnershipToPackagePolicies,
+  applyOrderCommitSalesSurfaceToAddOnPolicies,
+  applyOrderCommitSalesSurfaceToFinancialPolicies,
+  applyOrderCommitSalesSurfaceToPackagePolicies,
   type SalesPageDraftOwnership,
 } from "@/modules/order-commits/projections";
 import type {
   OrderEditKind,
   OrderEditModePolicy,
   POSAddOnEditPolicies,
+  POSFinancialSidebarEditPolicies,
   POSPackageCompositionEditPolicies,
 } from "@/modules/orders/policies/edit-mode-policy";
 
@@ -48,39 +52,98 @@ test("ownership overlay disables package, photo, and add-on controls for blocked
   );
 });
 
-function packagePoliciesFixture(): POSPackageCompositionEditPolicies {
+test("OrderCommit Sales surface projection enables locked policies without workspace copy", () => {
+  const packagePolicies = applyOrderCommitSalesSurfaceToPackagePolicies(
+    packagePoliciesFixture({ locked: true })
+  );
+  const addOnPolicies = applyOrderCommitSalesSurfaceToAddOnPolicies(
+    addOnPoliciesFixture({ locked: true })
+  );
+  const financialPolicies = applyOrderCommitSalesSurfaceToFinancialPolicies(
+    financialPoliciesFixture({ locked: true })
+  );
+
+  assert.equal(packagePolicies.packageTierChange.isInteractive, true);
+  assert.equal(packagePolicies.selectedPhotoCountChange.isInteractive, true);
+  assert.equal(addOnPolicies.addAddOn.isInteractive, true);
+  assert.equal(financialPolicies.invoiceLocked.isInteractive, true);
+  assert.equal(
+    packagePolicies.packageTierChange.shouldOpenAdjustmentWorkspace,
+    false
+  );
+  assert.equal(packagePolicies.packageTierChange.routeTarget, null);
+  assert.equal(packagePolicies.packageTierChange.blockedReason, null);
+  assert.equal(financialPolicies.invoiceLocked.routeTarget, null);
+  assert.equal(financialPolicies.invoiceLocked.blockedReason, null);
+  assert.match(packagePolicies.packageTierChange.userFacingMessage, /Sales draft/);
+  assert.match(financialPolicies.invoiceLocked.userFacingMessage, /Sales draft/);
+  assert.doesNotMatch(
+    packagePolicies.packageTierChange.userFacingMessage,
+    /Adjustment Workspace/
+  );
+  assert.doesNotMatch(
+    financialPolicies.invoiceLocked.userFacingMessage,
+    /Adjustment Workspace/
+  );
+});
+
+function packagePoliciesFixture(
+  input: { locked?: boolean } = {}
+): POSPackageCompositionEditPolicies {
   return {
-    packageTierChange: policy("package_tier_change"),
-    packageItemUpgrade: policy("package_item_upgrade"),
-    selectedPhotoCountChange: policy("selected_photo_count_change"),
+    packageTierChange: policy("package_tier_change", input),
+    packageItemUpgrade: policy("package_item_upgrade", input),
+    selectedPhotoCountChange: policy("selected_photo_count_change", input),
     sessionConfigurationOperationalEdit: policy(
-      "session_configuration_operational_edit"
+      "session_configuration_operational_edit",
+      input
     ),
     sessionConfigurationFinancialEdit: policy(
-      "session_configuration_financial_edit"
+      "session_configuration_financial_edit",
+      input
     ),
   };
 }
 
-function addOnPoliciesFixture(): POSAddOnEditPolicies {
+function addOnPoliciesFixture(
+  input: { locked?: boolean } = {}
+): POSAddOnEditPolicies {
   return {
-    addAddOn: policy("add_on_add"),
-    removeAddOn: policy("add_on_remove"),
+    addAddOn: policy("add_on_add", input),
+    removeAddOn: policy("add_on_remove", input),
   };
 }
 
-function policy(editKind: OrderEditKind): OrderEditModePolicy {
+function financialPoliciesFixture(
+  input: { locked?: boolean } = {}
+): POSFinancialSidebarEditPolicies {
   return {
-    mode: "draft",
+    invoiceLocked: policy("package_tier_change", input),
+  };
+}
+
+function policy(
+  editKind: OrderEditKind,
+  input: { locked?: boolean } = {}
+): OrderEditModePolicy {
+  return {
+    mode: input.locked ? "locked" : "draft",
     editKind,
-    canEditDirectly: true,
-    isInteractive: true,
-    shouldOpenAdjustmentWorkspace: false,
+    canEditDirectly: !input.locked,
+    isInteractive: !input.locked,
+    shouldOpenAdjustmentWorkspace: input.locked ?? false,
     requiresManagerApproval: false,
-    openWorkspaceIsActive: false,
-    blockedReason: null,
-    routeTarget: null,
-    userFacingMessage: "Allowed",
+    openWorkspaceIsActive: input.locked ?? false,
+    blockedReason: input.locked ? "LOCKED_DIRECT_POS_REQUIRES_WORKSPACE" : null,
+    routeTarget: input.locked
+      ? {
+          href: "/orders/order-1/adjustment-workspace",
+          label: "Edit in Adjustment Workspace",
+        }
+      : null,
+    userFacingMessage: input.locked
+      ? "Locked invoices can only be changed through an Adjustment Workspace."
+      : "Allowed",
   };
 }
 
