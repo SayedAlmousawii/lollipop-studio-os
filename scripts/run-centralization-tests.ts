@@ -35,6 +35,7 @@ const files = [
   "tests/order-commits/order-commit-invoice-emission.test.ts",
   "tests/order-commits/order-commit-document-writer.test.ts",
   "tests/order-commits/order-commit-execution.test.ts",
+  "tests/order-commits/order-commit-locked-parity.test.ts",
   "tests/order-commits/sales-staging-actions/stage-happy-path.test.ts",
   "tests/order-commits/sales-staging-actions/stage-lazy-creation.test.ts",
   "tests/order-commits/sales-staging-actions/stage-stale-version.test.ts",
