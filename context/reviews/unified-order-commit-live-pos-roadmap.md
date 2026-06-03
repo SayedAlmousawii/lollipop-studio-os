@@ -549,7 +549,7 @@ Codex GPT-5.5 High or XHigh.
 
 ## Phase 4 - Commit Execution And Financial Document Emission
 
-**Status: Complete — shipped as Spec 124.** Section retained for historical reference.
+**Status: Complete — shipped as Spec 124, with one financial-emission routing correction tracked as Spec 132 (see "Financial emission lifecycle" below).** Section retained for historical reference.
 
 ### Objective
 
@@ -632,11 +632,20 @@ Transaction order:
 Rules:
 
 - Locked invoices are never mutated.
-- First commit creates full/base invoice.
-- Later positive commit creates adjustment invoice.
-- Reduction creates credit note or refund-needed flow according to payment state.
 - Zero-net commit persists audit/snapshot commit without fabricated financial delta.
 - Operational ownership after commit is visible from `Order*` rows.
+
+### Financial emission lifecycle (Spec 124 as shipped + Spec 132 correction)
+
+Spec 124 as originally shipped chose the emission path from whether a prior `OrderCommit` existed: no prior commit → create the base FINAL; any prior commit → adjustment mode, which requires exactly one **locked** FINAL invoice. Manual testing after Spec 129 exposed the gap: the first commit creates a FINAL that correctly stays **unlocked** (locking is a payment/finalization milestone, not a commit milestone), so a second commit on a still-unlocked order falls into adjustment mode and fails with "expected exactly one locked FINAL invoice."
+
+The corrected lifecycle (Spec 132) routes emission by the **FINAL invoice's lock state**, not by the existence of a prior `OrderCommit`. The three modes:
+
+- **CREATE_BASE** — no FINAL invoice exists for the FinancialCase → create the base FINAL invoice. Emits a `BASE_INVOICE` document link.
+- **REBUILD_UNLOCKED** — a FINAL exists and is **unlocked** → update/rebuild that same FINAL invoice in place from the materialized `Order*` rows. No ADJUSTMENT, no CREDIT_NOTE, and (by policy) no new `OrderCommitDocument` row, because no new financial document is emitted — only an existing unlocked draft is updated. A reduction simply lowers the unlocked FINAL total.
+- **EMIT_ADJUSTMENT** — a FINAL exists and is **locked** → ADJUSTMENT / CREDIT_NOTE / refund-needed emission exactly as implemented today, including prior-open-ADJ reversal and credit-capacity handling.
+
+Financial decision (locked in): the FINAL is **not** locked immediately after the first commit. An unpaid/unlocked FINAL remains editable through repeated commits; only once it is locked (payment-settled or explicitly closed) do later changes become immutable ADJ/CREDIT_NOTE flows.
 
 ### UI Impact
 
@@ -985,6 +994,7 @@ Captured here so future readers understand why Phases 5–7 were rewritten.
 6. **"UI integration deferred until redesigned POS mockup is reviewed" → mockup is now in hand for workflow purposes.** The mockup is treated as workflow architecture (not visual design) for Phase 5; visual redesign stays deferred to Phase 7.
 7. **"Existing pre-commit direct-write behavior may be preserved where required during migration" → tightened.** Phase 5 disables direct mutators on the Sales page entirely. AW finalize is the only allowed remaining caller, and only until Phase 6 deletes both.
 8. **New canonical-source contract added.** The roadmap now names the four canonical sources (Order\*, pendingSnapshotJson, OrderCommitPreview, FinancialCaseSummary) and an explicit projector rule forbidding UI recomputation of financial deltas, approval, refund-needed, document plans, invoice routing, ownership, or workflow state.
+9. **"A prior `OrderCommit` means adjustment mode" → false.** Spec 124 as shipped chose the emission path from prior-commit existence, which broke a second commit on a still-unlocked order. Financial emission mode is determined by the **FINAL invoice's lock state**, not by whether a prior `OrderCommit` exists: no FINAL → CREATE_BASE; unlocked FINAL → REBUILD_UNLOCKED (rebuild in place, no ADJ/CREDIT); locked FINAL → EMIT_ADJUSTMENT. Locking stays a payment/finalization milestone — the FINAL is not locked just because a commit happened. Tracked as Spec 132 (see Phase 4 → "Financial emission lifecycle").
 
 ---
 
@@ -1046,11 +1056,19 @@ Phase 5 splits cleanly along seams that can each land as its own PR. Recommended
 - Sales page drives locked orders through the same draft → preview → commit pipeline.
 - Parity tests: identical input proposals on AW finalize vs `commitOrderChanges` produce equivalent `Invoice` rows, `Order.refundPending`, document linkage.
 - Gates Phase 6 approval.
+- **Depends on Spec 132.** Unifying locked and unlocked orders under one Sales surface assumes the unlocked-FINAL replay (REBUILD_UNLOCKED) path exists; without it, repeated commits on an unlocked order still fail. Land Spec 132 before (or with) Spec 131.
 
-### Optional Spec 132 — "Save draft" semantics decision
+### Spec 132 — Unlocked-FINAL replay (Spec 124 emission-routing correction)
+
+- Resolves the Spec 124 financial-emission routing gap found during Spec 129 manual testing.
+- Makes commit emission lock-state-aware (CREATE_BASE / REBUILD_UNLOCKED / EMIT_ADJUSTMENT) instead of keying on whether a prior `OrderCommit` exists. See Phase 4 → "Financial emission lifecycle."
+- No invoice locking, no schema change, no Sales UI change. Prerequisite/follow-up for Spec 131.
+
+### Optional Spec 133 — "Save draft" semantics decision
 
 - Either confirm Save draft is a label-only no-op (drafts persist on every stage) or wire it to `replaceOrderCommitDraftSnapshot` for explicit checkpoints.
 - Lightweight; may collapse into Spec 129 if decided early.
+- (Renumbered from the original optional Spec 132 to free that number for the unlocked-FINAL replay correction above.)
 
 ---
 
@@ -1121,11 +1139,21 @@ UI surfaces — toast or in-dialog error — for each of these. UI does not deci
 - Two acceptable resolutions:
   1. Label-only no-op (reassurance UI), or
   2. Wire to `replaceOrderCommitDraftSnapshot` for an explicit checkpoint.
-- Decide and document during Spec 129. May collapse into optional Spec 132 if deferred.
+- Decide and document during Spec 129. May collapse into optional Spec 133 if deferred.
+
+### Commit financial behavior is invoice-lifecycle-dependent (Spec 124 correction / Spec 132)
+
+- The single Review & Commit action does not map to a single financial outcome. Depending on the FINAL invoice's lifecycle state at commit time, one click may:
+  - **create** a FINAL invoice (no FINAL exists yet → CREATE_BASE),
+  - **rebuild** an existing unlocked FINAL in place (unlocked FINAL → REBUILD_UNLOCKED, no ADJ/CREDIT), or
+  - **emit** an ADJUSTMENT / CREDIT_NOTE / refund-needed document (locked FINAL → EMIT_ADJUSTMENT).
+- The same UI affordance therefore produces different financial behavior based on invoice state, not on user intent or which control was used. The UI must remain a projector: it shows the preview the engine computed and never decides the emission mode itself.
+- This is the lock-state-aware routing described in Phase 4 → "Financial emission lifecycle." Spec 132 is the implementation of that correction.
 
 ### Locked-invoice unification (Spec 131)
 
 - Phase 5 removes the locked-invoice branch from the Sales page. There is no `getOpenWorkspaceForInvoice` call from the Sales surface after Spec 131.
+- Spec 131 assumes the unlocked-FINAL replay behavior (REBUILD_UNLOCKED) already exists, so a unified Sales surface can drive an unlocked order through repeated commits without hitting the "expected exactly one locked FINAL invoice" failure. **Spec 132 is a prerequisite/follow-up that resolves the Spec 124 routing gap and must land before (or with) Spec 131.**
 - Both lock states drive the same draft → preview → commit pipeline.
 - Spec 131 includes the **parity test suite**: identical input proposals applied via AW `finalizeAdjustmentWorkspace` vs `commitOrderChanges` must produce equivalent `Invoice` rows, `Order.refundPending` state, and `OrderCommitDocument` linkage outcomes. These tests gate Phase 6 approval.
 
