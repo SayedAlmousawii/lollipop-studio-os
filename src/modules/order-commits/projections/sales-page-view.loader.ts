@@ -10,6 +10,7 @@ import { toSalesPageFinancialPreview } from "./to-sales-page-financial-preview";
 import { toSalesPageStagedChanges } from "./to-sales-page-staged-changes";
 import type {
   SalesPageDraftState,
+  SalesPageDraftOwnership,
   SalesPagePermissionFlags,
   SalesPageView,
 } from "./sales-page-view.types";
@@ -102,6 +103,7 @@ export async function getSalesPageView({
     dependencies: deps,
   });
   const draft = await deps.getOrderCommitDraft({ orderId });
+  const draftState = draft ? toSalesPageDraftState(draft) : null;
   const preview = draft
     ? await deps.getOrderCommitPreview({ orderId })
     : null;
@@ -129,12 +131,16 @@ export async function getSalesPageView({
       invoiceNumber: workspace.invoice?.invoiceNumber ?? null,
     },
     composition,
-    draft: draft ? toSalesPageDraftState(draft) : null,
+    draft: draftState,
     preview,
     stagedChanges,
     financialPreview,
     financialCase,
     permissions: buildSalesPagePermissionFlags(actorContext, permissionHelpers),
+    ownership: buildSalesPageDraftOwnership({
+      draft: draftState,
+      actorContext,
+    }),
     isLocked:
       financialCase.stage === "active" && financialCase.finalInvoice.isLocked,
   };
@@ -255,6 +261,94 @@ function toSalesPageDraftState(
     lastTouchedByUserId: state.draft.lastTouchedByUserId,
     updatedAt: state.draft.updatedAt,
     baseCommitId: state.draft.baseCommitId,
+  };
+}
+
+export function buildSalesPageDraftOwnership(input: {
+  draft: SalesPageDraftState | null;
+  actorContext: ActorContext;
+}): SalesPageDraftOwnership {
+  if (!input.draft) {
+    return {
+      mode: "none",
+      hasDraft: false,
+      isOwner: false,
+      isManagerOverride: false,
+      canStage: true,
+      canDiscard: false,
+      canCommit: false,
+      ownerUserId: null,
+      openedByUserId: null,
+      lastTouchedByUserId: null,
+      updatedAt: null,
+      banner: null,
+    };
+  }
+
+  const isOwner = input.draft.ownerUserId === input.actorContext.actorUserId;
+  const isManagerOverride =
+    !isOwner &&
+    (input.actorContext.actorRole === "ADMIN" ||
+      input.actorContext.actorRole === "MANAGER");
+  if (isOwner) {
+    return {
+      mode: "owner",
+      hasDraft: true,
+      isOwner: true,
+      isManagerOverride: false,
+      canStage: true,
+      canDiscard: true,
+      canCommit: true,
+      ownerUserId: input.draft.ownerUserId,
+      openedByUserId: input.draft.openedByUserId,
+      lastTouchedByUserId: input.draft.lastTouchedByUserId,
+      updatedAt: input.draft.updatedAt,
+      banner: {
+        tone: "neutral",
+        title: "Draft open",
+        description: `You own this draft. Last touched by ${input.draft.lastTouchedByUserId}.`,
+      },
+    };
+  }
+
+  if (isManagerOverride) {
+    return {
+      mode: "manager_override",
+      hasDraft: true,
+      isOwner: false,
+      isManagerOverride: true,
+      canStage: true,
+      canDiscard: true,
+      canCommit: true,
+      ownerUserId: input.draft.ownerUserId,
+      openedByUserId: input.draft.openedByUserId,
+      lastTouchedByUserId: input.draft.lastTouchedByUserId,
+      updatedAt: input.draft.updatedAt,
+      banner: {
+        tone: "info",
+        title: "Manager override draft access",
+        description: `Draft owned by ${input.draft.ownerUserId}; last touched by ${input.draft.lastTouchedByUserId}. Continuing does not transfer ownership.`,
+      },
+    };
+  }
+
+  return {
+    mode: "blocked_non_owner",
+    hasDraft: true,
+    isOwner: false,
+    isManagerOverride: false,
+    canStage: false,
+    canDiscard: false,
+    canCommit: false,
+    ownerUserId: input.draft.ownerUserId,
+    openedByUserId: input.draft.openedByUserId,
+    lastTouchedByUserId: input.draft.lastTouchedByUserId,
+    updatedAt: input.draft.updatedAt,
+    banner: {
+      tone: "warning",
+      title: "Draft owned by another user",
+      description: `Draft owned by ${input.draft.ownerUserId}; last touched by ${input.draft.lastTouchedByUserId}. Refresh or coordinate before editing.`,
+    },
   };
 }
 

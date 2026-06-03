@@ -354,6 +354,58 @@ test("commitOrderChanges rejects stale draft versions before writes", async () =
   assert.deepEqual(harness.calls.draftDeletes, []);
 });
 
+test("commitOrderChanges rejects non-owner non-manager commits before writes", async () => {
+  const harness = fakeExecutionHarness({ draftOwnerUserId: "draft-owner" });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+  const { OrderCommitDraftPermissionError } = await import(
+    "@/modules/order-commits/order-commit-draft.errors"
+  );
+
+  await assert.rejects(
+    commitOrderChanges({
+      orderId: "order-1",
+      expectedDraftVersion: 2,
+      actorContext: {
+        actorUserId: "other-user",
+        actorRole: UserRole.RECEPTIONIST,
+      },
+      client: harness.client,
+    }),
+    OrderCommitDraftPermissionError
+  );
+  assert.deepEqual(harness.calls.sequence, []);
+  assert.deepEqual(harness.calls.orderCommitCreates, []);
+  assert.deepEqual(harness.calls.documentCreateMany, []);
+  assert.deepEqual(harness.calls.audit, []);
+  assert.deepEqual(harness.calls.activity, []);
+  assert.deepEqual(harness.calls.draftDeletes, []);
+  assert.equal(harness.state.draftExists, true);
+});
+
+test("commitOrderChanges manager override does not transfer draft ownership", async () => {
+  const harness = fakeExecutionHarness({ draftOwnerUserId: "draft-owner" });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 2,
+    actorContext: {
+      actorUserId: "manager-user",
+      actorRole: UserRole.MANAGER,
+    },
+    client: harness.client,
+  });
+
+  assert.equal(harness.calls.draftUpdates.length, 0);
+  assert.equal(harness.calls.orderCommitCreates.length, 1);
+  assert.equal(
+    harness.calls.orderCommitCreates[0]?.data.committedByUserId,
+    "manager-user"
+  );
+});
+
 test("Prisma adapter draft-id conflicts surface as concurrent commit errors without retry", async () => {
   const harness = fakeExecutionHarness({ throwConcurrentOnCommit: "draftIdAdapter" });
   activeHarness = harness;
@@ -455,6 +507,7 @@ function invoiceServiceShim() {
 function fakeExecutionHarness(input?: {
   draftId?: string;
   draftVersion?: number;
+  draftOwnerUserId?: string;
   finalInvoice?: { id: string; isLocked: boolean };
   initialInvoiceTotal?: number;
   pendingSnapshot?: OrderCommitSnapshotV1;
@@ -492,6 +545,7 @@ function fakeExecutionHarness(input?: {
     sequence: [] as string[],
     orderCommitCreates: [] as Array<{ data: Record<string, unknown> }>,
     documentCreateMany: [] as Array<{ data: unknown[] }>,
+    draftUpdates: [] as unknown[],
     draftDeletes: [] as unknown[],
     rebuildUnlockedFinal: [] as Array<{ orderId: string; finalInvoiceId: string }>,
     audit: [] as Array<Record<string, unknown>>,
@@ -584,7 +638,16 @@ function fakeExecutionHarness(input?: {
         financialCaseId: "financial-case-1",
         pendingSnapshotJson: pendingSnapshot,
         version: input?.draftVersion ?? 2,
+        ownerUserId: input?.draftOwnerUserId ?? actorContext.actorUserId,
       }),
+      update: async (args: unknown) => {
+        calls.draftUpdates.push(args);
+        return { id: input?.draftId ?? "draft-1" };
+      },
+      updateMany: async (args: unknown) => {
+        calls.draftUpdates.push(args);
+        return { count: 1 };
+      },
       delete: async (args: unknown) => {
         calls.sequence.push("draft.delete");
         calls.draftDeletes.push((args as { where: unknown }).where);

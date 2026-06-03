@@ -7,6 +7,7 @@ import {
   OrderCommitStaleDraftError,
   type commitOrderChanges,
 } from "./order-commit-execution.service";
+import { OrderCommitDraftPermissionError } from "./order-commit-draft.errors";
 
 type SalesCommitActionUser = {
   id: string;
@@ -90,6 +91,18 @@ export function mapSalesCommitActionError(
         _global: [
           `Credit/refund capacity changed. Refresh and review this order before committing. Expected ${expected} KWD but only ${capacity} KWD is currently available.`,
           "commit.creditCapacity",
+        ],
+      },
+    };
+  }
+
+  if (error instanceof OrderCommitDraftPermissionError) {
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "commit.permission",
+          "Another user owns this draft. Refresh or coordinate before committing.",
         ],
       },
     };

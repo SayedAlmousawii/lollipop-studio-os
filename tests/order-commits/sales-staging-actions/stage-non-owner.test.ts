@@ -31,7 +31,12 @@ test("stageSalesChangeAction rejects a non-owner non-manager actor", async () =>
 
     assert.deepEqual(result, {
       kind: "error",
-      errors: { _global: ["draft.permission"] },
+      errors: {
+        _global: [
+          "Another user owns this draft. Refresh or coordinate before editing.",
+          "draft.permission",
+        ],
+      },
     });
     const draft = await ctx.db.orderCommitDraft.findUniqueOrThrow({
       where: { orderId: workflow.orderId },

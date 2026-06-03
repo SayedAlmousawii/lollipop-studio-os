@@ -45,6 +45,7 @@ import {
   orderCommitKindSchema,
   orderCommitSnapshotV1Schema,
 } from "./order-commit.schema";
+import { OrderCommitDraftPermissionError } from "./order-commit-draft.errors";
 import type {
   OrderCommitDocumentPlanPreview,
   OrderCommitPreviewBaselineSource,
@@ -206,6 +207,7 @@ const orderCommitExecutionDraftSelect = {
   financialCaseId: true,
   pendingSnapshotJson: true,
   version: true,
+  ownerUserId: true,
 } satisfies Prisma.OrderCommitDraftSelect;
 
 const orderCommitExecutionOrderSelect = {
@@ -266,6 +268,7 @@ async function commitOrderChangesWithTransaction(
     expectedDraftVersion: input.expectedDraftVersion,
     draft,
   });
+  assertCommitDraftMutationAllowed(activeDraft, input.actorContext);
 
   const latestCommit = await client.orderCommit.findFirst({
     where: { orderId: input.orderId },
@@ -434,6 +437,25 @@ function assertExpectedDraftVersion(input: {
     });
   }
   return input.draft;
+}
+
+function assertCommitDraftMutationAllowed(
+  draft: OrderCommitExecutionDraft,
+  actorContext: ActorContext
+): void {
+  if (
+    draft.ownerUserId === actorContext.actorUserId ||
+    actorContext.actorRole === UserRole.ADMIN ||
+    actorContext.actorRole === UserRole.MANAGER
+  ) {
+    return;
+  }
+
+  throw new OrderCommitDraftPermissionError(
+    actorContext.actorUserId,
+    draft.id,
+    "commit"
+  );
 }
 
 function assertSnapshotIdentity(input: {
