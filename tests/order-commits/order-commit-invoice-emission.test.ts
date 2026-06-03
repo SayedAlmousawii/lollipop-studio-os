@@ -73,6 +73,7 @@ test("emits a base invoice for first commits without using adjustment outputs", 
 
   const result = await emitOrderCommitFinancialDocuments({
     ...baseInput(client),
+    resolvedFinalInvoice: null,
     baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.EMPTY,
     documentPlan: documentPlan(
       ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE
@@ -80,15 +81,113 @@ test("emits a base invoice for first commits without using adjustment outputs", 
     dependencies,
   });
 
-  assert.deepEqual(result.emissions, [
-    {
-      invoice: { id: "base-invoice", status: InvoiceStatus.DRAFT },
-      role: ORDER_COMMIT_DOCUMENT_ROLE.BASE_INVOICE,
-    },
-  ]);
+  assert.deepEqual(result, {
+    emissions: [
+      {
+        invoice: { id: "base-invoice", status: InvoiceStatus.DRAFT },
+        role: ORDER_COMMIT_DOCUMENT_ROLE.BASE_INVOICE,
+      },
+    ],
+    finalInvoiceMode: "CREATE_BASE",
+    finalInvoiceId: "base-invoice",
+  });
   assert.equal(calls.invoiceFindMany.length, 0);
   assert.equal(dependencies.createAdjustmentInvoiceWithClient.calls.length, 0);
   assert.equal(dependencies.createCreditNoteWithClient.calls.length, 0);
+});
+
+test("resolves CREATE_BASE from missing FINAL even with latest baseline", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({ emission: emptyEmission() });
+
+  const result = await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    resolvedFinalInvoice: null,
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE
+    ),
+    dependencies,
+  });
+
+  assert.equal(result.finalInvoiceMode, "CREATE_BASE");
+  assert.equal(result.finalInvoiceId, "base-invoice");
+  assert.equal(dependencies.createInvoiceForOrderWithClient.calls.length, 1);
+  assert.equal(dependencies.buildOpenAdjustmentLineMap.calls.length, 0);
+});
+
+test("rebuilds an unlocked FINAL without mapping ADJ or CREDIT output", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client, calls } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      adjustmentLines: [adjustmentLine("Should not emit", 10)],
+      creditNoteFinalLines: [
+        { reason: "REMOVED_ADDON", line: creditLine("Should not credit", 5) },
+      ],
+    },
+  });
+
+  const result = await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    resolvedFinalInvoice: { id: "unlocked-final", isLocked: false },
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.REFUND_NEEDED
+    ),
+    dependencies,
+  });
+
+  assert.deepEqual(result, {
+    emissions: [],
+    finalInvoiceMode: "REBUILD_UNLOCKED",
+    finalInvoiceId: "unlocked-final",
+    rebuiltInvoiceId: "unlocked-final",
+  });
+  assert.equal(dependencies.mapOrderCommitDiffToFinancialLines.calls.length, 0);
+  assert.equal(dependencies.buildOpenAdjustmentLineMap.calls.length, 0);
+  assert.equal(dependencies.createAdjustmentInvoiceWithClient.calls.length, 0);
+  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 0);
+  assert.equal(
+    dependencies.rebuildUnlockedFinalInvoiceForOrderWithClient.calls.length,
+    1
+  );
+  assert.deepEqual(calls.orderUpdates, []);
+});
+
+test("resolves EMIT_ADJUSTMENT from locked FINAL even without latest baseline", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      adjustmentLines: [adjustmentLine("Mapped add-on", 20)],
+    },
+  });
+
+  const result = await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.EMPTY,
+    resolvedFinalInvoice: { id: "locked-final", isLocked: true },
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE
+    ),
+    dependencies,
+  });
+
+  assert.equal(result.finalInvoiceMode, "EMIT_ADJUSTMENT");
+  assert.equal(result.finalInvoiceId, "locked-final");
+  assert.deepEqual(result.emissions, [
+    {
+      invoice: { id: "adjustment-invoice-1" },
+      role: ORDER_COMMIT_DOCUMENT_ROLE.ADJUSTMENT_INVOICE,
+    },
+  ]);
+  assert.equal(
+    dependencies.rebuildUnlockedFinalInvoiceForOrderWithClient.calls.length,
+    0
+  );
 });
 
 test("uses mapper output, not documentPlan.kind alone, for later emissions", async () => {
@@ -512,6 +611,7 @@ function baseInput(
   return {
     orderId: "order-1",
     financialCaseId: "financial-case-1",
+    resolvedFinalInvoice: { id: "final-invoice", isLocked: true },
     baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
     diff: {} as OrderCommitSnapshotDiff,
     documentPlan: documentPlan(
@@ -626,17 +726,50 @@ function fakeDependencies(options: {
     };
   }>;
 
+  const buildOpenAdjustmentLineMap = async () => {
+    buildOpenAdjustmentLineMap.calls.push({});
+    return new Map();
+  };
+  buildOpenAdjustmentLineMap.calls = [] as Array<Record<string, never>>;
+
+  const createInvoiceForOrderWithClient = async () => {
+    createInvoiceForOrderWithClient.calls.push({});
+    return {
+      id: "base-invoice",
+      status: InvoiceStatus.DRAFT,
+    };
+  };
+  createInvoiceForOrderWithClient.calls = [] as Array<Record<string, never>>;
+
+  const rebuildUnlockedFinalInvoiceForOrderWithClient = async (
+    _client: unknown,
+    input: { finalInvoiceId: string }
+  ) => {
+    rebuildUnlockedFinalInvoiceForOrderWithClient.calls.push({ input });
+    return {
+      id: input.finalInvoiceId,
+      status: InvoiceStatus.DRAFT,
+    };
+  };
+  rebuildUnlockedFinalInvoiceForOrderWithClient.calls = [] as Array<{
+    input: { finalInvoiceId: string };
+  }>;
+
+  const mapOrderCommitDiffToFinancialLines = () => {
+    mapOrderCommitDiffToFinancialLines.calls.push({});
+    return options.emission;
+  };
+  mapOrderCommitDiffToFinancialLines.calls = [] as Array<Record<string, never>>;
+
   return {
-    buildOpenAdjustmentLineMap: async () => new Map(),
+    buildOpenAdjustmentLineMap,
     computeCreditNoteCapacityForFinal: async () =>
       new Prisma.Decimal(options.creditCapacity ?? 999),
     createAdjustmentInvoiceWithClient,
     createCreditNoteWithClient,
-    createInvoiceForOrderWithClient: async () => ({
-      id: "base-invoice",
-      status: InvoiceStatus.DRAFT,
-    }),
-    mapOrderCommitDiffToFinancialLines: () => options.emission,
+    createInvoiceForOrderWithClient,
+    rebuildUnlockedFinalInvoiceForOrderWithClient,
+    mapOrderCommitDiffToFinancialLines,
   };
 }
 
