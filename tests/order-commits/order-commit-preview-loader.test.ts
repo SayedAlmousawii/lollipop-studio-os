@@ -144,7 +144,7 @@ test("preview loader maps first original positive delta to base invoice", async 
   const preview = await getOrderCommitPreview({
     orderId: "order-1",
     client: client.client,
-    financialSummaryLoader: fakeSummaryLoader(activeSummary({ remaining: 0 })),
+    financialSummaryLoader: fakeSummaryLoader(bookingSummary()),
   });
 
   assert.equal(
@@ -164,7 +164,7 @@ test("preview loader maps first original positive delta to base invoice", async 
   assert.equal(preview.paymentImpact.amountDue, 80);
 });
 
-test("preview loader maps latest committed positive delta to adjustment invoice", async () => {
+test("preview loader maps latest committed positive delta on unlocked FINAL to rebuild", async () => {
   const client = fakePreviewClient({
     commits: [
       fakeCommit({
@@ -214,9 +214,49 @@ test("preview loader maps latest committed positive delta to adjustment invoice"
   });
   assert.equal(
     preview.documentPlan.kind,
-    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE
+    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD
   );
   assert.equal(preview.paymentImpact.alreadyPaidAmount, 120);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
+});
+
+test("preview loader maps latest committed positive delta on locked FINAL to adjustment invoice", async () => {
+  const client = fakePreviewClient({
+    commits: [
+      fakeCommit({
+        id: "commit-1",
+        sequence: 1,
+        snapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 180 })],
+        }),
+      }),
+    ],
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        version: 3,
+        pendingSnapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 205 })],
+        }),
+      }),
+    ],
+  });
+
+  const preview = await getOrderCommitPreview({
+    orderId: "order-1",
+    client: client.client,
+    financialSummaryLoader: fakeSummaryLoader(
+      activeSummary({
+        isFinalInvoiceLocked: true,
+        remaining: 10,
+      })
+    ),
+  });
+
+  assert.equal(
+    preview.documentPlan.kind,
+    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE
+  );
   assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
 });
 
@@ -652,6 +692,7 @@ function fakeSummaryLoader(
 
 function activeSummary(input: {
   effectivePaid?: number;
+  isFinalInvoiceLocked?: boolean;
   remaining?: number;
   creditNoteCapacity?: number;
   overpaymentCapacity?: number;
@@ -669,7 +710,7 @@ function activeSummary(input: {
       total: 180,
       remaining: input.remaining ?? 0,
       status: InvoiceStatus.ISSUED,
-      isLocked: false,
+      isLocked: input.isFinalInvoiceLocked ?? false,
       depositPaidAmount: 0,
     },
     finalizedAdjustments: [],

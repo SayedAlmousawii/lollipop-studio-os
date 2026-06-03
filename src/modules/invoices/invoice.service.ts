@@ -165,24 +165,7 @@ async function updateUnlockedInvoiceTotal(
   return invoice;
 }
 
-export async function createInvoiceForOrder(
-  orderId: string,
-  actorContext: ActorContext
-): Promise<{ id: string }> {
-  return withRetry(
-    () =>
-      db.$transaction((tx) =>
-        createInvoiceForOrderWithClient(tx, orderId, actorContext)
-      ),
-    "Failed to create invoice"
-  );
-}
-
-export async function createInvoiceForOrderWithClient(
-  client: DbClient,
-  orderId: string,
-  actorContext: ActorContext
-): Promise<{ id: string; status: InvoiceStatus }> {
+async function computeOrderFinalTotalWithClient(client: DbClient, orderId: string) {
   const order = await client.order.findUnique({
     where: { id: orderId },
     include: {
@@ -208,19 +191,15 @@ export async function createInvoiceForOrderWithClient(
     },
   });
   if (!order) throw new Error("Order not found");
+
   const financialCaseId = order.booking.financialCase?.id;
   if (!financialCaseId) {
     throw new Error("Order financial case is required to create a final invoice");
   }
-  const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
-    financialCaseId,
-  });
-  if (existingInvoice) return existingInvoice;
+  if (order.packages.length === 0) throw new Error("Order has no package lines");
 
   const sessionConfigurationPrice =
     await priceRequiredSessionConfigurationsForOrder(client, order.id);
-
-  if (order.packages.length === 0) throw new Error("Order has no package lines");
   const packageAmount = order.packages.reduce(
     (sum, line) =>
       sum.plus(line.finalPackagePriceSnapshot ?? line.currentPackage.price),
@@ -237,6 +216,34 @@ export async function createInvoiceForOrderWithClient(
     )
     .plus(extraPhotoCharge)
     .plus(sessionConfigurationPrice.totalDelta);
+
+  return { order, financialCaseId, totalAmount };
+}
+
+export async function createInvoiceForOrder(
+  orderId: string,
+  actorContext: ActorContext
+): Promise<{ id: string }> {
+  return withRetry(
+    () =>
+      db.$transaction((tx) =>
+        createInvoiceForOrderWithClient(tx, orderId, actorContext)
+      ),
+    "Failed to create invoice"
+  );
+}
+
+export async function createInvoiceForOrderWithClient(
+  client: DbClient,
+  orderId: string,
+  actorContext: ActorContext
+): Promise<{ id: string; status: InvoiceStatus }> {
+  const { order, financialCaseId, totalAmount } =
+    await computeOrderFinalTotalWithClient(client, orderId);
+  const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
+    financialCaseId,
+  });
+  if (existingInvoice) return existingInvoice;
 
   const invoiceNumberData = await generateInvoiceNumber(client, InvoiceType.FINAL);
   let invoice: { id: string; status: InvoiceStatus };
@@ -290,6 +297,65 @@ export async function createInvoiceForOrderWithClient(
   });
 
   return invoice;
+}
+
+export async function rebuildUnlockedFinalInvoiceForOrderWithClient(
+  client: DbClient,
+  input: {
+    orderId: string;
+    finalInvoiceId: string;
+    actorContext: ActorContext;
+  }
+): Promise<{ id: string; status: InvoiceStatus }> {
+  const { financialCaseId, totalAmount } = await computeOrderFinalTotalWithClient(
+    client,
+    input.orderId
+  );
+  const existingInvoice = await client.invoice.findUnique({
+    where: { id: input.finalInvoiceId },
+    select: {
+      id: true,
+      financialCaseId: true,
+      orderId: true,
+      invoiceType: true,
+      isLocked: true,
+      _count: { select: { lineItems: true } },
+    },
+  });
+  if (!existingInvoice) {
+    throw new Error("Final invoice not found for unlocked rebuild");
+  }
+  if (existingInvoice.invoiceType !== InvoiceType.FINAL) {
+    throw new Error("Only FINAL invoices can be rebuilt from OrderCommit");
+  }
+  if (existingInvoice.financialCaseId !== financialCaseId) {
+    throw new Error("Final invoice financial case does not match the order");
+  }
+  if (existingInvoice.orderId && existingInvoice.orderId !== input.orderId) {
+    throw new Error("Final invoice order does not match the committed order");
+  }
+  if (existingInvoice.isLocked) {
+    throw new Error("Locked FINAL invoices cannot be rebuilt");
+  }
+
+  if (existingInvoice._count.lineItems > 0) {
+    await client.invoiceLineItem.deleteMany({
+      where: { invoiceId: input.finalInvoiceId },
+    });
+  }
+
+  const invoice = await updateUnlockedInvoiceTotal(
+    client,
+    input.finalInvoiceId,
+    totalAmount,
+    input.actorContext
+  );
+  await recalculateInvoiceStatus(invoice.id, client);
+
+  return client.invoice.findUniqueOrThrow({
+    where: { id: invoice.id },
+    select: { id: true, status: true },
+  });
 }
 
 export async function syncOrderInvoiceForFinancialEdit(
@@ -1226,19 +1292,19 @@ async function createSyncedOrderInvoice(
   }
 }
 
-async function findPrimaryWorkflowInvoiceForOrder(
+export async function findPrimaryWorkflowInvoiceForOrder(
   client: DbClient,
   input: {
     financialCaseId: string;
   }
-): Promise<{ id: string; status: InvoiceStatus } | null> {
+): Promise<{ id: string; status: InvoiceStatus; isLocked: boolean } | null> {
   const invoices = await client.invoice.findMany({
     where: {
       parentInvoiceId: null,
       financialCaseId: input.financialCaseId,
       invoiceType: InvoiceType.FINAL,
     },
-    select: { id: true, status: true },
+    select: { id: true, status: true, isLocked: true },
     orderBy: { createdAt: "asc" },
   });
 

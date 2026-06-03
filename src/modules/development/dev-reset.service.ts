@@ -18,6 +18,7 @@ export async function resetWorkflowTestData(): Promise<void> {
         await tx.payment.deleteMany({});
         await tx.invoiceLockSnapshot.deleteMany({});
         await tx.invoiceLineItem.deleteMany({});
+        await tx.orderCommitDocument.deleteMany({});
         await tx.invoice.deleteMany({});
         await deleteAllSessionConfigurationSelectionsForReset(tx);
         await tx.orderPackageItemUpgrade.deleteMany({});

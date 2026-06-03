@@ -2,7 +2,6 @@ import {
   AuditAction,
   AuditEntityType,
   InvoiceLineType,
-  InvoiceType,
   OrderActivityType,
   Prisma,
   type PrismaClient,
@@ -34,7 +33,6 @@ import {
   classifyOrderCommitPreview,
 } from "./order-commit-preview-classification.service";
 import {
-  ORDER_COMMIT_PREVIEW_BASELINE_SOURCE,
   ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND,
 } from "./order-commit-preview.constants";
 import {
@@ -128,6 +126,9 @@ export type OrderCommitEmissionResult = {
     invoice: { id: string };
     role: OrderCommitDocumentRole;
   }>;
+  finalInvoiceMode: OrderCommitFinalInvoiceMode;
+  finalInvoiceId: string | null;
+  rebuiltInvoiceId?: string;
 };
 
 export type CommitOrderChangesInput = {
@@ -153,6 +154,7 @@ export type OrderCommitExecutionResult = {
 export type EmitOrderCommitFinancialDocumentsInput = {
   orderId: string;
   financialCaseId: string;
+  resolvedFinalInvoice: ResolvedOrderCommitFinalInvoice;
   baselineSource: OrderCommitPreviewBaselineSource;
   diff: OrderCommitSnapshotDiff;
   documentPlan: OrderCommitDocumentPlanPreview;
@@ -169,6 +171,7 @@ type ComputeCreditNoteCapacityForFinal = typeof import("@/modules/invoices/invoi
 type CreateAdjustmentInvoiceWithClient = typeof import("@/modules/invoices/invoice.service")["createAdjustmentInvoiceWithClient"];
 type CreateCreditNoteWithClient = typeof import("@/modules/invoices/invoice.service")["createCreditNoteWithClient"];
 type CreateInvoiceForOrderWithClient = typeof import("@/modules/invoices/invoice.service")["createInvoiceForOrderWithClient"];
+type RebuildUnlockedFinalInvoiceForOrderWithClient = typeof import("@/modules/invoices/invoice.service")["rebuildUnlockedFinalInvoiceForOrderWithClient"];
 type OpenAdjustmentLineMap = Awaited<ReturnType<BuildOpenAdjustmentLineMap>>;
 
 type OrderCommitInvoiceEmissionDependencies = {
@@ -177,8 +180,23 @@ type OrderCommitInvoiceEmissionDependencies = {
   createAdjustmentInvoiceWithClient: CreateAdjustmentInvoiceWithClient;
   createCreditNoteWithClient: CreateCreditNoteWithClient;
   createInvoiceForOrderWithClient: CreateInvoiceForOrderWithClient;
+  rebuildUnlockedFinalInvoiceForOrderWithClient: RebuildUnlockedFinalInvoiceForOrderWithClient;
   mapOrderCommitDiffToFinancialLines: typeof mapOrderCommitDiffToFinancialLines;
 };
+
+const ORDER_COMMIT_FINAL_INVOICE_MODE = {
+  CREATE_BASE: "CREATE_BASE",
+  REBUILD_UNLOCKED: "REBUILD_UNLOCKED",
+  EMIT_ADJUSTMENT: "EMIT_ADJUSTMENT",
+} as const;
+
+type OrderCommitFinalInvoiceMode =
+  (typeof ORDER_COMMIT_FINAL_INVOICE_MODE)[keyof typeof ORDER_COMMIT_FINAL_INVOICE_MODE];
+
+type ResolvedOrderCommitFinalInvoice = {
+  id: string;
+  isLocked: boolean;
+} | null;
 
 const ONE_FILS = 0.001;
 
@@ -278,10 +296,15 @@ async function commitOrderChangesWithTransaction(
   });
   const classification = classifyOrderCommitPreview({ diff });
   const paymentState = await loadPreviewPaymentState(input.orderId, client);
+  const resolvedFinalInvoice = await resolvePrimaryFinalInvoiceForOrderCommit({
+    financialCaseId: pendingSnapshot.financialCaseId,
+    client,
+  });
   const approvalAndDocumentPreview =
     buildOrderCommitApprovalAndDocumentPreview({
       baselineSource: baseline.baselineSource,
       classification,
+      finalInvoiceMode: resolveFinalInvoiceMode(resolvedFinalInvoice),
       paymentState,
     });
 
@@ -295,19 +318,18 @@ async function commitOrderChangesWithTransaction(
 
   if (shouldEmitFinancialDocuments(approvalAndDocumentPreview.documentPlan)) {
     await lockParentInvoiceForEmissionIfPresent({
-      baselineSource: baseline.baselineSource,
-      financialCaseId: pendingSnapshot.financialCaseId,
-      orderId: input.orderId,
+      finalInvoice: resolvedFinalInvoice,
       client,
     });
   }
 
-  const { emissions } = shouldEmitFinancialDocuments(
+  const emissionResult = shouldEmitFinancialDocuments(
     approvalAndDocumentPreview.documentPlan
   )
     ? await emitOrderCommitFinancialDocuments({
         orderId: input.orderId,
         financialCaseId: pendingSnapshot.financialCaseId,
+        resolvedFinalInvoice,
         baselineSource: baseline.baselineSource,
         diff,
         documentPlan: approvalAndDocumentPreview.documentPlan,
@@ -317,7 +339,7 @@ async function commitOrderChangesWithTransaction(
         approvalActorUserId: input.approvalActorUserId,
         client,
       })
-    : { emissions: [] };
+    : noFinancialEmissionResult(resolvedFinalInvoice);
 
   const orderCommit = await createCommittedOrderCommitRow({
     orderId: input.orderId,
@@ -325,16 +347,22 @@ async function commitOrderChangesWithTransaction(
     previousCommitId: latestCommit?.id ?? null,
     sequence: (latestCommit?.sequence ?? 0) + 1,
     kind: commitKindForDocumentPlan({
-      baselineSource: baseline.baselineSource,
+      finalInvoiceMode: emissionResult.finalInvoiceMode,
       documentPlanKind: approvalAndDocumentPreview.documentPlan.kind,
     }),
     pendingSnapshot,
+    draftId: activeDraft.id,
     draftVersion: activeDraft.version,
     metadata: {
       commitKind: classification.commitKind,
       documentPlanKind: approvalAndDocumentPreview.documentPlan.kind,
       approvalActorUserId: input.approvalActorUserId ?? null,
       netDelta: classification.netDelta,
+      finalInvoiceMode: emissionResult.finalInvoiceMode,
+      finalInvoiceId: emissionResult.finalInvoiceId,
+      ...(emissionResult.rebuiltInvoiceId
+        ? { rebuiltInvoiceId: emissionResult.rebuiltInvoiceId }
+        : {}),
     },
     actorContext: input.actorContext,
     client,
@@ -342,7 +370,7 @@ async function commitOrderChangesWithTransaction(
 
   await createOrderCommitDocumentLinks({
     orderCommitId: orderCommit.id,
-    emissions,
+    emissions: emissionResult.emissions,
     client,
   });
   const emittedDocuments = await loadOrderCommitDocumentResults(
@@ -355,6 +383,8 @@ async function commitOrderChangesWithTransaction(
     financialCaseId: pendingSnapshot.financialCaseId,
     orderCommit,
     documentPlanKind: approvalAndDocumentPreview.documentPlan.kind,
+    finalInvoiceMode: emissionResult.finalInvoiceMode,
+    finalInvoiceId: emissionResult.finalInvoiceId,
     netDelta: classification.netDelta,
     emittedDocumentCount: emittedDocuments.length,
     actorContext: input.actorContext,
@@ -364,6 +394,8 @@ async function commitOrderChangesWithTransaction(
     orderId: input.orderId,
     orderCommit,
     documentPlanKind: approvalAndDocumentPreview.documentPlan.kind,
+    finalInvoiceMode: emissionResult.finalInvoiceMode,
+    finalInvoiceId: emissionResult.finalInvoiceId,
     emittedDocumentCount: emittedDocuments.length,
     actorContext: input.actorContext,
     client,
@@ -477,29 +509,50 @@ function shouldEmitFinancialDocuments(
   );
 }
 
-async function lockParentInvoiceForEmissionIfPresent(input: {
-  baselineSource: OrderCommitPreviewBaselineSource;
+function resolveFinalInvoiceMode(
+  finalInvoice: ResolvedOrderCommitFinalInvoice
+): OrderCommitFinalInvoiceMode {
+  if (!finalInvoice) return ORDER_COMMIT_FINAL_INVOICE_MODE.CREATE_BASE;
+  return finalInvoice.isLocked
+    ? ORDER_COMMIT_FINAL_INVOICE_MODE.EMIT_ADJUSTMENT
+    : ORDER_COMMIT_FINAL_INVOICE_MODE.REBUILD_UNLOCKED;
+}
+
+function noFinancialEmissionResult(
+  finalInvoice: ResolvedOrderCommitFinalInvoice
+): OrderCommitEmissionResult {
+  return {
+    emissions: [],
+    finalInvoiceMode: resolveFinalInvoiceMode(finalInvoice),
+    finalInvoiceId: finalInvoice?.id ?? null,
+  };
+}
+
+async function resolvePrimaryFinalInvoiceForOrderCommit(input: {
   financialCaseId: string;
-  orderId: string;
+  client: OrderCommitExecutionTransactionClient;
+}): Promise<ResolvedOrderCommitFinalInvoice> {
+  const { findPrimaryWorkflowInvoiceForOrder } = await import(
+    "@/modules/invoices/invoice.service"
+  );
+  const invoice = await findPrimaryWorkflowInvoiceForOrder(input.client, {
+    financialCaseId: input.financialCaseId,
+  });
+  if (!invoice) return null;
+
+  return { id: invoice.id, isLocked: invoice.isLocked };
+}
+
+async function lockParentInvoiceForEmissionIfPresent(input: {
+  finalInvoice: ResolvedOrderCommitFinalInvoice;
   client: OrderCommitExecutionTransactionClient;
 }): Promise<void> {
-  if (
-    input.baselineSource !==
-    ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT
-  ) {
-    return;
-  }
-
-  const parentFinalInvoiceId = await resolveLockedParentFinalInvoiceId({
-    financialCaseId: input.financialCaseId,
-    orderId: input.orderId,
-    client: input.client,
-  });
-  await lockInvoiceForUpdate(input.client, parentFinalInvoiceId);
+  if (!input.finalInvoice) return;
+  await lockInvoiceForUpdate(input.client, input.finalInvoice.id);
 }
 
 function commitKindForDocumentPlan(input: {
-  baselineSource: OrderCommitPreviewBaselineSource;
+  finalInvoiceMode: OrderCommitFinalInvoiceMode;
   documentPlanKind: OrderCommitDocumentPlanPreview["kind"];
 }): OrderCommitKind {
   if (
@@ -511,13 +564,12 @@ function commitKindForDocumentPlan(input: {
   }
 
   if (
-    input.baselineSource !==
-    ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT
+    input.finalInvoiceMode === ORDER_COMMIT_FINAL_INVOICE_MODE.EMIT_ADJUSTMENT
   ) {
-    return orderCommitKindSchema.parse(ORDER_COMMIT_KIND.BASELINE);
+    return orderCommitKindSchema.parse(ORDER_COMMIT_KIND.ADJUSTMENT);
   }
 
-  return orderCommitKindSchema.parse(ORDER_COMMIT_KIND.ADJUSTMENT);
+  return orderCommitKindSchema.parse(ORDER_COMMIT_KIND.BASELINE);
 }
 
 async function createCommittedOrderCommitRow(input: {
@@ -527,6 +579,7 @@ async function createCommittedOrderCommitRow(input: {
   sequence: number;
   kind: OrderCommitKind;
   pendingSnapshot: OrderCommitSnapshotV1;
+  draftId: string;
   draftVersion: number;
   metadata: Record<string, unknown>;
   actorContext: ActorContext;
@@ -549,6 +602,7 @@ async function createCommittedOrderCommitRow(input: {
         snapshotJson: input.pendingSnapshot as unknown as Prisma.InputJsonValue,
         metadataJson: input.metadata as Prisma.InputJsonObject,
         committedByUserId: input.actorContext.actorUserId.trim() || null,
+        committedFromDraftId: input.draftId,
         committedFromDraftVersion: input.draftVersion,
       },
       select: { id: true, sequence: true, kind: true },
@@ -560,7 +614,7 @@ async function createCommittedOrderCommitRow(input: {
       kind: orderCommitKindSchema.parse(row.kind),
     };
   } catch (error) {
-    if (isUniqueCommittedFromDraftVersionConflict(error)) {
+    if (isUniqueCommittedFromDraftIdConflict(error)) {
       throw new OrderCommitConcurrentCommitError({
         orderId: input.orderId,
         draftVersion: input.draftVersion,
@@ -592,6 +646,8 @@ async function recordOrderCommitAudit(input: {
   financialCaseId: string;
   orderCommit: { id: string; sequence: number; kind: OrderCommitKind };
   documentPlanKind: OrderCommitDocumentPlanPreview["kind"];
+  finalInvoiceMode: OrderCommitFinalInvoiceMode;
+  finalInvoiceId: string | null;
   netDelta: number;
   emittedDocumentCount: number;
   actorContext: ActorContext;
@@ -608,6 +664,8 @@ async function recordOrderCommitAudit(input: {
       sequence: input.orderCommit.sequence,
       kind: input.orderCommit.kind,
       documentPlanKind: input.documentPlanKind,
+      finalInvoiceMode: input.finalInvoiceMode,
+      finalInvoiceId: input.finalInvoiceId,
       netDelta: input.netDelta,
       emittedDocumentCount: input.emittedDocumentCount,
     },
@@ -622,6 +680,8 @@ async function recordOrderCommitActivity(input: {
   orderId: string;
   orderCommit: { id: string; sequence: number; kind: OrderCommitKind };
   documentPlanKind: OrderCommitDocumentPlanPreview["kind"];
+  finalInvoiceMode: OrderCommitFinalInvoiceMode;
+  finalInvoiceId: string | null;
   emittedDocumentCount: number;
   actorContext: ActorContext;
   client: OrderCommitExecutionTransactionClient;
@@ -634,12 +694,18 @@ async function recordOrderCommitActivity(input: {
     userId: input.actorContext.actorUserId,
     type: OrderActivityType.ORDER_COMMITTED,
     title: "Order committed",
-    description: `OrderCommit sequence ${input.orderCommit.sequence} committed.`,
+    description:
+      input.finalInvoiceMode ===
+      ORDER_COMMIT_FINAL_INVOICE_MODE.REBUILD_UNLOCKED
+        ? `OrderCommit sequence ${input.orderCommit.sequence} rebuilt the unlocked FINAL invoice.`
+        : `OrderCommit sequence ${input.orderCommit.sequence} committed.`,
     metadata: {
       orderCommitId: input.orderCommit.id,
       sequence: input.orderCommit.sequence,
       kind: input.orderCommit.kind,
       documentPlanKind: input.documentPlanKind,
+      finalInvoiceMode: input.finalInvoiceMode,
+      finalInvoiceId: input.finalInvoiceId,
       emittedDocumentCount: input.emittedDocumentCount,
     },
   });
@@ -704,6 +770,8 @@ async function loadOrderCommitInvoiceEmissionDependencies(
     createCreditNoteWithClient: invoiceService.createCreditNoteWithClient,
     createInvoiceForOrderWithClient:
       invoiceService.createInvoiceForOrderWithClient,
+    rebuildUnlockedFinalInvoiceForOrderWithClient:
+      invoiceService.rebuildUnlockedFinalInvoiceForOrderWithClient,
     mapOrderCommitDiffToFinancialLines,
     ...overrides,
   };
@@ -718,27 +786,16 @@ export async function emitOrderCommitFinancialDocuments(
 
   await assertApprovalIfRequired(input);
 
-  const isFirstCommit =
-    input.baselineSource !==
-    ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT;
-  const openAdjustmentLinesByCause = isFirstCommit
-    ? new Map<string, OrderCommitOpenAdjustmentLine[]>()
-    : toOrderCommitOpenAdjustmentLineMap(
-        await dependencies.buildOpenAdjustmentLineMap(
-          input.financialCaseId,
-          input.orderId,
-          input.client
-        )
-      );
-  const emission = dependencies.mapOrderCommitDiffToFinancialLines({
-    diff: input.diff,
-    baselineSource: input.baselineSource,
-    draftToOrderEntityMap: input.draftToOrderEntityMap,
-    openAdjustmentLinesByCause,
-  });
+  const finalInvoiceMode = resolveFinalInvoiceMode(input.resolvedFinalInvoice);
 
-  if (isFirstCommit) {
-    assertFirstCommitHasNoCreditSide(input.orderId, emission);
+  if (finalInvoiceMode === ORDER_COMMIT_FINAL_INVOICE_MODE.CREATE_BASE) {
+    const firstCommitEmission = dependencies.mapOrderCommitDiffToFinancialLines({
+      diff: input.diff,
+      baselineSource: input.baselineSource,
+      draftToOrderEntityMap: input.draftToOrderEntityMap,
+      openAdjustmentLinesByCause: new Map<string, OrderCommitOpenAdjustmentLine[]>(),
+    });
+    assertFirstCommitHasNoCreditSide(input.orderId, firstCommitEmission);
     const invoice = await dependencies.createInvoiceForOrderWithClient(
       input.client,
       input.orderId,
@@ -751,21 +808,58 @@ export async function emitOrderCommitFinancialDocuments(
           role: ORDER_COMMIT_DOCUMENT_ROLE.BASE_INVOICE,
         },
       ],
+      finalInvoiceMode,
+      finalInvoiceId: invoice.id,
     };
   }
+
+  if (finalInvoiceMode === ORDER_COMMIT_FINAL_INVOICE_MODE.REBUILD_UNLOCKED) {
+    const rebuiltInvoice =
+      await dependencies.rebuildUnlockedFinalInvoiceForOrderWithClient(
+        input.client,
+        {
+          orderId: input.orderId,
+          finalInvoiceId: input.resolvedFinalInvoice!.id,
+          actorContext: input.actorContext,
+        }
+      );
+    return {
+      emissions: [],
+      finalInvoiceMode,
+      finalInvoiceId: rebuiltInvoice.id,
+      rebuiltInvoiceId: rebuiltInvoice.id,
+    };
+  }
+
+  const openAdjustmentLinesByCause = toOrderCommitOpenAdjustmentLineMap(
+    await dependencies.buildOpenAdjustmentLineMap(
+      input.financialCaseId,
+      input.orderId,
+      input.client
+    )
+  );
+  const emission = dependencies.mapOrderCommitDiffToFinancialLines({
+    diff: input.diff,
+    baselineSource: input.baselineSource,
+    draftToOrderEntityMap: input.draftToOrderEntityMap,
+    openAdjustmentLinesByCause,
+  });
 
   const hasInvoiceEmission =
     emission.adjustmentLines.length > 0 ||
     emission.adjustmentReversals.length > 0 ||
     emission.creditNoteFinalLines.length > 0;
   if (!hasInvoiceEmission) {
-    return { emissions: [] };
+    return {
+      emissions: [],
+      finalInvoiceMode,
+      finalInvoiceId: input.resolvedFinalInvoice!.id,
+    };
   }
 
-  const parentFinalInvoiceId = await resolveLockedParentFinalInvoiceId({
-    financialCaseId: input.financialCaseId,
+  const parentFinalInvoiceId = assertLockedParentFinalInvoiceId({
     orderId: input.orderId,
-    client: input.client,
+    finalInvoice: input.resolvedFinalInvoice,
   });
   await assertFinalCreditCapacity({
     orderId: input.orderId,
@@ -855,7 +949,11 @@ export async function emitOrderCommitFinancialDocuments(
     });
   }
 
-  return { emissions };
+  return {
+    emissions,
+    finalInvoiceMode,
+    finalInvoiceId: parentFinalInvoiceId,
+  };
 }
 
 async function assertApprovalIfRequired(
@@ -887,27 +985,17 @@ async function assertApprovalIfRequired(
   }
 }
 
-async function resolveLockedParentFinalInvoiceId(input: {
-  financialCaseId: string;
+function assertLockedParentFinalInvoiceId(input: {
   orderId: string;
-  client: Prisma.TransactionClient;
-}): Promise<string> {
-  const invoices = await input.client.invoice.findMany({
-    where: {
-      financialCaseId: input.financialCaseId,
-      orderId: input.orderId,
-      invoiceType: InvoiceType.FINAL,
-      isLocked: true,
-    },
-    select: { id: true },
-  });
-  if (invoices.length !== 1) {
+  finalInvoice: ResolvedOrderCommitFinalInvoice;
+}): string {
+  if (!input.finalInvoice?.isLocked) {
     throw new Error(
       `OrderCommit emission expected exactly one locked FINAL invoice for order ${input.orderId}.`
     );
   }
 
-  return invoices[0]!.id;
+  return input.finalInvoice.id;
 }
 
 async function assertFinalCreditCapacity(input: {
@@ -1010,7 +1098,7 @@ function shouldRetryOrderCommitExecution(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
   if (error.code === "P2034") return true;
   if (error.code !== "P2002") return false;
-  if (isUniqueCommittedFromDraftVersionConflict(error)) return false;
+  if (isUniqueCommittedFromDraftIdConflict(error)) return false;
   return isUniqueOrderCommitSequenceConflict(error);
 }
 
@@ -1018,16 +1106,28 @@ function isUniqueOrderCommitSequenceConflict(error: unknown): boolean {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002" &&
-    isUniqueTarget(error.meta?.target, ["orderId", "sequence"], "orderId_sequence")
+    isUniqueTarget(error, ["orderId", "sequence"], "orderId_sequence")
   );
 }
 
-function isUniqueCommittedFromDraftVersionConflict(error: unknown): boolean {
+function isUniqueCommittedFromDraftIdConflict(error: unknown): boolean {
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002" &&
+    isUniqueTarget(
+      error,
+      ["orderId", "committedFromDraftId"],
+      "orderId_committedFromDraftId"
+    )
+  ) {
+    return true;
+  }
+
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
     error.code === "P2002" &&
     isUniqueTarget(
-      error.meta?.target,
+      error,
       ["orderId", "committedFromDraftVersion"],
       "orderId_committedFromDraftVersion"
     )
@@ -1035,14 +1135,18 @@ function isUniqueCommittedFromDraftVersionConflict(error: unknown): boolean {
 }
 
 function isUniqueTarget(
-  target: unknown,
+  error: Prisma.PrismaClientKnownRequestError,
   fields: string[],
   fallbackName: string
 ): boolean {
+  const target = error.meta?.target;
   if (Array.isArray(target)) {
     return fields.every((field) => target.includes(field));
   }
-  return typeof target === "string" && target.includes(fallbackName);
+  if (typeof target === "string" && target.includes(fallbackName)) {
+    return true;
+  }
+  return fields.every((field) => error.message.includes(field));
 }
 
 async function loadDefaultOrderCommitExecutionClient(): Promise<OrderCommitExecutionClient> {

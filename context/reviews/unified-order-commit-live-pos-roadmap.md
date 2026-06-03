@@ -1060,6 +1060,8 @@ Phase 5 splits cleanly along seams that can each land as its own PR. Recommended
 
 ### Spec 132 — Unlocked-FINAL replay (Spec 124 emission-routing correction)
 
+**Status: Complete.**
+
 - Resolves the Spec 124 financial-emission routing gap found during Spec 129 manual testing.
 - Makes commit emission lock-state-aware (CREATE_BASE / REBUILD_UNLOCKED / EMIT_ADJUSTMENT) instead of keying on whether a prior `OrderCommit` exists. See Phase 4 → "Financial emission lifecycle."
 - No invoice locking, no schema change, no Sales UI change. Prerequisite/follow-up for Spec 131.

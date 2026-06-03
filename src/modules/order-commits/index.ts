@@ -80,6 +80,7 @@ export {
 export {
   buildOrderCommitApprovalAndDocumentPreview,
   type BuildOrderCommitApprovalAndDocumentPreviewInput,
+  type OrderCommitPreviewFinalInvoiceMode,
   type OrderCommitPreviewPaymentState,
 } from "./order-commit-approval-document-preview.service";
 export {

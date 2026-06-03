@@ -4,6 +4,7 @@ import {
 } from "./order-commit-preview.constants";
 import {
   buildOrderCommitApprovalAndDocumentPreview,
+  type OrderCommitPreviewFinalInvoiceMode,
   type OrderCommitPreviewPaymentState,
 } from "./order-commit-approval-document-preview.service";
 import {
@@ -67,14 +68,15 @@ export async function getOrderCommitPreview(
       )} for order ${input.orderId}.`
     );
   }
-  const paymentState = await loadOrderCommitPreviewPaymentState({
+  const financialState = await loadOrderCommitPreviewFinancialState({
     orderId: input.orderId,
     financialSummaryLoader: input.financialSummaryLoader,
   });
   const approvalAndDocumentPreview = buildOrderCommitApprovalAndDocumentPreview({
     baselineSource: baseline.baselineSource,
     classification,
-    paymentState,
+    finalInvoiceMode: financialState.finalInvoiceMode,
+    paymentState: financialState.paymentState,
   });
 
   return orderCommitPreviewSchema.parse({
@@ -112,10 +114,13 @@ function buildOrderCommitPreviewTotals(input: {
   };
 }
 
-async function loadOrderCommitPreviewPaymentState(input: {
+async function loadOrderCommitPreviewFinancialState(input: {
   orderId: string;
   financialSummaryLoader?: OrderCommitFinancialSummaryLoader;
-}): Promise<OrderCommitPreviewPaymentState> {
+}): Promise<{
+  finalInvoiceMode: OrderCommitPreviewFinalInvoiceMode;
+  paymentState: OrderCommitPreviewPaymentState;
+}> {
   const summary = await (input.financialSummaryLoader ??
     loadFinancialCaseSummary)({ orderId: input.orderId });
   if (!summary) {
@@ -126,18 +131,26 @@ async function loadOrderCommitPreviewPaymentState(input: {
 
   if (summary.stage === "booking") {
     return {
-      alreadyPaidAmount: summary.depositInvoice?.paidAmount ?? 0,
-      currentRemainingAmount: 0,
-      creditNoteCapacity: 0,
-      overpaymentCapacity: 0,
+      finalInvoiceMode: "CREATE_BASE",
+      paymentState: {
+        alreadyPaidAmount: summary.depositInvoice?.paidAmount ?? 0,
+        currentRemainingAmount: 0,
+        creditNoteCapacity: 0,
+        overpaymentCapacity: 0,
+      },
     };
   }
 
   return {
-    alreadyPaidAmount: summary.effectivePaid,
-    currentRemainingAmount: summary.remaining,
-    creditNoteCapacity: summary.creditNoteCapacity,
-    overpaymentCapacity: summary.overpaymentCapacity,
+    finalInvoiceMode: summary.finalInvoice.isLocked
+      ? "EMIT_ADJUSTMENT"
+      : "REBUILD_UNLOCKED",
+    paymentState: {
+      alreadyPaidAmount: summary.effectivePaid,
+      currentRemainingAmount: summary.remaining,
+      creditNoteCapacity: summary.creditNoteCapacity,
+      overpaymentCapacity: summary.overpaymentCapacity,
+    },
   };
 }
 

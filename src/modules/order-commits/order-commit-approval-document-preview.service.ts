@@ -35,8 +35,14 @@ export type OrderCommitPreviewPaymentState = z.infer<
 export type BuildOrderCommitApprovalAndDocumentPreviewInput = {
   classification: OrderCommitPreviewClassification;
   baselineSource: OrderCommitPreviewBaselineSource;
+  finalInvoiceMode?: OrderCommitPreviewFinalInvoiceMode;
   paymentState: OrderCommitPreviewPaymentState;
 };
+
+export type OrderCommitPreviewFinalInvoiceMode =
+  | "CREATE_BASE"
+  | "REBUILD_UNLOCKED"
+  | "EMIT_ADJUSTMENT";
 
 const REDUCTION_APPROVAL_REASON = {
   code: "ORDER_COMMIT_REDUCTION_REQUIRES_APPROVAL",
@@ -55,6 +61,8 @@ export function buildOrderCommitApprovalAndDocumentPreview(
   const paymentState = orderCommitPreviewPaymentStateSchema.parse(
     input.paymentState
   );
+  const finalInvoiceMode =
+    input.finalInvoiceMode ?? defaultFinalInvoiceMode(baselineSource);
 
   if (classification.commitKind === ORDER_COMMIT_PREVIEW_COMMIT_KIND.NO_OP) {
     return noFinancialDocumentPreview(paymentState, "NO_OPERATIONAL_CHANGE");
@@ -71,27 +79,27 @@ export function buildOrderCommitApprovalAndDocumentPreview(
   }
 
   if (classification.netDelta > 0) {
-    return positiveDeltaPreview({ baselineSource, classification, paymentState });
+    return positiveDeltaPreview({
+      finalInvoiceMode,
+      classification,
+      paymentState,
+    });
   }
 
   if (classification.netDelta < 0) {
-    return reductionPreview({ classification, paymentState });
+    return reductionPreview({ finalInvoiceMode, classification, paymentState });
   }
 
   return noFinancialDocumentPreview(paymentState, "NO_FINANCIAL_DELTA");
 }
 
 function positiveDeltaPreview(input: {
-  baselineSource: OrderCommitPreviewBaselineSource;
+  finalInvoiceMode: OrderCommitPreviewFinalInvoiceMode;
   classification: OrderCommitPreviewClassification;
   paymentState: OrderCommitPreviewPaymentState;
 }): OrderCommitApprovalAndDocumentPreview {
   const amount = roundMoney(input.classification.netDelta);
-  const documentKind =
-    input.baselineSource ===
-    ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT
-      ? ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE
-      : ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE;
+  const documentKind = documentPlanKindForPositiveDelta(input.finalInvoiceMode);
   const remainingAfterCommit = roundMoney(
     input.paymentState.currentRemainingAmount + amount
   );
@@ -123,6 +131,7 @@ function positiveDeltaPreview(input: {
 }
 
 function reductionPreview(input: {
+  finalInvoiceMode: OrderCommitPreviewFinalInvoiceMode;
   classification: OrderCommitPreviewClassification;
   paymentState: OrderCommitPreviewPaymentState;
 }): OrderCommitApprovalAndDocumentPreview {
@@ -137,9 +146,10 @@ function reductionPreview(input: {
     requiresApproval: true,
     approvalReasons: [REDUCTION_APPROVAL_REASON],
     documentPlan: {
-      kind: needsRefundReview
-        ? ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.REFUND_NEEDED
-        : ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE,
+      kind: documentPlanKindForReduction({
+        finalInvoiceMode: input.finalInvoiceMode,
+        needsRefundReview,
+      }),
       amount: reductionAmount,
       requiresPaymentCollection: false,
       requiresRefundReview: needsRefundReview,
@@ -165,6 +175,38 @@ function reductionPreview(input: {
         : null,
     },
   });
+}
+
+function defaultFinalInvoiceMode(
+  baselineSource: OrderCommitPreviewBaselineSource
+): OrderCommitPreviewFinalInvoiceMode {
+  return baselineSource === ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT
+    ? "EMIT_ADJUSTMENT"
+    : "CREATE_BASE";
+}
+
+function documentPlanKindForPositiveDelta(
+  mode: OrderCommitPreviewFinalInvoiceMode
+) {
+  if (mode === "CREATE_BASE") {
+    return ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.BASE_INVOICE;
+  }
+  if (mode === "REBUILD_UNLOCKED") {
+    return ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD;
+  }
+  return ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE;
+}
+
+function documentPlanKindForReduction(input: {
+  finalInvoiceMode: OrderCommitPreviewFinalInvoiceMode;
+  needsRefundReview: boolean;
+}) {
+  if (input.finalInvoiceMode === "REBUILD_UNLOCKED") {
+    return ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD;
+  }
+  return input.needsRefundReview
+    ? ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.REFUND_NEEDED
+    : ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE;
 }
 
 function noFinancialDocumentPreview(

@@ -317,7 +317,16 @@ test("financial preview passes through financial case and preview fields", () =>
     effectivePaid: 140,
     remaining: 176,
   });
-  const preview = previewFixture({ netDelta: 44 });
+  const preview = previewFixture({
+    netDelta: 44,
+    documentPlan: {
+      kind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD,
+      amount: 44,
+      requiresPaymentCollection: true,
+      requiresRefundReview: false,
+      reason: null,
+    },
+  });
 
   const projected = toSalesPageFinancialPreview({ preview, financialCase });
 
@@ -331,6 +340,10 @@ test("financial preview passes through financial case and preview fields", () =>
   assert.equal(projected.overlay.previousTotal, 100);
   assert.equal(projected.overlay.pendingTotal, 144);
   assert.equal(projected.overlay.documentPlan, preview.documentPlan);
+  assert.equal(
+    projected.overlay.documentPlan?.kind,
+    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD
+  );
   assert.equal(projected.overlay.paymentImpact, preview.paymentImpact);
   assert.equal(projected.overlay.refundImpact, preview.refundImpact);
 
