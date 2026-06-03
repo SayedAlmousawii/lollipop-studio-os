@@ -93,6 +93,102 @@ test("loader composes with-draft view from pending snapshot and preview once", a
   assert.equal(view.permissions.canUpdateOrderFinancial, true);
 });
 
+test("loader projects no-draft ownership state", async () => {
+  const view = await getSalesPageView({
+    orderId: "order-1",
+    actorContext: actorContext(),
+    dependencies: fakeDependencies({ draft: null }),
+  });
+
+  assert.deepEqual(view.ownership, {
+    mode: "none",
+    hasDraft: false,
+    isOwner: false,
+    isManagerOverride: false,
+    canStage: true,
+    canDiscard: false,
+    canCommit: false,
+    ownerUserId: null,
+    openedByUserId: null,
+    lastTouchedByUserId: null,
+    updatedAt: null,
+    banner: null,
+  });
+});
+
+test("loader projects owner draft ownership state", async () => {
+  const draft = draftState({
+    ownerUserId: "actor-1",
+    lastTouchedByUserId: "actor-1",
+  });
+
+  const view = await getSalesPageView({
+    orderId: "order-1",
+    actorContext: actorContext({ actorUserId: "actor-1" }),
+    dependencies: fakeDependencies({ draft }),
+  });
+
+  assert.equal(view.ownership.mode, "owner");
+  assert.equal(view.ownership.isOwner, true);
+  assert.equal(view.ownership.isManagerOverride, false);
+  assert.equal(view.ownership.canStage, true);
+  assert.equal(view.ownership.canDiscard, true);
+  assert.equal(view.ownership.canCommit, true);
+  assert.equal(view.ownership.ownerUserId, "actor-1");
+  assert.equal(view.ownership.banner?.title, "Draft open");
+});
+
+test("loader projects blocked non-owner draft ownership state", async () => {
+  const draft = draftState({
+    ownerUserId: "owner-1",
+    lastTouchedByUserId: "owner-2",
+  });
+
+  const view = await getSalesPageView({
+    orderId: "order-1",
+    actorContext: actorContext({
+      actorUserId: "staff-2",
+      actorRole: UserRole.RECEPTIONIST,
+    }),
+    dependencies: fakeDependencies({ draft }),
+  });
+
+  assert.equal(view.ownership.mode, "blocked_non_owner");
+  assert.equal(view.ownership.isOwner, false);
+  assert.equal(view.ownership.isManagerOverride, false);
+  assert.equal(view.ownership.canStage, false);
+  assert.equal(view.ownership.canDiscard, false);
+  assert.equal(view.ownership.canCommit, false);
+  assert.equal(view.ownership.ownerUserId, "owner-1");
+  assert.equal(view.ownership.lastTouchedByUserId, "owner-2");
+  assert.match(view.ownership.banner?.description ?? "", /Refresh or coordinate/);
+});
+
+test("loader projects manager override without ownership transfer", async () => {
+  const draft = draftState({
+    ownerUserId: "owner-1",
+    lastTouchedByUserId: "owner-2",
+  });
+
+  const view = await getSalesPageView({
+    orderId: "order-1",
+    actorContext: actorContext({
+      actorUserId: "manager-1",
+      actorRole: UserRole.MANAGER,
+    }),
+    dependencies: fakeDependencies({ draft }),
+  });
+
+  assert.equal(view.ownership.mode, "manager_override");
+  assert.equal(view.ownership.isOwner, false);
+  assert.equal(view.ownership.isManagerOverride, true);
+  assert.equal(view.ownership.canStage, true);
+  assert.equal(view.ownership.canDiscard, true);
+  assert.equal(view.ownership.canCommit, true);
+  assert.equal(view.ownership.ownerUserId, "owner-1");
+  assert.match(view.ownership.banner?.description ?? "", /does not transfer ownership/);
+});
+
 test("loader selects locked composition helper from current invoice state", async () => {
   const calls = callTracker();
   const dependencies = fakeDependencies({
@@ -340,6 +436,8 @@ function draftState(
   input: {
     version?: number;
     pendingSnapshot?: OrderCommitSnapshotV1;
+    ownerUserId?: string;
+    lastTouchedByUserId?: string;
   } = {}
 ): OrderCommitDraftState {
   return {
@@ -350,9 +448,9 @@ function draftState(
       baseCommitId: "commit-1",
       pendingSnapshotVersion: 1,
       version: input.version ?? 7,
-      ownerUserId: "owner-1",
+      ownerUserId: input.ownerUserId ?? "owner-1",
       openedByUserId: "owner-1",
-      lastTouchedByUserId: "owner-1",
+      lastTouchedByUserId: input.lastTouchedByUserId ?? "owner-1",
       createdAt: new Date("2026-06-02T10:00:00.000Z"),
       updatedAt: new Date("2026-06-02T10:30:00.000Z"),
     },

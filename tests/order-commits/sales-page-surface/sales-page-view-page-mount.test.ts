@@ -11,6 +11,10 @@ const stagedControlsSource = readFileSync(
   "src/components/orders/sales-staged-commit-controls.tsx",
   "utf8"
 );
+const ownershipBannerSource = readFileSync(
+  "src/components/orders/sales-draft-ownership-banner.tsx",
+  "utf8"
+);
 const orderCommitFinancialSidebarSource = readFileSync(
   "src/components/orders/order-commit-financial-sidebar.tsx",
   "utf8"
@@ -30,6 +34,7 @@ const lockedSource = pageSource.slice(
 
 const ORDER_COMMIT_SALES_SURFACE_FILES = [
   "src/components/orders/sales-staged-commit-controls.tsx",
+  "src/components/orders/sales-draft-ownership-banner.tsx",
   "src/components/orders/order-commit-financial-sidebar.tsx",
   "src/components/orders/order-commit-review-dialog.tsx",
   "src/modules/order-commits/sales-staging-handler-adapter.ts",
@@ -41,7 +46,7 @@ const ORDER_COMMIT_SALES_SURFACE_FILES = [
 ];
 
 test("unlocked Sales page mounts SalesPageView as the composition source", () => {
-  assert.match(pageSource, /import \{ getSalesPageView \}/);
+  assert.match(pageSource, /getSalesPageView,\n\} from "@\/modules\/order-commits\/projections"/);
   assert.match(unlockedSource, /const salesPageView = await getSalesPageView/);
   assert.match(unlockedSource, /getPOSWorkspace:\s*async \(\) => workspace/);
   assert.match(
@@ -102,6 +107,24 @@ test("unlocked Sales page forwards SalesPageView pieces to mounted surfaces", ()
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
   assert.match(unlockedSource, /financialCase=\{salesPageView\.financialCase\}/);
+  assert.match(unlockedSource, /ownership=\{salesPageView\.ownership\}/);
+});
+
+test("unlocked Sales page applies co-editor ownership UI and policy overlay", () => {
+  assert.match(pageSource, /SalesDraftOwnershipBanner/);
+  assert.match(unlockedSource, /<SalesDraftOwnershipBanner/);
+  assert.match(unlockedSource, /ownership=\{salesPageView\.ownership\}/);
+  assert.match(pageSource, /applySalesDraftOwnershipToPackagePolicies/);
+  assert.match(pageSource, /applySalesDraftOwnershipToAddOnPolicies/);
+  assert.match(
+    unlockedSource,
+    /applySalesDraftOwnershipToPackagePolicies\([\s\S]*buildPOSPackageCompositionEditPolicies/
+  );
+  assert.match(
+    unlockedSource,
+    /applySalesDraftOwnershipToAddOnPolicies\([\s\S]*buildPOSAddOnEditPolicies/
+  );
+  assert.doesNotMatch(unlockedSource, /Take Over|takeOver/);
 });
 
 test("unlocked Sales page mounts staged commit controls", () => {
@@ -117,6 +140,7 @@ test("unlocked Sales page mounts staged commit controls", () => {
     unlockedSource,
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
+  assert.match(unlockedSource, /ownership=\{salesPageView\.ownership\}/);
   assert.doesNotMatch(pageSource, /commitSalesChangesAction/);
 });
 
@@ -157,11 +181,32 @@ test("locked Sales branch remains on the legacy locked surface", () => {
 test("staged commit controls mount the Spec 128 dialog and exact discard version", () => {
   assert.match(stagedControlsSource, /OrderCommitReviewDialog/);
   assert.match(stagedControlsSource, /discardSalesDraftAction/);
+  assert.match(stagedControlsSource, /ownership\.canDiscard/);
   assert.match(stagedControlsSource, /discardAction\(orderId, draft\.version\)/);
+  assert.match(stagedControlsSource, /canCommit=\{ownership\.canCommit\}/);
   assert.match(stagedControlsSource, /draft=\{draft\}/);
   assert.match(stagedControlsSource, /preview=\{preview\}/);
   assert.match(stagedControlsSource, /stagedChanges=\{stagedChanges\}/);
   assert.match(stagedControlsSource, /financialPreview=\{financialPreview\}/);
+});
+
+test("co-editor banner shows owner and manager override copy without takeover", () => {
+  assert.match(ownershipBannerSource, /ownership\.banner\.title/);
+  assert.match(ownershipBannerSource, /ownership\.banner\.description/);
+  assert.match(ownershipBannerSource, /Manager override/);
+  assert.match(ownershipBannerSource, /Refresh/);
+  assert.doesNotMatch(ownershipBannerSource, /Take Over|takeOver/);
+});
+
+test("review dialog disables commit for blocked ownership and offers refresh on conflicts", () => {
+  assert.match(orderCommitReviewDialogSource, /canCommit/);
+  assert.match(
+    orderCommitReviewDialogSource,
+    /const canSubmit = Boolean\(draft && preview && canCommit\)/
+  );
+  assert.match(orderCommitReviewDialogSource, /commitErrorNeedsRefresh/);
+  assert.match(orderCommitReviewDialogSource, /commit\.permission/);
+  assert.match(orderCommitReviewDialogSource, /router\.refresh\(\)/);
 });
 
 test("staged changes panel stays display-only", () => {
@@ -180,6 +225,9 @@ test("staged changes panel stays display-only", () => {
   assert.doesNotMatch(stagedControlsSource, /@\/lib\/db/);
   assert.doesNotMatch(stagedControlsSource, /commitOrderChanges/);
   assert.doesNotMatch(stagedControlsSource, /AdjustmentWorkspace/);
+  assert.doesNotMatch(ownershipBannerSource, /@\/lib\/db/);
+  assert.doesNotMatch(ownershipBannerSource, /commitOrderChanges/);
+  assert.doesNotMatch(ownershipBannerSource, /AdjustmentWorkspace/);
 });
 
 test("OrderCommit financial sidebar stays display-only", () => {

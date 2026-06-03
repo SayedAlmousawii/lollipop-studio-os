@@ -56,6 +56,7 @@ export type OrderCommitReviewDialogProps = {
   preview: SalesPagePreviewState | null;
   stagedChanges: SalesPageStagedChangesRow[];
   financialPreview: SalesPageFinancialPreview;
+  canCommit?: boolean;
   commitAction?: CommitAction;
 };
 
@@ -76,6 +77,7 @@ export function OrderCommitReviewDialog({
   preview,
   stagedChanges,
   financialPreview,
+  canCommit = true,
   commitAction = commitSalesChangesAction,
 }: OrderCommitReviewDialogProps) {
   const router = useRouter();
@@ -84,7 +86,7 @@ export function OrderCommitReviewDialog({
   const [state, setState] = useState<POSMutationActionState>({});
   const [pending, startTransition] = useTransition();
   const approvalInputRef = useRef<HTMLInputElement>(null);
-  const canSubmit = Boolean(draft && preview);
+  const canSubmit = Boolean(draft && preview && canCommit);
   const needsApproval = previewRequiresApproval(preview, state);
 
   useEffect(() => {
@@ -170,6 +172,16 @@ export function OrderCommitReviewDialog({
             pending={pending}
           />
           <DialogFooter>
+            {commitErrorNeedsRefresh(state) ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.refresh()}
+                disabled={pending}
+              >
+                Refresh
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -351,10 +363,19 @@ export function commitDialogInlineMessages(
   if (globalMessages[0] === "commit.approvalRequired") {
     return ["Manager/admin approval is required before this commit can finish."];
   }
-  if (globalMessages[0]?.startsWith("commit.")) {
-    return [];
+  if (globalMessages[0] === "commit.permission") {
+    return ["Another user owns this draft. Refresh or coordinate before committing."];
   }
+  if (globalMessages[0] === "commit.stale") return [];
+  if (globalMessages[0] === "commit.concurrent") return [];
   return globalMessages;
+}
+
+export function commitErrorNeedsRefresh(state: POSMutationActionState): boolean {
+  const globalMessages = state.errors?._global ?? [];
+  return globalMessages.some((message) =>
+    ["commit.stale", "commit.concurrent", "commit.permission"].includes(message)
+  );
 }
 
 export function previewRequiresApproval(

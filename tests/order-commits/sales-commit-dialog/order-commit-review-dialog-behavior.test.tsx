@@ -220,6 +220,25 @@ test("OrderCommitReviewDialog error responses keep the current preview open", as
   }
 });
 
+test("OrderCommitReviewDialog stays disabled when ownership blocks commit", async () => {
+  const harness = await createBehaviorHarness();
+  const calls: Array<{ orderId: string }> = [];
+  const props = dialogBehaviorProps({
+    canCommit: false,
+    commitAction: async (orderId) => {
+      calls.push({ orderId });
+      return { kind: "success" };
+    },
+  });
+
+  const tree = harness.render(props);
+  const trigger = findHostByText(tree, "button", /Review & commit/);
+  assert.equal(trigger.props.disabled, true);
+
+  assertNoText(harness.render(props), /Commit changes/);
+  assert.deepEqual(calls, []);
+});
+
 async function createBehaviorHarness(): Promise<BehaviorHarness> {
   const hookController = createHookController();
   const refreshCalls: string[] = [];

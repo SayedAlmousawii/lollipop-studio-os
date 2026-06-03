@@ -1,4 +1,9 @@
 export {
+  applySalesDraftOwnershipToAddOnPolicies,
+  applySalesDraftOwnershipToPackagePolicies,
+} from "./sales-draft-ownership-policy";
+export {
+  buildSalesPageDraftOwnership,
   getSalesPageView,
   type GetSalesPageViewInput,
   type SalesPageViewLoaderDependencies,
@@ -18,6 +23,8 @@ export {
 export type {
   SalesPageComposition,
   SalesPageCompositionSource,
+  SalesPageDraftOwnership,
+  SalesPageDraftOwnershipMode,
   SalesPageDraftState,
   SalesPageFinancialPreview,
   SalesPageOrderHeader,

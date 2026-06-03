@@ -7,6 +7,7 @@ import {
   OrderCommitCreditCapacityExhaustedError,
   OrderCommitStaleDraftError,
 } from "@/modules/order-commits";
+import { OrderCommitDraftPermissionError } from "@/modules/order-commits/order-commit-draft.errors";
 import {
   commitSalesChangesActionWithDependencies,
   type SalesCommitActionDependencies,
@@ -122,6 +123,13 @@ test("commitSalesChangesActionWithDependencies maps commit-time errors to stable
   assert.equal(capacity.kind, "error");
   assert.deepEqual(capacity.errors?._global?.at(-1), "commit.creditCapacity");
   assert.match(capacity.errors?._global?.[0] ?? "", /Credit\/refund capacity changed/);
+
+  const permission = await runError(
+    new OrderCommitDraftPermissionError("other-user", "draft-1", "commit")
+  );
+  assert.equal(permission.kind, "error");
+  assert.deepEqual(permission.errors?._global?.[0], "commit.permission");
+  assert.match(permission.errors?._global?.[1] ?? "", /Another user owns this draft/);
 });
 
 test("commitSalesChangesActionWithDependencies rethrows permission and unknown failures", async () => {

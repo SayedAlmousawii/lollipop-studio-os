@@ -30,7 +30,12 @@ test("stageSalesChangeAction rejects stale expectedVersion and leaves draft unch
 
     assert.deepEqual(result, {
       kind: "error",
-      errors: { _global: ["draft.stale"] },
+      errors: {
+        _global: [
+          "Draft changed since you opened it. Refresh to see the latest.",
+          "draft.stale",
+        ],
+      },
     });
     const after = await ctx.db.orderCommitDraft.findUniqueOrThrow({
       where: { orderId: workflow.orderId },

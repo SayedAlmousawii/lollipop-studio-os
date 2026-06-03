@@ -9,6 +9,7 @@ import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
+import { SalesDraftOwnershipBanner } from "@/components/orders/sales-draft-ownership-banner";
 import { SalesStagedCommitControls } from "@/components/orders/sales-staged-commit-controls";
 import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,7 +36,11 @@ import {
   orderEditModeContextFromWorkspace,
 } from "@/modules/orders/policies/edit-mode-policy";
 import type { POSWorkspace } from "@/modules/orders/order.types";
-import { getSalesPageView } from "@/modules/order-commits/projections";
+import {
+  applySalesDraftOwnershipToAddOnPolicies,
+  applySalesDraftOwnershipToPackagePolicies,
+  getSalesPageView,
+} from "@/modules/order-commits/projections";
 import {
   createOrderCommitSalesAddOnHandlers,
   createOrderCommitSalesCompositionHandlers,
@@ -166,8 +171,14 @@ export default async function SalesPage(
     persistenceContext: "sales",
   });
   const packageEditPolicies =
-    buildPOSPackageCompositionEditPolicies(draftPolicyContext);
-  const addOnEditPolicies = buildPOSAddOnEditPolicies(draftPolicyContext);
+    applySalesDraftOwnershipToPackagePolicies(
+      buildPOSPackageCompositionEditPolicies(draftPolicyContext),
+      salesPageView.ownership
+    );
+  const addOnEditPolicies = applySalesDraftOwnershipToAddOnPolicies(
+    buildPOSAddOnEditPolicies(draftPolicyContext),
+    salesPageView.ownership
+  );
   const financialSidebarPolicies =
     buildPOSFinancialSidebarEditPolicies(draftPolicyContext);
   const compositionHandlers = createOrderCommitSalesCompositionHandlers({
@@ -180,6 +191,10 @@ export default async function SalesPage(
   return (
     <div className={styles.salesGrid}>
       <main className="space-y-5">
+        <SalesDraftOwnershipBanner
+          orderId={workspace.orderId}
+          ownership={salesPageView.ownership}
+        />
         <POSPackageComposition
           workspace={workspace}
           composition={salesPageView.composition}
@@ -204,6 +219,7 @@ export default async function SalesPage(
           preview={salesPageView.preview}
           stagedChanges={salesPageView.stagedChanges}
           financialPreview={salesPageView.financialPreview}
+          ownership={salesPageView.ownership}
         />
       </main>
       <OrderCommitFinancialSidebar

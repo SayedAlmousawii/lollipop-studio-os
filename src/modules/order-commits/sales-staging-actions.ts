@@ -88,11 +88,27 @@ export async function discardSalesDraftActionWithDependencies(
 
 function mapSalesDraftActionError(error: unknown): POSMutationActionState {
   if (error instanceof OrderCommitDraftStaleVersionError) {
-    return { kind: "error", errors: { _global: ["draft.stale"] } };
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "Draft changed since you opened it. Refresh to see the latest.",
+          "draft.stale",
+        ],
+      },
+    };
   }
 
   if (error instanceof OrderCommitDraftPermissionError) {
-    return { kind: "error", errors: { _global: ["draft.permission"] } };
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "Another user owns this draft. Refresh or coordinate before editing.",
+          "draft.permission",
+        ],
+      },
+    };
   }
 
   if (error instanceof OrderCommitDraftMissingError) {

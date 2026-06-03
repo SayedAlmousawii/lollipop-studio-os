@@ -33,6 +33,31 @@ export type SalesPageDraftState = {
   baseCommitId: string | null;
 };
 
+export type SalesPageDraftOwnershipMode =
+  | "none"
+  | "owner"
+  | "blocked_non_owner"
+  | "manager_override";
+
+export type SalesPageDraftOwnership = {
+  mode: SalesPageDraftOwnershipMode;
+  hasDraft: boolean;
+  isOwner: boolean;
+  isManagerOverride: boolean;
+  canStage: boolean;
+  canDiscard: boolean;
+  canCommit: boolean;
+  ownerUserId: string | null;
+  openedByUserId: string | null;
+  lastTouchedByUserId: string | null;
+  updatedAt: Date | null;
+  banner: {
+    tone: "neutral" | "warning" | "info";
+    title: string;
+    description: string;
+  } | null;
+};
+
 export type SalesPagePreviewState = OrderCommitPreview;
 
 export type SalesPageStagedChangesRow = {
@@ -91,5 +116,6 @@ export type SalesPageView = {
   financialPreview: SalesPageFinancialPreview;
   financialCase: FinancialCaseSummary;
   permissions: SalesPagePermissionFlags;
+  ownership: SalesPageDraftOwnership;
   isLocked: boolean;
 };
