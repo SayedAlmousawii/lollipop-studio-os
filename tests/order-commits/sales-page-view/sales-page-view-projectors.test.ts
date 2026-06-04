@@ -336,6 +336,13 @@ test("financial preview passes through financial case and preview fields", () =>
   assert.equal(projected.baseline.paidSoFar, 125);
   assert.equal(projected.baseline.effectivePaid, 140);
   assert.equal(projected.baseline.remaining, 176);
+  assert.equal(projected.baseline.outstandingAmount, 176);
+  assert.equal(projected.baseline.totalAdjustments, 0);
+  assert.deepEqual(projected.baseline.finalizedAdjustments, []);
+  assert.deepEqual(projected.baseline.creditNotes, []);
+  assert.deepEqual(projected.baseline.refunds, []);
+  assert.equal(projected.baseline.isFullySettled, false);
+  assert.equal(projected.baseline.collectPaymentTargetInvoiceId, "final-1");
   assert.equal(projected.overlay.pendingDelta, 44);
   assert.equal(projected.overlay.previousTotal, 100);
   assert.equal(projected.overlay.pendingTotal, 144);
@@ -367,6 +374,71 @@ test("financial preview passes through financial case and preview fields", () =>
   assert.equal(unchanged.baseline.remaining, 176);
 });
 
+test("financial preview targets open adjustments when the final invoice is settled", () => {
+  const openAdjustment = {
+    id: "adjustment-open-1",
+    invoiceNumber: "ADJ-1",
+    invoiceType: InvoiceType.ADJUSTMENT,
+    total: 42,
+    remaining: 42,
+    status: InvoiceStatus.ISSUED,
+    isLocked: true,
+  };
+  const financialCase = activeFinancialCase({
+    finalInvoice: {
+      id: "final-1",
+      invoiceNumber: "INV-1",
+      invoiceType: InvoiceType.FINAL,
+      total: 300,
+      remaining: 0,
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      depositPaidAmount: 50,
+    },
+    finalizedAdjustments: [openAdjustment],
+    customerTotal: 342,
+    totalAdjustments: 42,
+    remaining: 42,
+    paymentStatusEnum: "PARTIAL",
+  });
+
+  const projected = toSalesPageFinancialPreview({
+    preview: null,
+    financialCase,
+  });
+
+  assert.equal(projected.baseline.outstandingAmount, 42);
+  assert.equal(projected.baseline.isFullySettled, false);
+  assert.deepEqual(projected.baseline.finalizedAdjustments, [openAdjustment]);
+  assert.equal(
+    projected.baseline.collectPaymentTargetInvoiceId,
+    "adjustment-open-1"
+  );
+});
+
+test("financial preview marks paid cases as fully settled", () => {
+  const projected = toSalesPageFinancialPreview({
+    preview: null,
+    financialCase: activeFinancialCase({
+      finalInvoice: {
+        id: "final-1",
+        invoiceNumber: "INV-1",
+        invoiceType: InvoiceType.FINAL,
+        total: 300,
+        remaining: 0,
+        status: InvoiceStatus.CLOSED,
+        isLocked: true,
+        depositPaidAmount: 50,
+      },
+      remaining: 0,
+      paymentStatusEnum: "PAID",
+    }),
+  });
+
+  assert.equal(projected.baseline.isFullySettled, true);
+  assert.equal(projected.baseline.collectPaymentTargetInvoiceId, null);
+});
+
 test("financial preview supports booking-stage baseline without synthetic final totals", () => {
   const projected = toSalesPageFinancialPreview({
     preview: null,
@@ -376,6 +448,13 @@ test("financial preview supports booking-stage baseline without synthetic final 
   assert.equal(projected.baseline.stage, "booking");
   assert.equal(projected.baseline.customerTotal, null);
   assert.equal(projected.baseline.finalInvoice, null);
+  assert.deepEqual(projected.baseline.finalizedAdjustments, []);
+  assert.deepEqual(projected.baseline.creditNotes, []);
+  assert.deepEqual(projected.baseline.refunds, []);
+  assert.equal(projected.baseline.outstandingAmount, null);
+  assert.equal(projected.baseline.totalAdjustments, null);
+  assert.equal(projected.baseline.isFullySettled, false);
+  assert.equal(projected.baseline.collectPaymentTargetInvoiceId, null);
   assert.equal(projected.overlay.pendingDelta, null);
 });
 

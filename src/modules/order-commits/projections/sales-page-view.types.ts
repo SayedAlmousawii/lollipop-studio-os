@@ -74,16 +74,25 @@ export type SalesPageFinancialPreview = {
     financialCaseId: string;
     depositInvoice: FinancialCaseSummary["depositInvoice"];
     finalInvoice: Extract<FinancialCaseSummary, { stage: "active" }>["finalInvoice"] | null;
+    finalizedAdjustments: Extract<
+      FinancialCaseSummary,
+      { stage: "active" }
+    >["finalizedAdjustments"];
+    creditNotes: Extract<FinancialCaseSummary, { stage: "active" }>["creditNotes"];
+    refunds: Extract<FinancialCaseSummary, { stage: "active" }>["refunds"];
     customerTotal: number | null;
     finalTotal: number | null;
     depositApplied: number | null;
     paidSoFar: number | null;
     effectivePaid: number | null;
     remaining: number | null;
+    totalAdjustments: number | null;
+    outstandingAmount: number | null;
+    isFullySettled: boolean;
     paymentStatusEnum:
       | Extract<FinancialCaseSummary, { stage: "active" }>["paymentStatusEnum"]
       | null;
-    collectPaymentInvoiceId: string | null;
+    collectPaymentTargetInvoiceId: string | null;
   };
   overlay: {
     previousTotal: number | null;
