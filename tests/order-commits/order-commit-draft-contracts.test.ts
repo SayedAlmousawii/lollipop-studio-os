@@ -221,6 +221,18 @@ test("order commit draft staging change contract rejects invalid targets and cou
   );
 });
 
+test("add-on staging accepts order-level add-ons without parent scope", () => {
+  const valid = orderCommitDraftStagingChangeSchema.safeParse({
+    domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+    action: "ADD",
+    productId: "product-1",
+    quantity: 1,
+    draftOrderAddOnId: "draft:addon-1",
+  });
+
+  assert.equal(valid.success, true);
+});
+
 test("package item upgrade add requires a replacement product id", () => {
   const valid = orderCommitDraftStagingChangeSchema.safeParse({
     domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,

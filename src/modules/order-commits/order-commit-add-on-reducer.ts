@@ -37,7 +37,7 @@ export function reduceOrderCommitDraftAddOn(
   snapshot: OrderCommitSnapshotV1,
   input: ReduceOrderCommitDraftAddOnInput
 ): OrderCommitSnapshotV1 {
-  const parentPackage = resolveParentPackageLine(
+  const parentPackage = resolveOptionalParentPackageLine(
     snapshot,
     input.change.parentPackageTarget
   );
@@ -55,7 +55,7 @@ export function reduceOrderCommitDraftAddOn(
 function addCatalogAddOn(
   snapshot: OrderCommitSnapshotV1,
   change: AddOnStagingChange,
-  parentPackage: OrderCommitSnapshotLineV1,
+  parentPackage: OrderCommitSnapshotLineV1 | null,
   input: ReduceOrderCommitDraftAddOnInput
 ): OrderCommitSnapshotV1 {
   if (!change.productId) {
@@ -82,10 +82,11 @@ function addCatalogAddOn(
     );
   }
 
+  const parentOrderPackageId = parentPackage?.orderEntityId ?? null;
   const existingIndex = snapshot.lines.findIndex(
     (line) =>
       line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON &&
-      line.parentOrderPackageId === parentPackage.orderEntityId &&
+      line.parentOrderPackageId === parentOrderPackageId &&
       line.catalogEntityId === change.productId
   );
   if (existingIndex >= 0) {
@@ -117,7 +118,7 @@ function addCatalogAddOn(
     lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON,
     orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_ADD_ON,
     orderEntityId: change.draftOrderAddOnId,
-    parentOrderPackageId: parentPackage.orderEntityId,
+    parentOrderPackageId,
     catalogEntityId: resolvedProduct.productId,
     stableKey: `order-add-on:${change.draftOrderAddOnId}`,
     label: resolvedProduct.label,
@@ -146,7 +147,7 @@ function addCatalogAddOn(
 function updateAddOnQuantity(
   snapshot: OrderCommitSnapshotV1,
   change: AddOnStagingChange,
-  parentPackage: OrderCommitSnapshotLineV1
+  parentPackage: OrderCommitSnapshotLineV1 | null
 ): OrderCommitSnapshotV1 {
   if (!change.target) {
     throw new Error(
@@ -188,7 +189,7 @@ function updateAddOnQuantity(
 function removeAddOn(
   snapshot: OrderCommitSnapshotV1,
   change: AddOnStagingChange,
-  parentPackage: OrderCommitSnapshotLineV1
+  parentPackage: OrderCommitSnapshotLineV1 | null
 ): OrderCommitSnapshotV1 {
   if (!change.target) {
     throw new Error("OrderCommit add-on reducer failed: REMOVE requires a target.");
@@ -202,10 +203,11 @@ function removeAddOn(
   });
 }
 
-function resolveParentPackageLine(
+function resolveOptionalParentPackageLine(
   snapshot: OrderCommitSnapshotV1,
-  target: OrderCommitDraftLineTarget
-): OrderCommitSnapshotLineV1 {
+  target: OrderCommitDraftLineTarget | undefined
+): OrderCommitSnapshotLineV1 | null {
+  if (!target) return null;
   const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
     errorPrefix: "OrderCommit add-on reducer failed",
     targetDescription: "parent package",
@@ -221,7 +223,7 @@ function resolveParentPackageLine(
 function resolveMutableAddOnLine(
   snapshot: OrderCommitSnapshotV1,
   target: OrderCommitDraftLineTarget,
-  parentPackage: OrderCommitSnapshotLineV1
+  parentPackage: OrderCommitSnapshotLineV1 | null
 ): OrderCommitSnapshotLineV1 {
   const line = resolveOrderCommitDraftTargetLine(snapshot, target, {
     errorPrefix: "OrderCommit add-on reducer failed",
@@ -240,7 +242,7 @@ function resolveMutableAddOnLine(
       `OrderCommit add-on reducer failed: target ${line.lineId} is not a true add-on line.`
     );
   }
-  if (line.parentOrderPackageId !== parentPackage.orderEntityId) {
+  if (parentPackage && line.parentOrderPackageId !== parentPackage.orderEntityId) {
     throw new Error(
       `OrderCommit add-on reducer failed: target ${line.lineId} is not scoped to package ${parentPackage.orderEntityId}.`
     );

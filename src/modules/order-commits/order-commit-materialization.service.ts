@@ -314,6 +314,19 @@ function remapMaterializedSessionConfigurationLine(
   line: OrderCommitSnapshotLineV1,
   draftToOrderEntityMap: ReadonlyMap<string, string>
 ): OrderCommitSnapshotLineV1 {
+  if (line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON) {
+    const addOnId = materializedId(line.orderEntityId, draftToOrderEntityMap);
+    const metadata = { ...line.metadata };
+    delete metadata.draftOrderAddOnId;
+    return {
+      ...line,
+      lineId: `addon:${addOnId}`,
+      orderEntityId: addOnId,
+      stableKey: `order-add-on:${addOnId}`,
+      metadata,
+    };
+  }
+
   if (line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION) {
     const selectionId = materializedId(line.orderEntityId, draftToOrderEntityMap);
     const linkedMetadata = remapLinkedProductMetadata(

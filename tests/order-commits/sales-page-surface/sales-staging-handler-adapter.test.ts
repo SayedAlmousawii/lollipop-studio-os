@@ -146,24 +146,78 @@ test("unsupported package-item handler is blocked and does not stage", async () 
   assert.equal(calls.length, 0);
 });
 
-test("unsupported add-on handlers are blocked and do not stage", async () => {
-  const handlers = createOrderCommitSalesAddOnHandlers();
+test("add-on add handler stages an order-level add-on with exact version", async () => {
+  const calls: StageCall[] = [];
+  const handlers = createOrderCommitSalesAddOnHandlers({
+    orderId: "order-addon",
+    expectedVersion: 5,
+    stageSalesChangeAction: recordStage(calls),
+  });
 
-  const addResult = await handlers.addAddOn({
+  const result = await handlers.addAddOn({
     productId: "product-addon",
-    quantity: 1,
-  });
-  const removeResult = await handlers.removeAddOn({
-    addOnId: "order-addon-1",
+    quantity: 2,
   });
 
-  assert.equal(addResult.ok, false);
-  assert.match(addResult.ok ? "" : addResult.errors._global[0], /parent package scope/);
-  assert.equal(removeResult.ok, false);
-  assert.match(
-    removeResult.ok ? "" : removeResult.errors._global[0],
-    /parent package scope/
-  );
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(calls, [
+    {
+      orderId: "order-addon",
+      expectedVersion: 5,
+      change: {
+        domain: "ADD_ON",
+        action: "ADD",
+        productId: "product-addon",
+        quantity: 2,
+      },
+    },
+  ]);
+});
+
+test("add-on remove handler preserves remove-one quantity semantics", async () => {
+  const calls: StageCall[] = [];
+  const handlers = createOrderCommitSalesAddOnHandlers({
+    orderId: "order-addon",
+    expectedVersion: 6,
+    stageSalesChangeAction: recordStage(calls),
+  });
+
+  await handlers.removeAddOn({
+    addOnId: "order-addon-1",
+    currentQuantity: 3,
+  });
+  await handlers.removeAddOn({
+    addOnId: "order-addon-2",
+    currentQuantity: 1,
+  });
+
+  assert.deepEqual(calls, [
+    {
+      orderId: "order-addon",
+      expectedVersion: 6,
+      change: {
+        domain: "ADD_ON",
+        action: "UPDATE_QUANTITY",
+        target: {
+          stableKey: "order-add-on:order-addon-1",
+          orderEntityId: "order-addon-1",
+        },
+        quantity: 2,
+      },
+    },
+    {
+      orderId: "order-addon",
+      expectedVersion: 6,
+      change: {
+        domain: "ADD_ON",
+        action: "REMOVE",
+        target: {
+          stableKey: "order-add-on:order-addon-2",
+          orderEntityId: "order-addon-2",
+        },
+      },
+    },
+  ]);
 });
 
 test("adapter source does not import db, commit execution, or public AW naming", () => {

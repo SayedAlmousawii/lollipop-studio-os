@@ -80,6 +80,10 @@ function assertCatalogRowsMatchProjection(
     if (state) {
       assert.match(markup, new RegExp(`Added x${state.count}`));
       assert.match(markup, new RegExp(`value="${state.removalOrderAddOnId}"`));
+      assert.match(
+        markup,
+        new RegExp(`name="currentQuantity" value="${state.removalOrderAddOnQuantity}"`)
+      );
     }
   }
 
@@ -98,6 +102,10 @@ function assertCurrentRowsMatchProjection(
     assert.match(markup, new RegExp(escapeRegExp(`${addOn.unitAmount.toFixed(3)} KD`)));
     if (addOn.orderAddOnId) {
       assert.match(markup, new RegExp(`value="${addOn.orderAddOnId}"`));
+      assert.match(
+        markup,
+        new RegExp(`name="currentQuantity" value="${addOn.currentQuantity}"`)
+      );
     }
   }
 

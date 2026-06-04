@@ -65,6 +65,31 @@ test("adds a new catalog add-on line from resolved product data", () => {
   });
 });
 
+test("adds a new order-level catalog add-on line without parent scope", () => {
+  const snapshot = snapshotFixture({ lines: [packageLine()] });
+
+  const reduced = reduceOrderCommitDraftAddOn(snapshot, {
+    change: addOnChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+      action: "ADD",
+      productId: "product-order-addon",
+      quantity: 2,
+      draftOrderAddOnId: "draft:addon-order-level",
+    }),
+    resolvedProduct: {
+      productId: "product-order-addon",
+      label: "Order-Level Canvas",
+      unitPrice: 15,
+    },
+  });
+
+  const line = requireLine(reduced, "addon:draft:addon-order-level");
+  assert.equal(line.parentOrderPackageId, null);
+  assert.equal(line.catalogEntityId, "product-order-addon");
+  assert.equal(line.quantity, 2);
+  assert.equal(line.lineTotal, 30);
+});
+
 test("increments existing true add-ons by package scope and product", () => {
   const snapshot = snapshotFixture({
     lines: [
@@ -104,6 +129,42 @@ test("increments existing true add-ons by package scope and product", () => {
   );
 });
 
+test("increments existing order-level true add-ons by product", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      addOnLine({
+        orderEntityId: "addon-existing",
+        parentOrderPackageId: null,
+        productId: "product-addon",
+        quantity: 3,
+        unitPrice: 9,
+      }),
+    ],
+  });
+
+  const reduced = reduceOrderCommitDraftAddOn(snapshot, {
+    change: addOnChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+      action: "ADD",
+      productId: "product-addon",
+      quantity: 2,
+      draftOrderAddOnId: "draft:addon-new",
+    }),
+    resolvedProduct: {
+      productId: "product-addon",
+      label: "Merged label ignored",
+      unitPrice: 99,
+    },
+  });
+
+  const line = requireLine(reduced, "addon:addon-existing");
+  assert.equal(line.parentOrderPackageId, null);
+  assert.equal(line.quantity, 5);
+  assert.equal(line.unitPrice, 9);
+  assert.equal(line.lineTotal, 45);
+});
+
 test("updates add-on quantity exactly while preserving stored unit price", () => {
   const snapshot = snapshotFixture({
     lines: [
@@ -131,6 +192,45 @@ test("updates add-on quantity exactly while preserving stored unit price", () =>
   assert.equal(line.quantity, 4);
   assert.equal(line.unitPrice, 7.5);
   assert.equal(line.lineTotal, 30);
+});
+
+test("updates and removes order-level add-ons without parent scope", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      addOnLine({
+        orderEntityId: "addon-existing",
+        parentOrderPackageId: null,
+        productId: "product-addon",
+        quantity: 3,
+        unitPrice: 7.5,
+      }),
+    ],
+  });
+
+  const updated = reduceOrderCommitDraftAddOn(snapshot, {
+    change: addOnChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+      action: "UPDATE_QUANTITY",
+      target: { stableKey: "order-add-on:addon-existing" },
+      quantity: 2,
+    }),
+  });
+
+  assert.equal(requireLine(updated, "addon:addon-existing").quantity, 2);
+
+  const removed = reduceOrderCommitDraftAddOn(updated, {
+    change: addOnChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+      action: "REMOVE",
+      target: { orderEntityId: "addon-existing" },
+    }),
+  });
+
+  assert.equal(
+    removed.lines.some((line) => line.lineId === "addon:addon-existing"),
+    false
+  );
 });
 
 test("removes an add-on when updated to zero quantity", () => {
@@ -344,7 +444,10 @@ function addOnLine(
     productId: string;
   }
 ): OrderCommitSnapshotLineV1 {
-  const parentOrderPackageId = input.parentOrderPackageId ?? "order-package-1";
+  const parentOrderPackageId =
+    "parentOrderPackageId" in input
+      ? input.parentOrderPackageId ?? null
+      : "order-package-1";
   const quantity = input.quantity ?? 1;
   const unitPrice = input.unitPrice ?? 20;
   return {

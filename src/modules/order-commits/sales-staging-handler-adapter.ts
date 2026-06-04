@@ -81,20 +81,50 @@ export function createOrderCommitSalesCompositionHandlers({
   };
 }
 
-export function createOrderCommitSalesAddOnHandlers(): POSAddOnHandlers {
-  async function addAddOn(): Promise<HandlerResult> {
+export function createOrderCommitSalesAddOnHandlers({
+  orderId,
+  expectedVersion,
+  stageSalesChangeAction,
+}: OrderCommitSalesStagingHandlerInput): POSAddOnHandlers {
+  async function addAddOn(input: {
+    productId: string;
+    quantity: number;
+  }): Promise<HandlerResult> {
     "use server";
 
-    return unsupportedHandlerResult(
-      "Add-on staging needs parent package scope before it can be staged."
+    return handlerResultFromActionState(
+      await stageSalesChangeAction(orderId, expectedVersion, {
+        domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+        action: "ADD",
+        productId: input.productId,
+        quantity: input.quantity,
+      })
     );
   }
 
-  async function removeAddOn(): Promise<HandlerResult> {
+  async function removeAddOn(input: {
+    addOnId: string;
+    currentQuantity?: number;
+  }): Promise<HandlerResult> {
     "use server";
 
-    return unsupportedHandlerResult(
-      "Add-on removal staging needs parent package scope before it can be staged."
+    return handlerResultFromActionState(
+      await stageSalesChangeAction(
+        orderId,
+        expectedVersion,
+        input.currentQuantity !== undefined && input.currentQuantity > 1
+          ? {
+              domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+              action: "UPDATE_QUANTITY",
+              target: addOnTarget(input.addOnId),
+              quantity: input.currentQuantity - 1,
+            }
+          : {
+              domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+              action: "REMOVE",
+              target: addOnTarget(input.addOnId),
+            }
+      )
     );
   }
 
@@ -109,6 +139,13 @@ function packageTarget(orderPackageId: string): OrderCommitDraftLineTarget {
   return {
     stableKey: `order-package:${orderPackageId}`,
     orderEntityId: orderPackageId,
+  };
+}
+
+function addOnTarget(orderAddOnId: string): OrderCommitDraftLineTarget {
+  return {
+    stableKey: `order-add-on:${orderAddOnId}`,
+    orderEntityId: orderAddOnId,
   };
 }
 
