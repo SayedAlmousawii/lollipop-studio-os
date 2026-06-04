@@ -1,10 +1,18 @@
 import type { ActorContext } from "@/lib/auth/actor-context";
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
 import type { OrderCompositionViewModel } from "@/modules/orders/composition/order-composition.types";
-import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections/to-draft-pos-composition";
+import type {
+  DraftPOSCompositionProjection,
+  POSCompositionPackageItemProjection,
+} from "@/modules/orders/composition/projections/to-draft-pos-composition";
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import type { PackageWithItems } from "@/modules/packages/package.types";
 import type { OrderCommitDraftState } from "../order-commit.service";
 import type { OrderCommitPreview } from "../order-commit-preview.types";
+import {
+  ORDER_COMMIT_SNAPSHOT_LINE_KIND,
+} from "../order-commit.constants";
+import type { OrderCommitSnapshotV1 } from "../order-commit.types";
 import { toSalesPageComposition } from "./to-sales-page-composition";
 import { toSalesPageFinancialPreview } from "./to-sales-page-financial-preview";
 import { toSalesPageStagedChanges } from "./to-sales-page-staged-changes";
@@ -39,6 +47,7 @@ export type SalesPageViewLoaderDependencies = {
   getFinancialCaseSummary: (input: {
     orderId: string;
   }) => Promise<FinancialCaseSummary | null>;
+  getPackageWithItems: (id: string) => Promise<PackageWithItems | null>;
   hasPermission?: SalesPageHasPermission;
   permissions?: SalesPagePermissionNames;
 };
@@ -107,9 +116,16 @@ export async function getSalesPageView({
   const preview = draft
     ? await deps.getOrderCommitPreview({ orderId })
     : null;
+  const catalogPackageItemsByPackageId =
+    await loadCatalogPackageItemsByPackageId({
+      draftSnapshot: draft?.pendingSnapshot ?? null,
+      currentComposition,
+      dependencies: deps,
+    });
   const composition = toSalesPageComposition({
     draftSnapshot: draft?.pendingSnapshot ?? null,
     currentComposition,
+    catalogPackageItemsByPackageId,
   });
   const stagedChanges = toSalesPageStagedChanges({ preview });
   const financialPreview = toSalesPageFinancialPreview({
@@ -160,6 +176,7 @@ async function resolveReadDependencies(
     orderCommitService,
     previewService,
     financialCaseService,
+    packageService,
   ] = await Promise.all([
     import("@/modules/orders/order.service"),
     import("@/modules/orders/composition/order-composition.service"),
@@ -167,6 +184,7 @@ async function resolveReadDependencies(
     import("../order-commit.service"),
     import("../order-commit-preview.service"),
     import("@/modules/financial-cases/financial-case-summary.service"),
+    import("@/modules/packages/package.service"),
   ]);
 
   return {
@@ -187,6 +205,8 @@ async function resolveReadDependencies(
     getFinancialCaseSummary:
       dependencies?.getFinancialCaseSummary ??
       financialCaseService.getFinancialCaseSummary,
+    getPackageWithItems:
+      dependencies?.getPackageWithItems ?? packageService.getPackageWithItems,
     hasPermission: dependencies?.hasPermission,
     permissions: dependencies?.permissions,
   };
@@ -202,8 +222,70 @@ function hasReadDependencies(
       dependencies.toDraftPOSComposition &&
       dependencies.getOrderCommitDraft &&
       dependencies.getOrderCommitPreview &&
-      dependencies.getFinancialCaseSummary
+      dependencies.getFinancialCaseSummary &&
+      dependencies.getPackageWithItems
   );
+}
+
+async function loadCatalogPackageItemsByPackageId(input: {
+  draftSnapshot: OrderCommitSnapshotV1 | null;
+  currentComposition: DraftPOSCompositionProjection;
+  dependencies: SalesPageViewLoaderDependencies;
+}): Promise<ReadonlyMap<string, POSCompositionPackageItemProjection[]>> {
+  const packageIds = packageIdsForCatalogItemLookup({
+    draftSnapshot: input.draftSnapshot,
+    currentComposition: input.currentComposition,
+  });
+
+  const entries = await Promise.all(
+    [...packageIds].map(async (packageId) => {
+      const packageRow = await input.dependencies.getPackageWithItems(packageId);
+      return [packageId, mapCatalogPackageItems(packageRow)] as const;
+    })
+  );
+
+  return new Map(entries);
+}
+
+function packageIdsForCatalogItemLookup(input: {
+  draftSnapshot: OrderCommitSnapshotV1 | null;
+  currentComposition: DraftPOSCompositionProjection;
+}): Set<string> {
+  const packageIds = new Set<string>();
+
+  if (input.draftSnapshot) {
+    for (const line of input.draftSnapshot.lines) {
+      if (
+        line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE &&
+        line.catalogEntityId
+      ) {
+        packageIds.add(line.catalogEntityId);
+      }
+    }
+    return packageIds;
+  }
+
+  if (input.currentComposition.sourceState === "locked") {
+    for (const line of input.currentComposition.packageLines) {
+      packageIds.add(line.packageId);
+    }
+  }
+
+  return packageIds;
+}
+
+function mapCatalogPackageItems(
+  packageRow: PackageWithItems | null
+): POSCompositionPackageItemProjection[] {
+  return (packageRow?.items ?? []).map((item) => ({
+    id: item.id,
+    productId: item.productId,
+    productName: item.productName,
+    category: item.productCategory,
+    quantity: item.quantity,
+    unitAmount: item.priceSnapshotValue,
+    totalAmount: item.lineTotalValue,
+  }));
 }
 
 async function resolvePermissionHelpers(

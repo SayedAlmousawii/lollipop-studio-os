@@ -5,6 +5,7 @@ import {
   InvoiceType,
   OrderSelectionStatus,
   OrderStatus,
+  ProductCategory,
   UserRole,
 } from "@prisma/client";
 import {
@@ -23,6 +24,7 @@ import type { ActorContext } from "@/lib/auth/actor-context";
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
 import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections/to-draft-pos-composition";
 import type { POSWorkspace } from "@/modules/orders/order.types";
+import type { PackageWithItems } from "@/modules/packages/package.types";
 import type {
   OrderCommitDraftState,
 } from "@/modules/order-commits/order-commit.service";
@@ -91,6 +93,59 @@ test("loader composes with-draft view from pending snapshot and preview once", a
   assert.equal(view.financialPreview.overlay.pendingDelta, 22);
   assert.equal(view.financialPreview.overlay.pendingTotal, 122);
   assert.equal(view.permissions.canUpdateOrderFinancial, true);
+});
+
+test("loader fetches catalog items so active draft composition shows included deliverables", async () => {
+  const calls = callTracker();
+  const draft = draftState({
+    pendingSnapshot: snapshotFixture({
+      netTotal: 100,
+      lines: [
+        packageLine({
+          catalogEntityId: "package-basic",
+          label: "Basic Package",
+          lineTotal: 100,
+        }),
+      ],
+    }),
+  });
+  const dependencies = fakeDependencies({
+    calls,
+    draft,
+    catalogPackagesById: new Map([
+      [
+        "package-basic",
+        packageWithItemsFixture({
+          id: "package-basic",
+          items: [
+            packageCatalogItem({
+              id: "package-item-album",
+              productName: "Basic Album",
+            }),
+          ],
+        }),
+      ],
+    ]),
+  });
+
+  const view = await getSalesPageView({
+    orderId: "order-1",
+    actorContext: actorContext(),
+    dependencies,
+  });
+
+  assert.deepEqual(calls.catalogPackageIds, ["package-basic"]);
+  assert.equal(view.composition.source, "projected");
+  assert.equal(
+    view.composition.packageLines[0]?.packageItems[0]?.id,
+    "package-item-album"
+  );
+  assert.equal(
+    view.composition.packageLines[0]?.packageItems[0]?.productName,
+    "Basic Album"
+  );
+  assert.equal(view.composition.totals.netCompositionTotal, 100);
+  assert.equal(view.financialPreview.overlay.pendingDelta, 10);
 });
 
 test("loader projects no-draft ownership state", async () => {
@@ -240,6 +295,88 @@ test("loader selects locked composition helper from current invoice state", asyn
   assert.equal(view.isLocked, true);
 });
 
+test("loader restores catalog deliverables for locked FINAL current composition", async () => {
+  const calls = callTracker();
+  const dependencies = fakeDependencies({
+    calls,
+    workspace: workspaceFixture({
+      invoice: {
+        invoiceId: "invoice-final-1",
+        invoiceNumber: "INV-1",
+        invoiceType: InvoiceType.FINAL,
+        invoiceStatus: InvoiceStatus.CLOSED,
+        invoiceTotal: 100,
+        paidAmount: 100,
+        remainingAmount: 0,
+        isLocked: true,
+        issuedAt: null,
+        paidAt: null,
+        closedAt: null,
+        depositPaidAmount: 0,
+        depositInvoiceNumber: null,
+        renderMode: "COMPUTED",
+        lineItems: [],
+      },
+    }),
+    currentComposition: currentCompositionFixture({
+      sourceState: "locked",
+      packageLines: [
+        {
+          ...currentCompositionFixture().packageLines[0]!,
+          packageId: "package-basic",
+          packageItems: [],
+        },
+      ],
+    }),
+    draft: null,
+    financialCase: activeFinancialCase({
+      finalInvoice: {
+        id: "invoice-final-1",
+        invoiceNumber: "INV-1",
+        invoiceType: InvoiceType.FINAL,
+        total: 100,
+        remaining: 0,
+        status: InvoiceStatus.CLOSED,
+        isLocked: true,
+        depositPaidAmount: 0,
+      },
+      remaining: 0,
+    }),
+    catalogPackagesById: new Map([
+      [
+        "package-basic",
+        packageWithItemsFixture({
+          id: "package-basic",
+          items: [
+            packageCatalogItem({
+              id: "package-item-album",
+              productName: "Basic Album",
+              productCategory: ProductCategory.ALBUM,
+            }),
+          ],
+        }),
+      ],
+    ]),
+  });
+
+  const view = await getSalesPageView({
+    orderId: "order-1",
+    actorContext: actorContext(),
+    dependencies,
+  });
+
+  assert.equal(calls.lockedComposition, 1);
+  assert.deepEqual(calls.catalogPackageIds, ["package-basic"]);
+  assert.equal(view.isLocked, true);
+  assert.equal(view.composition.source, "current");
+  assert.equal(view.composition.packageLines[0]?.packageItems.length, 1);
+  assert.equal(
+    view.composition.packageLines[0]?.packageItems[0]?.productName,
+    "Basic Album"
+  );
+  assert.equal(view.composition.packageLines[0]?.packageItems[0]?.category, "ALBUM");
+});
+
 test("loader keeps SalesPageView fields bound to their canonical sources", async () => {
   const financialCase = activeFinancialCase({
     financialCaseId: "financial-case-source",
@@ -294,6 +431,7 @@ function fakeDependencies(input: {
   draft?: OrderCommitDraftState | null;
   preview?: OrderCommitPreview;
   financialCase?: FinancialCaseSummary;
+  catalogPackagesById?: ReadonlyMap<string, PackageWithItems>;
 } = {}): Partial<SalesPageViewLoaderDependencies> {
   const calls = input.calls ?? callTracker();
   return {
@@ -316,6 +454,10 @@ function fakeDependencies(input: {
     },
     getFinancialCaseSummary: async () =>
       input.financialCase ?? activeFinancialCase(),
+    getPackageWithItems: async (id) => {
+      calls.catalogPackageIds.push(id);
+      return input.catalogPackagesById?.get(id) ?? null;
+    },
     hasPermission: (actor, permission) => {
       if (permission === "order:read") return true;
       if (permission === "payment:create") {
@@ -340,6 +482,7 @@ function callTracker() {
     draftComposition: 0,
     lockedComposition: 0,
     lockedInvoiceId: null as string | null,
+    catalogPackageIds: [] as string[],
   };
 }
 
@@ -587,6 +730,56 @@ function previewFixture(
     },
     zeroNetReason: null,
     ...input,
+  };
+}
+
+function packageWithItemsFixture(
+  input: Partial<PackageWithItems> & {
+    id: string;
+    items: PackageWithItems["items"];
+  }
+): PackageWithItems {
+  return {
+    id: input.id,
+    name: input.name ?? "Package",
+    price: input.price ?? "100.000 KD",
+    priceValue: input.priceValue ?? 100,
+    photoCount: input.photoCount ?? 10,
+    durationMinutes: input.durationMinutes ?? 60,
+    description: input.description ?? "",
+    packageFamilyId: input.packageFamilyId ?? "family-1",
+    packageFamilyName: input.packageFamilyName ?? "Family",
+    sessionTypeId: input.sessionTypeId ?? "session-type-1",
+    sessionTypeName: input.sessionTypeName ?? "Portrait",
+    departmentId: input.departmentId ?? "department-1",
+    departmentName: input.departmentName ?? "Studio",
+    bundleAdjustment: input.bundleAdjustment ?? "0.000 KD",
+    bundleAdjustmentValue: input.bundleAdjustmentValue ?? 0,
+    bookingCount: input.bookingCount ?? 0,
+    orderCount: input.orderCount ?? 0,
+    activeReferenceCount: input.activeReferenceCount ?? 0,
+    totalReferenceCount: input.totalReferenceCount ?? 0,
+    deliverableSummary: input.deliverableSummary ?? "Album",
+    status: input.status ?? "Active",
+    isActive: input.isActive ?? true,
+    items: input.items,
+  };
+}
+
+function packageCatalogItem(
+  input: Partial<PackageWithItems["items"][number]> = {}
+): PackageWithItems["items"][number] {
+  return {
+    id: input.id ?? "package-item-album",
+    productId: input.productId ?? "product-album",
+    productName: input.productName ?? "Album",
+    productCategory: input.productCategory ?? ProductCategory.ALBUM,
+    quantity: input.quantity ?? 1,
+    priceSnapshot: input.priceSnapshot ?? "0.000 KD",
+    priceSnapshotValue: input.priceSnapshotValue ?? 0,
+    lineTotal: input.lineTotal ?? "0.000 KD",
+    lineTotalValue: input.lineTotalValue ?? 0,
+    sortOrder: input.sortOrder ?? 1,
   };
 }
 

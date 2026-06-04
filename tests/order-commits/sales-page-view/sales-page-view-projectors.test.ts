@@ -147,7 +147,7 @@ test("composition projector maps draft snapshot lines as projected source", () =
   assert.equal(projected.packageLines[0]?.extraPhotoTotal, 23);
   assert.equal(projected.packageLines[0]?.upgradeDelta, 25);
   assert.equal(projected.packageLines[0]?.packageSubtotal, 241);
-  assert.equal(projected.packageLines[0]?.packageItems[0]?.id, "draft:item-upgrade-1");
+  assert.equal(projected.packageLines[0]?.packageItems[0]?.id, "package-item-1");
   assert.equal(projected.addOns[0]?.orderAddOnId, "draft:addon-1");
   assert.equal(projected.sessionConfigurations[0]?.priceDelta, 7);
   assert.deepEqual(projected.totals, {
@@ -210,6 +210,217 @@ test("composition projector derives projected totals only from snapshot fields",
     sessionConfigurationTotal: 13.555,
     netCompositionTotal: 456.789,
   });
+});
+
+test("composition projector restores included deliverables for active drafts from catalog", () => {
+  const draftSnapshot = snapshotFixture({
+    lines: [
+      packageLine({
+        catalogEntityId: "package-basic",
+        lineTotal: 100,
+      }),
+    ],
+    netTotal: 100,
+  });
+
+  const projected = toSalesPageComposition({
+    draftSnapshot,
+    currentComposition: currentCompositionFixture({
+      packageLines: [
+        packageProjection({
+          packageId: "package-standard",
+          packageName: "Standard Package",
+          packageItems: [
+            packageItemProjection({
+              id: "standard-album",
+              productName: "Standard Album",
+            }),
+          ],
+        }),
+      ],
+    }),
+    catalogPackageItemsByPackageId: catalogPackageItemsByPackageId({
+      "package-basic": [
+        packageItemProjection({
+          id: "basic-album",
+          productId: "product-basic-album",
+          productName: "Basic Album",
+          unitAmount: 0,
+          totalAmount: 0,
+        }),
+      ],
+    }),
+  });
+
+  assert.equal(projected.source, "projected");
+  assert.deepEqual(projected.packageLines[0]?.packageItems, [
+    {
+      id: "basic-album",
+      productId: "product-basic-album",
+      productName: "Basic Album",
+      category: "Album",
+      quantity: 1,
+      unitAmount: 0,
+      totalAmount: 0,
+    },
+  ]);
+  assert.equal(projected.totals.netCompositionTotal, 100);
+  assert.equal(projected.totals.deliverablesTotal, 0);
+});
+
+test("composition projector restores Basic deliverables after Basic to Standard to Basic without discard", () => {
+  const restoredBasicDraft = snapshotFixture({
+    lines: [
+      packageLine({
+        catalogEntityId: "package-basic",
+        label: "Basic Package",
+        lineTotal: 100,
+        metadata: { includedPhotoCount: 10, selectedPhotoCount: 10 },
+      }),
+    ],
+    netTotal: 100,
+  });
+
+  const projected = toSalesPageComposition({
+    draftSnapshot: restoredBasicDraft,
+    currentComposition: currentCompositionFixture({
+      packageLines: [
+        packageProjection({
+          packageId: "package-standard",
+          packageName: "Standard Package",
+          packageItems: [
+            packageItemProjection({
+              id: "standard-album",
+              productName: "Standard Album",
+            }),
+          ],
+        }),
+      ],
+      totals: {
+        packageBaseTotal: 999,
+        packageUpgradeDeltaTotal: 999,
+        deliverablesTotal: 999,
+        addOnTotal: 999,
+        extraPhotoTotal: 999,
+        sessionConfigurationTotal: 999,
+        netCompositionTotal: 999,
+      },
+    }),
+    catalogPackageItemsByPackageId: catalogPackageItemsByPackageId({
+      "package-basic": [
+        packageItemProjection({
+          id: "basic-album",
+          productName: "Basic Album",
+        }),
+      ],
+      "package-standard": [
+        packageItemProjection({
+          id: "standard-album",
+          productName: "Standard Album",
+        }),
+      ],
+    }),
+  });
+  const stagedRows = toSalesPageStagedChanges({
+    preview: previewFixture({
+      netDelta: 0,
+      lineDiffs: [
+        lineDiff({
+          stableKey: "order-package:order-package-1",
+          changeKind: ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.UNCHANGED,
+          moneyDelta: 0,
+          baselineLabel: "Basic Package",
+          pendingLabel: "Basic Package",
+        }),
+      ],
+    }),
+  });
+
+  assert.equal(projected.packageLines[0]?.packageId, "package-basic");
+  assert.equal(projected.packageLines[0]?.packageItems[0]?.id, "basic-album");
+  assert.equal(projected.packageLines[0]?.packageItems[0]?.productName, "Basic Album");
+  assert.deepEqual(projected.totals, {
+    packageBaseTotal: 100,
+    packageUpgradeDeltaTotal: 0,
+    deliverablesTotal: 0,
+    addOnTotal: 0,
+    extraPhotoTotal: 0,
+    sessionConfigurationTotal: 0,
+    netCompositionTotal: 100,
+  });
+  assert.deepEqual(stagedRows, []);
+});
+
+test("composition projector overlays package item upgrades by packageItemId", () => {
+  const draftSnapshot = snapshotFixture({
+    lines: [
+      packageLine({
+        catalogEntityId: "package-basic",
+        lineTotal: 100,
+      }),
+      packageItemLine({
+        parentOrderPackageId: "order-package-1",
+        catalogEntityId: "package-item-album",
+        label: "Album to Premium Album",
+        quantity: 1,
+        unitPrice: 25,
+        lineTotal: 25,
+        metadata: {
+          packageItemId: "package-item-album",
+          categoryLabel: "Album",
+        },
+      }),
+    ],
+    netTotal: 125,
+  });
+
+  const projected = toSalesPageComposition({
+    draftSnapshot,
+    currentComposition: currentCompositionFixture(),
+    catalogPackageItemsByPackageId: catalogPackageItemsByPackageId({
+      "package-basic": [
+        packageItemProjection({
+          id: "package-item-album",
+          productId: "product-album",
+          productName: "Album",
+          unitAmount: 40,
+          totalAmount: 40,
+        }),
+        packageItemProjection({
+          id: "package-item-frame",
+          productId: "product-frame",
+          productName: "Frame",
+          category: "Frame",
+          unitAmount: 10,
+          totalAmount: 10,
+        }),
+      ],
+    }),
+  });
+
+  assert.deepEqual(projected.packageLines[0]?.packageItems, [
+    {
+      id: "package-item-album",
+      productId: "product-album",
+      productName: "Album to Premium Album",
+      category: "Album",
+      quantity: 1,
+      unitAmount: 65,
+      totalAmount: 65,
+    },
+    {
+      id: "package-item-frame",
+      productId: "product-frame",
+      productName: "Frame",
+      category: "Frame",
+      quantity: 1,
+      unitAmount: 10,
+      totalAmount: 10,
+    },
+  ]);
+  assert.equal(projected.packageLines[0]?.upgradeDelta, 25);
+  assert.equal(projected.totals.packageUpgradeDeltaTotal, 25);
+  assert.equal(projected.totals.netCompositionTotal, 125);
 });
 
 test("staged changes projector preserves diff deltas and presentational order", () => {
@@ -522,6 +733,59 @@ function currentCompositionFixture(
       netCompositionTotal,
     },
   };
+}
+
+function packageProjection(
+  input: Partial<DraftPOSCompositionProjection["packageLines"][number]> = {}
+): DraftPOSCompositionProjection["packageLines"][number] {
+  return {
+    id: input.id ?? "package:order-package-1",
+    orderPackageId: input.orderPackageId ?? "order-package-1",
+    packageId: input.packageId ?? "package-basic",
+    packageName: input.packageName ?? "Basic Package",
+    packagePrice: input.packagePrice ?? 100,
+    sessionTypeId: input.sessionTypeId ?? "session-type-1",
+    sessionTypeName: input.sessionTypeName ?? "Portrait",
+    includedPhotoCount: input.includedPhotoCount ?? 10,
+    selectedPhotoCount: input.selectedPhotoCount ?? 10,
+    extraDigitalCount: input.extraDigitalCount ?? 0,
+    extraPrintCount: input.extraPrintCount ?? 0,
+    extraPhotoCount: input.extraPhotoCount ?? 0,
+    extraDigitalUnitPrice: input.extraDigitalUnitPrice ?? 0,
+    extraPrintUnitPrice: input.extraPrintUnitPrice ?? 0,
+    extraPhotoTotal: input.extraPhotoTotal ?? 0,
+    packageSubtotal: input.packageSubtotal ?? 100,
+    upgradeDelta: input.upgradeDelta ?? 0,
+    packageItems: input.packageItems ?? [],
+  };
+}
+
+function packageItemProjection(
+  input: Partial<
+    DraftPOSCompositionProjection["packageLines"][number]["packageItems"][number]
+  > = {}
+): DraftPOSCompositionProjection["packageLines"][number]["packageItems"][number] {
+  return {
+    id: input.id ?? "package-item-album",
+    productId: input.productId ?? "product-album",
+    productName: input.productName ?? "Album",
+    category: input.category ?? "Album",
+    quantity: input.quantity ?? 1,
+    unitAmount: input.unitAmount ?? 40,
+    totalAmount: input.totalAmount ?? 40,
+  };
+}
+
+function catalogPackageItemsByPackageId(
+  input: Record<
+    string,
+    DraftPOSCompositionProjection["packageLines"][number]["packageItems"]
+  >
+): ReadonlyMap<
+  string,
+  DraftPOSCompositionProjection["packageLines"][number]["packageItems"]
+> {
+  return new Map(Object.entries(input));
 }
 
 function snapshotFixture(input: {

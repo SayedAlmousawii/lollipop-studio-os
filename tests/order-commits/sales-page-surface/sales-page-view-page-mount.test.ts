@@ -23,6 +23,10 @@ const orderCommitReviewDialogSource = readFileSync(
   "src/components/orders/order-commit-review-dialog.tsx",
   "utf8"
 );
+const posPackageCompositionSource = readFileSync(
+  "src/components/orders/pos-package-composition.tsx",
+  "utf8"
+);
 const salesViewSource = pageSource.slice(
   pageSource.indexOf("const salesPageView = await getSalesPageView")
 );
@@ -138,6 +142,16 @@ test("Sales page mounts staged commit controls for locked and unlocked orders", 
   );
   assert.match(salesViewSource, /ownership=\{salesPageView\.ownership\}/);
   assert.doesNotMatch(pageSource, /commitSalesChangesAction/);
+});
+
+test("Sales package item rows render deliverable cards with upgrade dialog", () => {
+  assert.match(
+    posPackageCompositionSource,
+    /line\.packageItems\.map\(\(item\) => \(\s*<DeliverableCard/
+  );
+  assert.match(posPackageCompositionSource, /function DeliverableCard/);
+  assert.match(posPackageCompositionSource, /<ItemUpgradeDialog/);
+  assert.match(posPackageCompositionSource, /handlers\.upgradePackageItem/);
 });
 
 test("Sales page mounts OrderCommit financial sidebar only", () => {
