@@ -763,6 +763,54 @@ test("package-only staging normalizes selected photos when new included count in
   );
 });
 
+test("staging removes a committed order-level add-on through a later draft", async () => {
+  const initialSnapshot = snapshotFixture({
+    lines: [
+      packageLine({
+        orderEntityId: "op-order-1",
+        stableKey: "order-package:op-order-1",
+        lineId: "package:op-order-1",
+      }),
+      addOnLine({
+        orderEntityId: "addon-order-level",
+        parentOrderPackageId: null,
+        catalogEntityId: "product-canvas",
+      }),
+    ],
+  });
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: initialSnapshot,
+      }),
+    ],
+  });
+
+  const staged = await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+      action: "REMOVE",
+      target: {
+        stableKey: "order-add-on:addon-order-level",
+        orderEntityId: "addon-order-level",
+      },
+    },
+    expectedVersion: 0,
+    actorContext: ownerActor,
+    client: client.draftRoot,
+  });
+
+  assert.equal(
+    staged.pendingSnapshot.lines.some(
+      (line) => line.orderEntityId === "addon-order-level"
+    ),
+    false
+  );
+  assert.deepEqual(client.drafts[0]?.pendingSnapshotJson, staged.pendingSnapshot);
+});
+
 test("stale and non-owner staging attempts leave draft state unchanged", async () => {
   const initialSnapshot = serviceSnapshotFixture();
   const client = fakeOrderCommitClient({
@@ -1078,6 +1126,7 @@ function packageLine(
 function addOnLine(
   input: Partial<{
     orderEntityId: string;
+    parentOrderPackageId: string | null;
     catalogEntityId: string;
     quantity: number;
     unitPrice: number;
@@ -1091,7 +1140,10 @@ function addOnLine(
     lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON,
     orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_ADD_ON,
     orderEntityId,
-    parentOrderPackageId: "order-package-1",
+    parentOrderPackageId:
+      "parentOrderPackageId" in input
+        ? input.parentOrderPackageId ?? null
+        : "order-package-1",
     catalogEntityId: input.catalogEntityId ?? "product-existing",
     stableKey: `order-add-on:${orderEntityId}`,
     label: "Existing Add-On",

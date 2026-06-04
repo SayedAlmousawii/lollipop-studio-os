@@ -825,7 +825,7 @@ Codex GPT-5.5 High.
 
 ## Phase 5.5 - Full Domain Staging Coverage
 
-**Status: Planned. Specs 135–138 drafted 2026-06-04 from the blocked-workflow investigation (`/tmp/pos-domain-blocked-workflows-investigation.md`).**
+**Status: Complete for Sales domain coverage. Specs 135–138 drafted 2026-06-04 from the blocked-workflow investigation (`/tmp/pos-domain-blocked-workflows-investigation.md`); Specs 136–138 now cover package-item upgrade, session-configuration, and order-level add-on staging on the Sales surface.**
 
 ### Objective
 
@@ -863,9 +863,9 @@ Numbering is sequential from the next available sequence (135) and matches depen
 
 #### Spec 138 — Sales order-level add-on staging (A + quantity)
 
-- Makes `parentPackageTarget` optional in the `ADD_ON` staging change and teaches the reducer to stage order-level add-on lines (`parentOrderPackageId = null`); wires the marketplace `addAddOn` / `removeAddOn` handlers.
+- **Complete.** Makes `parentPackageTarget` optional in the `ADD_ON` staging change and teaches the reducer to stage order-level add-on lines (`parentOrderPackageId = null`); wires the marketplace `addAddOn` / `removeAddOn` handlers.
 - The only spec with a schema + reducer change. Sequenced **after** Spec 137 so linked-product (D) staging lands first and de-risks the shared `OrderAddOn` table. Also closes an existing gap: previously committed order-level add-ons become removable through staging.
-- Does not force package-scoped marketplace add-ons; does not migrate existing null-package rows.
+- Does not force package-scoped marketplace add-ons; does not migrate existing null-package rows. Newly committed staged add-ons remap draft ids to materialized `OrderAddOn.id` before `OrderCommit.snapshotJson` persistence, and Remove One preserves legacy decrement behavior.
 
 ### Dependencies within Phase 5.5
 
@@ -884,7 +884,7 @@ Numbering is sequential from the next available sequence (135) and matches depen
 
 ### Phase 6 implications
 
-- Phase 6 cannot delete AW until Phase 5.5 lands: today AW is still the only OrderCommit-independent path for financial session-configuration edits and for package-scoped add-on/item-upgrade edits. After Specs 136–138, every Sales-surface domain stages through OrderCommit and AW has no remaining capability.
+- Phase 6 can now proceed with domain coverage complete: every Sales-surface domain stages through OrderCommit, and AW has no remaining Sales capability.
 - Phase 6 gains additional deletion targets once 137 lands: the AW session-configuration deep-link, `applySessionConfigurationWorkspaceEditAction`, and (once no caller remains) the legacy `configureSessionAction` / `writeOrderPackageSelections` live-write path.
 - The Spec 135 hotfix guard on `writeOrderPackageSelections` is removed in Phase 6 alongside the other legacy direct-mutator guards.
 

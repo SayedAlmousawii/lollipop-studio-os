@@ -30,7 +30,8 @@ This is the only spec in the domain-completion set that changes the staging sche
 - **Package-scoped capability stays available** (some callers may pass `parentPackageTarget`), but the marketplace path passes none. Keep the reducer able to stage both; only relax the *requirement*.
 - **Linked-product (D) add-ons remain untouched.** The reducer must still reject mutation of `LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON` lines via the add-on reducer (`resolveMutableAddOnLine`), and the schema must still reject a `draft:` `orderAddOnId` on linked products. Order-level true add-ons (`ADD_ON` line kind) are a distinct concern.
 - Identity for order-level lines: a staged order-level add-on uses a service-assigned `draftOrderAddOnId` (as today) and `parentOrderPackageId = null`. Existing-line merge for ADD matches by (`parentOrderPackageId === null`, `catalogEntityId === productId`). Update/remove resolves the target line by id without requiring a package-parent match, after asserting the line is a true `ADD_ON` (not linked).
-- The adapter is a thin mapper: `addAddOn({productId, quantity})` → `ADD_ON` ADD with no `parentPackageTarget`; `removeAddOn({addOnId})` → `ADD_ON` REMOVE with `target` = the add-on id. Exact `expectedVersion` forwarding, like the package/photo handlers.
+- Cross-domain committed identity invariant from Spec 137: when a newly staged order-level add-on is committed, persisted `OrderCommit.snapshotJson` must use the materialized `OrderAddOn.id` in the true `ADD_ON` line identity (`orderEntityId`, `lineId`, `stableKey`) and must not retain draft-only add-on ids. After commit, a later draft must be able to update/remove that same add-on by the materialized id.
+- The adapter is a thin mapper: `addAddOn({productId, quantity})` → `ADD_ON` ADD with no `parentPackageTarget`; `removeAddOn({addOnId, currentQuantity?})` preserves legacy "Remove One" semantics by staging `UPDATE_QUANTITY` to `currentQuantity - 1` when the current quantity is greater than one, otherwise staging `REMOVE` with `target` = the add-on id. Exact `expectedVersion` forwarding, like the package/photo handlers.
 - No business logic, pricing, or approval in the adapter. The staging service prices the product.
 - No `@/lib/db` imports in the adapter. No Adjustment Workspace naming.
 
@@ -44,13 +45,14 @@ This is the only spec in the domain-completion set that changes the staging sche
   - Update the existing-line match in `addCatalogAddOn` to match order-level lines by (`parentOrderPackageId === null`, `catalogEntityId === productId`) and package-scoped lines by the package id as today.
   - Update `resolveMutableAddOnLine` so that, with no `parentPackageTarget`, it resolves the target line by id and asserts it is a true `ADD_ON` line (still rejecting `LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON`), without the package-scope equality check; with a `parentPackageTarget`, keep the existing package-scope assertion.
   - Preserve normalization, stored unit-price preservation on quantity updates, and zero-quantity removal behavior.
-- **Adapter (`sales-staging-handler-adapter.ts`):** replace the blocked `addAddOn` / `removeAddOn` stubs in `createOrderCommitSalesAddOnHandlers` with real mappings to `ADD_ON` ADD / REMOVE changes (no `parentPackageTarget`), forwarding through an injected `stageSalesChangeAction` with exact `expectedVersion`. Wire `stageSalesChangeAction` and `expectedVersion` into `createOrderCommitSalesAddOnHandlers` (it currently takes no args); update the Sales page mount accordingly.
+- **Adapter (`sales-staging-handler-adapter.ts`):** replace the blocked `addAddOn` / `removeAddOn` stubs in `createOrderCommitSalesAddOnHandlers` with real mappings to `ADD_ON` ADD / UPDATE_QUANTITY / REMOVE changes (no `parentPackageTarget`), forwarding through an injected `stageSalesChangeAction` with exact `expectedVersion`. Wire `stageSalesChangeAction` and `expectedVersion` into `createOrderCommitSalesAddOnHandlers` (it currently takes no args); update the Sales page mount accordingly.
 - **Bonus fix coverage:** an already-committed order-level add-on (null parent, captured in baseline) can now be staged for removal.
+- **Committed snapshot identity coverage:** committing a newly staged order-level add-on remaps its draft id to the materialized `OrderAddOn.id` before writing `OrderCommit.snapshotJson`; no `draftOrderAddOnId`, `addon:draft:*`, or `order-add-on:draft:*` identity survives for materialized true add-ons.
 - Tests under `tests/order-commits/` and `tests/order-commits/sales-page-surface/`:
   - Reducer: order-level ADD creates a line with `parentOrderPackageId = null`; repeated ADD of the same product increments the same order-level line; UPDATE_QUANTITY and REMOVE resolve an order-level line by id; package-scoped ADD still works; linked-product lines are still rejected by the add-on reducer.
   - Schema: an `ADD_ON` change without `parentPackageTarget` validates; linked-product `draft:` `orderAddOnId` still rejected.
   - Adapter: `addAddOn` forwards an order-level ADD with exact `expectedVersion`; `removeAddOn` forwards a REMOVE targeting the add-on id; error/blocked states map to non-ok `HandlerResult`.
-  - Integration: stage an order-level add-on, preview shows it, commit materializes an `OrderAddOn` with `orderPackageId = null`; remove a previously committed order-level add-on through staging.
+  - Integration: stage an order-level add-on, preview shows it, commit materializes an `OrderAddOn` with `orderPackageId = null`, persisted `snapshotJson` uses the materialized id, and a later draft can remove the committed order-level add-on through staging.
 - Wire new tests into `scripts/run-centralization-tests.ts`.
 - Update `context/progress-tracker.md`.
 
@@ -107,7 +109,7 @@ async function removeAddOn(input: { addOnId: string }) {
 }
 ```
 
-`addOnTarget` builds an `OrderCommitDraftLineTarget` resolving the committed add-on by id (use `orderEntityId`/`stableKey` consistent with how `addOnLine` capture sets `stableKey: order-add-on:{id}`). Update `app/orders/[orderId]/sales/page.tsx` to pass `orderId`, `expectedVersion`, and `stageSalesChangeAction` into `createOrderCommitSalesAddOnHandlers`.
+`addOnTarget` builds an `OrderCommitDraftLineTarget` resolving the committed add-on by id (use `orderEntityId`/`stableKey` consistent with how `addOnLine` capture sets `stableKey: order-add-on:{id}`). The marketplace projection/form passes optional current row quantity so `removeAddOn` can decrement when quantity is greater than one and delete only at one. Update `app/orders/[orderId]/sales/page.tsx` to pass `orderId`, `expectedVersion`, and `stageSalesChangeAction` into `createOrderCommitSalesAddOnHandlers`.
 
 ### Task 4 — Tests + tracker
 
@@ -139,7 +141,7 @@ Add the reducer, schema, adapter, and integration tests in Scope; wire into the 
 - Package-scoped add-on staging still works; linked-product (D) add-ons are still rejected by the add-on reducer and the `draft:` `orderAddOnId` rule still holds.
 - The marketplace `addAddOn` / `removeAddOn` handlers stage through OrderCommit with exact `expectedVersion`; they no longer return unsupported.
 - A previously committed order-level add-on can be removed through staging.
-- Committing a staged order-level add-on materializes an `OrderAddOn` with `orderPackageId = null`.
+- Committing a staged order-level add-on materializes an `OrderAddOn` with `orderPackageId = null`, persists the materialized `OrderAddOn.id` in `OrderCommit.snapshotJson`, and leaves no draft-only add-on ids in the committed true `ADD_ON` snapshot line.
 - No materializer, linked-product, session-configuration, or financial behavior changed; no data migration.
 - New tests wired into `test:centralization`.
 - `npm run test:centralization` passes.
@@ -147,8 +149,8 @@ Add the reducer, schema, adapter, and integration tests in Scope; wire into the 
 - `npm run build` passes.
 - `npm run lint` passes.
 
-## Open Questions (resolve before implementation)
+## Resolved Decisions
 
-1. **"Remove One" with quantity > 1:** The marketplace "Add Another" increments a single order-level line's quantity; "Remove One" currently maps to the add-on id. Should `removeAddOn` decrement (UPDATE_QUANTITY to qty−1) or delete the whole line (REMOVE)? Match current legacy behavior; if legacy deletes the row, REMOVE is correct, otherwise wire UPDATE_QUANTITY. Confirm against `removeOrderAddOn` semantics before implementation.
-2. **`changeAddOnQuantity`:** No UI control exists today. Confirm it stays deferred, or add a minimal quantity control + wire the optional handler (`UPDATE_QUANTITY`) in this spec.
-3. **Target shape for remove:** Confirm the canonical target field for resolving a committed order-level add-on (`stableKey: order-add-on:{id}` vs `orderEntityId`) so the adapter builds a target the resolver accepts on the first try.
+1. **"Remove One" with quantity > 1:** preserve legacy behavior. The marketplace passes optional current row quantity; Sales stages `UPDATE_QUANTITY` to quantity minus one when quantity is greater than one, otherwise `REMOVE`.
+2. **`changeAddOnQuantity`:** stays deferred. No quantity editor is introduced in this spec.
+3. **Target shape for remove:** use both `stableKey: order-add-on:{id}` and `orderEntityId: {id}` so the strict target resolver can resolve committed add-ons consistently with snapshot capture.

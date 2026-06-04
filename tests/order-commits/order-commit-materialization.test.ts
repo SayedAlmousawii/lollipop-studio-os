@@ -196,6 +196,45 @@ test("materializes package, add-on, item-upgrade, photo, session, and linked-pro
   );
 });
 
+test("materializes order-level add-ons without package ownership", async () => {
+  const state = materializationState();
+  const client = fakeMaterializationClient(state);
+  const pendingSnapshot = normalizeOrderCommitSnapshot({
+    ...snapshotFromState(state),
+    lines: [
+      packageLine({}),
+      addOnLine({
+        orderEntityId: "draft:addon-order-level",
+        parentOrderPackageId: null,
+        productId: "product-canvas",
+        label: "Canvas",
+        quantity: 2,
+        unitPrice: 35,
+      }),
+    ],
+  });
+
+  const result = await materializeOrderCommitDraftIntoOrderRows({
+    orderId: state.order.id,
+    pendingSnapshot,
+    actorContext,
+    client,
+  });
+
+  const createdAddOnId = result.draftToOrderEntityMap.get(
+    "draft:addon-order-level"
+  );
+  assert.ok(createdAddOnId);
+  assert.equal(
+    state.addOns.find((addOn) => addOn.id === createdAddOnId)?.orderPackageId,
+    null
+  );
+  const createOperation = state.operations.find(
+    (operation) => operation.model === "orderAddOn" && operation.action === "create"
+  );
+  assert.doesNotMatch(JSON.stringify(createOperation?.data), /orderPackage/);
+});
+
 test("rejects unsupported package membership before any writes", async () => {
   const state = materializationState();
   const client = fakeMaterializationClient(state);
@@ -619,6 +658,7 @@ function packageLine(input: {
 
 function addOnLine(input: {
   orderEntityId: string;
+  parentOrderPackageId?: string | null;
   productId: string;
   label: string;
   quantity: number;
@@ -630,7 +670,10 @@ function addOnLine(input: {
     lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON,
     orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_ADD_ON,
     orderEntityId: input.orderEntityId,
-    parentOrderPackageId: "package-line-1",
+    parentOrderPackageId:
+      "parentOrderPackageId" in input
+        ? input.parentOrderPackageId ?? null
+        : "package-line-1",
     catalogEntityId: input.productId,
     stableKey: `order-add-on:${input.orderEntityId}`,
     label: input.label,

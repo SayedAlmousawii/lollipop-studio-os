@@ -46,7 +46,10 @@ export type POSAddOnHandlers = {
     productId: string;
     quantity: number;
   }) => Promise<HandlerResult>;
-  removeAddOn: (input: { addOnId: string }) => Promise<HandlerResult>;
+  removeAddOn: (input: {
+    addOnId: string;
+    currentQuantity?: number;
+  }) => Promise<HandlerResult>;
   changeAddOnQuantity?: (input: {
     addOnId: string;
     quantity: number;

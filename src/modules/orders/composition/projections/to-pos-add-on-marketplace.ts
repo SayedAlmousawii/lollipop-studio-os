@@ -8,6 +8,7 @@ export type POSAddOnMarketplaceCurrentAddOnProjection = {
   orderAddOnId: string | null;
   productId: string | null;
   name: string;
+  currentQuantity: number;
   unitAmount: number;
 };
 
@@ -15,6 +16,7 @@ export type POSAddOnMarketplaceProductStateProjection = {
   productId: string;
   count: number;
   removalOrderAddOnId: string | null;
+  removalOrderAddOnQuantity: number | null;
 };
 
 export type POSAddOnMarketplaceProjection = {
@@ -38,9 +40,13 @@ export function toPOSAddOnMarketplace(
       productId: addOn.productId,
       count: 0,
       removalOrderAddOnId: addOn.orderAddOnId,
+      removalOrderAddOnQuantity: addOn.orderAddOnId ? addOn.currentQuantity : null,
     };
     state.count += 1;
-    state.removalOrderAddOnId ??= addOn.orderAddOnId;
+    if (!state.removalOrderAddOnId && addOn.orderAddOnId) {
+      state.removalOrderAddOnId = addOn.orderAddOnId;
+      state.removalOrderAddOnQuantity = addOn.currentQuantity;
+    }
     stateByProductId.set(addOn.productId, state);
   }
 
@@ -62,6 +68,7 @@ function projectCurrentAddOnRows(
     orderAddOnId: addOn.orderAddOnId,
     productId: addOn.productId,
     name: addOn.name,
+    currentQuantity: quantity,
     unitAmount: addOn.unitAmount,
   }));
 }

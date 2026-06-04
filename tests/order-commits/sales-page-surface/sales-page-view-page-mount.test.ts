@@ -77,7 +77,7 @@ test("Sales page uses OrderCommit staging handlers for all invoice states", () =
     /expectedVersion:\s*salesPageView\.draft\?\.version \?\? 0/
   );
   assert.match(salesViewSource, /stageSalesChangeAction/);
-  assert.match(salesViewSource, /createOrderCommitSalesAddOnHandlers\(\)/);
+  assert.match(salesViewSource, /createOrderCommitSalesAddOnHandlers\(\{/);
   assert.doesNotMatch(salesViewSource, /createPOSCompositionHandlers/);
   assert.doesNotMatch(salesViewSource, /createPOSAddOnHandlers/);
   assert.doesNotMatch(salesViewSource, /callPOSServerAction/);

@@ -82,7 +82,11 @@ export default async function SalesPage(
     expectedVersion: salesPageView.draft?.version ?? 0,
     stageSalesChangeAction,
   });
-  const addOnHandlers = createOrderCommitSalesAddOnHandlers();
+  const addOnHandlers = createOrderCommitSalesAddOnHandlers({
+    orderId,
+    expectedVersion: salesPageView.draft?.version ?? 0,
+    stageSalesChangeAction,
+  });
 
   return (
     <div className={styles.salesGrid}>

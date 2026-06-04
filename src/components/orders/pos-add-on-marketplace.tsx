@@ -224,6 +224,7 @@ function CatalogCard({
 }) {
   const added = Boolean(productState);
   const removalOrderAddOnId = productState?.removalOrderAddOnId ?? null;
+  const removalOrderAddOnQuantity = productState?.removalOrderAddOnQuantity ?? null;
   const [addState, addAction] = useHandlerAction(
     handlers.addAddOn,
     (formData) => ({
@@ -235,6 +236,7 @@ function CatalogCard({
     handlers.removeAddOn,
     (formData) => ({
       addOnId: formDataString(formData, "addOnId"),
+      currentQuantity: optionalFormDataInteger(formData, "currentQuantity"),
     })
   );
 
@@ -265,6 +267,13 @@ function CatalogCard({
           <>
             <form action={removeAction} className="space-y-2">
               <input type="hidden" name="addOnId" value={removalOrderAddOnId} />
+              {removalOrderAddOnQuantity !== null ? (
+                <input
+                  type="hidden"
+                  name="currentQuantity"
+                  value={removalOrderAddOnQuantity}
+                />
+              ) : null}
               <SubmitButton
                 label="Remove One"
                 variant="ghost"
@@ -278,7 +287,17 @@ function CatalogCard({
                 orderId={orderId}
                 action="remove-add-on"
                 approval={removeState.payload}
-                hiddenFields={[{ name: "addOnId", value: removalOrderAddOnId }]}
+                hiddenFields={[
+                  { name: "addOnId", value: removalOrderAddOnId },
+                  ...(removalOrderAddOnQuantity !== null
+                    ? [
+                        {
+                          name: "currentQuantity",
+                          value: String(removalOrderAddOnQuantity),
+                        },
+                      ]
+                    : []),
+                ]}
               />
             ) : null}
           </>
@@ -338,6 +357,7 @@ function CurrentAddOnRow({
     handlers.removeAddOn,
     (formData) => ({
       addOnId: formDataString(formData, "addOnId"),
+      currentQuantity: optionalFormDataInteger(formData, "currentQuantity"),
     })
   );
 
@@ -355,6 +375,11 @@ function CurrentAddOnRow({
           <>
             <form action={formAction} className="space-y-2">
               <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
+              <input
+                type="hidden"
+                name="currentQuantity"
+                value={addOn.currentQuantity}
+              />
               <SubmitIconButton disabled={!removePolicy.isInteractive} />
             </form>
             {handlers.shouldPromptInlineApproval ? (
@@ -362,7 +387,13 @@ function CurrentAddOnRow({
                 orderId={orderId}
                 action="remove-add-on"
                 approval={state.payload}
-                hiddenFields={[{ name: "addOnId", value: addOn.orderAddOnId }]}
+                hiddenFields={[
+                  { name: "addOnId", value: addOn.orderAddOnId },
+                  {
+                    name: "currentQuantity",
+                    value: String(addOn.currentQuantity),
+                  },
+                ]}
               />
             ) : null}
           </>
@@ -417,6 +448,17 @@ function handlerErrorResult(error: unknown): HandlerResult {
 function formDataString(formData: FormData, field: string): string {
   const value = formData.get(field);
   return typeof value === "string" ? value : "";
+}
+
+function optionalFormDataInteger(
+  formData: FormData,
+  field: string
+): number | undefined {
+  const value = formDataString(formData, field);
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return undefined;
+  return parsed;
 }
 
 function PolicyNotice({ policy }: { policy: OrderEditModePolicy }) {

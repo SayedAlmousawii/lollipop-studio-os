@@ -287,6 +287,44 @@ test("commitOrderChanges persists linked-product session configuration ids befor
   assert.equal("draftOrderAddOnId" in (linkedLine?.metadata ?? {}), false);
 });
 
+test("commitOrderChanges persists materialized order-level add-on ids before snapshotJson", async () => {
+  const harness = fakeExecutionHarness({
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 100,
+      extraLines: [
+        addOnLine({
+          addOnId: "draft:order-add-on-canvas",
+          productId: "product-canvas",
+          unitPrice: 0,
+        }),
+      ],
+    }),
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 2,
+    actorContext,
+    client: harness.client,
+  });
+
+  const committedSnapshot = harness.calls.orderCommitCreates[0]?.data
+    .snapshotJson as OrderCommitSnapshotV1;
+  const committedAddOnLine = committedSnapshot.lines.find(
+    (line) => line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON
+  );
+  assert.equal(committedAddOnLine?.orderEntityId, "addon-1");
+  assert.equal(committedAddOnLine?.lineId, "addon:addon-1");
+  assert.equal(committedAddOnLine?.stableKey, "order-add-on:addon-1");
+  assert.equal(committedAddOnLine?.parentOrderPackageId, null);
+  assert.equal("draftOrderAddOnId" in (committedAddOnLine?.metadata ?? {}), false);
+  assert.doesNotMatch(JSON.stringify(committedSnapshot), /draft:order-add-on-canvas/);
+});
+
 test("commitOrderChanges rebuilds unlocked FINAL without document links", async () => {
   const harness = fakeExecutionHarness({
     finalInvoice: { id: "final-invoice-1", isLocked: false },
@@ -1169,6 +1207,34 @@ function sessionConfigurationLine(input: {
       snapshotPriceDelta: input.priceDelta,
       snapshotPricingMode:
         input.pricingMode ?? SessionConfigurationPricingMode.FIXED,
+    },
+  };
+}
+
+function addOnLine(input: {
+  addOnId: string;
+  productId: string;
+  unitPrice?: number;
+  quantity?: number;
+}): OrderCommitSnapshotV1["lines"][number] {
+  const unitPrice = input.unitPrice ?? 20;
+  const quantity = input.quantity ?? 1;
+  return {
+    lineId: `addon:${input.addOnId}`,
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON,
+    orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_ADD_ON,
+    orderEntityId: input.addOnId,
+    parentOrderPackageId: null,
+    catalogEntityId: input.productId,
+    stableKey: `order-add-on:${input.addOnId}`,
+    label: "Canvas",
+    quantity,
+    unitPrice,
+    lineTotal: Number((unitPrice * quantity).toFixed(3)),
+    priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
+    metadata: {
+      draftOrderAddOnId: input.addOnId,
+      productId: input.productId,
     },
   };
 }

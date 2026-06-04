@@ -78,7 +78,7 @@ const orderCommitDraftAddOnStagingChangeSchema = z
     domain: z.literal(ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON),
     action: z.enum(["ADD", "UPDATE_QUANTITY", "REMOVE"]),
     target: optionalLineTargetSchema,
-    parentPackageTarget: orderCommitDraftLineTargetSchema,
+    parentPackageTarget: orderCommitDraftLineTargetSchema.optional(),
     productId: z.string().min(1).optional(),
     quantity: nonnegativeIntegerSchema.optional(),
     draftOrderAddOnId: z.string().min(1).startsWith("draft:").optional(),
