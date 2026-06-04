@@ -1,4 +1,8 @@
-import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections/to-draft-pos-composition";
+import type {
+  DraftPOSCompositionProjection,
+  POSCompositionPackageItemProjection,
+  POSCompositionPackageLineProjection,
+} from "@/modules/orders/composition/projections/to-draft-pos-composition";
 import {
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
 } from "../order-commit.constants";
@@ -11,14 +15,26 @@ import type { SalesPageComposition } from "./sales-page-view.types";
 export type ToSalesPageCompositionInput = {
   draftSnapshot: OrderCommitSnapshotV1 | null;
   currentComposition: DraftPOSCompositionProjection;
+  catalogPackageItemsByPackageId?: ReadonlyMap<
+    string,
+    POSCompositionPackageItemProjection[]
+  >;
 };
 
 export function toSalesPageComposition({
   draftSnapshot,
   currentComposition,
+  catalogPackageItemsByPackageId,
 }: ToSalesPageCompositionInput): SalesPageComposition {
   if (!draftSnapshot) {
-    return { ...currentComposition, source: "current" };
+    return {
+      ...currentComposition,
+      packageLines: restoreCatalogPackageItemsForCurrentComposition(
+        currentComposition.packageLines,
+        catalogPackageItemsByPackageId
+      ),
+      source: "current",
+    };
   }
 
   const linesByParent = groupLinesByParent(draftSnapshot.lines);
@@ -61,11 +77,13 @@ export function toSalesPageComposition({
                 .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
         )
       );
+      const packageId =
+        line.catalogEntityId ?? metadataString(line, "packageId") ?? line.orderEntityId;
 
       return {
         id: line.lineId,
         orderPackageId: line.orderEntityId,
-        packageId: line.catalogEntityId ?? metadataString(line, "packageId") ?? line.orderEntityId,
+        packageId,
         packageName: line.label,
         packagePrice: line.lineTotal,
         sessionTypeId: metadataString(line, "sessionTypeId"),
@@ -89,21 +107,15 @@ export function toSalesPageComposition({
             packageScopedConfigurationTotal
         ),
         upgradeDelta,
-        packageItems: childLines
-          .filter(
+        packageItems: projectPackageItemsFromCatalog({
+          packageId,
+          packageItemUpgradeLines: childLines.filter(
             (child) =>
               child.lineKind ===
               ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE
-          )
-          .map((child) => ({
-            id: child.orderEntityId,
-            productId: child.catalogEntityId,
-            productName: child.label,
-            category: metadataString(child, "categoryLabel"),
-            quantity: child.quantity,
-            unitAmount: child.unitPrice,
-            totalAmount: child.lineTotal,
-          })),
+          ),
+          catalogPackageItemsByPackageId,
+        }),
       };
     });
 
@@ -144,6 +156,86 @@ export function toSalesPageComposition({
       ...totals,
     },
     source: "projected",
+  };
+}
+
+function restoreCatalogPackageItemsForCurrentComposition(
+  packageLines: POSCompositionPackageLineProjection[],
+  catalogPackageItemsByPackageId:
+    | ReadonlyMap<string, POSCompositionPackageItemProjection[]>
+    | undefined
+): POSCompositionPackageLineProjection[] {
+  if (!catalogPackageItemsByPackageId) return packageLines;
+
+  return packageLines.map((line) => {
+    const catalogItems = catalogPackageItemsByPackageId.get(line.packageId);
+    if (!catalogItems) return line;
+    return {
+      ...line,
+      packageItems: overlayPackageItems(catalogItems, line.packageItems),
+    };
+  });
+}
+
+function projectPackageItemsFromCatalog(input: {
+  packageId: string;
+  packageItemUpgradeLines: OrderCommitSnapshotLineV1[];
+  catalogPackageItemsByPackageId:
+    | ReadonlyMap<string, POSCompositionPackageItemProjection[]>
+    | undefined;
+}): POSCompositionPackageItemProjection[] {
+  const catalogItems =
+    input.catalogPackageItemsByPackageId?.get(input.packageId) ?? [];
+  const upgradeItems = input.packageItemUpgradeLines.map((line) =>
+    packageItemFromUpgradeLine(line)
+  );
+
+  // Included deliverables are catalog-current display rows. OrderCommit
+  // snapshots intentionally do not carry commit-historical included items.
+  return overlayPackageItems(catalogItems, upgradeItems);
+}
+
+function overlayPackageItems(
+  catalogItems: POSCompositionPackageItemProjection[],
+  overlayItems: POSCompositionPackageItemProjection[]
+): POSCompositionPackageItemProjection[] {
+  const itemsById = new Map(
+    catalogItems.map((item) => [item.id, { ...item }])
+  );
+
+  for (const overlayItem of overlayItems) {
+    const baseItem = itemsById.get(overlayItem.id);
+    itemsById.set(overlayItem.id, {
+      id: overlayItem.id,
+      productId: baseItem?.productId ?? overlayItem.productId,
+      productName: overlayItem.productName,
+      category: overlayItem.category ?? baseItem?.category ?? null,
+      quantity: overlayItem.quantity,
+      unitAmount: roundMoney(
+        (baseItem?.unitAmount ?? 0) + overlayItem.unitAmount
+      ),
+      totalAmount: roundMoney(
+        (baseItem?.totalAmount ?? 0) + overlayItem.totalAmount
+      ),
+    });
+  }
+
+  return [...itemsById.values()];
+}
+
+function packageItemFromUpgradeLine(
+  line: OrderCommitSnapshotLineV1
+): POSCompositionPackageItemProjection {
+  const packageItemId =
+    metadataString(line, "packageItemId") ?? line.catalogEntityId ?? line.orderEntityId;
+  return {
+    id: packageItemId,
+    productId: metadataString(line, "productId") ?? line.catalogEntityId,
+    productName: line.label,
+    category: metadataString(line, "categoryLabel"),
+    quantity: line.quantity,
+    unitAmount: line.unitPrice,
+    totalAmount: line.lineTotal,
   };
 }
 

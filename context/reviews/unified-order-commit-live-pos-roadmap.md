@@ -825,7 +825,7 @@ Codex GPT-5.5 High.
 
 ## Phase 5.5 - Full Domain Staging Coverage
 
-**Status: Complete for Sales domain coverage. Specs 135–138 drafted 2026-06-04 from the blocked-workflow investigation (`/tmp/pos-domain-blocked-workflows-investigation.md`); Specs 136–138 now cover package-item upgrade, session-configuration, and order-level add-on staging on the Sales surface.**
+**Status: Complete for Sales domain coverage. Specs 135–138 drafted 2026-06-04 from the blocked-workflow investigation (`/tmp/pos-domain-blocked-workflows-investigation.md`); Specs 136–138 now cover package-item upgrade, session-configuration, and order-level add-on staging on the Sales surface. Spec 141 closes display bugs B1/A6 by restoring catalog-current included deliverables in snapshot-derived Sales composition.**
 
 ### Objective
 
@@ -866,6 +866,12 @@ Numbering is sequential from the next available sequence (135) and matches depen
 - **Complete.** Makes `parentPackageTarget` optional in the `ADD_ON` staging change and teaches the reducer to stage order-level add-on lines (`parentOrderPackageId = null`); wires the marketplace `addAddOn` / `removeAddOn` handlers.
 - The only spec with a schema + reducer change. Sequenced **after** Spec 137 so linked-product (D) staging lands first and de-risks the shared `OrderAddOn` table. Also closes an existing gap: previously committed order-level add-ons become removable through staging.
 - Does not force package-scoped marketplace add-ons; does not migrate existing null-package rows. Newly committed staged add-ons remap draft ids to materialized `OrderAddOn.id` before `OrderCommit.snapshotJson` persistence, and Remove One preserves legacy decrement behavior.
+
+#### Spec 141 — Sales included deliverables display restoration (B1/A6)
+
+- **Complete.** The Sales read loader fetches catalog-current package items for active draft snapshot package ids and locked current compositions, and `toSalesPageComposition` overlays `PACKAGE_ITEM_UPGRADE` rows by `packageItemId`.
+- Resolves B1: Basic → Standard → Basic restored drafts show Basic deliverables again without discard. Resolves A6: locked FINAL composition has deliverable rows for the existing Upgrade/Replace cards to attach to.
+- Catalog-current limitation is accepted: included deliverable display is not commit-historical; Option B snapshot-embedded deliverables remains deferred.
 
 ### Dependencies within Phase 5.5
 

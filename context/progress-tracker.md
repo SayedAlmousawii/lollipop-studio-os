@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 141 is complete: snapshot-derived Sales composition now re-derives included package deliverables from the catalog-current package id and overlays package-item upgrades by `packageItemId`, so active drafts and locked FINAL orders show deliverables/Upgrade/Replace affordances while totals, diffs, staged rows, and financial preview remain unchanged.
 - Spec 142 is complete: package swaps restored to the original package fields now reduce to `UNCHANGED`, reducer-only package mirror metadata no longer creates phantom net-zero staged rows, and true no-op OrderCommit drafts are rejected before commit/audit artifacts.
 - Spec 140 is complete: package-item upgrade re-application now replaces the existing staged or committed upgrade instead of stacking quantity, preserves the upgrade row identity, updates the latest replacement delta/label, and charges the upgrade delta once.
 - Spec 139 is complete: Sales live/post-commit composition now renders package-item upgrades on their owning package deliverables instead of any add-on display list, add-ons render as single quantity-N rows for marketplace Remove One semantics, and upgrade money remains in the financial add-on contribution so net, invoice-facing, and financial-sidebar totals stay unchanged.
@@ -118,6 +119,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Marketplace add-ons are order-level true add-ons (`OrderAddOn.orderPackageId = null`); `OrderAddOn.orderPackageId` remains reserved for linked-product session configurations and optional legacy/AW scoped rows.
 - OrderCommit draft package staging removes scoped package-item upgrades only on actual package identity changes; same-package pricing/metadata/included-photo refreshes preserve existing scoped upgrades.
 - OrderCommit draft package staging normalizes package-tier included-photo changes before snapshot validation: absent an explicit intended photo outcome, selected photos become at least the new included count, digital extras become zero, remaining extras become print, and absorbed extra-photo lines are removed.
+- Snapshot-derived Sales included-deliverable display is catalog-current, not commit-historical; Option B snapshot-embedded deliverables remains deferred unless commit-time deliverable fidelity becomes required.
 - OrderCommit draft domain staging now flows through `stageOrderCommitDraftChange`; the replacement snapshot is draft truth, the typed `SNAPSHOT_REPLACED` operation is history/UX metadata only, and package+explicit-photo composite staging is ordered package before photo.
 - Selected-photo totals are derived from `OrderPackage.selectedPhotoCount`; `Order.selectedPhotoCount` is a synchronized cache, not a read source.
 - Extra selected photos are stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, emitted as per-line/per-media Final Invoice lines.
@@ -151,6 +153,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **141** — Restored included deliverables in snapshot-derived Sales composition by loading catalog-current package items in the Sales read loader and overlaying PACKAGE_ITEM_UPGRADE rows by packageItemId, with active-draft, swap-back, locked-FINAL, source-boundary, and unchanged financial/staged projection coverage.
 - **142** — Removed reducer-only package mirror metadata from OrderCommit package staging, added restored-package no-op diff coverage, blocked true no-op commits before materialization/audit artifacts, and mapped Sales no-op commit errors to stable action state.
 - **140** — Changed PACKAGE_ITEM_UPGRADE re-application from quantity stacking to set-style replacement by parent package plus included package item, preserving existing draft/committed upgrade identity while updating replacement label, unit price, quantity, and totals with reducer, staging, and execution coverage.
 - **136 follow-up** — Wired Sales package-item Upgrade/Replace to the OrderCommit staging adapter as schema-valid PACKAGE_ITEM_UPGRADE ADD payloads with exact expected-version forwarding, action-error mapping, and stage-preview-commit materialization coverage for `OrderPackageItemUpgrade`.
