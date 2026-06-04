@@ -434,6 +434,7 @@ export interface POSAddOn {
   addOnRowId: string;
   productId: string | null;
   name: string;
+  quantity?: number;
   price: number;
   priceLabel: string;
 }

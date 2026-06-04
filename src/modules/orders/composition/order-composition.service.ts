@@ -382,12 +382,13 @@ function mapPOSSessionConfigurationLines(
 }
 
 function mapPOSAddOn(addOn: POSAddOn): CompositionLine {
+  const quantity = addOn.quantity ?? 1;
   return {
     id: `addon:${addOn.id}`,
     label: addOn.name,
-    quantity: 1,
+    quantity,
     unitAmount: roundMoney(addOn.price),
-    totalAmount: roundMoney(addOn.price),
+    totalAmount: roundMoney(addOn.price * quantity),
     metadata: {
       displayKind: "addOn",
       sourceKind: "orderAddOn",

@@ -575,7 +575,12 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     (invoice) => invoice.invoiceStatus !== "Draft" && invoice.remainingAmount <= 0
   );
   const packageLines = mapPOSPackageLines({
-    lines: order.packages,
+    lines: order.packages.map((line) => ({
+      ...line,
+      packageItemUpgrades: order.packageItemUpgrades.filter(
+        (upgrade) => upgrade.orderPackageId === line.id
+      ),
+    })),
     packageOptions: packageRows,
     pricingRows: extraPhotoPricingRows,
     resolvedConfigurationsByPackageId,
@@ -593,7 +598,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     order.orderAddOns,
     order.packageItemUpgrades
   );
-  const addOns = mapPOSAddOns(combinedAddOnRows);
+  const addOns = mapPOSAddOns(order.orderAddOns);
   const addOnTotal = sumOrderAddOnRowsDecimal(combinedAddOnRows);
   const packageBaseTotal = new Prisma.Decimal(
     packageLines.reduce((sum, line) => sum + line.currentPackage.price, 0)
@@ -3623,16 +3628,32 @@ function mapPOSPackageItems(
       name: string;
       category: ProductCategory;
     };
-  }>
+  }>,
+  packageItemUpgrades: Array<{
+    packageItemId: string;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }> = []
 ): POSPackageItem[] {
+  const upgradeByPackageItemId = new Map(
+    packageItemUpgrades.map((upgrade) => [upgrade.packageItemId, upgrade])
+  );
+
   return rows.map((row) => ({
     id: row.id,
     productId: row.productId,
-    productName: row.product.name,
+    productName: upgradeByPackageItemId.get(row.id)?.nameSnapshot ?? row.product.name,
     category: row.product.category,
-    quantity: row.quantity,
-    priceSnapshot: row.priceSnapshot.toNumber(),
-    priceSnapshotLabel: formatMoney(row.priceSnapshot),
+    quantity: upgradeByPackageItemId.get(row.id)?.quantity ?? row.quantity,
+    priceSnapshot: row.priceSnapshot
+      .plus(upgradeByPackageItemId.get(row.id)?.priceSnapshot ?? zeroMoney())
+      .toNumber(),
+    priceSnapshotLabel: formatMoney(
+      row.priceSnapshot.plus(
+        upgradeByPackageItemId.get(row.id)?.priceSnapshot ?? zeroMoney()
+      )
+    ),
   }));
 }
 
@@ -3645,20 +3666,17 @@ function mapPOSAddOns(
     quantity: number;
   }>
 ): POSAddOn[] {
-  return rows.flatMap((row) => {
-    const entries: POSAddOn[] = [];
+  return rows.map((row) => {
     const rowId = row.id ?? row.nameSnapshot;
-    for (let index = 0; index < row.quantity; index++) {
-      entries.push({
-        id: row.quantity === 1 ? rowId : `${rowId}-${index + 1}`,
-        addOnRowId: rowId,
-        productId: row.productId,
-        name: row.nameSnapshot,
-        price: row.priceSnapshot.toNumber(),
-        priceLabel: formatMoney(row.priceSnapshot),
-      });
-    }
-    return entries;
+    return {
+      id: rowId,
+      addOnRowId: rowId,
+      productId: row.productId,
+      name: row.nameSnapshot,
+      quantity: row.quantity,
+      price: row.priceSnapshot.toNumber(),
+      priceLabel: formatMoney(row.priceSnapshot),
+    };
   });
 }
 
@@ -3690,6 +3708,12 @@ function mapPOSPackageLines(input: {
       bundleAdjustment: Prisma.Decimal;
       items: Parameters<typeof mapPOSPackageItems>[0];
     };
+    packageItemUpgrades: Array<{
+      packageItemId: string;
+      nameSnapshot: string;
+      priceSnapshot: Prisma.Decimal;
+      quantity: number;
+    }>;
   }>;
   packageOptions: Array<{
     id: string;
@@ -3735,6 +3759,10 @@ function mapPOSPackageLines(input: {
     const sessionConfigurationPricing = priceSelections(
       resolvedConfigurations?.selections ?? []
     );
+    const packageItemUpgradeTotal = sumOrderAddOnRowsDecimal(
+      line.packageItemUpgrades
+    );
+    const packageUpgradeDelta = upgradeDelta.plus(packageItemUpgradeTotal);
 
     return {
       id: line.id,
@@ -3751,7 +3779,10 @@ function mapPOSPackageLines(input: {
         name: line.currentPackageNameSnapshot,
         price: finalPrice,
       }),
-      packageItems: mapPOSPackageItems(currentPackage.items),
+      packageItems: mapPOSPackageItems(
+        currentPackage.items,
+        line.packageItemUpgrades
+      ),
       includedPhotoCount: currentPackage.photoCount,
       selectedPhotoCount,
       extraDigitalCount: line.extraDigitalCount,
@@ -3760,9 +3791,9 @@ function mapPOSPackageLines(input: {
       extraDigitalUnitPrice: digitalUnitPrice.toNumber(),
       extraPrintUnitPrice: printUnitPrice.toNumber(),
       extraPhotoTotal: extraPhotoTotal.toNumber(),
-      packageSubtotal: packageSubtotal.toNumber(),
-      upgradeDelta: upgradeDelta.toNumber(),
-      upgradeDeltaLabel: formatSignedMoney(upgradeDelta),
+      packageSubtotal: packageSubtotal.plus(packageItemUpgradeTotal).toNumber(),
+      upgradeDelta: packageUpgradeDelta.toNumber(),
+      upgradeDeltaLabel: formatSignedMoney(packageUpgradeDelta),
       packageOptions: mapPOSPackageOptions(scopedPackageOptions, {
         id: currentPackage.id,
         price: finalPrice,
