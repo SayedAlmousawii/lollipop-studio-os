@@ -75,6 +75,12 @@ Three-tier flow: `main` ← `development` ← `spec/*`.
 4. User reviews and squash-merges `spec/*` → `development`, then deletes the spec branch.
 5. After a roadmap/phase completes: user runs the freeze gate / full verification, merges `development` → `main`, and tags the milestone.
 
+### Codex Agent Sandbox Note
+
+This note applies only to the Codex agent running in the desktop sandbox, not to humans or other agents.
+
+For Git operations that write inside `.git` — branch switches, merges, commits, rebases, and pushes — Codex should request escalated filesystem permissions up front. The sandbox may otherwise block short-lived Git lock files such as `index.lock` or `ORIG_HEAD.lock`, causing false lock errors even when no stale lock exists.
+
 ---
 
 ## What NOT to Commit

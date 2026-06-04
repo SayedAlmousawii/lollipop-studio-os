@@ -15,16 +15,21 @@ This roadmap is intentionally split into separate phases and separate PRs. Do no
 - `context/target-data-model.md`
 - Repo investigation findings for current Adjustment Workspace, POS, invoice delta, and composition behavior.
 
-## Phase Status (revised 2026-06-02)
+## Phase Status (revised 2026-06-04)
 
 - Phase 1 — **Complete** (Spec 120, OrderCommit snapshot foundation).
 - Phase 2 — **Complete** (Spec 121, OrderCommitDraft foundation).
 - Phase 2.5 / Staging reducers — **Complete** (Spec 122).
 - Phase 3 — **Complete** (Spec 123, preview/diff engine).
-- Phase 4 — **Complete** (Spec 124, commit execution).
-- Phase 5 — **Revised below**: unified Sales page over OrderCommit for both locked and unlocked orders.
-- Phase 6 — **Revised below**: Adjustment Workspace retirement after parity checks.
+- Phase 4 — **Complete** (Spec 124, commit execution; Spec 132 emission-routing correction).
+- Phase 5 — **Complete** (Specs 125–133 unified the Sales page over OrderCommit for both locked and unlocked orders; Spec 134 was a package-tier photo-normalization follow-up — see below). Phase 5 wired only the `PACKAGE` and `PHOTO` staging domains to the Sales surface.
+- Phase 5.5 — **Planned below**: full domain staging coverage. Wires the remaining staging domains (`PACKAGE_ITEM_UPGRADE`, `SESSION_CONFIGURATION`, `ADD_ON`) to the Sales surface and closes a session-configuration draft-bypass. Specs 135–138. **Gates Phase 6.**
+- Phase 6 — **Revised below**: Adjustment Workspace retirement after parity checks **and** Phase 5.5 domain coverage.
 - Phase 7 — **Revised below**: polish, redesign, history, and takeover.
+
+### Spec 134 (already shipped, previously unrecorded here)
+
+- `spec/134-ordercommit-package-photo-normalization` — Normalized package-tier included-photo changes during package staging (raise selected photos to the new included count, default remaining billable extras to print, remove absorbed extra-photo lines, preserve explicit intended photo outcomes, keep extra-photo pricing resolution in staging). A follow-up fix to Spec 122/129 staging, not a Phase 5 breakdown spec. Recorded here because the roadmap numbering had not yet reflected it; **134 is consumed** and the next available sequence is **135**.
 
 The original Phase 5 ("POS routing through OrderCommit services") assumed the locked-invoice workflow would remain in Adjustment Workspace. Capability review against shipped Specs 120–124 confirms that assumption is outdated — `commitOrderChanges` already handles locked-invoice ADJ / CREDIT_NOTE / refund-needed routing. Phase 5 now unifies both states under OrderCommit. See "Assumptions Changed" at the end of this document.
 
@@ -76,7 +81,8 @@ Review before implementation:
 
 - Phases 1–4 are complete and prerequisite for Phase 5.
 - Phase 5 depends on Specs 120–124 being shipped and stable.
-- Phase 6 depends on Phase 5 parity tests proving AW finalize and `commitOrderChanges` produce equivalent financial outcomes.
+- Phase 5.5 depends on Phase 5 (the unified Sales surface and staging adapter) being shipped. Specs 135–138 wire the remaining domains to that surface.
+- Phase 6 depends on **both** (a) Phase 5 parity tests proving AW finalize and `commitOrderChanges` produce equivalent financial outcomes, and (b) Phase 5.5 completing domain coverage — until session-configuration financial edits and add-on/item-upgrade edits all stage through OrderCommit, AW is still the only path for some workflows and cannot be deleted.
 - Phase 7 depends on Phase 6 retirement landing cleanly.
 
 ---
@@ -817,9 +823,83 @@ Codex GPT-5.5 High.
 
 ---
 
+## Phase 5.5 - Full Domain Staging Coverage
+
+**Status: Planned. Specs 135–138 drafted 2026-06-04 from the blocked-workflow investigation (`/tmp/pos-domain-blocked-workflows-investigation.md`).**
+
+### Objective
+
+Phase 5 unified the Sales page over OrderCommit but wired only two of the five staging domains to it: `PACKAGE` (changePackageTier) and `PHOTO` (changeSelectedPhotoCount). The Sales handler adapter still blocks add-on and package-item-upgrade staging, and session configuration still writes live (bypassing the draft) or deep-links to the Adjustment Workspace. Phase 5.5 completes domain coverage so every Sales-surface edit flows through draft → preview → commit, which is the precondition for retiring AW in Phase 6.
+
+The backend is overwhelmingly already built. All five domains have schema + reducer + staging-service + materializer support (Specs 122–124). The remaining work is UI-contract / adapter wiring, one session-configuration re-route, and one small add-on schema/reducer relaxation. The investigation is the source of truth for scope and classification.
+
+### Approved conclusions (from the investigation)
+
+- Session-configuration live-write bypass is hotfixed first (Spec 135).
+- Package-item upgrade/replacement is adapter-only and ships first among the feature specs (Spec 136).
+- Session-configuration staging routes through OrderCommit draft/preview/commit and stops bypassing drafts; **financial** selections stage into the draft instead of deep-linking to AW from the Sales surface (Spec 137).
+- Marketplace add-ons are historically **order-level**; `OrderAddOn.orderPackageId` exists primarily for linked-product/session-configuration scenarios. Order-level add-on staging must not force package ownership, and linked-product behavior must keep working (Spec 138).
+
+### Spec breakdown and ordering
+
+Numbering is sequential from the next available sequence (135) and matches dependency order.
+
+#### Spec 135 — Session Configuration draft-bypass hotfix
+
+- Adds `assertNoActiveOrderCommitDraft` to `writeOrderPackageSelections`, mirroring the five-mutator guard from Spec 126, so session-configuration writes can no longer bypass an active draft on the Sales surface.
+- Minimal safety rail. Reuses the existing guard helper and `OrderCommitDraftActiveError`. No staging, no UI.
+- Lands **now / first** — it is independent and closes a live correctness gap. Superseded on the Sales surface by Spec 137's draft routing; remains the rail for non-Sales callers until Phase 6.
+
+#### Spec 136 — Sales package-item upgrade staging (first feature spec)
+
+- Adapter-only: replaces the blocked `upgradePackageItem` stub with a mapping to the existing `PACKAGE_ITEM_UPGRADE` staging domain. The UI event already carries `orderPackageId` + `packageItemId` + `toProductId` + `quantity`; reducer and materializer already exist.
+- No schema, no UI-contract change, no shared-table risk. The lowest-risk unblock; validates the domain-completion pattern end-to-end.
+
+#### Spec 137 — Sales session-configuration staging unification (C + E + D)
+
+- Routes operational, financial, and linked-product session-configuration selections through the draft on the Sales surface (one spec; they share `ConfigureSessionPanel` and cannot be UI-split).
+- Financial selections stage into the draft; commit emits by FINAL lock state (REBUILD_UNLOCKED / EMIT_ADJUSTMENT). Linked products keep `draftOrderAddOnId` (new) / `orderAddOnId` (materialized) discipline.
+- No schema change. Supersedes the Spec 135 refusal on the Sales surface and makes the AW session-configuration deep-link Sales-dead (deletable in Phase 6).
+
+#### Spec 138 — Sales order-level add-on staging (A + quantity)
+
+- Makes `parentPackageTarget` optional in the `ADD_ON` staging change and teaches the reducer to stage order-level add-on lines (`parentOrderPackageId = null`); wires the marketplace `addAddOn` / `removeAddOn` handlers.
+- The only spec with a schema + reducer change. Sequenced **after** Spec 137 so linked-product (D) staging lands first and de-risks the shared `OrderAddOn` table. Also closes an existing gap: previously committed order-level add-ons become removable through staging.
+- Does not force package-scoped marketplace add-ons; does not migrate existing null-package rows.
+
+### Dependencies within Phase 5.5
+
+- 135 is independent (lands first / immediately).
+- 136 is independent of 137/138 (adapter-only; may land any time after Phase 5).
+- 137 supersedes 135 on the Sales surface; depends on Phase 5's staging action surface.
+- 138 depends on 137 (shared `OrderAddOn` table; linked-product staging should land first).
+
+### Out of scope for Phase 5.5
+
+- No AW deletion (Phase 6).
+- No visual redesign (Phase 7).
+- No new financial behavior — emission routing is the engine's existing lock-state logic.
+- No multi-package membership add/remove — intentionally rejected (`OrderCommitUnsupportedPackageMembershipError`).
+- No `changeAddOnQuantity` UI control unless trivially added with Spec 138 (no control exists today).
+
+### Phase 6 implications
+
+- Phase 6 cannot delete AW until Phase 5.5 lands: today AW is still the only OrderCommit-independent path for financial session-configuration edits and for package-scoped add-on/item-upgrade edits. After Specs 136–138, every Sales-surface domain stages through OrderCommit and AW has no remaining capability.
+- Phase 6 gains additional deletion targets once 137 lands: the AW session-configuration deep-link, `applySessionConfigurationWorkspaceEditAction`, and (once no caller remains) the legacy `configureSessionAction` / `writeOrderPackageSelections` live-write path.
+- The Spec 135 hotfix guard on `writeOrderPackageSelections` is removed in Phase 6 alongside the other legacy direct-mutator guards.
+
+### Recommended Codex Model Level
+
+- Spec 135: Codex GPT-5.5 Medium (small, well-bounded).
+- Spec 136: Codex GPT-5.5 Medium (adapter-only).
+- Spec 137: Codex GPT-5.5 High (multi-workflow routing, linked-product correctness).
+- Spec 138: Codex GPT-5.5 High (schema + reducer change on a shared table).
+
+---
+
 ## Phase 6 - Adjustment Workspace Retirement
 
-**Status: Planned. Begins after Phase 5 parity tests pass.**
+**Status: Planned. Begins after Phase 5 parity tests pass and Phase 5.5 domain coverage lands.**
 
 ### Objective
 
@@ -834,7 +914,9 @@ Delete Adjustment Workspace. After Phase 5, AW has zero live callers from the Sa
   - `createWorkspaceAdjustmentInvoice` (the workspace-specific invoice emitter)
   - `getOpenWorkspaceForInvoice`
 - Delete the legacy direct-mutator service functions if no callers remain (`updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`) — these stay live in Phase 5 only because AW finalize calls them.
-- Replace the Phase 5 draft-presence guard with the sole gate: all mutation flows go through `OrderCommitDraft` staging.
+- Delete the AW session-configuration path made Sales-dead by Spec 137: `applySessionConfigurationWorkspaceEditAction`, the AW deep-link in `ConfigureSessionPanel` (and the `adjustment` panel mode), and — once no caller remains — the legacy `configureSessionAction` live-write branch and `writeOrderPackageSelections` (or whatever subset is genuinely callerless after Phase 5.5).
+- Remove the Spec 135 hotfix guard on `writeOrderPackageSelections` alongside the other legacy direct-mutator guards (the `bypassOrderCommitDraftGuard` mechanism is removed when AW finalize is deleted).
+- Replace the Phase 5 / 5.5 draft-presence guards with the sole gate: all mutation flows go through `OrderCommitDraft` staging.
 - Remove `assertDirectPOSMutationAllowed`'s `LOCKED_INVOICE_WORKSPACE_REQUIRED` branch.
 - Delete `app/orders/[orderId]/adjustment-workspace/` if it still exists.
 - Drop `AdjustmentWorkspace` and `AdjustmentWorkspaceEvent` tables.
