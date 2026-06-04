@@ -141,6 +141,7 @@ test("order commit draft staging change contract covers the five reducer domains
       action: "ADD",
       parentPackageTarget: { stableKey: "order-package:order-package-1" },
       packageItemId: "package-item-1",
+      toProductId: "product-replacement",
       quantity: 1,
       draftPackageItemUpgradeId: "draft:item-upgrade-1",
     },
@@ -218,6 +219,27 @@ test("order commit draft staging change contract rejects invalid targets and cou
     }).success,
     false
   );
+});
+
+test("package item upgrade add requires a replacement product id", () => {
+  const valid = orderCommitDraftStagingChangeSchema.safeParse({
+    domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+    action: "ADD",
+    parentPackageTarget: { stableKey: "order-package:order-package-1" },
+    packageItemId: "package-item-1",
+    toProductId: "product-replacement",
+    quantity: 1,
+  });
+  assert.equal(valid.success, true);
+
+  const missingReplacement = orderCommitDraftStagingChangeSchema.safeParse({
+    domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+    action: "ADD",
+    parentPackageTarget: { stableKey: "order-package:order-package-1" },
+    packageItemId: "package-item-1",
+    quantity: 1,
+  });
+  assert.equal(missingReplacement.success, false);
 });
 
 test("order commit draft staging history payload describes snapshot replacement", () => {

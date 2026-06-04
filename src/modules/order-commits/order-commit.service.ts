@@ -1260,7 +1260,11 @@ async function reduceOrderCommitDraftStagingChange(input: {
           change,
           resolvedPackageItem:
             change.action === "ADD"
-              ? await resolveStagedPackageItemUpgrade(input.client, change)
+              ? await resolveStagedPackageItemUpgrade(
+                  input.client,
+                  input.snapshot,
+                  change
+                )
               : undefined,
         }),
         change,
@@ -1416,6 +1420,7 @@ async function resolveStagedAddOnProduct(
 
 async function resolveStagedPackageItemUpgrade(
   client: OrderCommitDraftTransactionClient,
+  snapshot: OrderCommitSnapshotV1,
   change: Extract<
     OrderCommitDraftStagingChange,
     { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE }
@@ -1426,26 +1431,77 @@ async function resolveStagedPackageItemUpgrade(
       "OrderCommitDraft staging failed: PACKAGE_ITEM_UPGRADE ADD requires packageItemId."
     );
   }
-  const row = await client.packageItem.findUnique({
-    where: { id: change.packageItemId },
-    select: {
-      id: true,
-      packageId: true,
-      priceSnapshot: true,
-      product: { select: { name: true } },
-    },
-  });
-  if (!row) {
+  if (!change.toProductId) {
+    throw new Error(
+      "OrderCommitDraft staging failed: PACKAGE_ITEM_UPGRADE ADD requires toProductId."
+    );
+  }
+  const parentPackage = resolvePackageLineForStaging(
+    snapshot,
+    change.parentPackageTarget,
+    "package item upgrade"
+  );
+  const [currentItem, replacementProduct] = await Promise.all([
+    client.packageItem.findUnique({
+      where: { id: change.packageItemId },
+      select: {
+        id: true,
+        packageId: true,
+        priceSnapshot: true,
+        productId: true,
+        product: { select: { id: true, name: true, category: true } },
+      },
+    }),
+    client.product.findUnique({
+      where: { id: change.toProductId },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        canonicalPrice: true,
+        isActive: true,
+        isPackageDeliverable: true,
+      },
+    }),
+  ]);
+  if (!currentItem) {
     throw new Error(
       `OrderCommitDraft staging failed: package item ${change.packageItemId} was not found.`
     );
   }
+  if (currentItem.packageId !== parentPackage.catalogEntityId) {
+    throw new Error(
+      "OrderCommitDraft staging failed: package item is not part of the targeted order package."
+    );
+  }
+  if (
+    !replacementProduct ||
+    !replacementProduct.isActive ||
+    !replacementProduct.isPackageDeliverable
+  ) {
+    throw new Error(
+      `OrderCommitDraft staging failed: replacement product ${change.toProductId} was not found.`
+    );
+  }
+  if (replacementProduct.category !== currentItem.product.category) {
+    throw new Error(
+      "OrderCommitDraft staging failed: replacement product must be in the same category."
+    );
+  }
+  if (replacementProduct.id === currentItem.productId) {
+    throw new Error(
+      "OrderCommitDraft staging failed: replacement product is already included."
+    );
+  }
+  const unitDelta = replacementProduct.canonicalPrice.minus(
+    currentItem.priceSnapshot
+  );
 
   return {
-    packageItemId: row.id,
-    packageId: row.packageId,
-    label: row.product.name,
-    unitPrice: money(row.priceSnapshot),
+    packageItemId: currentItem.id,
+    packageId: currentItem.packageId,
+    label: `${currentItem.product.name} to ${replacementProduct.name}`,
+    unitPrice: money(unitDelta),
   };
 }
 
