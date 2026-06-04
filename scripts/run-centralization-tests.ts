@@ -70,6 +70,7 @@ const files = [
   "tests/orders/invoice-line-items.test.tsx",
   "tests/orders/operational-configurations-block.test.tsx",
   "tests/orders/order-composition-view-model.test.ts",
+  "tests/orders/composition/spec-139-sales-composition-rendering.test.ts",
   "tests/orders/order-details-financials-tab.test.tsx",
   "tests/orders/order-edit-mode-policy.test.ts",
   "tests/orders/order-commit-draft-guard/legacy-mutators-refuse-when-draft-exists.test.ts",
