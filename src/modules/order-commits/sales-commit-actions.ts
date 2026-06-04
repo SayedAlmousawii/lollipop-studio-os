@@ -4,6 +4,7 @@ import {
   OrderCommitApprovalRequiredError,
   OrderCommitConcurrentCommitError,
   OrderCommitCreditCapacityExhaustedError,
+  OrderCommitNoOpCommitError,
   OrderCommitStaleDraftError,
   type commitOrderChanges,
 } from "./order-commit-execution.service";
@@ -91,6 +92,18 @@ export function mapSalesCommitActionError(
         _global: [
           `Credit/refund capacity changed. Refresh and review this order before committing. Expected ${expected} KWD but only ${capacity} KWD is currently available.`,
           "commit.creditCapacity",
+        ],
+      },
+    };
+  }
+
+  if (error instanceof OrderCommitNoOpCommitError) {
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "There are no staged changes to commit. Discard the draft or make a change before committing.",
+          "commit.noOp",
         ],
       },
     };

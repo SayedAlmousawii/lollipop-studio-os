@@ -188,9 +188,6 @@ function updatePackageLine(
     priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
     metadata: {
       ...packageLine.metadata,
-      currentPackageId: resolvedPackage.packageId,
-      currentPackageNameSnapshot: resolvedPackage.packageName,
-      finalPackagePriceSnapshot: unitPrice,
       includedPhotoCount: resolvedPackage.includedPhotoCount,
       selectedPhotoCount,
       ...(input.normalizePhotoCounts
