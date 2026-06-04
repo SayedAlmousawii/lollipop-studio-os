@@ -34,6 +34,7 @@ import {
   classifyOrderCommitPreview,
 } from "./order-commit-preview-classification.service";
 import {
+  ORDER_COMMIT_PREVIEW_COMMIT_KIND,
   ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND,
 } from "./order-commit-preview.constants";
 import {
@@ -120,6 +121,20 @@ export class OrderCommitConcurrentCommitError extends Error {
       `OrderCommit concurrent commit detected for order ${payload.orderId} at draft version ${payload.draftVersion}.`
     );
     this.name = "OrderCommitConcurrentCommitError";
+  }
+}
+
+export class OrderCommitNoOpCommitError extends Error {
+  constructor(
+    public readonly payload: {
+      orderId: string;
+      draftVersion: number;
+    }
+  ) {
+    super(
+      `OrderCommit no-op commit rejected for order ${payload.orderId} at draft version ${payload.draftVersion}.`
+    );
+    this.name = "OrderCommitNoOpCommitError";
   }
 }
 
@@ -299,6 +314,12 @@ async function commitOrderChangesWithTransaction(
     pendingSnapshot,
   });
   const classification = classifyOrderCommitPreview({ diff });
+  if (classification.commitKind === ORDER_COMMIT_PREVIEW_COMMIT_KIND.NO_OP) {
+    throw new OrderCommitNoOpCommitError({
+      orderId: input.orderId,
+      draftVersion: activeDraft.version,
+    });
+  }
   const paymentState = await loadPreviewPaymentState(input.orderId, client);
   const resolvedFinalInvoice = await resolvePrimaryFinalInvoiceForOrderCommit({
     financialCaseId: pendingSnapshot.financialCaseId,

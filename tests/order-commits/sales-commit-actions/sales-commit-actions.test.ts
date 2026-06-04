@@ -5,6 +5,7 @@ import {
   OrderCommitApprovalRequiredError,
   OrderCommitConcurrentCommitError,
   OrderCommitCreditCapacityExhaustedError,
+  OrderCommitNoOpCommitError,
   OrderCommitStaleDraftError,
 } from "@/modules/order-commits";
 import { OrderCommitDraftPermissionError } from "@/modules/order-commits/order-commit-draft.errors";
@@ -130,6 +131,16 @@ test("commitSalesChangesActionWithDependencies maps commit-time errors to stable
   assert.equal(permission.kind, "error");
   assert.deepEqual(permission.errors?._global?.[0], "commit.permission");
   assert.match(permission.errors?._global?.[1] ?? "", /Another user owns this draft/);
+
+  const noOp = await runError(
+    new OrderCommitNoOpCommitError({
+      orderId: "order-1",
+      draftVersion: 1,
+    })
+  );
+  assert.equal(noOp.kind, "error");
+  assert.deepEqual(noOp.errors?._global?.at(-1), "commit.noOp");
+  assert.match(noOp.errors?._global?.[0] ?? "", /no staged changes/i);
 });
 
 test("commitSalesChangesActionWithDependencies rethrows permission and unknown failures", async () => {

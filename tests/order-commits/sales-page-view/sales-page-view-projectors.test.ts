@@ -308,6 +308,25 @@ test("staged changes projector prefers package labels before raw parent ids", ()
   );
 });
 
+test("staged changes projector drops unchanged restored package diffs", () => {
+  const rows = toSalesPageStagedChanges({
+    preview: previewFixture({
+      netDelta: 0,
+      lineDiffs: [
+        lineDiff({
+          stableKey: "order-package:order-package-1",
+          changeKind: ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.UNCHANGED,
+          moneyDelta: 0,
+          baselineLabel: "Basic",
+          pendingLabel: "Basic",
+        }),
+      ],
+    }),
+  });
+
+  assert.deepEqual(rows, []);
+});
+
 test("financial preview passes through financial case and preview fields", () => {
   const financialCase = activeFinancialCase({
     customerTotal: 321,

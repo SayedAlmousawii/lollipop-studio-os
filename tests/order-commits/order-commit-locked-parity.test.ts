@@ -153,7 +153,7 @@ test("locked OrderCommit parity normalizes AW finalize outcomes", async (t) => {
       }
     );
 
-    await t.test("no-op proposal emits no unnecessary document", async () => {
+    await t.test("no-op proposal rejects without unnecessary document", async () => {
       const aw = await runAwNoOpPath(ctx, "131-noop-aw");
       const oc = await runOrderCommitNoOpPath(ctx, "131-noop-oc");
 
@@ -310,7 +310,8 @@ async function runOrderCommitNoOpPath(
     workflow.orderId,
     draft.draft.version
   );
-  assert.equal(commitResult.kind, "success");
+  assert.equal(commitResult.kind, "error");
+  assert.deepEqual(commitResult.errors?._global?.at(-1), "commit.noOp");
 
   return captureOutcome(ctx.db, workflow);
 }

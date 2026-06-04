@@ -67,6 +67,84 @@ test("diff compares Basic 100 to Premium 180 through real package stable key", (
   assert.equal(diff.lineDiffs[0]?.operationalFlags.isPackageSwap, true);
 });
 
+test("diff treats package restored to baseline fields as unchanged", () => {
+  const baseLine = packageLine({
+    orderPackageId: "order-package-1",
+    catalogEntityId: "package-basic",
+    label: "Basic",
+    unitPrice: 100,
+    includedPhotoCount: 10,
+    selectedPhotoCount: 12,
+    extraDigitalCount: 1,
+    extraPrintCount: 1,
+  });
+  const pendingLine = packageLine({
+    orderPackageId: "order-package-1",
+    catalogEntityId: "package-basic",
+    label: "Basic",
+    unitPrice: 100,
+    includedPhotoCount: 10,
+    selectedPhotoCount: 12,
+    extraDigitalCount: 1,
+    extraPrintCount: 1,
+  });
+
+  const diff = diffOrderCommitSnapshots({
+    baseSnapshot: snapshotFixture({ lines: [baseLine] }),
+    pendingSnapshot: snapshotFixture({ lines: [pendingLine] }),
+  });
+
+  assert.equal(diff.netDelta, 0);
+  assert.equal(diff.zeroNetReason, null);
+  assert.equal(diff.lineDiffs.length, 1);
+  const lineDiff = diff.lineDiffs[0];
+  assert.equal(
+    lineDiff?.changeKind,
+    ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.UNCHANGED
+  );
+  assert.deepEqual(lineDiff?.operationalFlags, {
+    isPackageChange: false,
+    isPackageUpgrade: false,
+    isPackageDowngrade: false,
+    isPackageSwap: false,
+    isAddOnChange: false,
+    isPackageItemUpgradeChange: false,
+    isPhotoChange: false,
+    isSessionConfigurationChange: false,
+    isLinkedProductChange: false,
+    isFinanciallyRelevant: false,
+    isOperationallyMeaningful: false,
+  });
+});
+
+test("diff detects package photo-count metadata changes", () => {
+  const baseLine = packageLine({
+    includedPhotoCount: 10,
+    selectedPhotoCount: 10,
+    extraDigitalCount: 0,
+    extraPrintCount: 0,
+  });
+  const pendingLine = packageLine({
+    includedPhotoCount: 10,
+    selectedPhotoCount: 12,
+    extraDigitalCount: 0,
+    extraPrintCount: 2,
+  });
+
+  const diff = diffOrderCommitSnapshots({
+    baseSnapshot: snapshotFixture({ lines: [baseLine] }),
+    pendingSnapshot: snapshotFixture({ lines: [pendingLine] }),
+  });
+
+  assert.equal(
+    diff.lineDiffs[0]?.changeKind,
+    ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.METADATA_CHANGED
+  );
+  assert.equal(diff.lineDiffs[0]?.operationalFlags.isPackageChange, true);
+  assert.equal(diff.lineDiffs[0]?.operationalFlags.isPhotoChange, true);
+  assert.equal(diff.zeroNetReason, "MEANINGFUL_ZERO_NET_OPERATIONAL_CHANGE");
+});
+
 test("diff does not force package matching when stable keys differ", () => {
   const baseSnapshot = snapshotFixture({
     lines: [
@@ -406,6 +484,8 @@ function packageLine(input: {
   unitPrice?: number;
   includedPhotoCount?: number;
   selectedPhotoCount?: number;
+  extraDigitalCount?: number;
+  extraPrintCount?: number;
 } = {}): OrderCommitSnapshotLineV1 {
   const orderPackageId = input.orderPackageId ?? "order-package-1";
   const quantity = input.quantity ?? 1;
@@ -428,8 +508,8 @@ function packageLine(input: {
     metadata: {
       includedPhotoCount,
       selectedPhotoCount: input.selectedPhotoCount ?? includedPhotoCount,
-      extraDigitalCount: 0,
-      extraPrintCount: 0,
+      extraDigitalCount: input.extraDigitalCount ?? 0,
+      extraPrintCount: input.extraPrintCount ?? 0,
       sessionTypeId: "session-type-1",
       sessionTypeName: "Portrait",
       sortOrder: 0,

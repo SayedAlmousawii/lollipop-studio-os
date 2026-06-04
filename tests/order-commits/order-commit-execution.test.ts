@@ -5,9 +5,7 @@ import Module from "node:module";
 import test, { after } from "node:test";
 import {
   AuditAction,
-  AuditEntityType,
   InvoiceStatus,
-  OrderActivityType,
   Prisma,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
@@ -101,52 +99,33 @@ const actorContext = {
   actorRole: UserRole.RECEPTIONIST,
 };
 
-test("commitOrderChanges atomically creates an audit commit and deletes the draft after invariants", async () => {
+test("commitOrderChanges rejects no-op drafts before writes", async () => {
   const harness = fakeExecutionHarness();
   activeHarness = harness;
-  const { commitOrderChanges } = await loadExecutionService();
+  const { commitOrderChanges, OrderCommitNoOpCommitError } =
+    await loadExecutionService();
 
-  const result = await commitOrderChanges({
-    orderId: "order-1",
-    expectedDraftVersion: 2,
-    actorContext,
-    client: harness.client,
-  });
+  await assert.rejects(
+    commitOrderChanges({
+      orderId: "order-1",
+      expectedDraftVersion: 2,
+      actorContext,
+      client: harness.client,
+    }),
+    OrderCommitNoOpCommitError
+  );
 
   assert.deepEqual(harness.calls.transactionOptions, [
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
   ]);
-  assert.deepEqual(result, {
-    orderCommit: { id: "order-commit-1", sequence: 1 },
-    emittedDocuments: [],
-  });
-
-  const createdCommit = harness.calls.orderCommitCreates[0]?.data;
-  assert.equal(createdCommit?.kind, ORDER_COMMIT_KIND.AUDIT);
-  assert.equal(createdCommit?.status, ORDER_COMMIT_STATUS.COMMITTED);
-  assert.equal(createdCommit?.committedFromDraftId, "draft-1");
-  assert.equal(createdCommit?.committedFromDraftVersion, 2);
-  assert.equal(createdCommit?.committedByUserId, "staff-user");
-  assert.deepEqual(createdCommit?.snapshotJson, harness.pendingSnapshot);
-  assert.deepEqual(createdCommit?.metadataJson, {
-    commitKind: "NO_OP",
-    documentPlanKind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.NO_OP,
-    approvalActorUserId: null,
-    netDelta: 0,
-    finalInvoiceMode: "CREATE_BASE",
-    finalInvoiceId: null,
-  });
-
+  assert.deepEqual(harness.calls.orderCommitCreates, []);
   assert.deepEqual(harness.calls.documentCreateMany, []);
-  assert.equal(harness.calls.audit[0]?.entityType, AuditEntityType.ORDER_COMMIT);
-  assert.equal(harness.calls.audit[0]?.action, AuditAction.ORDER_COMMIT_CREATED);
-  assert.equal(harness.calls.activity[0]?.type, OrderActivityType.ORDER_COMMITTED);
-  assert.deepEqual(harness.calls.invariants, ["financial-case-1"]);
-  assert.deepEqual(harness.calls.draftDeletes, [{ id: "draft-1" }]);
-  assert.ok(
-    harness.calls.sequence.indexOf("invariants") <
-      harness.calls.sequence.indexOf("draft.delete")
-  );
+  assert.deepEqual(harness.calls.audit, []);
+  assert.deepEqual(harness.calls.activity, []);
+  assert.deepEqual(harness.calls.invariants, []);
+  assert.deepEqual(harness.calls.draftDeletes, []);
+  assert.equal(harness.state.draftExists, true);
+  assert.deepEqual(harness.state.commits, []);
   assert.equal(harness.calls.paymentsCreated, 0);
 });
 
@@ -376,6 +355,11 @@ test("draft identity allows version 1 commits from different draft sessions", as
   const harness = fakeExecutionHarness({
     draftId: "draft-B",
     draftVersion: 1,
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package refreshed",
+      unitPrice: 100,
+    }),
     initialCommits: [
       {
         id: "order-commit-A",
@@ -408,6 +392,11 @@ test("double-submit of the same draft id is rejected cleanly", async () => {
   const harness = fakeExecutionHarness({
     draftId: "draft-A",
     draftVersion: 1,
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package refreshed",
+      unitPrice: 100,
+    }),
     initialCommits: [
       {
         id: "order-commit-A",
@@ -499,12 +488,26 @@ test("commitOrderChanges keeps a re-upgraded package item delta charged once", a
       }),
     ],
   });
+  const pendingSnapshot = snapshot({
+    catalogEntityId: "package-base",
+    label: "Base package",
+    unitPrice: 100,
+    extraLines: [
+      packageItemUpgradeLine({
+        upgradeId: "upgrade-album",
+        packageItemId: "package-item-album",
+        label: "Basic Album to Premium Album Refreshed",
+        quantity: 1,
+        unitPrice: 25,
+      }),
+    ],
+  });
   const harness = fakeExecutionHarness({
     draftId: "draft-reupgrade",
     draftVersion: 1,
     finalInvoice: { id: "final-invoice-1", isLocked: false },
     initialInvoiceTotal: 125,
-    pendingSnapshot: committedSnapshot,
+    pendingSnapshot,
     currentItemUpgrades: [
       {
         id: "upgrade-album",
@@ -605,6 +608,10 @@ test("commitOrderChanges rejects stale draft versions before writes", async () =
 
 test("commitOrderChanges rejects non-owner non-manager commits before writes", async () => {
   const harness = fakeExecutionHarness({ draftOwnerUserId: "draft-owner" });
+  harness.pendingSnapshot.lines[0] = {
+    ...harness.pendingSnapshot.lines[0],
+    label: "Base package refreshed",
+  };
   activeHarness = harness;
   const { commitOrderChanges } = await loadExecutionService();
   const { OrderCommitDraftPermissionError } = await import(
@@ -633,7 +640,14 @@ test("commitOrderChanges rejects non-owner non-manager commits before writes", a
 });
 
 test("commitOrderChanges manager override does not transfer draft ownership", async () => {
-  const harness = fakeExecutionHarness({ draftOwnerUserId: "draft-owner" });
+  const harness = fakeExecutionHarness({
+    draftOwnerUserId: "draft-owner",
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package refreshed",
+      unitPrice: 100,
+    }),
+  });
   activeHarness = harness;
   const { commitOrderChanges } = await loadExecutionService();
 
@@ -656,7 +670,14 @@ test("commitOrderChanges manager override does not transfer draft ownership", as
 });
 
 test("Prisma adapter draft-id conflicts surface as concurrent commit errors without retry", async () => {
-  const harness = fakeExecutionHarness({ throwConcurrentOnCommit: "draftIdAdapter" });
+  const harness = fakeExecutionHarness({
+    throwConcurrentOnCommit: "draftIdAdapter",
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package refreshed",
+      unitPrice: 100,
+    }),
+  });
   activeHarness = harness;
   const { commitOrderChanges, OrderCommitConcurrentCommitError } =
     await loadExecutionService();
@@ -677,6 +698,11 @@ test("Prisma adapter draft-id conflicts surface as concurrent commit errors with
 test("legacy draft-version conflicts still surface as concurrent commit errors", async () => {
   const harness = fakeExecutionHarness({
     throwConcurrentOnCommit: "draftVersionTarget",
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package refreshed",
+      unitPrice: 100,
+    }),
   });
   activeHarness = harness;
   const { commitOrderChanges, OrderCommitConcurrentCommitError } =

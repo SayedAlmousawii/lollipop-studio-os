@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 142 is complete: package swaps restored to the original package fields now reduce to `UNCHANGED`, reducer-only package mirror metadata no longer creates phantom net-zero staged rows, and true no-op OrderCommit drafts are rejected before commit/audit artifacts.
 - Spec 140 is complete: package-item upgrade re-application now replaces the existing staged or committed upgrade instead of stacking quantity, preserves the upgrade row identity, updates the latest replacement delta/label, and charges the upgrade delta once.
 - Spec 139 is complete: Sales live/post-commit composition now renders package-item upgrades on their owning package deliverables instead of any add-on display list, add-ons render as single quantity-N rows for marketplace Remove One semantics, and upgrade money remains in the financial add-on contribution so net, invoice-facing, and financial-sidebar totals stay unchanged.
 - Spec 136 follow-up is complete: Sales package-item Upgrade/Replace now stages through the OrderCommit adapter as `PACKAGE_ITEM_UPGRADE` ADD with exact draft-version forwarding, uses the UI's current package item plus replacement product ids, and previews/commits into `OrderPackageItemUpgrade` without schema, reducer, materializer, UI layout, add-on, session-configuration, financial emission, or Prisma changes.
@@ -150,6 +151,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **142** — Removed reducer-only package mirror metadata from OrderCommit package staging, added restored-package no-op diff coverage, blocked true no-op commits before materialization/audit artifacts, and mapped Sales no-op commit errors to stable action state.
 - **140** — Changed PACKAGE_ITEM_UPGRADE re-application from quantity stacking to set-style replacement by parent package plus included package item, preserving existing draft/committed upgrade identity while updating replacement label, unit price, quantity, and totals with reducer, staging, and execution coverage.
 - **136 follow-up** — Wired Sales package-item Upgrade/Replace to the OrderCommit staging adapter as schema-valid PACKAGE_ITEM_UPGRADE ADD payloads with exact expected-version forwarding, action-error mapping, and stage-preview-commit materialization coverage for `OrderPackageItemUpgrade`.
 - **138** — Wired Sales marketplace add/remove add-ons through OrderCommit as order-level ADD_ON staging, including optional parent package targets, Remove One quantity decrement staging, committed snapshot draft-id remapping to materialized `OrderAddOn.id`, package-scoped path preservation, linked-product protections, and centralization coverage.

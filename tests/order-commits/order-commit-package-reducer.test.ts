@@ -5,9 +5,11 @@ import test from "node:test";
 import {
   orderCommitDraftStagingChangeSchema,
   orderCommitSnapshotV1Schema,
+  diffOrderCommitSnapshots,
   reduceOrderCommitDraftPackage,
   ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
   ORDER_COMMIT_ORDER_ENTITY_KIND,
+  ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
   ORDER_COMMIT_SNAPSHOT_CURRENCY,
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
@@ -57,13 +59,13 @@ test("updates package identity and locks resolved package pricing", () => {
   assert.equal(line.unitPrice, 150.125);
   assert.equal(line.lineTotal, 150.125);
   assert.equal(line.priceSource, ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT);
+  assert.equal("currentPackageId" in line.metadata, false);
+  assert.equal("currentPackageNameSnapshot" in line.metadata, false);
+  assert.equal("finalPackagePriceSnapshot" in line.metadata, false);
   assert.deepEqual(line.metadata, {
     bookingPackageId: "booking-package-1",
-    currentPackageId: "package-premium",
-    currentPackageNameSnapshot: "Premium Package",
     extraDigitalCount: 1,
     extraPrintCount: 0,
-    finalPackagePriceSnapshot: 150.125,
     includedPhotoCount: 10,
     originalPackageId: "package-original",
     originalPackageNameSnapshot: "Original Package",
@@ -78,6 +80,53 @@ test("updates package identity and locks resolved package pricing", () => {
     discountTotal: 0,
     netTotal: 150.125,
   });
+});
+
+test("restored package swap reduces to an unchanged diff", () => {
+  const baseline = snapshotFixture({ lines: [packageLine()] });
+
+  const upgraded = reduceOrderCommitDraftPackage(baseline, {
+    change: packageChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:order-package-1" },
+      packageId: "package-premium",
+      sessionTypeId: "session-type-1",
+    }),
+    resolvedPackage: resolvedPackage({
+      packageId: "package-premium",
+      packageName: "Premium Package",
+      packagePrice: 150,
+      includedPhotoCount: 10,
+    }),
+  });
+  const restored = reduceOrderCommitDraftPackage(upgraded, {
+    change: packageChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:order-package-1" },
+      packageId: "package-current",
+      sessionTypeId: "session-type-1",
+    }),
+    resolvedPackage: resolvedPackage({
+      packageId: "package-current",
+      packageName: "Current Package",
+      packagePrice: 100,
+      includedPhotoCount: 10,
+    }),
+  });
+
+  const diff = diffOrderCommitSnapshots({
+    baseSnapshot: baseline,
+    pendingSnapshot: restored,
+  });
+
+  assert.equal(diff.netDelta, 0);
+  assert.equal(diff.zeroNetReason, null);
+  assert.equal(
+    diff.lineDiffs[0]?.changeKind,
+    ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND.UNCHANGED
+  );
 });
 
 test("removes scoped package item upgrades only when package identity changes", () => {
