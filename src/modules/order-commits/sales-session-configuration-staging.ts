@@ -93,7 +93,6 @@ export function findSalesSessionConfigurationSnapshotTarget(
   return {
     stableKey: line.stableKey,
     lineId: line.lineId,
-    orderEntityId: line.orderEntityId,
   };
 }
 

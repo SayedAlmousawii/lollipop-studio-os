@@ -17,6 +17,7 @@ import {
   type OrderCommitSnapshotV1,
   type ResolvedOrderCommitDraftSessionConfigurationSelection,
 } from "@/modules/order-commits";
+import { findSalesSessionConfigurationSnapshotTarget } from "@/modules/order-commits/sales-session-configuration-staging";
 
 type SessionConfigurationStagingChange = Extract<
   OrderCommitDraftStagingChange,
@@ -369,6 +370,141 @@ test("removes a session configuration and its linked-product add-on together", (
     discountTotal: 0,
     netTotal: 100,
   });
+});
+
+test("removes a captured linked-product selection through a Sales snapshot target", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      sessionConfigurationLine({
+        selectionId: "selection-album",
+        configurationId: "configuration-album",
+        linkedOrderAddOnId: "addon-album",
+        snapshotLinkedProductId: "product-album",
+      }),
+      linkedProductAddOnLine({
+        selectionId: "selection-album",
+        orderAddOnId: "addon-album",
+        productId: "product-album",
+        unitPrice: 45,
+      }),
+    ],
+  });
+  const target = findSalesSessionConfigurationSnapshotTarget(
+    {
+      orderPackageId: "order-package-1",
+      configurationId: "configuration-album",
+    },
+    snapshot
+  );
+
+  const reduced = reduceOrderCommitDraftSessionConfiguration(snapshot, {
+    change: sessionConfigurationChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION,
+      action: "REMOVE",
+      target,
+      parentPackageTarget: { stableKey: "order-package:order-package-1" },
+      configurationId: "configuration-album",
+    }),
+  });
+
+  assert.equal(
+    reduced.lines.some((line) => line.orderEntityId === "selection-album"),
+    false
+  );
+  assert.equal(
+    reduced.lines.some(
+      (line) =>
+        line.lineKind ===
+        ORDER_COMMIT_SNAPSHOT_LINE_KIND.LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
+    ),
+    false
+  );
+  assert.deepEqual(reduced.totals, {
+    subtotal: 100,
+    discountTotal: 0,
+    netTotal: 100,
+  });
+});
+
+test("updates a captured linked-product selection through a Sales snapshot target", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine(),
+      sessionConfigurationLine({
+        selectionId: "selection-album",
+        configurationId: "configuration-album",
+        linkedOrderAddOnId: "addon-album",
+        snapshotLinkedProductId: "product-album",
+      }),
+      linkedProductAddOnLine({
+        selectionId: "selection-album",
+        orderAddOnId: "addon-album",
+        productId: "product-album",
+        label: "Original Album",
+        unitPrice: 30,
+      }),
+    ],
+  });
+  const target = findSalesSessionConfigurationSnapshotTarget(
+    {
+      orderPackageId: "order-package-1",
+      configurationId: "configuration-album",
+    },
+    snapshot
+  );
+
+  const reduced = reduceOrderCommitDraftSessionConfiguration(snapshot, {
+    change: sessionConfigurationChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.SESSION_CONFIGURATION,
+      action: "UPSERT",
+      target,
+      parentPackageTarget: { stableKey: "order-package:order-package-1" },
+      configurationId: "configuration-album",
+      optionId: "option-album-updated",
+      linkedProduct: {
+        productId: "product-album",
+        orderAddOnId: "addon-album",
+      },
+    }),
+    resolvedSelection: resolvedSelection({
+      configurationId: "configuration-album",
+      optionId: "option-album-updated",
+      snapshotConfigurationCode: "ALBUM",
+      snapshotLabel: "Album",
+      snapshotLinkedProductId: "product-album",
+      snapshotOptionLabel: "Updated Album",
+      snapshotFinancialBehavior: "FINANCIAL",
+      snapshotPricingMode: "LINKED_PRODUCT",
+    }),
+    resolvedLinkedProduct: {
+      productId: "product-album",
+      label: "Updated Album Add-On",
+      unitPrice: 42,
+    },
+  });
+
+  const selection = requireLine(reduced, "session-config:selection-album");
+  assert.equal(selection.metadata.optionId, "option-album-updated");
+  assert.equal(selection.metadata.orderAddOnId, "addon-album");
+  assert.equal(selection.metadata.snapshotOptionLabel, "Updated Album");
+
+  const linkedAddOn = requireLine(
+    reduced,
+    "session-config:selection-album:addon:addon-album"
+  );
+  assert.equal(linkedAddOn.label, "Updated Album Add-On");
+  assert.equal(linkedAddOn.unitPrice, 42);
+  assert.equal(linkedAddOn.lineTotal, 42);
+  assert.equal(linkedAddOn.metadata.orderAddOnId, "addon-album");
+  assert.equal(
+    reduced.lines.filter(
+      (line) =>
+        line.lineKind ===
+        ORDER_COMMIT_SNAPSHOT_LINE_KIND.LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
+    ).length,
+    1
+  );
 });
 
 test("requires exactly one linked add-on identity path", () => {

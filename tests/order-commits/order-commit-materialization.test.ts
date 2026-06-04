@@ -185,6 +185,14 @@ test("materializes package, add-on, item-upgrade, photo, session, and linked-pro
     state.addOns.find((addOn) => addOn.id === createdLinkedAddOnId)?.productId,
     "product-album"
   );
+  const linkedSelectionPreNull = state.operations.find(
+    (operation) =>
+      operation.model === "selection" &&
+      operation.action === "updateMany" &&
+      JSON.stringify(operation.data).includes("selection-remove")
+  );
+  assert.ok(linkedSelectionPreNull);
+  assert.match(JSON.stringify(linkedSelectionPreNull.data), /"orderAddOnId":null/);
 
   const packageUpdates = state.operations.filter(
     (operation) => operation.model === "orderPackage" && operation.action === "update"
