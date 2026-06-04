@@ -9,11 +9,17 @@ import {
   InvoiceStatus,
   OrderActivityType,
   Prisma,
+  SessionConfigurationFinancialBehavior,
+  SessionConfigurationInputType,
+  SessionConfigurationPricingMode,
   UserRole,
   type PrismaClient,
 } from "@prisma/client";
 import {
   ORDER_COMMIT_KIND,
+  ORDER_COMMIT_ORDER_ENTITY_KIND,
+  ORDER_COMMIT_PRICE_SOURCE,
+  ORDER_COMMIT_SNAPSHOT_LINE_KIND,
   ORDER_COMMIT_STATUS,
 } from "@/modules/order-commits/order-commit.constants";
 import {
@@ -142,6 +148,143 @@ test("commitOrderChanges atomically creates an audit commit and deletes the draf
       harness.calls.sequence.indexOf("draft.delete")
   );
   assert.equal(harness.calls.paymentsCreated, 0);
+});
+
+test("commitOrderChanges persists materialized operational session configuration ids before snapshotJson", async () => {
+  const harness = fakeExecutionHarness({
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 100,
+      extraLines: [
+        sessionConfigurationLine({
+          selectionId: "draft:session-configuration-selection-operational",
+          configurationId: "configuration-finish",
+          financialBehavior: SessionConfigurationFinancialBehavior.OPERATIONAL,
+          priceDelta: 0,
+        }),
+      ],
+    }),
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 2,
+    actorContext,
+    client: harness.client,
+  });
+
+  const committedSnapshot = harness.calls.orderCommitCreates[0]?.data
+    .snapshotJson as OrderCommitSnapshotV1;
+  const selectionLine = committedSnapshot.lines.find(
+    (line) => line.catalogEntityId === "configuration-finish"
+  );
+  assert.equal(selectionLine?.lineKind, ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION);
+  assert.equal(selectionLine?.orderEntityId, "selection-1");
+  assert.equal(selectionLine?.lineId, "session-config:selection-1");
+  assert.equal(
+    selectionLine?.stableKey,
+    "session-configuration-selection:selection-1"
+  );
+});
+
+test("commitOrderChanges persists materialized financial session configuration ids before snapshotJson", async () => {
+  const harness = fakeExecutionHarness({
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 100,
+      extraLines: [
+        sessionConfigurationLine({
+          selectionId: "draft:session-configuration-selection-financial",
+          configurationId: "configuration-premium",
+          financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+          priceDelta: 0,
+        }),
+      ],
+    }),
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 2,
+    actorContext,
+    client: harness.client,
+  });
+
+  const committedSnapshot = harness.calls.orderCommitCreates[0]?.data
+    .snapshotJson as OrderCommitSnapshotV1;
+  const selectionLine = committedSnapshot.lines.find(
+    (line) => line.catalogEntityId === "configuration-premium"
+  );
+  assert.equal(selectionLine?.orderEntityId, "selection-1");
+  assert.equal(selectionLine?.lineId, "session-config:selection-1");
+  assert.equal(
+    selectionLine?.stableKey,
+    "session-configuration-selection:selection-1"
+  );
+});
+
+test("commitOrderChanges persists linked-product session configuration ids before snapshotJson", async () => {
+  const harness = fakeExecutionHarness({
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 100,
+      extraLines: [
+        sessionConfigurationLine({
+          selectionId: "draft:session-configuration-selection-linked",
+          configurationId: "configuration-album",
+          financialBehavior: SessionConfigurationFinancialBehavior.FINANCIAL,
+          priceDelta: 0,
+          pricingMode: SessionConfigurationPricingMode.LINKED_PRODUCT,
+          linkedProductId: "product-album",
+          draftOrderAddOnId: "draft:linked-product-add-on-album",
+        }),
+        linkedProductAddOnLine({
+          selectionId: "draft:session-configuration-selection-linked",
+          productId: "product-album",
+          draftOrderAddOnId: "draft:linked-product-add-on-album",
+          unitPrice: 0,
+        }),
+      ],
+    }),
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 2,
+    actorContext,
+    client: harness.client,
+  });
+
+  const committedSnapshot = harness.calls.orderCommitCreates[0]?.data
+    .snapshotJson as OrderCommitSnapshotV1;
+  const selectionLine = committedSnapshot.lines.find(
+    (line) => line.catalogEntityId === "configuration-album"
+  );
+  const linkedLine = committedSnapshot.lines.find(
+    (line) =>
+      line.lineKind ===
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND.LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
+  );
+  assert.equal(selectionLine?.orderEntityId, "selection-1");
+  assert.equal(selectionLine?.metadata.orderAddOnId, "addon-1");
+  assert.equal("draftOrderAddOnId" in (selectionLine?.metadata ?? {}), false);
+  assert.equal(linkedLine?.orderEntityId, "selection-1");
+  assert.equal(linkedLine?.lineId, "session-config:selection-1:addon:addon-1");
+  assert.equal(
+    linkedLine?.stableKey,
+    "session-configuration-selection:selection-1:add-on:addon-1"
+  );
+  assert.equal(linkedLine?.metadata.orderAddOnId, "addon-1");
+  assert.equal("draftOrderAddOnId" in (linkedLine?.metadata ?? {}), false);
 });
 
 test("commitOrderChanges rebuilds unlocked FINAL without document links", async () => {
@@ -936,46 +1079,136 @@ function snapshot(input: {
   catalogEntityId: string;
   label: string;
   unitPrice: number;
+  extraLines?: OrderCommitSnapshotV1["lines"];
 }): OrderCommitSnapshotV1 {
+  const packageLine = {
+    lineId: "package:order-package-1",
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE,
+    orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE,
+    orderEntityId: "order-package-1",
+    parentOrderPackageId: null,
+    catalogEntityId: input.catalogEntityId,
+    stableKey: "order-package:order-package-1",
+    label: input.label,
+    quantity: 1,
+    unitPrice: input.unitPrice,
+    lineTotal: input.unitPrice,
+    priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
+    metadata: {
+      originalPackageId: "package-base",
+      originalPackageNameSnapshot: "Base package",
+      originalPackagePriceSnapshot: 100,
+      bookingPackageId: "booking-package-1",
+      selectedPhotoCount: 10,
+      includedPhotoCount: 10,
+      extraDigitalCount: 0,
+      extraPrintCount: 0,
+      sessionTypeId: "session-type-1",
+      sessionTypeName: "Portrait",
+      sortOrder: 0,
+    },
+  } satisfies OrderCommitSnapshotV1["lines"][number];
+  const lines = [packageLine, ...(input.extraLines ?? [])];
+  const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
   return {
     schemaVersion: "order_commit_snapshot_v1",
     orderId: "order-1",
     financialCaseId: "financial-case-1",
     capturedAt: "2026-06-02T00:00:00.000Z",
     currency: "KWD",
-    lines: [
-      {
-        lineId: "package:order-package-1",
-        lineKind: "PACKAGE",
-        orderEntityKind: "ORDER_PACKAGE",
-        orderEntityId: "order-package-1",
-        parentOrderPackageId: null,
-        catalogEntityId: input.catalogEntityId,
-        stableKey: "order-package:order-package-1",
-        label: input.label,
-        quantity: 1,
-        unitPrice: input.unitPrice,
-        lineTotal: input.unitPrice,
-        priceSource: "ORDER_ROW_SNAPSHOT",
-        metadata: {
-          originalPackageId: "package-base",
-          originalPackageNameSnapshot: "Base package",
-          originalPackagePriceSnapshot: 100,
-          bookingPackageId: "booking-package-1",
-          selectedPhotoCount: 10,
-          includedPhotoCount: 10,
-          extraDigitalCount: 0,
-          extraPrintCount: 0,
-          sessionTypeId: "session-type-1",
-          sessionTypeName: "Portrait",
-          sortOrder: 0,
-        },
-      },
-    ],
+    lines,
     totals: {
-      subtotal: input.unitPrice,
+      subtotal,
       discountTotal: 0,
-      netTotal: input.unitPrice,
+      netTotal: subtotal,
+    },
+  };
+}
+
+function sessionConfigurationLine(input: {
+  selectionId: string;
+  configurationId: string;
+  financialBehavior: SessionConfigurationFinancialBehavior;
+  priceDelta: number;
+  pricingMode?: SessionConfigurationPricingMode;
+  linkedProductId?: string | null;
+  orderAddOnId?: string | null;
+  draftOrderAddOnId?: string | null;
+}): OrderCommitSnapshotV1["lines"][number] {
+  return {
+    lineId: `session-config:${input.selectionId}`,
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION,
+    orderEntityKind:
+      ORDER_COMMIT_ORDER_ENTITY_KIND
+        .ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+    orderEntityId: input.selectionId,
+    parentOrderPackageId: "order-package-1",
+    catalogEntityId: input.configurationId,
+    stableKey: `session-configuration-selection:${input.selectionId}`,
+    label: "Session configuration",
+    quantity: 1,
+    unitPrice: input.priceDelta,
+    lineTotal: input.priceDelta,
+    priceSource:
+      ORDER_COMMIT_PRICE_SOURCE.SESSION_CONFIGURATION_SELECTION_SNAPSHOT,
+    metadata: {
+      configurationId: input.configurationId,
+      optionId: null,
+      numericValue: null,
+      textValue: null,
+      orderAddOnId: input.orderAddOnId ?? null,
+      ...(input.draftOrderAddOnId
+        ? { draftOrderAddOnId: input.draftOrderAddOnId }
+        : {}),
+      snapshotConfigurationCode: input.configurationId.toUpperCase(),
+      snapshotFinancialBehavior: input.financialBehavior,
+      snapshotInputType: SessionConfigurationInputType.TOGGLE,
+      snapshotLabel: "Session configuration",
+      snapshotLinkedProductId: input.linkedProductId ?? null,
+      snapshotOptionLabel: null,
+      snapshotPriceDelta: input.priceDelta,
+      snapshotPricingMode:
+        input.pricingMode ?? SessionConfigurationPricingMode.FIXED,
+    },
+  };
+}
+
+function linkedProductAddOnLine(input: {
+  selectionId: string;
+  productId: string;
+  orderAddOnId?: string | null;
+  draftOrderAddOnId?: string | null;
+  unitPrice?: number;
+}): OrderCommitSnapshotV1["lines"][number] {
+  const addOnRef = input.orderAddOnId ?? input.draftOrderAddOnId;
+  assert.ok(addOnRef);
+  const unitPrice = input.unitPrice ?? 25;
+  return {
+    lineId: `session-config:${input.selectionId}:addon:${addOnRef}`,
+    lineKind:
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND
+        .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON,
+    orderEntityKind:
+      ORDER_COMMIT_ORDER_ENTITY_KIND
+        .ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+    orderEntityId: input.selectionId,
+    parentOrderPackageId: "order-package-1",
+    catalogEntityId: input.productId,
+    stableKey: `session-configuration-selection:${input.selectionId}:add-on:${addOnRef}`,
+    label: "Linked album",
+    quantity: 1,
+    unitPrice,
+    lineTotal: unitPrice,
+    priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
+    metadata: {
+      configurationId: "configuration-album",
+      orderAddOnId: input.orderAddOnId ?? null,
+      ...(input.draftOrderAddOnId
+        ? { draftOrderAddOnId: input.draftOrderAddOnId }
+        : {}),
+      productId: input.productId,
+      addOnNotes: null,
+      snapshotLinkedProductId: input.productId,
     },
   };
 }

@@ -28,6 +28,7 @@ import {
 import {
   buildSalesSessionConfigurationStagingChange,
   type SalesSessionConfigurationSelectionStagingInput,
+  withSalesSessionConfigurationSnapshotTarget,
 } from "@/modules/order-commits/sales-session-configuration-staging";
 import {
   discardSalesDraftActionWithDependencies,
@@ -103,11 +104,16 @@ export async function stageSessionConfigurationSelectionAction(
       actorRole: appUser.role,
     };
 
-    await getOrCreateOrderCommitDraft({ orderId, actorContext });
+    const activeDraft = await getOrCreateOrderCommitDraft({ orderId, actorContext });
     const draft = await stageOrderCommitDraftChange({
       orderId,
       expectedVersion,
-      change: buildSalesSessionConfigurationStagingChange(input),
+      change: buildSalesSessionConfigurationStagingChange(
+        withSalesSessionConfigurationSnapshotTarget(
+          input,
+          activeDraft.pendingSnapshot
+        )
+      ),
       actorContext,
     });
 

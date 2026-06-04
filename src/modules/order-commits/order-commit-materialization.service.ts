@@ -9,6 +9,7 @@ import {
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
 } from "./order-commit.constants";
 import { orderCommitSnapshotV1Schema } from "./order-commit.schema";
+import { normalizeOrderCommitSnapshot } from "./order-commit-snapshot-normalizer";
 import type {
   OrderCommitSnapshotLineV1,
   OrderCommitSnapshotV1,
@@ -29,6 +30,11 @@ export type MaterializeOrderCommitDraftIntoOrderRowsInput = {
 };
 
 export type MaterializeOrderCommitDraftIntoOrderRowsResult = {
+  draftToOrderEntityMap: ReadonlyMap<string, string>;
+};
+
+export type RemapMaterializedSessionConfigurationSnapshotInput = {
+  pendingSnapshot: OrderCommitSnapshotV1;
   draftToOrderEntityMap: ReadonlyMap<string, string>;
 };
 
@@ -287,6 +293,93 @@ export async function materializeOrderCommitDraftIntoOrderRows(
   );
 
   return { draftToOrderEntityMap };
+}
+
+export function remapMaterializedSessionConfigurationSnapshot(
+  input: RemapMaterializedSessionConfigurationSnapshotInput
+): OrderCommitSnapshotV1 {
+  const pendingSnapshot = orderCommitSnapshotV1Schema.parse(input.pendingSnapshot);
+  return normalizeOrderCommitSnapshot({
+    ...pendingSnapshot,
+    lines: pendingSnapshot.lines.map((line) =>
+      remapMaterializedSessionConfigurationLine(
+        line,
+        input.draftToOrderEntityMap
+      )
+    ),
+  });
+}
+
+function remapMaterializedSessionConfigurationLine(
+  line: OrderCommitSnapshotLineV1,
+  draftToOrderEntityMap: ReadonlyMap<string, string>
+): OrderCommitSnapshotLineV1 {
+  if (line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION) {
+    const selectionId = materializedId(line.orderEntityId, draftToOrderEntityMap);
+    const linkedMetadata = remapLinkedProductMetadata(
+      line.metadata,
+      draftToOrderEntityMap
+    );
+    return {
+      ...line,
+      lineId: `session-config:${selectionId}`,
+      orderEntityId: selectionId,
+      stableKey: `session-configuration-selection:${selectionId}`,
+      metadata: linkedMetadata.metadata,
+    };
+  }
+
+  if (
+    line.lineKind ===
+    ORDER_COMMIT_SNAPSHOT_LINE_KIND.LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
+  ) {
+    const selectionId = materializedId(line.orderEntityId, draftToOrderEntityMap);
+    const linkedMetadata = remapLinkedProductMetadata(
+      line.metadata,
+      draftToOrderEntityMap
+    );
+    const addOnRef = linkedMetadata.addOnRef;
+    if (!addOnRef) {
+      throw new Error(
+        `OrderCommit materialization failed: linked add-on line ${line.lineId} must reference orderAddOnId or draftOrderAddOnId.`
+      );
+    }
+    return {
+      ...line,
+      lineId: `session-config:${selectionId}:addon:${addOnRef}`,
+      orderEntityId: selectionId,
+      stableKey: `session-configuration-selection:${selectionId}:add-on:${addOnRef}`,
+      metadata: linkedMetadata.metadata,
+    };
+  }
+
+  return line;
+}
+
+function remapLinkedProductMetadata(
+  metadata: Record<string, unknown>,
+  draftToOrderEntityMap: ReadonlyMap<string, string>
+): { metadata: Record<string, unknown>; addOnRef: string | null } {
+  const draftOrderAddOnId =
+    typeof metadata.draftOrderAddOnId === "string"
+      ? metadata.draftOrderAddOnId
+      : null;
+  const orderAddOnId =
+    typeof metadata.orderAddOnId === "string" ? metadata.orderAddOnId : null;
+  if (!draftOrderAddOnId) {
+    return { metadata: { ...metadata }, addOnRef: orderAddOnId };
+  }
+
+  const materializedOrderAddOnId = materializedId(
+    draftOrderAddOnId,
+    draftToOrderEntityMap
+  );
+  const nextMetadata: Record<string, unknown> = {
+    ...metadata,
+    orderAddOnId: materializedOrderAddOnId,
+  };
+  delete nextMetadata.draftOrderAddOnId;
+  return { metadata: nextMetadata, addOnRef: materializedOrderAddOnId };
 }
 
 async function loadOrderRows(

@@ -2,8 +2,20 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { ORDER_COMMIT_DRAFT_STAGING_DOMAIN } from "@/modules/order-commits/order-commit-draft.constants";
+import {
+  ORDER_COMMIT_ORDER_ENTITY_KIND,
+  ORDER_COMMIT_PRICE_SOURCE,
+  ORDER_COMMIT_SNAPSHOT_LINE_KIND,
+} from "@/modules/order-commits/order-commit.constants";
 import { orderCommitDraftStagingChangeSchema } from "@/modules/order-commits/order-commit-draft.schema";
-import { buildSalesSessionConfigurationStagingChange } from "@/modules/order-commits/sales-session-configuration-staging";
+import {
+  buildSalesSessionConfigurationStagingChange,
+  findSalesSessionConfigurationSnapshotTarget,
+} from "@/modules/order-commits/sales-session-configuration-staging";
+import type {
+  OrderCommitSnapshotLineV1,
+  OrderCommitSnapshotV1,
+} from "@/modules/order-commits/order-commit.types";
 
 const panelSource = readFileSync(
   "src/components/session-configurations/configure-session-panel.tsx",
@@ -59,13 +71,18 @@ test("financial selection stages value only without panel-owned impact fields", 
   assert.equal("lineTotal" in change, false);
 });
 
-test("clearing an existing selection stages remove with the materialized target", () => {
+test("clearing an existing selection stages remove with the snapshot-derived target", () => {
   const change = buildSalesSessionConfigurationStagingChange({
     orderPackageId: "order-package-1",
     configurationId: "configuration-finish",
     desired: null,
     existingSelection: {
-      selectionId: "selection-finish",
+      selectionId: "materialized-selection-finish",
+    },
+    existingSnapshotTarget: {
+      stableKey: "session-configuration-selection:draft-selection-finish",
+      lineId: "session-config:draft-selection-finish",
+      orderEntityId: "draft-selection-finish",
     },
   });
 
@@ -78,10 +95,72 @@ test("clearing an existing selection stages remove with the materialized target"
     },
     configurationId: "configuration-finish",
     target: {
-      stableKey: "session-configuration-selection:selection-finish",
-      orderEntityId: "selection-finish",
+      stableKey: "session-configuration-selection:draft-selection-finish",
+      lineId: "session-config:draft-selection-finish",
+      orderEntityId: "draft-selection-finish",
     },
   });
+});
+
+test("snapshot target lookup targets the session configuration line, not linked add-on companion", () => {
+  const target = findSalesSessionConfigurationSnapshotTarget(
+    {
+      orderPackageId: "order-package-1",
+      configurationId: "configuration-album",
+    },
+    snapshotFixture({
+      lines: [
+        packageLine(),
+        sessionConfigurationLine({
+          selectionId: "selection-album",
+          configurationId: "configuration-album",
+          linkedProductId: "product-album",
+          orderAddOnId: "order-addon-album",
+        }),
+        linkedProductAddOnLine({
+          selectionId: "selection-album",
+          productId: "product-album",
+          orderAddOnId: "order-addon-album",
+        }),
+      ],
+    })
+  );
+
+  assert.deepEqual(target, {
+    stableKey: "session-configuration-selection:selection-album",
+    lineId: "session-config:selection-album",
+    orderEntityId: "selection-album",
+  });
+});
+
+test("updating an existing selection uses snapshot target, not the current selection id", () => {
+  const change = buildSalesSessionConfigurationStagingChange({
+    orderPackageId: "order-package-1",
+    configurationId: "configuration-finish",
+    desired: {
+      configurationId: "configuration-finish",
+      kind: "select",
+      optionId: "option-glossy",
+    },
+    existingSelection: {
+      selectionId: "materialized-selection-finish",
+    },
+    existingSnapshotTarget: {
+      stableKey: "session-configuration-selection:draft-selection-finish",
+      lineId: "session-config:draft-selection-finish",
+      orderEntityId: "draft-selection-finish",
+    },
+  });
+
+  assert.deepEqual(change.target, {
+    stableKey: "session-configuration-selection:draft-selection-finish",
+    lineId: "session-config:draft-selection-finish",
+    orderEntityId: "draft-selection-finish",
+  });
+  assert.notEqual(
+    change.target?.stableKey,
+    "session-configuration-selection:materialized-selection-finish"
+  );
 });
 
 test("new linked-product selection omits add-on ids for service assignment", () => {
@@ -111,12 +190,18 @@ test("materialized linked-product selection forwards materialized orderAddOnId",
       snapshotLinkedProductId: "product-album",
       orderAddOnId: "order-addon-album",
     },
+    existingSnapshotTarget: {
+      stableKey: "session-configuration-selection:selection-album",
+      lineId: "session-config:selection-album",
+      orderEntityId: "selection-album",
+    },
   });
 
   assert.deepEqual(change.linkedProduct, {
     productId: "product-album",
     orderAddOnId: "order-addon-album",
   });
+  assert.equal(change.target?.lineId, "session-config:selection-album");
 });
 
 test("draft orderAddOnId remains rejected by the staging schema", () => {
@@ -187,7 +272,103 @@ test("dedicated Sales session action avoids legacy live and AW writes", () => {
   const actionSource = salesActionSource.slice(actionStart, actionEnd);
 
   assert.match(actionSource, /buildSalesSessionConfigurationStagingChange/);
+  assert.match(actionSource, /withSalesSessionConfigurationSnapshotTarget/);
   assert.match(actionSource, /stageOrderCommitDraftChange/);
   assert.doesNotMatch(actionSource, /writeOrderPackageSelections/);
   assert.doesNotMatch(actionSource, /applySessionConfigurationWorkspaceEditAction/);
 });
+
+function snapshotFixture(input: {
+  lines: OrderCommitSnapshotLineV1[];
+}): OrderCommitSnapshotV1 {
+  return {
+    schemaVersion: "order_commit_snapshot_v1",
+    orderId: "order-1",
+    financialCaseId: "financial-case-1",
+    capturedAt: "2026-06-04T00:00:00.000Z",
+    currency: "KWD",
+    lines: input.lines,
+    totals: {
+      subtotal: 100,
+      discountTotal: 0,
+      netTotal: 100,
+    },
+  };
+}
+
+function packageLine(): OrderCommitSnapshotLineV1 {
+  return {
+    lineId: "package:order-package-1",
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE,
+    orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE,
+    orderEntityId: "order-package-1",
+    parentOrderPackageId: null,
+    catalogEntityId: "package-base",
+    stableKey: "order-package:order-package-1",
+    label: "Base package",
+    quantity: 1,
+    unitPrice: 100,
+    lineTotal: 100,
+    priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
+    metadata: { sessionTypeId: "session-type-1" },
+  };
+}
+
+function sessionConfigurationLine(input: {
+  selectionId: string;
+  configurationId: string;
+  linkedProductId?: string | null;
+  orderAddOnId?: string | null;
+}): OrderCommitSnapshotLineV1 {
+  return {
+    lineId: `session-config:${input.selectionId}`,
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION,
+    orderEntityKind:
+      ORDER_COMMIT_ORDER_ENTITY_KIND
+        .ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+    orderEntityId: input.selectionId,
+    parentOrderPackageId: "order-package-1",
+    catalogEntityId: input.configurationId,
+    stableKey: `session-configuration-selection:${input.selectionId}`,
+    label: "Album",
+    quantity: 1,
+    unitPrice: 0,
+    lineTotal: 0,
+    priceSource:
+      ORDER_COMMIT_PRICE_SOURCE.SESSION_CONFIGURATION_SELECTION_SNAPSHOT,
+    metadata: {
+      configurationId: input.configurationId,
+      orderAddOnId: input.orderAddOnId ?? null,
+      snapshotLinkedProductId: input.linkedProductId ?? null,
+    },
+  };
+}
+
+function linkedProductAddOnLine(input: {
+  selectionId: string;
+  productId: string;
+  orderAddOnId: string;
+}): OrderCommitSnapshotLineV1 {
+  return {
+    lineId: `session-config:${input.selectionId}:addon:${input.orderAddOnId}`,
+    lineKind:
+      ORDER_COMMIT_SNAPSHOT_LINE_KIND
+        .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON,
+    orderEntityKind:
+      ORDER_COMMIT_ORDER_ENTITY_KIND
+        .ORDER_PACKAGE_SESSION_CONFIGURATION_SELECTION,
+    orderEntityId: input.selectionId,
+    parentOrderPackageId: "order-package-1",
+    catalogEntityId: input.productId,
+    stableKey: `session-configuration-selection:${input.selectionId}:add-on:${input.orderAddOnId}`,
+    label: "Album",
+    quantity: 1,
+    unitPrice: 25,
+    lineTotal: 25,
+    priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
+    metadata: {
+      orderAddOnId: input.orderAddOnId,
+      productId: input.productId,
+    },
+  };
+}

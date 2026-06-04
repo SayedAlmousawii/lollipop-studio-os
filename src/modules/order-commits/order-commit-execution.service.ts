@@ -21,6 +21,7 @@ import {
 } from "./order-commit.constants";
 import {
   materializeOrderCommitDraftIntoOrderRows,
+  remapMaterializedSessionConfigurationSnapshot,
 } from "./order-commit-materialization.service";
 import {
   buildOrderCommitApprovalAndDocumentPreview,
@@ -318,6 +319,10 @@ async function commitOrderChangesWithTransaction(
       actorContext: input.actorContext,
       client,
     });
+  const committedSnapshot = remapMaterializedSessionConfigurationSnapshot({
+    pendingSnapshot,
+    draftToOrderEntityMap,
+  });
 
   if (shouldEmitFinancialDocuments(approvalAndDocumentPreview.documentPlan)) {
     await lockParentInvoiceForEmissionIfPresent({
@@ -353,7 +358,7 @@ async function commitOrderChangesWithTransaction(
       finalInvoiceMode: emissionResult.finalInvoiceMode,
       documentPlanKind: approvalAndDocumentPreview.documentPlan.kind,
     }),
-    pendingSnapshot,
+    pendingSnapshot: committedSnapshot,
     draftId: activeDraft.id,
     draftVersion: activeDraft.version,
     metadata: {
