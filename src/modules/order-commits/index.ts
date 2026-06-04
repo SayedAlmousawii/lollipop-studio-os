@@ -117,10 +117,12 @@ export {
 } from "./order-commit-session-configuration-reducer";
 export {
   materializeOrderCommitDraftIntoOrderRows,
+  remapMaterializedSessionConfigurationSnapshot,
   OrderCommitUnsupportedPackageMembershipError,
   type MaterializeOrderCommitDraftIntoOrderRowsInput,
   type MaterializeOrderCommitDraftIntoOrderRowsResult,
   type OrderCommitMaterializationClient,
+  type RemapMaterializedSessionConfigurationSnapshotInput,
 } from "./order-commit-materialization.service";
 export {
   mapOrderCommitDiffToFinancialLines,

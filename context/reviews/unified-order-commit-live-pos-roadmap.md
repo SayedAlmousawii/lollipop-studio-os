@@ -38,6 +38,7 @@ The original Phase 5 ("POS routing through OrderCommit services") assumed the lo
 - Latest committed baseline comes from `OrderCommit.snapshotJson`.
 - Pending draft truth comes from `OrderCommitDraft.pendingSnapshotJson`.
 - `pendingOpsJson` may be retained for audit, history, and UX, but commit diffing compares snapshot to snapshot.
+- Staged UI/action targets must match active `OrderCommit` snapshot line identity. When draft ids materialize into `Order*` rows, remap staged snapshot identities before persisted `OrderCommit.snapshotJson` is written so future drafts do not inherit stale `draft:` targets.
 - `OrderCommitDocument` links commits to emitted financial documents.
 - Adjustment Workspace remains as **frozen legacy** through Phase 5 and is deleted in Phase 6. No new code calls it.
 - No new public service, DTO, route, prop, copy, or employee-facing UI should expose Adjustment Workspace naming.

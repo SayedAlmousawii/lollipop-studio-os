@@ -78,12 +78,21 @@ type POSPackageCompositionBaseProps = {
 type POSPackageCompositionProps =
   | (POSPackageCompositionBaseProps & {
       configurePanelMode?: "auto";
+      expectedVersion?: never;
+      workspaceId?: never;
+      workspaceVersion?: never;
+      pendingOverlayByOrderPackageId?: never;
+    })
+  | (POSPackageCompositionBaseProps & {
+      configurePanelMode: "commit-staging";
+      expectedVersion: number;
       workspaceId?: never;
       workspaceVersion?: never;
       pendingOverlayByOrderPackageId?: never;
     })
   | (POSPackageCompositionBaseProps & {
       configurePanelMode: "adjustment";
+      expectedVersion?: never;
       workspaceId: string;
       workspaceVersion: number;
       pendingOverlayByOrderPackageId: Record<
@@ -95,6 +104,8 @@ type POSPackageCompositionProps =
 export function POSPackageComposition(props: POSPackageCompositionProps) {
   const { workspace, composition, handlers, editPolicies } = props;
   const configurePanelMode = props.configurePanelMode ?? "auto";
+  const commitStagingVersion =
+    props.configurePanelMode === "commit-staging" ? props.expectedVersion : null;
   const adjustmentPanelContext =
     props.configurePanelMode === "adjustment"
       ? {
@@ -150,6 +161,8 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                       key={configureSessionPanelKey({
                         mode: configurePanelMode,
                         line: workspaceLine,
+                        expectedVersion:
+                          commitStagingVersion ?? undefined,
                         workspaceVersion:
                           adjustmentPanelContext?.workspaceVersion,
                         pendingOverlay:
@@ -173,6 +186,11 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                                   workspaceLine.id
                                 ] ?? {},
                             }
+                          : commitStagingVersion !== null
+                            ? {
+                                kind: "commit-staging",
+                                expectedVersion: commitStagingVersion,
+                              }
                           : editPolicies.sessionConfigurationFinancialEdit
                                 .shouldOpenAdjustmentWorkspace
                             ? {
@@ -252,14 +270,16 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
 }
 
 function configureSessionPanelKey(input: {
-  mode: "auto" | "adjustment";
+  mode: "auto" | "commit-staging" | "adjustment";
   line: POSPackageLine;
+  expectedVersion?: number;
   workspaceVersion?: number;
   pendingOverlay?: PendingSessionConfigurationOverlay;
 }): string {
   return JSON.stringify({
     id: input.line.id,
     mode: input.mode,
+    expectedVersion: input.expectedVersion,
     workspaceVersion: input.workspaceVersion,
     currentSelections: input.line.currentSelections,
     pendingOverlay: input.pendingOverlay ?? {},

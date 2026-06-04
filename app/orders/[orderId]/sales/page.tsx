@@ -96,6 +96,8 @@ export default async function SalesPage(
           composition={salesPageView.composition}
           handlers={compositionHandlers}
           editPolicies={packageEditPolicies}
+          configurePanelMode="commit-staging"
+          expectedVersion={salesPageView.draft?.version ?? 0}
         />
         <POSPhotoCountCard
           workspace={workspace}

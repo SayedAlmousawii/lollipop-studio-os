@@ -3832,6 +3832,8 @@ function mapCurrentSessionConfigurationSelection(
     selectionId: selection.id,
     snapshotLabel: selection.snapshotLabel,
     snapshotPriceDelta: selection.snapshotPriceDelta.toNumber(),
+    snapshotLinkedProductId: selection.snapshotLinkedProductId,
+    orderAddOnId: selection.orderAddOnId,
   };
 
   switch (selection.snapshotInputType) {

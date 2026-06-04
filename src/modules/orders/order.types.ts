@@ -406,6 +406,8 @@ export type POSSessionConfigurationSelection = SelectionInput & {
   selectionId: string;
   snapshotLabel: string;
   snapshotPriceDelta: number;
+  snapshotLinkedProductId: string | null;
+  orderAddOnId: string | null;
 };
 
 export interface POSPackage {

@@ -18,8 +18,18 @@ import {
   type OrderCommitDraftStagingChange,
 } from "@/modules/order-commits";
 import {
+  OrderCommitDraftMissingError,
+  OrderCommitDraftPermissionError,
+  OrderCommitDraftStaleVersionError,
+} from "@/modules/order-commits/order-commit-draft.errors";
+import {
   commitSalesChangesActionWithDependencies,
 } from "@/modules/order-commits/sales-commit-actions";
+import {
+  buildSalesSessionConfigurationStagingChange,
+  type SalesSessionConfigurationSelectionStagingInput,
+  withSalesSessionConfigurationSnapshotTarget,
+} from "@/modules/order-commits/sales-session-configuration-staging";
 import {
   discardSalesDraftActionWithDependencies,
   stageSalesChangeActionWithDependencies,
@@ -57,6 +67,9 @@ export type ReductiveEditAction =
   | "update-selected-photo-count";
 
 export type POSCompositionActionState = POSMutationActionState;
+export type POSSessionConfigurationStagingActionState = POSMutationActionState & {
+  version?: number;
+};
 
 export type POSRecordPaymentActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -77,6 +90,40 @@ export async function stageSalesChangeAction(
   });
 }
 
+export async function stageSessionConfigurationSelectionAction(
+  orderId: string,
+  expectedVersion: number,
+  input: SalesSessionConfigurationSelectionStagingInput
+): Promise<POSSessionConfigurationStagingActionState> {
+  try {
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    const actorContext = {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    };
+
+    const activeDraft = await getOrCreateOrderCommitDraft({ orderId, actorContext });
+    const draft = await stageOrderCommitDraftChange({
+      orderId,
+      expectedVersion,
+      change: buildSalesSessionConfigurationStagingChange(
+        withSalesSessionConfigurationSnapshotTarget(
+          input,
+          activeDraft.pendingSnapshot
+        )
+      ),
+      actorContext,
+    });
+
+    revalidatePOSPaths(orderId);
+    return { kind: "success", version: draft.draft.version };
+  } catch (error) {
+    return mapSessionConfigurationStagingActionError(error);
+  }
+}
+
 export async function discardSalesDraftAction(
   orderId: string,
   expectedVersion: number
@@ -87,6 +134,50 @@ export async function discardSalesDraftAction(
     discardOrderCommitDraft,
     revalidateSalesPaths: revalidatePOSPaths,
   });
+}
+
+function mapSessionConfigurationStagingActionError(
+  error: unknown
+): POSSessionConfigurationStagingActionState {
+  if (error instanceof OrderCommitDraftStaleVersionError) {
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "Draft changed since you opened it. Refresh to see the latest.",
+          "draft.stale",
+        ],
+      },
+    };
+  }
+
+  if (error instanceof OrderCommitDraftPermissionError) {
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "Another user owns this draft. Refresh or coordinate before editing.",
+          "draft.permission",
+        ],
+      },
+    };
+  }
+
+  if (error instanceof OrderCommitDraftMissingError) {
+    return { kind: "error", errors: { _global: ["draft.missing"] } };
+  }
+
+  if (error instanceof z.ZodError) {
+    return {
+      kind: "error",
+      errors: {
+        ...error.flatten().fieldErrors,
+        _global: ["Invalid session configuration staging payload."],
+      },
+    };
+  }
+
+  return { kind: "error", errors: { _global: [posActionErrorMessage(error)] } };
 }
 
 export async function commitSalesChangesAction(
