@@ -366,7 +366,15 @@ test("package item upgrade reducer source stays pure and invoice-independent", (
 function packageItemUpgradeChange(
   input: unknown
 ): PackageItemUpgradeStagingChange {
-  const parsed = orderCommitDraftStagingChangeSchema.parse(input);
+  const parsed = orderCommitDraftStagingChangeSchema.parse(
+    input &&
+      typeof input === "object" &&
+      "action" in input &&
+      input.action === "ADD" &&
+      !("toProductId" in input)
+      ? { ...input, toProductId: "product-replacement" }
+      : input
+  );
   assert.equal(
     parsed.domain,
     ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE

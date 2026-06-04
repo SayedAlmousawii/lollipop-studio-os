@@ -92,6 +92,7 @@ const orderCommitDraftPackageItemUpgradeStagingChangeSchema = z
     target: optionalLineTargetSchema,
     parentPackageTarget: orderCommitDraftLineTargetSchema,
     packageItemId: z.string().min(1).optional(),
+    toProductId: z.string().min(1).optional(),
     quantity: nonnegativeIntegerSchema.optional(),
     draftPackageItemUpgradeId: z.string().min(1).startsWith("draft:").optional(),
   })
@@ -179,6 +180,13 @@ export const orderCommitDraftStagingChangeSchema = z.discriminatedUnion(
         code: z.ZodIssueCode.custom,
         path: ["packageItemId"],
         message: "Package item upgrade add staging requires packageItemId.",
+      });
+    }
+    if (change.action === "ADD" && !change.toProductId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toProductId"],
+        message: "Package item upgrade add staging requires toProductId.",
       });
     }
     if (change.action !== "ADD" && !change.target) {

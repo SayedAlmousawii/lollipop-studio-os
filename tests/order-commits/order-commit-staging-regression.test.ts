@@ -524,6 +524,180 @@ test("staging persists pendingSnapshotJson truth and keeps pendingOpsJson histor
   assert.deepEqual(client.financialRowsSnapshot(), beforeFinancialRows);
 });
 
+test("package item upgrade staging locks replacement product delta", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-package-item-upgrade",
+        pendingSnapshotJson: serviceSnapshotFixture(),
+      }),
+    ],
+  });
+
+  const staged = await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+      action: "ADD",
+      parentPackageTarget: { stableKey: "order-package:op-order-1" },
+      packageItemId: "package-item-stage",
+      toProductId: "product-replacement",
+      quantity: 2,
+    },
+    expectedVersion: 0,
+    actorContext: ownerActor,
+    client: client.draftRoot,
+  });
+
+  const upgradeLine = staged.pendingSnapshot.lines.find(
+    (line) =>
+      line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE &&
+      line.catalogEntityId === "package-item-stage"
+  );
+  assert.equal(upgradeLine?.label, "Basic Album to Premium Album");
+  assert.equal(upgradeLine?.unitPrice, 81);
+  assert.equal(upgradeLine?.quantity, 2);
+  assert.equal(upgradeLine?.lineTotal, 162);
+  assert.equal(upgradeLine?.metadata.packageItemId, "package-item-stage");
+});
+
+test("package item upgrade staging re-applies by package and current item without duplicates", async () => {
+  const client = fakeOrderCommitClient({
+    drafts: [
+      fakeDraft({
+        id: "draft-package-item-upgrade-reapply",
+        pendingSnapshotJson: serviceSnapshotFixture(),
+      }),
+    ],
+  });
+
+  await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+      action: "ADD",
+      parentPackageTarget: { stableKey: "order-package:op-order-1" },
+      packageItemId: "package-item-stage",
+      toProductId: "product-replacement",
+      quantity: 2,
+    },
+    expectedVersion: 0,
+    actorContext: ownerActor,
+    client: client.draftRoot,
+  });
+
+  const restaged = await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+      action: "ADD",
+      parentPackageTarget: { stableKey: "order-package:op-order-1" },
+      packageItemId: "package-item-stage",
+      toProductId: "product-replacement",
+      quantity: 1,
+    },
+    expectedVersion: 1,
+    actorContext: ownerActor,
+    client: client.draftRoot,
+  });
+
+  const upgradeLines = restaged.pendingSnapshot.lines.filter(
+    (line) =>
+      line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE &&
+      line.catalogEntityId === "package-item-stage"
+  );
+  assert.equal(upgradeLines.length, 1);
+  assert.equal(upgradeLines[0]?.quantity, 3);
+  assert.equal(upgradeLines[0]?.unitPrice, 81);
+  assert.equal(upgradeLines[0]?.lineTotal, 243);
+});
+
+test("package item upgrade staging rejects invalid replacement inputs", async () => {
+  const cases: Array<{
+    name: string;
+    options: FakeOrderCommitClientOptions;
+    expected: RegExp;
+  }> = [
+    {
+      name: "missing package item",
+      options: { packageItem: null },
+      expected: /package item package-item-stage was not found/,
+    },
+    {
+      name: "wrong package scope",
+      options: {
+        packageItem: packageItemRow({ packageId: "package-other" }),
+      },
+      expected: /not part of the targeted order package/,
+    },
+    {
+      name: "missing replacement",
+      options: { replacementProduct: null },
+      expected: /replacement product product-replacement was not found/,
+    },
+    {
+      name: "inactive replacement",
+      options: {
+        replacementProduct: replacementProductRow({ isActive: false }),
+      },
+      expected: /replacement product product-replacement was not found/,
+    },
+    {
+      name: "non-deliverable replacement",
+      options: {
+        replacementProduct: replacementProductRow({ isPackageDeliverable: false }),
+      },
+      expected: /replacement product product-replacement was not found/,
+    },
+    {
+      name: "category mismatch",
+      options: {
+        replacementProduct: replacementProductRow({ category: "FRAME" }),
+      },
+      expected: /replacement product must be in the same category/,
+    },
+    {
+      name: "same product",
+      options: {
+        replacementProduct: replacementProductRow({ id: "product-current" }),
+      },
+      expected: /replacement product is already included/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const client = fakeOrderCommitClient({
+      drafts: [
+        fakeDraft({
+          id: `draft-${testCase.name.replaceAll(" ", "-")}`,
+          pendingSnapshotJson: serviceSnapshotFixture(),
+        }),
+      ],
+      ...testCase.options,
+    });
+    const beforeDraft = structuredClone(client.drafts[0]);
+
+    await assert.rejects(
+      stageOrderCommitDraftChange({
+        orderId: "order-1",
+        change: {
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+          action: "ADD",
+          parentPackageTarget: { stableKey: "order-package:op-order-1" },
+          packageItemId: "package-item-stage",
+          toProductId: "product-replacement",
+          quantity: 1,
+        },
+        expectedVersion: 0,
+        actorContext: ownerActor,
+        client: client.draftRoot,
+      }),
+      testCase.expected
+    );
+    assert.deepEqual(client.drafts[0], beforeDraft);
+  }
+});
+
 test("package-only staging normalizes selected photos when new included count increases", async () => {
   const client = fakeOrderCommitClient({
     packagePhotoCount: 50,
@@ -725,6 +899,7 @@ function packageItemUpgradeChange(
   return orderCommitDraftStagingChangeSchema.parse({
     domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
     parentPackageTarget: { stableKey: "order-package:order-package-1" },
+    ...(input.action === "ADD" ? { toProductId: "product-replacement" } : {}),
     ...input,
   }) as PackageItemUpgradeChange;
 }
@@ -1120,12 +1295,32 @@ type FakeOrderCommitDraftUpdateManyArgs = {
   };
 };
 
-function fakeOrderCommitClient(
-  options: {
-    drafts?: FakeOrderCommitDraftRow[];
-    packagePhotoCount?: number;
-  } = {}
-) {
+type FakePackageItemRow = {
+  id: string;
+  packageId: string;
+  priceSnapshot: Prisma.Decimal;
+  productId: string;
+  product: { id: string; name: string; category: string };
+};
+
+type FakeProductRow = {
+  id: string;
+  name: string;
+  category: string;
+  canonicalPrice: Prisma.Decimal;
+  isActive: boolean;
+  isAddOn?: boolean;
+  isPackageDeliverable?: boolean;
+};
+
+type FakeOrderCommitClientOptions = {
+  drafts?: FakeOrderCommitDraftRow[];
+  packagePhotoCount?: number;
+  packageItem?: FakePackageItemRow | null;
+  replacementProduct?: FakeProductRow | null;
+};
+
+function fakeOrderCommitClient(options: FakeOrderCommitClientOptions = {}) {
   const drafts = [...(options.drafts ?? [])];
   const operationalRows = {
     orders: [{ id: "order-1", selectedPhotoCount: 12 }],
@@ -1196,18 +1391,30 @@ function fakeOrderCommitClient(
     },
     product: {
       findUnique: async (args: { where: { id: string } }) => {
+        if (args.where.id === "product-replacement") {
+          return options.replacementProduct === undefined
+            ? replacementProductRow()
+            : options.replacementProduct;
+        }
         if (args.where.id !== "product-stage") return null;
         return {
           id: "product-stage",
           name: "Framed Desk Print",
+          category: "PRINT",
           canonicalPrice: decimal("33.000"),
           isActive: true,
           isAddOn: true,
+          isPackageDeliverable: false,
         };
       },
     },
     packageItem: {
-      findUnique: async () => null,
+      findUnique: async (args: { where: { id: string } }) => {
+        if (args.where.id !== "package-item-stage") return null;
+        return options.packageItem === undefined
+          ? packageItemRow()
+          : options.packageItem;
+      },
     },
     sessionConfiguration: {
       findUnique: async () => null,
@@ -1264,6 +1471,36 @@ function fakeDraft(
     legacyAdjustmentWorkspaceId: overrides.legacyAdjustmentWorkspaceId ?? null,
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
+  };
+}
+
+function packageItemRow(
+  input: Partial<FakePackageItemRow> = {}
+): FakePackageItemRow {
+  return {
+    id: input.id ?? "package-item-stage",
+    packageId: input.packageId ?? "package-current",
+    priceSnapshot: input.priceSnapshot ?? decimal("44.000"),
+    productId: input.productId ?? "product-current",
+    product: input.product ?? {
+      id: input.productId ?? "product-current",
+      name: "Basic Album",
+      category: "ALBUM",
+    },
+  };
+}
+
+function replacementProductRow(
+  input: Partial<FakeProductRow> = {}
+): FakeProductRow {
+  return {
+    id: input.id ?? "product-replacement",
+    name: input.name ?? "Premium Album",
+    category: input.category ?? "ALBUM",
+    canonicalPrice: input.canonicalPrice ?? decimal("125.000"),
+    isActive: input.isActive ?? true,
+    isAddOn: input.isAddOn ?? false,
+    isPackageDeliverable: input.isPackageDeliverable ?? true,
   };
 }
 
