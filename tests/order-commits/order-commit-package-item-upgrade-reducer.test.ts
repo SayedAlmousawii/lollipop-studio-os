@@ -77,15 +77,20 @@ test("adds a new package item upgrade line from resolved package item data", () 
   });
 });
 
-test("increments existing package item upgrades by package scope and package item", () => {
+test("replaces existing package item upgrades by package scope and package item", () => {
   const snapshot = snapshotFixture({
     lines: [
       packageLine(),
       packageItemUpgradeLine({
         orderEntityId: "upgrade-existing",
         packageItemId: "package-item-album",
+        label: "Old Album Upgrade",
         quantity: 3,
         unitPrice: 9,
+        metadata: {
+          packageItemId: "package-item-album",
+          notes: "keep staff note",
+        },
       }),
     ],
   });
@@ -102,15 +107,24 @@ test("increments existing package item upgrades by package scope and package ite
     resolvedPackageItem: {
       packageItemId: "package-item-album",
       packageId: "package-catalog-order-package-1",
-      label: "New catalog label ignored for merged lines",
+      label: "Basic Album to Premium Album",
       unitPrice: 99,
     },
   });
 
   const line = requireLine(reduced, "item-upgrade:upgrade-existing");
-  assert.equal(line.quantity, 5);
-  assert.equal(line.unitPrice, 9);
-  assert.equal(line.lineTotal, 45);
+  assert.equal(line.lineId, "item-upgrade:upgrade-existing");
+  assert.equal(line.orderEntityId, "upgrade-existing");
+  assert.equal(line.stableKey, "order-package-item-upgrade:upgrade-existing");
+  assert.equal(line.catalogEntityId, "package-item-album");
+  assert.equal(line.label, "Basic Album to Premium Album");
+  assert.equal(line.quantity, 2);
+  assert.equal(line.unitPrice, 99);
+  assert.equal(line.lineTotal, 198);
+  assert.deepEqual(line.metadata, {
+    packageItemId: "package-item-album",
+    notes: "keep staff note",
+  });
   assert.equal(
     reduced.lines.filter(
       (candidate) =>
@@ -119,6 +133,11 @@ test("increments existing package item upgrades by package scope and package ite
     ).length,
     1
   );
+  assert.deepEqual(reduced.totals, {
+    subtotal: 298,
+    discountTotal: 0,
+    netTotal: 298,
+  });
 });
 
 test("does not merge the same package item across different package scopes", () => {

@@ -484,6 +484,74 @@ test("repeated unlocked FINAL rebuild works across version 1 draft sessions", as
   assert.equal(harness.state.invoiceTotal, 125);
 });
 
+test("commitOrderChanges keeps a re-upgraded package item delta charged once", async () => {
+  const committedSnapshot = snapshot({
+    catalogEntityId: "package-base",
+    label: "Base package",
+    unitPrice: 100,
+    extraLines: [
+      packageItemUpgradeLine({
+        upgradeId: "upgrade-album",
+        packageItemId: "package-item-album",
+        label: "Basic Album to Premium Album",
+        quantity: 1,
+        unitPrice: 25,
+      }),
+    ],
+  });
+  const harness = fakeExecutionHarness({
+    draftId: "draft-reupgrade",
+    draftVersion: 1,
+    finalInvoice: { id: "final-invoice-1", isLocked: false },
+    initialInvoiceTotal: 125,
+    pendingSnapshot: committedSnapshot,
+    currentItemUpgrades: [
+      {
+        id: "upgrade-album",
+        orderId: "order-1",
+        orderPackageId: "order-package-1",
+        packageItemId: "package-item-album",
+        nameSnapshot: "Basic Album to Premium Album",
+        priceSnapshot: new Prisma.Decimal(25),
+        quantity: 1,
+        notes: null,
+      },
+    ],
+    initialCommits: [
+      {
+        id: "order-commit-A",
+        orderId: "order-1",
+        sequence: 1,
+        snapshotJson: committedSnapshot,
+        committedFromDraftId: "draft-A",
+        committedFromDraftVersion: 1,
+      },
+    ],
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 1,
+    actorContext,
+    client: harness.client,
+  });
+
+  const createdCommit = harness.calls.orderCommitCreates[0]?.data;
+  const committed = createdCommit?.snapshotJson as OrderCommitSnapshotV1;
+  const upgradeLine = committed.lines.find(
+    (line) => line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE
+  );
+  assert.equal(upgradeLine?.orderEntityId, "upgrade-album");
+  assert.equal(upgradeLine?.quantity, 1);
+  assert.equal(upgradeLine?.unitPrice, 25);
+  assert.equal(upgradeLine?.lineTotal, 25);
+  assert.equal(committed.totals.netTotal, 125);
+  assert.equal(harness.state.invoiceTotal, 125);
+  assert.equal((createdCommit?.metadataJson as { netDelta?: number }).netDelta, 0);
+});
+
 test("post-rebuild invariant failure rolls back invoice and preserves draft", async () => {
   const harness = fakeExecutionHarness({
     finalInvoice: { id: "final-invoice-1", isLocked: false },
@@ -693,6 +761,16 @@ function fakeExecutionHarness(input?: {
   initialInvoiceTotal?: number;
   pendingSnapshot?: OrderCommitSnapshotV1;
   initialCommits?: Array<Record<string, unknown>>;
+  currentItemUpgrades?: Array<{
+    id: string;
+    orderId: string;
+    orderPackageId: string;
+    packageItemId: string;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+    notes: string | null;
+  }>;
   throwInvariant?: boolean;
   throwConcurrentOnCommit?: "draftIdAdapter" | "draftVersionTarget";
 }) {
@@ -799,7 +877,7 @@ function fakeExecutionHarness(input?: {
       findFirst: async () => null,
     },
     orderPackageItemUpgrade: {
-      findMany: async () => [],
+      findMany: async () => input?.currentItemUpgrades ?? [],
       deleteMany: async () => ({ count: 0 }),
       create: async () => ({ id: "upgrade-1" }),
       update: async () => ({ id: "upgrade-1" }),
@@ -1235,6 +1313,34 @@ function addOnLine(input: {
     metadata: {
       draftOrderAddOnId: input.addOnId,
       productId: input.productId,
+    },
+  };
+}
+
+function packageItemUpgradeLine(input: {
+  upgradeId: string;
+  packageItemId: string;
+  label: string;
+  quantity: number;
+  unitPrice: number;
+}): OrderCommitSnapshotV1["lines"][number] {
+  return {
+    lineId: `item-upgrade:${input.upgradeId}`,
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE,
+    orderEntityKind:
+      ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE_ITEM_UPGRADE,
+    orderEntityId: input.upgradeId,
+    parentOrderPackageId: "order-package-1",
+    catalogEntityId: input.packageItemId,
+    stableKey: `order-package-item-upgrade:${input.upgradeId}`,
+    label: input.label,
+    quantity: input.quantity,
+    unitPrice: input.unitPrice,
+    lineTotal: Number((input.unitPrice * input.quantity).toFixed(3)),
+    priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
+    metadata: {
+      packageItemId: input.packageItemId,
+      notes: null,
     },
   };
 }

@@ -105,12 +105,20 @@ function addPackageItemUpgrade(
   if (existingIndex >= 0) {
     const lines = snapshot.lines.map((line, index) => {
       if (index !== existingIndex) return cloneSnapshotLine(line);
-      const quantity = line.quantity + requestedQuantity;
       return {
         ...line,
-        quantity,
-        lineTotal: multiplyMoney(line.unitPrice, quantity),
-        metadata: { ...line.metadata },
+        catalogEntityId: resolvedPackageItem.packageItemId,
+        label: resolvedPackageItem.label,
+        quantity: requestedQuantity,
+        unitPrice: resolvedPackageItem.unitPrice,
+        lineTotal: multiplyMoney(
+          resolvedPackageItem.unitPrice,
+          requestedQuantity
+        ),
+        metadata: {
+          ...line.metadata,
+          packageItemId: resolvedPackageItem.packageItemId,
+        },
       };
     });
     return normalizeOrderCommitSnapshot({ ...snapshot, lines });

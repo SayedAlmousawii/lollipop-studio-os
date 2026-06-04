@@ -278,7 +278,7 @@ test("reducers preserve stored prices, lock new prices, and keep merge keys dete
     resolvedPackageItem: resolvedPackageItem({
       packageItemId: "package-item-stage",
       packageId: "package-current",
-      label: "Resolved price should not replace existing upgrade",
+      label: "Replacement price updates existing upgrade",
       unitPrice: 77,
     }),
   });
@@ -286,9 +286,10 @@ test("reducers preserve stored prices, lock new prices, and keep merge keys dete
     upgradeMerged,
     "order-package-item-upgrade:upgrade-existing"
   );
-  assert.equal(mergedUpgrade.quantity, 3);
-  assert.equal(mergedUpgrade.unitPrice, 8);
-  assert.equal(mergedUpgrade.lineTotal, 24);
+  assert.equal(mergedUpgrade.label, "Replacement price updates existing upgrade");
+  assert.equal(mergedUpgrade.quantity, 2);
+  assert.equal(mergedUpgrade.unitPrice, 77);
+  assert.equal(mergedUpgrade.lineTotal, 154);
   assert.equal(
     upgradeMerged.lines.filter(
       (line) =>
@@ -563,6 +564,14 @@ test("package item upgrade staging locks replacement product delta", async () =>
 
 test("package item upgrade staging re-applies by package and current item without duplicates", async () => {
   const client = fakeOrderCommitClient({
+    replacementProducts: {
+      "product-replacement": replacementProductRow(),
+      "product-replacement-alt": replacementProductRow({
+        id: "product-replacement-alt",
+        name: "Signature Album",
+        canonicalPrice: decimal("150.000"),
+      }),
+    },
     drafts: [
       fakeDraft({
         id: "draft-package-item-upgrade-reapply",
@@ -593,7 +602,7 @@ test("package item upgrade staging re-applies by package and current item withou
       action: "ADD",
       parentPackageTarget: { stableKey: "order-package:op-order-1" },
       packageItemId: "package-item-stage",
-      toProductId: "product-replacement",
+      toProductId: "product-replacement-alt",
       quantity: 1,
     },
     expectedVersion: 1,
@@ -607,9 +616,10 @@ test("package item upgrade staging re-applies by package and current item withou
       line.catalogEntityId === "package-item-stage"
   );
   assert.equal(upgradeLines.length, 1);
-  assert.equal(upgradeLines[0]?.quantity, 3);
-  assert.equal(upgradeLines[0]?.unitPrice, 81);
-  assert.equal(upgradeLines[0]?.lineTotal, 243);
+  assert.equal(upgradeLines[0]?.label, "Basic Album to Signature Album");
+  assert.equal(upgradeLines[0]?.quantity, 1);
+  assert.equal(upgradeLines[0]?.unitPrice, 106);
+  assert.equal(upgradeLines[0]?.lineTotal, 106);
 });
 
 test("package item upgrade staging rejects invalid replacement inputs", async () => {
@@ -1370,6 +1380,7 @@ type FakeOrderCommitClientOptions = {
   packagePhotoCount?: number;
   packageItem?: FakePackageItemRow | null;
   replacementProduct?: FakeProductRow | null;
+  replacementProducts?: Record<string, FakeProductRow | null>;
 };
 
 function fakeOrderCommitClient(options: FakeOrderCommitClientOptions = {}) {
@@ -1443,6 +1454,12 @@ function fakeOrderCommitClient(options: FakeOrderCommitClientOptions = {}) {
     },
     product: {
       findUnique: async (args: { where: { id: string } }) => {
+        if (
+          options.replacementProducts &&
+          args.where.id in options.replacementProducts
+        ) {
+          return options.replacementProducts[args.where.id];
+        }
         if (args.where.id === "product-replacement") {
           return options.replacementProduct === undefined
             ? replacementProductRow()
