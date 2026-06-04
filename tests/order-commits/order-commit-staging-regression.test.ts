@@ -524,6 +524,71 @@ test("staging persists pendingSnapshotJson truth and keeps pendingOpsJson histor
   assert.deepEqual(client.financialRowsSnapshot(), beforeFinancialRows);
 });
 
+test("package-only staging normalizes selected photos when new included count increases", async () => {
+  const client = fakeOrderCommitClient({
+    packagePhotoCount: 50,
+    drafts: [
+      fakeDraft({
+        id: "draft-package-photo-normalization",
+        pendingSnapshotJson: snapshotFixture({
+          lines: [
+            packageLine({
+              orderEntityId: "op-order-1",
+              catalogEntityId: "package-current",
+              stableKey: "order-package:op-order-1",
+              lineId: "package:op-order-1",
+              includedPhotoCount: 20,
+              selectedPhotoCount: 24,
+              extraDigitalCount: 2,
+              extraPrintCount: 2,
+            }),
+            extraPhotoLine({
+              parentOrderPackageId: "op-order-1",
+              mediaType: "DIGITAL",
+              quantity: 2,
+              unitPrice: 5,
+            }),
+            extraPhotoLine({
+              parentOrderPackageId: "op-order-1",
+              mediaType: "PRINT",
+              quantity: 2,
+              unitPrice: 7.5,
+            }),
+          ],
+        }),
+      }),
+    ],
+  });
+
+  const staged = await stageOrderCommitDraftChange({
+    orderId: "order-1",
+    change: {
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:op-order-1" },
+      packageId: "package-new",
+    },
+    expectedVersion: 0,
+    actorContext: ownerActor,
+    client: client.draftRoot,
+  });
+
+  const stagedPackageLine = requireLine(
+    staged.pendingSnapshot,
+    "order-package:op-order-1"
+  );
+  assert.equal(stagedPackageLine.metadata.includedPhotoCount, 50);
+  assert.equal(stagedPackageLine.metadata.selectedPhotoCount, 50);
+  assert.equal(stagedPackageLine.metadata.extraDigitalCount, 0);
+  assert.equal(stagedPackageLine.metadata.extraPrintCount, 0);
+  assert.equal(
+    staged.pendingSnapshot.lines.some(
+      (line) => line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA
+    ),
+    false
+  );
+});
+
 test("stale and non-owner staging attempts leave draft state unchanged", async () => {
   const initialSnapshot = serviceSnapshotFixture();
   const client = fakeOrderCommitClient({
@@ -1058,6 +1123,7 @@ type FakeOrderCommitDraftUpdateManyArgs = {
 function fakeOrderCommitClient(
   options: {
     drafts?: FakeOrderCommitDraftRow[];
+    packagePhotoCount?: number;
   } = {}
 ) {
   const drafts = [...(options.drafts ?? [])];
@@ -1120,7 +1186,7 @@ function fakeOrderCommitClient(
           id: "package-new",
           name: "Composite Package",
           price: decimal("200.000"),
-          photoCount: 11,
+          photoCount: options.packagePhotoCount ?? 11,
           isActive: true,
           packageFamily: {
             sessionType: { id: "session-type-1", name: "Portrait" },

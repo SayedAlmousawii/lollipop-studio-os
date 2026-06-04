@@ -2,6 +2,7 @@ import {
   ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
 } from "./order-commit-draft.constants";
 import {
+  ORDER_COMMIT_ORDER_ENTITY_KIND,
   ORDER_COMMIT_PRICE_SOURCE,
   ORDER_COMMIT_SNAPSHOT_LINE_KIND,
 } from "./order-commit.constants";
@@ -11,6 +12,9 @@ import type {
   OrderCommitDraftLineTarget,
   OrderCommitDraftStagingChange,
 } from "./order-commit-draft.types";
+import type {
+  ResolvedOrderCommitDraftExtraPhotoPricing,
+} from "./order-commit-photo-reducer";
 import type {
   OrderCommitSnapshotLineV1,
   OrderCommitSnapshotV1,
@@ -36,6 +40,7 @@ export type ReduceOrderCommitDraftPackageInput = {
   change: PackageStagingChange;
   resolvedPackage: ResolvedOrderCommitDraftPackage;
   deferPhotoInvariantValidation?: boolean;
+  resolvedExtraPhotoPricing?: ResolvedOrderCommitDraftExtraPhotoPricing;
 };
 
 export function reduceOrderCommitDraftPackage(
@@ -52,14 +57,31 @@ export function reduceOrderCommitDraftPackage(
     resolvedPackage
   );
   assertLinkedProductOwnership(snapshot.lines);
+  assertPhotoCountsRemainValid(packageLine);
 
-  const nextPackageLine = updatePackageLine(packageLine, resolvedPackage);
+  const shouldNormalizePhotoCounts =
+    !input.deferPhotoInvariantValidation &&
+    requiredNonnegativeIntegerMetadata(packageLine, "includedPhotoCount") !==
+      resolvedPackage.includedPhotoCount;
+  const nextPackageLine = updatePackageLine(packageLine, {
+    resolvedPackage,
+    normalizePhotoCounts: shouldNormalizePhotoCounts,
+  });
   if (!input.deferPhotoInvariantValidation) {
     assertPhotoCountsRemainValid(nextPackageLine);
   }
 
   const packageIdentityChanged =
     packageLine.catalogEntityId !== resolvedPackage.packageId;
+  const existingPrintLine = resolveExtraPhotoLine(snapshot, packageLine, "PRINT");
+  const nextPrintLine =
+    !shouldNormalizePhotoCounts
+      ? existingPrintLine
+      : nextExtraPrintLine({
+          packageLine: nextPackageLine,
+          existingLine: existingPrintLine,
+          resolvedExtraPhotoPricing: input.resolvedExtraPhotoPricing,
+        });
   const lines = snapshot.lines
     .filter(
       (line) =>
@@ -68,6 +90,11 @@ export function reduceOrderCommitDraftPackage(
           line.lineKind ===
             ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE &&
           line.parentOrderPackageId === packageLine.orderEntityId
+        ) &&
+        !(
+          shouldNormalizePhotoCounts &&
+          line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA &&
+          line.parentOrderPackageId === packageLine.orderEntityId
         )
     )
     .map((line) =>
@@ -75,6 +102,9 @@ export function reduceOrderCommitDraftPackage(
         ? nextPackageLine
         : cloneSnapshotLine(line)
     );
+  if (shouldNormalizePhotoCounts && nextPrintLine) {
+    lines.push(nextPrintLine);
+  }
 
   return normalizeOrderCommitSnapshot({ ...snapshot, lines });
 }
@@ -134,9 +164,21 @@ function assertPackageStaysInSession(
 
 function updatePackageLine(
   packageLine: OrderCommitSnapshotLineV1,
-  resolvedPackage: ResolvedOrderCommitDraftPackage
+  input: {
+    resolvedPackage: ResolvedOrderCommitDraftPackage;
+    normalizePhotoCounts: boolean;
+  }
 ): OrderCommitSnapshotLineV1 {
+  const resolvedPackage = input.resolvedPackage;
   const unitPrice = roundMoney(resolvedPackage.packagePrice);
+  const currentSelectedPhotoCount = requiredNonnegativeIntegerMetadata(
+    packageLine,
+    "selectedPhotoCount"
+  );
+  const selectedPhotoCount = input.normalizePhotoCounts
+    ? Math.max(currentSelectedPhotoCount, resolvedPackage.includedPhotoCount)
+    : currentSelectedPhotoCount;
+  const remainingExtras = selectedPhotoCount - resolvedPackage.includedPhotoCount;
   return {
     ...packageLine,
     catalogEntityId: resolvedPackage.packageId,
@@ -150,6 +192,13 @@ function updatePackageLine(
       currentPackageNameSnapshot: resolvedPackage.packageName,
       finalPackagePriceSnapshot: unitPrice,
       includedPhotoCount: resolvedPackage.includedPhotoCount,
+      selectedPhotoCount,
+      ...(input.normalizePhotoCounts
+        ? {
+            extraDigitalCount: 0,
+            extraPrintCount: remainingExtras,
+          }
+        : {}),
       sessionTypeId: resolvedPackage.sessionType.id,
       sessionTypeName: resolvedPackage.sessionType.name,
     },
@@ -280,6 +329,84 @@ function assertPhotoCountsRemainValid(
       "OrderCommit package reducer failed: existing extra photo counts are invalid for the resolved includedPhotoCount."
     );
   }
+}
+
+function resolveExtraPhotoLine(
+  snapshot: OrderCommitSnapshotV1,
+  packageLine: OrderCommitSnapshotLineV1,
+  mediaType: "DIGITAL" | "PRINT"
+): OrderCommitSnapshotLineV1 | null {
+  const matches = snapshot.lines.filter(
+    (line) =>
+      line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA &&
+      line.parentOrderPackageId === packageLine.orderEntityId &&
+      extraPhotoLineMediaType(line) === mediaType
+  );
+  if (matches.length > 1) {
+    throw new Error(
+      `OrderCommit package reducer failed: package ${packageLine.orderEntityId} has multiple ${mediaType} extra-photo lines.`
+    );
+  }
+  return matches[0] ?? null;
+}
+
+function nextExtraPrintLine(input: {
+  packageLine: OrderCommitSnapshotLineV1;
+  existingLine: OrderCommitSnapshotLineV1 | null;
+  resolvedExtraPhotoPricing?: ResolvedOrderCommitDraftExtraPhotoPricing;
+}): OrderCommitSnapshotLineV1 | null {
+  const quantity = requiredNonnegativeIntegerMetadata(
+    input.packageLine,
+    "extraPrintCount"
+  );
+  if (quantity === 0) return null;
+  if (input.existingLine) {
+    return {
+      ...input.existingLine,
+      quantity,
+      lineTotal: multiplyMoney(input.existingLine.unitPrice, quantity),
+      metadata: { ...input.existingLine.metadata },
+    };
+  }
+
+  const resolvedPrice = input.resolvedExtraPhotoPricing?.PRINT;
+  if (!resolvedPrice) {
+    throw new Error(
+      "OrderCommit package reducer failed: creating PRINT extra-photo line requires resolved pricing."
+    );
+  }
+
+  const sessionTypeId =
+    resolvedPrice.sessionTypeId ??
+    optionalStringMetadata(input.packageLine, "sessionTypeId");
+  return {
+    lineId: `extra-photo:${input.packageLine.orderEntityId}:print`,
+    lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA,
+    orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE_PHOTO_EXTRA,
+    orderEntityId: `${input.packageLine.orderEntityId}:PRINT`,
+    parentOrderPackageId: input.packageLine.orderEntityId,
+    catalogEntityId: null,
+    stableKey: `order-package:${input.packageLine.orderEntityId}:extra-photo:print`,
+    label: `Extra photos - Print (${input.packageLine.label})`,
+    quantity,
+    unitPrice: resolvedPrice.unitPrice,
+    lineTotal: multiplyMoney(resolvedPrice.unitPrice, quantity),
+    priceSource: ORDER_COMMIT_PRICE_SOURCE.SESSION_TYPE_EXTRA_PHOTO_PRICING,
+    metadata: {
+      mediaType: "PRINT",
+      ...(sessionTypeId ? { sessionTypeId } : {}),
+    },
+  };
+}
+
+function extraPhotoLineMediaType(
+  line: OrderCommitSnapshotLineV1
+): "DIGITAL" | "PRINT" | null {
+  if (line.metadata.mediaType === "DIGITAL") return "DIGITAL";
+  if (line.metadata.mediaType === "PRINT") return "PRINT";
+  if (line.stableKey.endsWith(":extra-photo:digital")) return "DIGITAL";
+  if (line.stableKey.endsWith(":extra-photo:print")) return "PRINT";
+  return null;
 }
 
 function assertLinkedProductOwnership(

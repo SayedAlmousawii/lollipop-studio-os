@@ -1178,12 +1178,26 @@ async function reduceOrderCommitDraftStagingChange(input: {
         input.client,
         input.change
       );
+      const automaticPhotoChange = input.change.intendedPhotoOutcome
+        ? null
+        : packageNormalizationPhotoChange(
+            input.snapshot,
+            input.change,
+            resolvedPackage
+          );
       let snapshot = reduceOrderCommitDraftPackage(input.snapshot, {
         change: input.change,
         resolvedPackage,
         deferPhotoInvariantValidation: Boolean(
           input.change.intendedPhotoOutcome
         ),
+        resolvedExtraPhotoPricing: automaticPhotoChange
+          ? await resolveStagedExtraPhotoPricing(
+              input.client,
+              input.snapshot,
+              automaticPhotoChange
+            )
+          : undefined,
       });
 
       if (input.change.intendedPhotoOutcome) {
@@ -1284,6 +1298,50 @@ async function reduceOrderCommitDraftStagingChange(input: {
         change: input.change,
       };
   }
+}
+
+function packageNormalizationPhotoChange(
+  snapshot: OrderCommitSnapshotV1,
+  change: Extract<
+    OrderCommitDraftStagingChange,
+    { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE }
+  >,
+  resolvedPackage: ResolvedOrderCommitDraftPackage
+): Extract<
+  OrderCommitDraftStagingChange,
+  { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO }
+> | null {
+  const packageLine = resolvePackageLineForStaging(
+    snapshot,
+    change.target,
+    "package photo normalization"
+  );
+  const currentIncludedPhotoCount = requiredSnapshotIntegerMetadata(
+    packageLine,
+    "includedPhotoCount",
+    "package photo normalization"
+  );
+  if (currentIncludedPhotoCount === resolvedPackage.includedPhotoCount) {
+    return null;
+  }
+  const currentSelectedPhotoCount = requiredSnapshotIntegerMetadata(
+    packageLine,
+    "selectedPhotoCount",
+    "package photo normalization"
+  );
+  const selectedPhotoCount = Math.max(
+    currentSelectedPhotoCount,
+    resolvedPackage.includedPhotoCount
+  );
+  const extraPrintCount = selectedPhotoCount - resolvedPackage.includedPhotoCount;
+  return {
+    domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PHOTO,
+    action: "SET_COUNTS",
+    target: change.target,
+    selectedPhotoCount,
+    extraDigitalCount: 0,
+    extraPrintCount,
+  };
 }
 
 async function resolveStagedPackage(
@@ -1804,6 +1862,20 @@ function requiredSnapshotStringMetadata(
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(
       `OrderCommitDraft staging failed: ${domain} package metadata ${key} is required.`
+    );
+  }
+  return value;
+}
+
+function requiredSnapshotIntegerMetadata(
+  line: OrderCommitSnapshotLineV1,
+  key: string,
+  domain: string
+): number {
+  const value = line.metadata[key];
+  if (!Number.isInteger(value) || typeof value !== "number" || value < 0) {
+    throw new Error(
+      `OrderCommitDraft staging failed: ${domain} package metadata ${key} must be a nonnegative integer.`
     );
   }
   return value;

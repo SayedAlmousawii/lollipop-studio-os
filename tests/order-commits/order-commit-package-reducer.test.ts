@@ -258,7 +258,18 @@ test("preserves selected and extra photo counts and rejects invariant violations
 
   assert.throws(
     () =>
-      reduceOrderCommitDraftPackage(snapshot, {
+      reduceOrderCommitDraftPackage(snapshotFixture({
+        lines: [
+          packageLine({
+            metadata: packageMetadata({
+              includedPhotoCount: 10,
+              selectedPhotoCount: 9,
+              extraDigitalCount: 0,
+              extraPrintCount: 0,
+            }),
+          }),
+        ],
+      }), {
         change: packageChange({
           domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
           action: "CHANGE_PACKAGE",
@@ -268,11 +279,141 @@ test("preserves selected and extra photo counts and rejects invariant violations
         }),
         resolvedPackage: resolvedPackage({
           packageId: "package-current",
-          includedPhotoCount: 9,
+          includedPhotoCount: 10,
         }),
       }),
-    /existing extra photo counts are invalid/
+    /selectedPhotoCount must be greater than or equal/
   );
+});
+
+test("normalizes selected photos when new package included count absorbs existing extras", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine({
+        metadata: packageMetadata({
+          includedPhotoCount: 20,
+          selectedPhotoCount: 24,
+          extraDigitalCount: 2,
+          extraPrintCount: 2,
+        }),
+      }),
+      extraPhotoLine({ mediaType: "DIGITAL", quantity: 2 }),
+      extraPhotoLine({ mediaType: "PRINT", quantity: 2 }),
+    ],
+  });
+
+  const reduced = reduceOrderCommitDraftPackage(snapshot, {
+    change: packageChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:order-package-1" },
+      packageId: "package-premium",
+      sessionTypeId: "session-type-1",
+    }),
+    resolvedPackage: resolvedPackage({
+      packageId: "package-premium",
+      includedPhotoCount: 50,
+    }),
+  });
+
+  const packageResult = requireLine(reduced, "package:order-package-1");
+  assert.equal(packageResult.metadata.includedPhotoCount, 50);
+  assert.equal(packageResult.metadata.selectedPhotoCount, 50);
+  assert.equal(packageResult.metadata.extraDigitalCount, 0);
+  assert.equal(packageResult.metadata.extraPrintCount, 0);
+  assert.equal(
+    reduced.lines.some(
+      (line) => line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SELECTED_PHOTO_EXTRA
+    ),
+    false
+  );
+});
+
+test("normalizes remaining billable extras to print when selected stays above included", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine({
+        metadata: packageMetadata({
+          includedPhotoCount: 20,
+          selectedPhotoCount: 60,
+          extraDigitalCount: 40,
+          extraPrintCount: 0,
+        }),
+      }),
+      extraPhotoLine({ mediaType: "DIGITAL", quantity: 40 }),
+    ],
+  });
+
+  const reduced = reduceOrderCommitDraftPackage(snapshot, {
+    change: packageChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:order-package-1" },
+      packageId: "package-premium",
+      sessionTypeId: "session-type-1",
+    }),
+    resolvedPackage: resolvedPackage({
+      packageId: "package-premium",
+      includedPhotoCount: 50,
+    }),
+    resolvedExtraPhotoPricing: {
+      PRINT: { unitPrice: 7.5, sessionTypeId: "session-type-1" },
+    },
+  });
+
+  const packageResult = requireLine(reduced, "package:order-package-1");
+  assert.equal(packageResult.metadata.includedPhotoCount, 50);
+  assert.equal(packageResult.metadata.selectedPhotoCount, 60);
+  assert.equal(packageResult.metadata.extraDigitalCount, 0);
+  assert.equal(packageResult.metadata.extraPrintCount, 10);
+  assert.equal(
+    reduced.lines.some((line) => line.lineId === "extra-photo:order-package-1:digital"),
+    false
+  );
+  const printLine = requireLine(reduced, "extra-photo:order-package-1:print");
+  assert.equal(printLine.quantity, 10);
+  assert.equal(printLine.unitPrice, 7.5);
+  assert.equal(printLine.lineTotal, 75);
+});
+
+test("updates existing print extra-photo line when package normalization leaves extras", () => {
+  const snapshot = snapshotFixture({
+    lines: [
+      packageLine({
+        metadata: packageMetadata({
+          includedPhotoCount: 20,
+          selectedPhotoCount: 60,
+          extraDigitalCount: 15,
+          extraPrintCount: 25,
+        }),
+      }),
+      extraPhotoLine({ mediaType: "DIGITAL", quantity: 15 }),
+      extraPhotoLine({ mediaType: "PRINT", quantity: 25 }),
+    ],
+  });
+
+  const reduced = reduceOrderCommitDraftPackage(snapshot, {
+    change: packageChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:order-package-1" },
+      packageId: "package-premium",
+      sessionTypeId: "session-type-1",
+    }),
+    resolvedPackage: resolvedPackage({
+      packageId: "package-premium",
+      includedPhotoCount: 50,
+    }),
+  });
+
+  assert.equal(
+    reduced.lines.some((line) => line.lineId === "extra-photo:order-package-1:digital"),
+    false
+  );
+  const printLine = requireLine(reduced, "extra-photo:order-package-1:print");
+  assert.equal(printLine.quantity, 10);
+  assert.equal(printLine.unitPrice, 7.5);
+  assert.equal(printLine.lineTotal, 75);
 });
 
 test("can defer photo invariant validation for explicit package plus photo composites", () => {
@@ -300,24 +441,24 @@ test("can defer photo invariant validation for explicit package plus photo compo
     12
   );
 
-  assert.throws(
-    () =>
-      reduceOrderCommitDraftPackage(snapshot, {
-        change: packageChange({
-          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
-          action: "CHANGE_PACKAGE",
-          target: { stableKey: "order-package:order-package-1" },
-          packageId: "package-current",
-          sessionTypeId: "session-type-1",
-        }),
-        resolvedPackage: resolvedPackage({
-          packageId: "package-current",
-          packageName: "Current Package",
-          includedPhotoCount: 12,
-        }),
-      }),
-    /selectedPhotoCount must be greater than or equal/
-  );
+  const normalized = reduceOrderCommitDraftPackage(snapshot, {
+    change: packageChange({
+      domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE,
+      action: "CHANGE_PACKAGE",
+      target: { stableKey: "order-package:order-package-1" },
+      packageId: "package-current",
+      sessionTypeId: "session-type-1",
+    }),
+    resolvedPackage: resolvedPackage({
+      packageId: "package-current",
+      packageName: "Current Package",
+      includedPhotoCount: 12,
+    }),
+  });
+  const normalizedPackage = requireLine(normalized, "package:order-package-1");
+  assert.equal(normalizedPackage.metadata.selectedPhotoCount, 12);
+  assert.equal(normalizedPackage.metadata.extraDigitalCount, 0);
+  assert.equal(normalizedPackage.metadata.extraPrintCount, 0);
 });
 
 test("rejects cross-session package changes", () => {
