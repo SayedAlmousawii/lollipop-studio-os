@@ -14,6 +14,10 @@ import {
   applySessionConfigurationWorkspaceEditAction,
   configureSessionAction,
 } from "@/app/orders/[orderId]/actions";
+import {
+  stageSessionConfigurationSelectionAction,
+  type POSSessionConfigurationStagingActionState,
+} from "@/app/orders/[orderId]/sales/actions";
 import { formatSignedMoney } from "@/lib/formatting/money";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +50,7 @@ export type PendingSessionConfigurationOverlay = Record<
 
 export type ConfigureSessionPanelMode =
   | { kind: "draft" }
+  | { kind: "commit-staging"; expectedVersion: number }
   | { kind: "locked"; workspaceIsOpen: boolean }
   | {
       kind: "adjustment";
@@ -81,12 +86,17 @@ export function ConfigureSessionPanel({
     {}
   );
   const [adjustmentState, setAdjustmentState] = useState<ActionState>({});
+  const [commitStagingState, setCommitStagingState] = useState<ActionState>({});
   const [isAdjustmentPending, startAdjustmentTransition] = useTransition();
+  const [isCommitStagingPending, startCommitStagingTransition] = useTransition();
   const [draftSelections, setDraftSelections] = useState<
     Record<string, SelectionInput | null>
   >(() => buildInitialDraftSelections(currentSelections, mode));
   const [workspaceVersion, setWorkspaceVersion] = useState(
     mode.kind === "adjustment" ? mode.workspaceVersion : 0
+  );
+  const [commitDraftVersion, setCommitDraftVersion] = useState(
+    mode.kind === "commit-staging" ? mode.expectedVersion : 0
   );
   const sortedConfigurations = useMemo(
     () =>
@@ -100,6 +110,7 @@ export function ConfigureSessionPanel({
       .filter(
         (configuration) =>
           mode.kind === "draft" ||
+          mode.kind === "commit-staging" ||
           mode.kind === "adjustment" ||
           policyForConfiguration(configuration, editPolicies).isInteractive
       )
@@ -142,6 +153,7 @@ export function ConfigureSessionPanel({
   const globalErrors = [
     ...(state.errors?._global ?? []),
     ...(adjustmentState.errors?._global ?? []),
+    ...(commitStagingState.errors?._global ?? []),
   ];
 
   if (mode.kind === "locked" && mode.workspaceIsOpen) {
@@ -209,6 +221,67 @@ export function ConfigureSessionPanel({
     });
   }
 
+  function submitCommitStagingEdits() {
+    if (mode.kind !== "commit-staging") return;
+    setCommitStagingState({});
+    startCommitStagingTransition(async () => {
+      let currentVersion = commitDraftVersion;
+      for (const configuration of sortedConfigurations) {
+        const desired = draftSelections[configuration.id] ?? null;
+        const baseline = baselineSelection(
+          configuration.id,
+          currentSelections,
+          mode
+        );
+        if (selectionKey(desired) === selectionKey(baseline)) continue;
+
+        const currentSelection =
+          currentSelectionByConfigurationId.get(configuration.id) ?? null;
+        const result = await stageSessionConfigurationSelectionAction(
+          orderId,
+          currentVersion,
+          {
+            orderPackageId,
+            configurationId: configuration.id,
+            desired: isSubmittableSelection(desired) ? desired : null,
+            existingSelection: currentSelection
+              ? {
+                  selectionId: currentSelection.selectionId,
+                  snapshotLinkedProductId:
+                    currentSelection.snapshotLinkedProductId,
+                  orderAddOnId: currentSelection.orderAddOnId,
+                }
+              : null,
+          }
+        );
+        if (result.errors) {
+          setCommitStagingState({
+            errors: {
+              _global: [commitStagingErrorMessage(result)],
+            },
+          });
+          return;
+        }
+        if (typeof result.version !== "number") {
+          setCommitStagingState({
+            errors: { _global: ["Draft changed since you opened it. Refresh to see the latest."] },
+          });
+          return;
+        }
+        currentVersion = result.version;
+        setCommitDraftVersion(result.version);
+      }
+      console.info(
+        JSON.stringify({
+          metric: "order_commit.session_configuration_edit_staged_from_sales",
+          orderId,
+          orderPackageId,
+        })
+      );
+      globalThis.location?.reload();
+    });
+  }
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -224,13 +297,22 @@ export function ConfigureSessionPanel({
             {packageName} · {sessionTypeName}
           </DialogDescription>
         </DialogHeader>
-        <form action={mode.kind === "adjustment" ? undefined : formAction} className="space-y-4">
+        <form
+          action={
+            mode.kind === "adjustment" || mode.kind === "commit-staging"
+              ? undefined
+              : formAction
+          }
+          className="space-y-4"
+        >
           <input type="hidden" name="orderPackageId" value={orderPackageId} />
           <input type="hidden" name="selections" value={serializedSelections} />
           <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
             {sortedConfigurations.map((configuration) => {
               const value = draftSelections[configuration.id] ?? null;
-              const feeHint = previewFee(configuration, value);
+              const feeHint = shouldShowFeeHint(mode, configuration)
+                ? previewFee(configuration, value)
+                : null;
               const isMissing = missingCodes.has(configuration.code);
               const isFinancialLocked =
                 mode.kind === "locked" &&
@@ -324,6 +406,14 @@ export function ConfigureSessionPanel({
               >
                 {isAdjustmentPending ? "Staging..." : "Stage Configuration"}
               </Button>
+            ) : mode.kind === "commit-staging" ? (
+              <Button
+                type="button"
+                disabled={isCommitStagingPending || !hasEditableChanges}
+                onClick={submitCommitStagingEdits}
+              >
+                {isCommitStagingPending ? "Staging..." : "Stage Configuration"}
+              </Button>
             ) : (
               <SubmitButton disabled={mode.kind === "locked" && !hasEditableChanges} />
             )}
@@ -344,6 +434,29 @@ function policyForConfiguration(
   return configuration.financialBehavior === "FINANCIAL"
     ? policies.financial
     : policies.operational;
+}
+
+function shouldShowFeeHint(
+  mode: ConfigureSessionPanelMode,
+  configuration: POSAvailableSessionConfiguration
+): boolean {
+  return !(
+    mode.kind === "commit-staging" &&
+    configuration.financialBehavior === "FINANCIAL"
+  );
+}
+
+function commitStagingErrorMessage(
+  result: POSSessionConfigurationStagingActionState
+): string {
+  const message = (result.errors?._global ?? []).join(" ");
+  if (message.includes("draft.stale") || message.includes("version")) {
+    return "Draft changed since you opened it. Refresh to see the latest.";
+  }
+  if (message.includes("draft.permission")) {
+    return "Another user owns this draft. Refresh or coordinate before editing.";
+  }
+  return message || "Unable to stage session configuration.";
 }
 
 function buildInitialDraftSelections(
