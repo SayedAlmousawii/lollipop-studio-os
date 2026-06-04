@@ -6,7 +6,10 @@ import {
   createOrderCommitSalesCompositionHandlers,
   type StageSalesChangeAction,
 } from "@/modules/order-commits/sales-staging-handler-adapter";
-import type { OrderCommitDraftStagingChange } from "@/modules/order-commits";
+import {
+  orderCommitDraftStagingChangeSchema,
+  type OrderCommitDraftStagingChange,
+} from "@/modules/order-commits";
 import type { POSMutationActionState } from "@/modules/orders/pos-handlers.types";
 
 type StageCall = {
@@ -126,11 +129,11 @@ test("action errors are normalized into HandlerResult errors", async () => {
   });
 });
 
-test("unsupported package-item handler is blocked and does not stage", async () => {
+test("package-item upgrade handler stages schema-valid ADD payload and exact version", async () => {
   const calls: StageCall[] = [];
   const handlers = createOrderCommitSalesCompositionHandlers({
     orderId: "order-item",
-    expectedVersion: 2,
+    expectedVersion: 9,
     stageSalesChangeAction: recordStage(calls),
   });
 
@@ -141,9 +144,59 @@ test("unsupported package-item handler is blocked and does not stage", async () 
     quantity: 1,
   });
 
-  assert.equal(result.ok, false);
-  assert.match(result.ok ? "" : result.errors._global[0], /Package item staging/);
-  assert.equal(calls.length, 0);
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(calls, [
+    {
+      orderId: "order-item",
+      expectedVersion: 9,
+      change: {
+        domain: "PACKAGE_ITEM_UPGRADE",
+        action: "ADD",
+        parentPackageTarget: {
+          stableKey: "order-package:order-package-item",
+          orderEntityId: "order-package-item",
+        },
+        packageItemId: "package-item-current",
+        toProductId: "product-replacement",
+        quantity: 1,
+      },
+    },
+  ]);
+  assert.equal(
+    orderCommitDraftStagingChangeSchema.safeParse(calls[0]?.change).success,
+    true
+  );
+});
+
+test("package-item upgrade action errors map to non-ok HandlerResult", async () => {
+  const handlers = createOrderCommitSalesCompositionHandlers({
+    orderId: "order-item-error",
+    expectedVersion: 4,
+    stageSalesChangeAction: async () => ({
+      kind: "error",
+      errors: {
+        _global: ["draft.stale"],
+        toProductId: ["Replacement product is unavailable"],
+        ignored: [],
+      },
+    }),
+  });
+
+  const result = await handlers.upgradePackageItem({
+    orderPackageId: "order-package-item-error",
+    packageItemId: "package-item-error",
+    toProductId: "product-missing",
+    quantity: 1,
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    errors: {
+      _global: ["draft.stale"],
+      toProductId: ["Replacement product is unavailable"],
+    },
+    approval: undefined,
+  });
 });
 
 test("add-on add handler stages an order-level add-on with exact version", async () => {
@@ -229,6 +282,7 @@ test("adapter source does not import db, commit execution, or public AW naming",
   assert.doesNotMatch(source, /@\/lib\/db/);
   assert.doesNotMatch(source, /commitOrderChanges/);
   assert.doesNotMatch(source, /Adjustment Workspace/);
+  assert.doesNotMatch(source, /Package item staging needs/);
 });
 
 function recordStage(

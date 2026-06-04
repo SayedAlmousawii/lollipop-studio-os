@@ -45,11 +45,23 @@ export function createOrderCommitSalesCompositionHandlers({
     );
   }
 
-  async function upgradePackageItem(): Promise<HandlerResult> {
+  async function upgradePackageItem(input: {
+    orderPackageId: string;
+    packageItemId: string;
+    toProductId: string;
+    quantity: number;
+  }): Promise<HandlerResult> {
     "use server";
 
-    return unsupportedHandlerResult(
-      "Package item staging needs package-item scope before it can be staged."
+    return handlerResultFromActionState(
+      await stageSalesChangeAction(orderId, expectedVersion, {
+        domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+        action: "ADD",
+        parentPackageTarget: packageTarget(input.orderPackageId),
+        packageItemId: input.packageItemId,
+        toProductId: input.toProductId,
+        quantity: input.quantity,
+      })
     );
   }
 
@@ -177,11 +189,4 @@ function normalizeActionErrors(
     }
   }
   return normalized;
-}
-
-function unsupportedHandlerResult(message: string): HandlerResult {
-  return {
-    ok: false,
-    errors: { _global: [message] },
-  };
 }
