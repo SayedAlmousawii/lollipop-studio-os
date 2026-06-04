@@ -82,7 +82,6 @@ test("clearing an existing selection stages remove with the snapshot-derived tar
     existingSnapshotTarget: {
       stableKey: "session-configuration-selection:draft-selection-finish",
       lineId: "session-config:draft-selection-finish",
-      orderEntityId: "draft-selection-finish",
     },
   });
 
@@ -97,7 +96,6 @@ test("clearing an existing selection stages remove with the snapshot-derived tar
     target: {
       stableKey: "session-configuration-selection:draft-selection-finish",
       lineId: "session-config:draft-selection-finish",
-      orderEntityId: "draft-selection-finish",
     },
   });
 });
@@ -129,8 +127,8 @@ test("snapshot target lookup targets the session configuration line, not linked 
   assert.deepEqual(target, {
     stableKey: "session-configuration-selection:selection-album",
     lineId: "session-config:selection-album",
-    orderEntityId: "selection-album",
   });
+  assert.equal(target && "orderEntityId" in target, false);
 });
 
 test("updating an existing selection uses snapshot target, not the current selection id", () => {
@@ -148,14 +146,12 @@ test("updating an existing selection uses snapshot target, not the current selec
     existingSnapshotTarget: {
       stableKey: "session-configuration-selection:draft-selection-finish",
       lineId: "session-config:draft-selection-finish",
-      orderEntityId: "draft-selection-finish",
     },
   });
 
   assert.deepEqual(change.target, {
     stableKey: "session-configuration-selection:draft-selection-finish",
     lineId: "session-config:draft-selection-finish",
-    orderEntityId: "draft-selection-finish",
   });
   assert.notEqual(
     change.target?.stableKey,
@@ -193,7 +189,6 @@ test("materialized linked-product selection forwards materialized orderAddOnId",
     existingSnapshotTarget: {
       stableKey: "session-configuration-selection:selection-album",
       lineId: "session-config:selection-album",
-      orderEntityId: "selection-album",
     },
   });
 

@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 143 is complete: linked-product session configurations now resolve their Sales staging target by unique selection-line identity only, so captured linked-product configs can be removed or edited without the shared `orderEntityId` multi-match while preserving Spec 137 linked-product ownership and fee pairing.
 - Spec 141 is complete: snapshot-derived Sales composition now re-derives included package deliverables from the catalog-current package id and overlays package-item upgrades by `packageItemId`, so active drafts and locked FINAL orders show deliverables/Upgrade/Replace affordances while totals, diffs, staged rows, and financial preview remain unchanged.
 - Spec 142 is complete: package swaps restored to the original package fields now reduce to `UNCHANGED`, reducer-only package mirror metadata no longer creates phantom net-zero staged rows, and true no-op OrderCommit drafts are rejected before commit/audit artifacts.
 - Spec 140 is complete: package-item upgrade re-application now replaces the existing staged or committed upgrade instead of stacking quantity, preserves the upgrade row identity, updates the latest replacement delta/label, and charges the upgrade delta once.
@@ -153,6 +154,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **143** — Linked-product session-configuration Sales snapshot targets now omit the ambiguous shared `orderEntityId`, with regression coverage for captured linked-product REMOVE/UPSERT target resolution, coupled linked-add-on removal/update, materialized removal pre-null/delete ordering, and Spec 137 identity rules.
 - **141** — Restored included deliverables in snapshot-derived Sales composition by loading catalog-current package items in the Sales read loader and overlaying PACKAGE_ITEM_UPGRADE rows by packageItemId, with active-draft, swap-back, locked-FINAL, source-boundary, and unchanged financial/staged projection coverage.
 - **142** — Removed reducer-only package mirror metadata from OrderCommit package staging, added restored-package no-op diff coverage, blocked true no-op commits before materialization/audit artifacts, and mapped Sales no-op commit errors to stable action state.
 - **140** — Changed PACKAGE_ITEM_UPGRADE re-application from quantity stacking to set-style replacement by parent package plus included package item, preserving existing draft/committed upgrade identity while updating replacement label, unit price, quantity, and totals with reducer, staging, and execution coverage.
