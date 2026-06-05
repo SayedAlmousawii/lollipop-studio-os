@@ -77,6 +77,7 @@ const files = [
   "tests/orders/order-commit-draft-guard/legacy-mutators-refuse-when-draft-exists.test.ts",
   "tests/orders/order-commit-draft-guard/legacy-mutators-pass-without-draft.test.ts",
   "tests/orders/order-commit-draft-guard/aw-finalize-bypasses-guard.test.ts",
+  "tests/orders/order-commit-draft-guard/aw-hide-and-freeze-source-guard.test.ts",
   "tests/orders/order-commit-draft-guard/guard-runs-before-lock-check.test.ts",
   "tests/orders/orders-table.test.tsx",
   "tests/orders/pos-handler-components.test.tsx",

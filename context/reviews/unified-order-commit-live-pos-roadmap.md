@@ -905,7 +905,7 @@ Numbering is sequential from the next available sequence (135) and matches depen
 
 ## Phase 6 - Adjustment Workspace Retirement
 
-**Status: Planned. Begins after Phase 5 parity tests pass and Phase 5.5 domain coverage lands.**
+**Status: In progress. P6-1 shipped as Spec 144: the AW route is hidden behind a Sales redirect, route-local AW server actions refuse stale employee-surface POSTs, and R1 (direct-URL reachability) is closed. Destructive deletion remains sequenced for later P6 specs.**
 
 ### Objective
 
