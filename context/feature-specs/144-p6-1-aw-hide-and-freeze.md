@@ -28,7 +28,16 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (Section C → Sp
 ### In Scope
 
 - **Neutralize the AW route:** `app/orders/[orderId]/adjustment-workspace/page.tsx` redirects to the order's Sales page; the route's server actions throw a retired-surface error instead of mutating.
-- **Source guard:** new test that fails if `adjustment-workspace` imports / `/adjustment-workspace` hrefs appear in `app/**` or `src/components/**` outside the known-legacy allowlist (the AW route dir, `financial-sidebar-locked.tsx`, `financial-sidebar-adjustment.tsx`, `configure-session-panel.tsx`, `edit-mode-policy.ts`, `order-composition.service.ts`, `actions.ts`, `composition-view.model.ts` — i.e. the A2–A7 set scheduled for P6-2…P6-5).
+- **Source guard:** new test that fails if `adjustment-workspace` imports / `/adjustment-workspace` hrefs / `AdjustmentWorkspace` references appear in `app/**` or `src/components/**` outside the known-legacy allowlist. The **exact** in-scope (`app/**` + `src/components/**`) legacy set, verified by grep at draft time, is:
+  - `app/orders/[orderId]/adjustment-workspace/**` (route dir)
+  - `app/orders/[orderId]/actions.ts` (order-detail; cleaned in P6-3)
+  - `src/components/orders/financial-sidebar-adjustment.tsx` (P6-5)
+  - `src/components/orders/financial-sidebar-locked.tsx` (P6-5, already dead)
+  - `src/components/orders/pos-package-composition.tsx` (P6-4 — `shouldOpenAdjustmentWorkspace`)
+  - `src/components/orders/orders-table.tsx` (P6-3 — `hasOpenAdjustmentWorkspace` badge; surfaced in Spec 144 review, not in the original report)
+  - `src/components/session-configurations/configure-session-panel.tsx` (P6-3)
+
+  (`edit-mode-policy.ts`, `order-composition.service.ts`, `composition-view.model.ts` are under `src/modules/**`, outside this guard's scope, so they are not allowlisted here.) Each later P6 spec removes its file(s) from this allowlist; the list must drain to empty by P6-5.
 - Wire the new test into `scripts/run-centralization-tests.ts`.
 - Update `context/progress-tracker.md`.
 
@@ -42,7 +51,7 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (Section C → Sp
 
 ## Implementation Direction
 
-The AW route is the last live employee entry point to AW (no inbound links remain except a dead component). Convert `page.tsx` to a thin server component that calls `redirect(`/orders/${orderId}/sales`)`, and make each exported action in the route's `actions.ts` throw an `AdjustmentWorkspaceRetiredError` (new, local to the route or a small shared error) so a cached browser tab cannot still POST. Mirror the existing grep/source-guard test pattern (`aw-finalize-bypasses-guard.test.ts`, and the Spec 129 source guards) for the no-new-AW-references check; seed its allowlist with the exact A2–A7 files so the later specs can remove entries as they delete code. Keep the change reversible by a single revert.
+The AW route is the last live employee entry point to AW (no inbound links remain except a dead component). Convert `page.tsx` to a thin server component that calls `redirect(`/orders/${orderId}/sales`)`, and make each exported action in the route's `actions.ts` throw an `AdjustmentWorkspaceRetiredError` (new, local to the route or a small shared error) so a cached browser tab cannot still POST. Mirror the existing grep/source-guard test pattern (`aw-finalize-bypasses-guard.test.ts`, and the Spec 129 source guards) for the no-new-AW-references check; seed its allowlist with the exact 7-entry legacy set enumerated under **Rules** (verified by grep at draft time — note it includes `pos-package-composition.tsx` and `orders-table.tsx`, which the original report's A-list omitted) so the later specs can remove entries as they delete code. Keep the change reversible by a single revert.
 
 ## Observability Checklist
 

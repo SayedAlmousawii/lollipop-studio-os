@@ -18,6 +18,7 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (A3, A4, A6; Sect
 - `src/components/orders/pos-package-composition.tsx:80-110,160-185` — `configurePanelMode` union (`"auto" | "commit-staging" | "adjustment"`) and the `adjustment`-mode mount used only by the AW route page.
 - `app/orders/[orderId]/adjustment-workspace/page.tsx:185` — mounts `ConfigureSessionPanel configurePanelMode="adjustment"` (the only `adjustment`-mode consumer; itself a P6-5 deletion target).
 - `src/modules/composition-view/composition-view.model.ts:4,6` — `CompositionViewMode = "locked" | "adjustment"` and the AW type import.
+- `src/components/orders/orders-table.tsx:66` — renders an open-AW badge from `order.hasOpenAdjustmentWorkspace`. Surfaced during Spec 144 plan review. The service read + type field are removed in P6-2 (Spec 145); this spec removes the component badge so the field is fully retired.
 - Sales path for contrast: `app/orders/[orderId]/sales/page.tsx:103` mounts the panel with `configurePanelMode="commit-staging"` (the surviving mode) and `app/orders/[orderId]/sales/actions.ts` → `stageSessionConfigurationSelectionAction` (Spec 137, the live path).
 
 ## Rules
@@ -38,8 +39,9 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (A3, A4, A6; Sect
 - `ConfigureSessionPanel`: remove the `adjustment` mode branch, the `adjustmentWorkspaceHref` prop, the href resolver, and the "Edit in Adjustment Workspace" `<Link>`. Keep `commit-staging` (Sales) behavior identical; keep any non-AW `locked` read-only display.
 - `pos-package-composition.tsx`: drop `"adjustment"` from `configurePanelMode` and remove the adjustment-mode mount/props.
 - `composition-view.model.ts`: collapse `CompositionViewMode` to `"locked"` and remove the `@/modules/adjustment-workspace` type import.
+- `orders-table.tsx`: remove the `order.hasOpenAdjustmentWorkspace` open-AW badge (`:66`). Pairs with the P6-2 removal of the service read + type field; if the type field is removed in P6-2, this component edit lands in the same review window to keep the build green.
 - Update/remove tests that exercised the order-detail AW configure action or the panel's `adjustment` mode / deep-link.
-- Add/extend a source guard: no `@/modules/adjustment-workspace` import in `app/orders/[orderId]/actions.ts`, `configure-session-panel.tsx`, `pos-package-composition.tsx`, or `composition-view.model.ts` (remove these from the P6-1 known-legacy allowlist).
+- Add/extend a source guard: no `@/modules/adjustment-workspace` import or `AdjustmentWorkspace` reference in `app/orders/[orderId]/actions.ts`, `configure-session-panel.tsx`, `pos-package-composition.tsx`, `composition-view.model.ts`, or `orders-table.tsx` (remove these from the P6-1 known-legacy allowlist).
 - Wire new/changed tests into `scripts/run-centralization-tests.ts`.
 - Update `context/progress-tracker.md`.
 
@@ -79,6 +81,7 @@ These are the last AW couplings on a *non-AW-route* surface. The order-detail pa
 - `ConfigureSessionPanel` has no `adjustment` mode, no `adjustmentWorkspaceHref`, and renders no "Edit in Adjustment Workspace" link; `commit-staging` behavior is unchanged.
 - `configurePanelMode` no longer includes `"adjustment"`; no caller passes it.
 - `CompositionViewMode` is `"locked"` only; `composition-view.model.ts` has no AW import.
+- `orders-table.tsx` no longer reads `hasOpenAdjustmentWorkspace` and renders no open-AW badge; with the P6-2 field removal, `hasOpenAdjustmentWorkspace` exists nowhere in the codebase.
 - Sales session-config staging (Spec 137) is functionally unchanged (its tests still pass).
 - The source guard now also covers the four cleaned files (removed from the legacy allowlist).
 - No AW module/route/test/table deleted; no schema change; no financial behavior change.

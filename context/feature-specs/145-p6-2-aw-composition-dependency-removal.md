@@ -15,6 +15,7 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (B1, A2). Depends
 - `src/modules/orders/composition/index.ts:6-7` — barrel exports `getOrderCompositionViewModel`, `getPendingAdjustmentOrderCompositionViewModel`.
 - `app/orders/[orderId]/page.tsx:55,112` — order-detail page calls `getOrderCompositionViewModel({ orderId })` (the live consumer).
 - `src/modules/adjustment-workspace/adjustment-workspace.service.ts:32,276` — AW service imports `getPendingAdjustmentOrderCompositionViewModel` back from composition (circular legacy coupling to untangle).
+- **Second AW read path (`hasOpenAdjustmentWorkspace`):** `src/modules/orders/order.service.ts:3113` computes `hasOpenAdjustmentWorkspace` by querying the `AdjustmentWorkspace` table; `src/modules/orders/order.types.ts:68` declares the field. Surfaced during Spec 144 plan review — not in the original readiness report. The service-layer query + type field are removed here (the badge that consumes it is removed in P6-3).
 - `context/architecture-context.md` §7.3 — `OrderCompositionViewModel` contract (current ownership = `Order*` rows).
 
 ## Rules
@@ -35,7 +36,8 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (B1, A2). Depends
 - Relocate-or-delete `getPendingAdjustmentOrderCompositionViewModel`, `buildCompositionSnapshotFromAdjustmentSnapshot`, and the `AdjustmentWorkspaceEdit`-typed helpers based on remaining callers (AW route/page only → fold into AW module ahead of its P6-5 deletion, or delete if dead).
 - Update `src/modules/orders/composition/index.ts` to stop exporting the removed/relocated AW-only symbols.
 - Update the AW service/route imports to consume the relocated helper (if relocated) instead of the composition barrel.
-- Tests: order-detail composition for an order returns `Order*`-row ownership with no AW lookup; a guard test asserts `order-composition.service.ts` does not import `@/modules/adjustment-workspace`.
+- **Remove the `hasOpenAdjustmentWorkspace` service read:** delete the `AdjustmentWorkspace`-table query at `order.service.ts:3113` and the `hasOpenAdjustmentWorkspace` field from `order.types.ts:68`. The orders-table badge that reads it is removed in P6-3 (Spec 146); to keep this spec independently shippable, either land the two together or have P6-2 default the field to `false` and P6-3 remove both — prefer removing the service read + type field here and the component read in P6-3, sequenced so the type removal and the component removal land in the same review window if a compile dependency forces it.
+- Tests: order-detail composition for an order returns `Order*`-row ownership with no AW lookup; a guard test asserts `order-composition.service.ts` does not import `@/modules/adjustment-workspace`; the orders-table projection no longer queries the AW table.
 - Update existing composition tests that asserted the open-workspace branch.
 - Wire new/changed tests into `scripts/run-centralization-tests.ts`.
 - Update `context/progress-tracker.md`.
@@ -75,6 +77,7 @@ The Sales surface already derives composition from `OrderCommitDraft` snapshots 
 
 - `order-composition.service.ts` contains no `@/modules/adjustment-workspace` import (guard test enforces it).
 - `getOrderCompositionViewModel({ orderId })` returns `Order*`-row composition with no `adjustmentWorkspace` query.
+- `order.service.ts` no longer queries the `AdjustmentWorkspace` table for `hasOpenAdjustmentWorkspace`; the field is removed from `order.types.ts` (or defaulted `false` pending the P6-3 component removal, if a same-window split is chosen).
 - The order-detail page renders composition unchanged for orders with no AW rows (i.e. all live orders).
 - AW-only composition helpers are relocated into the AW module or deleted; the composition barrel no longer exports them.
 - No circular import remains between composition and the AW service.
