@@ -24,10 +24,10 @@ test("selected-photo baselines stay aligned across locked, staged, and finalized
     const { computeWorkspaceProposal } = await import(
       "@/modules/adjustment-workspace/adjustment-workspace.service"
     );
-    const {
-      buildCompositionSnapshotFromAdjustmentSnapshot,
-      toLockedPOSComposition,
-    } = await import("@/modules/orders/composition");
+    const { buildCompositionSnapshotFromAdjustmentSnapshot } = await import(
+      "@/modules/adjustment-workspace/adjustment-composition.service"
+    );
+    const { toLockedPOSComposition } = await import("@/modules/orders/composition");
     const base = baselineSnapshot();
     const edit: AdjustmentWorkspaceEdit = {
       id: "stage-selected-photos",

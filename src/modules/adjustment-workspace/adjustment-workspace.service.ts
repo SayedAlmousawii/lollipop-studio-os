@@ -29,11 +29,11 @@ import { recordInvoiceLockSnapshot } from "@/modules/invoices/invoice-lock.servi
 import { generateInvoiceNumber } from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import {
-  getPendingAdjustmentOrderCompositionViewModel,
   toLockedPOSComposition,
 } from "@/modules/orders/composition";
 import type {
   LockedPOSCompositionProjection,
+  OrderCompositionViewModel,
   POSCompositionPackageLineProjection,
 } from "@/modules/orders/composition";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
@@ -55,6 +55,11 @@ import type {
   POSPackageOption,
   POSWorkspace,
 } from "@/modules/orders/order.types";
+import {
+  applyPOSPhotoUnitPrices,
+  buildCompositionSnapshotFromAdjustmentSnapshot,
+  loadMetadataContextForEdits,
+} from "./adjustment-composition.service";
 import { adjustmentPendingChangesSchema } from "./adjustment-workspace.schema";
 import type {
   AdjustmentBaseSnapshot,
@@ -236,6 +241,42 @@ export async function getAdjustmentWorkspaceView(
   if (!row) return null;
 
   return mapWorkspaceView(row);
+}
+
+export async function getPendingAdjustmentOrderCompositionViewModel(
+  workspaceId: string
+): Promise<OrderCompositionViewModel | null> {
+  const workspace = await getAdjustmentWorkspaceView(workspaceId);
+  if (!workspace) return null;
+  const [metadataContext, posWorkspace] = await Promise.all([
+    loadMetadataContextForEdits(workspace.pendingChanges.edits),
+    getPOSWorkspace(workspace.orderId),
+  ]);
+  const baseComposition = applyPOSPhotoUnitPrices(
+    buildCompositionSnapshotFromAdjustmentSnapshot(workspace.baseSnapshot, {
+      metadataContext,
+    }),
+    posWorkspace
+  );
+  const pendingAdjustmentComposition = applyPOSPhotoUnitPrices(
+    buildCompositionSnapshotFromAdjustmentSnapshot(workspace.proposal.proposed, {
+      baseSnapshot: workspace.baseSnapshot,
+      edits: workspace.pendingChanges.edits,
+      adjustmentLines: workspace.proposal.deltas,
+      metadataContext,
+    }),
+    posWorkspace
+  );
+
+  return {
+    orderId: workspace.orderId,
+    jobNumber: workspace.jobNumber,
+    state: "adjustment",
+    baseComposition,
+    effectiveComposition: baseComposition,
+    pendingAdjustmentComposition,
+    totals: pendingAdjustmentComposition.totals,
+  };
 }
 
 export async function getAdjustmentWorkspaceCatalog() {

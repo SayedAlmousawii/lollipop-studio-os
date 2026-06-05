@@ -1326,9 +1326,11 @@ test("locked composition projection ignores finalized adjustment invoice lines a
     await compositionServices.getLockedOrderCompositionViewModel({
       invoiceId: workflow.finalInvoiceId,
     });
-  const captured = await services.captureCurrentOrderComposition(db, workflow.orderId);
+  const { getPOSWorkspace } = await import("@/modules/orders/order.service");
+  const posWorkspace = await getPOSWorkspace(workflow.orderId);
+  assert.ok(posWorkspace, "expected POS workspace for locked order");
   const currentComposition =
-    compositionServices.buildCompositionSnapshotFromAdjustmentSnapshot(captured);
+    compositionServices.buildCompositionSnapshotFromPOSWorkspace(posWorkspace);
 
   assert.deepEqual(lockedComposition.effectiveComposition.lines, currentComposition.lines);
   assert.deepEqual(
@@ -2070,7 +2072,7 @@ test("adjustment workspace POS projection keeps included photos as selected-phot
   );
 
   const model =
-    await composition.getPendingAdjustmentOrderCompositionViewModel(workspaceId);
+    await services.getPendingAdjustmentOrderCompositionViewModel(workspaceId);
   assert.ok(model);
   const posComposition = composition.toLockedPOSComposition(model);
   const line = posComposition.packageLines[0];
@@ -2119,7 +2121,7 @@ test("adjustment workspace POS projection does not let live POS selected count o
   });
 
   const model =
-    await composition.getPendingAdjustmentOrderCompositionViewModel(workspace.id);
+    await services.getPendingAdjustmentOrderCompositionViewModel(workspace.id);
   assert.ok(model);
   const posComposition = composition.toLockedPOSComposition(model);
   const line = posComposition.packageLines[0];
