@@ -1,19 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { Prisma } from "@prisma/client";
-import { ExternalLink, Settings2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import {
-  useActionState,
   useMemo,
   useState,
   useTransition,
 } from "react";
-import { useFormStatus } from "react-dom";
-import {
-  applySessionConfigurationWorkspaceEditAction,
-  configureSessionAction,
-} from "@/app/orders/[orderId]/actions";
 import {
   stageSessionConfigurationSelectionAction,
   type POSSessionConfigurationStagingActionState,
@@ -40,24 +33,12 @@ import type { OrderEditModePolicy } from "@/modules/orders/policies/edit-mode-po
 
 type ActionState = {
   errors?: Partial<Record<string, string[]>>;
-  adjustmentWorkspaceHref?: string;
 };
-
-export type PendingSessionConfigurationOverlay = Record<
-  string,
-  SelectionInput | null
->;
 
 export type ConfigureSessionPanelMode =
   | { kind: "draft" }
   | { kind: "commit-staging"; expectedVersion: number }
-  | { kind: "locked"; workspaceIsOpen: boolean }
-  | {
-      kind: "adjustment";
-      workspaceId: string;
-      workspaceVersion: number;
-      pendingOverlay: PendingSessionConfigurationOverlay;
-    };
+  | { kind: "locked"; workspaceIsOpen: boolean };
 
 export function ConfigureSessionPanel({
   orderId,
@@ -81,20 +62,11 @@ export function ConfigureSessionPanel({
   availableConfigurations: POSAvailableSessionConfiguration[];
   currentSelections: POSSessionConfigurationSelection[];
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(
-    configureSessionAction.bind(null, orderId),
-    {}
-  );
-  const [adjustmentState, setAdjustmentState] = useState<ActionState>({});
   const [commitStagingState, setCommitStagingState] = useState<ActionState>({});
-  const [isAdjustmentPending, startAdjustmentTransition] = useTransition();
   const [isCommitStagingPending, startCommitStagingTransition] = useTransition();
   const [draftSelections, setDraftSelections] = useState<
     Record<string, SelectionInput | null>
   >(() => buildInitialDraftSelections(currentSelections, mode));
-  const [workspaceVersion, setWorkspaceVersion] = useState(
-    mode.kind === "adjustment" ? mode.workspaceVersion : 0
-  );
   const [commitDraftVersion, setCommitDraftVersion] = useState(
     mode.kind === "commit-staging" ? mode.expectedVersion : 0
   );
@@ -107,13 +79,7 @@ export function ConfigureSessionPanel({
   );
   const editableConfigurationIds = new Set(
     sortedConfigurations
-      .filter(
-        (configuration) =>
-          mode.kind === "draft" ||
-          mode.kind === "commit-staging" ||
-          mode.kind === "adjustment" ||
-          policyForConfiguration(configuration, editPolicies).isInteractive
-      )
+      .filter(() => mode.kind === "commit-staging")
       .map((configuration) => configuration.id)
   );
   const currentSelectionByConfigurationId = new Map(
@@ -137,10 +103,6 @@ export function ConfigureSessionPanel({
   const hasFinancialConfigurations = sortedConfigurations.some(
     (configuration) => configuration.financialBehavior === "FINANCIAL"
   );
-  const adjustmentWorkspaceHref =
-    state.adjustmentWorkspaceHref ??
-    editPolicies.financial.routeTarget?.href ??
-    `/orders/${orderId}/adjustment-workspace`;
   const missingCodes = new Set(
     sortedConfigurations
       .filter(
@@ -151,8 +113,6 @@ export function ConfigureSessionPanel({
       .map((configuration) => configuration.code)
   );
   const globalErrors = [
-    ...(state.errors?._global ?? []),
-    ...(adjustmentState.errors?._global ?? []),
     ...(commitStagingState.errors?._global ?? []),
   ];
 
@@ -162,63 +122,6 @@ export function ConfigureSessionPanel({
         {editPolicies.financial.userFacingMessage}
       </div>
     );
-  }
-
-  function submitAdjustmentEdits() {
-    if (mode.kind !== "adjustment") return;
-    setAdjustmentState({});
-    startAdjustmentTransition(async () => {
-      let currentVersion = workspaceVersion;
-      for (const configuration of sortedConfigurations) {
-        const desired = draftSelections[configuration.id] ?? null;
-        const baseline = baselineSelection(
-          configuration.id,
-          currentSelections,
-          mode
-        );
-        if (selectionKey(desired) === selectionKey(baseline)) continue;
-
-        const result = await applySessionConfigurationWorkspaceEditAction(
-          mode.workspaceId,
-          currentVersion,
-          {
-            op: "change_session_configuration_selection",
-            orderPackageId,
-            configurationId: configuration.id,
-            desired: toWorkspaceDesired(desired),
-          }
-        );
-        if (result.errors) {
-          const message = (result.errors._global ?? []).join(" ");
-          setAdjustmentState({
-            errors: {
-              _global: [
-                message.includes("version")
-                  ? "Workspace was updated — refresh and try again."
-                  : message || "Unable to stage session configuration.",
-              ],
-            },
-          });
-          return;
-        }
-        if (typeof result.version !== "number") {
-          setAdjustmentState({
-            errors: { _global: ["Workspace was updated — refresh and try again."] },
-          });
-          return;
-        }
-        currentVersion = result.version;
-        setWorkspaceVersion(result.version);
-      }
-      console.info(
-        JSON.stringify({
-          metric: "adjustment_workspace.session_configuration_edit_staged_from_ui",
-          orderId,
-          orderPackageId,
-        })
-      );
-      globalThis.location?.reload();
-    });
   }
 
   function submitCommitStagingEdits() {
@@ -297,14 +200,7 @@ export function ConfigureSessionPanel({
             {packageName} · {sessionTypeName}
           </DialogDescription>
         </DialogHeader>
-        <form
-          action={
-            mode.kind === "adjustment" || mode.kind === "commit-staging"
-              ? undefined
-              : formAction
-          }
-          className="space-y-4"
-        >
+        <form className="space-y-4">
           <input type="hidden" name="orderPackageId" value={orderPackageId} />
           <input type="hidden" name="selections" value={serializedSelections} />
           <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
@@ -314,9 +210,7 @@ export function ConfigureSessionPanel({
                 ? previewFee(configuration, value)
                 : null;
               const isMissing = missingCodes.has(configuration.code);
-              const isFinancialLocked =
-                mode.kind === "locked" &&
-                !policyForConfiguration(configuration, editPolicies).isInteractive;
+              const isReadOnly = mode.kind !== "commit-staging";
               const currentSelection =
                 currentSelectionByConfigurationId.get(configuration.id) ?? null;
 
@@ -337,21 +231,8 @@ export function ConfigureSessionPanel({
                         {feeHint}
                       </span>
                     ) : null}
-                    {mode.kind === "adjustment" ? (
-                      <span
-                        className={
-                          configuration.financialBehavior === "FINANCIAL"
-                            ? "rounded-md border border-accent/30 bg-accent-soft px-2 py-0.5 text-xs font-medium text-accent"
-                            : "rounded-md border border-border bg-surface-soft px-2 py-0.5 text-xs font-medium text-text-secondary"
-                        }
-                      >
-                        {configuration.financialBehavior === "FINANCIAL"
-                          ? "Financial — adjustment invoice"
-                          : "Operational — no invoice change"}
-                      </span>
-                    ) : null}
                   </div>
-                  {isFinancialLocked ? (
+                  {isReadOnly ? (
                     <div className="rounded-md border border-border bg-surface-soft px-3 py-2 text-sm text-text-secondary">
                       {selectionDisplay(currentSelection, configuration)}
                     </div>
@@ -388,25 +269,8 @@ export function ConfigureSessionPanel({
               {editPolicies.financial.userFacingMessage}
             </p>
           ) : null}
-          {mode.kind === "locked" && hasFinancialConfigurations ? (
-            <Button asChild variant="outline">
-              <Link href={adjustmentWorkspaceHref}>
-                <ExternalLink className="h-4 w-4" />
-                {editPolicies.financial.routeTarget?.label ??
-                  "Edit in Adjustment Workspace"}
-              </Link>
-            </Button>
-          ) : null}
           <DialogFooter>
-            {mode.kind === "adjustment" ? (
-              <Button
-                type="button"
-                disabled={isAdjustmentPending || !hasEditableChanges}
-                onClick={submitAdjustmentEdits}
-              >
-                {isAdjustmentPending ? "Staging..." : "Stage Configuration"}
-              </Button>
-            ) : mode.kind === "commit-staging" ? (
+            {mode.kind === "commit-staging" ? (
               <Button
                 type="button"
                 disabled={isCommitStagingPending || !hasEditableChanges}
@@ -415,25 +279,15 @@ export function ConfigureSessionPanel({
                 {isCommitStagingPending ? "Staging..." : "Stage Configuration"}
               </Button>
             ) : (
-              <SubmitButton disabled={mode.kind === "locked" && !hasEditableChanges} />
+              <Button type="button" variant="outline" disabled>
+                Read only
+              </Button>
             )}
           </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>
   );
-}
-
-function policyForConfiguration(
-  configuration: POSAvailableSessionConfiguration,
-  policies: {
-    operational: OrderEditModePolicy;
-    financial: OrderEditModePolicy;
-  }
-): OrderEditModePolicy {
-  return configuration.financialBehavior === "FINANCIAL"
-    ? policies.financial
-    : policies.operational;
 }
 
 function shouldShowFeeHint(
@@ -463,14 +317,13 @@ function buildInitialDraftSelections(
   currentSelections: POSSessionConfigurationSelection[],
   mode: ConfigureSessionPanelMode
 ): Record<string, SelectionInput | null> {
-  const baseline = Object.fromEntries(
+  void mode;
+  return Object.fromEntries(
     currentSelections.map((selection) => [
       selection.configurationId,
       stripSelectionMetadata(selection),
     ])
   );
-  if (mode.kind !== "adjustment") return baseline;
-  return { ...baseline, ...mode.pendingOverlay };
 }
 
 function baselineSelection(
@@ -478,9 +331,7 @@ function baselineSelection(
   currentSelections: POSSessionConfigurationSelection[],
   mode: ConfigureSessionPanelMode
 ): SelectionInput | null {
-  if (mode.kind === "adjustment" && configurationId in mode.pendingOverlay) {
-    return mode.pendingOverlay[configurationId] ?? null;
-  }
+  void mode;
   const selection = currentSelections.find(
     (candidate) => candidate.configurationId === configurationId
   );
@@ -489,34 +340,6 @@ function baselineSelection(
 
 function selectionKey(selection: SelectionInput | null): string {
   return JSON.stringify(selection && isSubmittableSelection(selection) ? selection : null);
-}
-
-function toWorkspaceDesired(
-  selection: SelectionInput | null
-):
-  | null
-  | { kind: "toggle" }
-  | { kind: "select"; optionId: string }
-  | { kind: "number"; numericValue: number }
-  | { kind: "text"; textValue: string }
-  | { kind: "counter"; numericValue: number; optionId?: string } {
-  if (!selection || !isSubmittableSelection(selection)) return null;
-  switch (selection.kind) {
-    case "toggle":
-      return { kind: "toggle" };
-    case "select":
-      return { kind: "select", optionId: selection.optionId };
-    case "number":
-      return { kind: "number", numericValue: selection.numericValue };
-    case "text":
-      return { kind: "text", textValue: selection.textValue };
-    case "counter":
-      return {
-        kind: "counter",
-        numericValue: selection.numericValue,
-        ...(selection.optionId ? { optionId: selection.optionId } : {}),
-      };
-  }
 }
 
 function selectionDisplay(
@@ -646,14 +469,5 @@ function GlobalErrors({ messages }: { messages?: string[] }) {
     <div className="rounded-md border border-danger/30 bg-danger-soft p-3 text-sm text-danger">
       {messages.join(" ")}
     </div>
-  );
-}
-
-function SubmitButton({ disabled = false }: { disabled?: boolean }) {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending || disabled}>
-      {pending ? "Saving..." : "Save Configuration"}
-    </Button>
   );
 }

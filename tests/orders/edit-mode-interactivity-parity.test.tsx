@@ -209,10 +209,7 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
       };
     }
     if (request === "@/app/orders/[orderId]/actions") {
-      return {
-        applySessionConfigurationWorkspaceEditAction: async () => ({ version: 1 }),
-        configureSessionAction: async () => ({}),
-      };
+      return {};
     }
     return originalModuleLoad.call(this, request, parent, isMain);
   };

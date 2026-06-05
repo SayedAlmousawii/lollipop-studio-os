@@ -971,7 +971,7 @@ test("current composition card projector uses structured swap and upgrade metada
   const card = composition().toCurrentCompositionCard(model, {
     source: "pendingDeltas",
   });
-  assert.equal(card.mode, "adjustment");
+  assert.equal(card.mode, "locked");
   assert.deepEqual(
     card.rows.map((row) => ({
       kind: row.kind,
@@ -998,7 +998,7 @@ test("current composition card projector uses structured swap and upgrade metada
   const pendingCard = composition().toCurrentCompositionCard(model, {
     source: "pending",
   });
-  assert.equal(pendingCard.mode, "adjustment");
+  assert.equal(pendingCard.mode, "locked");
   assert.equal(pendingCard.total, 170);
   assert.deepEqual(
     pendingCard.rows
@@ -1091,7 +1091,10 @@ test("Spec 145 orders table projection does not read Adjustment Workspace rows",
 
   assert.doesNotMatch(fetchOrdersBody, /adjustmentWorkspaces/);
   assert.doesNotMatch(fetchOrdersBody, /AdjustmentWorkspaceStatus/);
-  assert.match(mapOrderBody, /hasOpenAdjustmentWorkspace:\s*false/);
+  assert.doesNotMatch(
+    mapOrderBody,
+    new RegExp(["hasOpen", "AdjustmentWorkspace"].join(""))
+  );
   assert.doesNotMatch(mapOrderBody, /adjustmentWorkspaces/);
 });
 

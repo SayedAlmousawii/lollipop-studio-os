@@ -244,10 +244,8 @@ test("commit-staging financial configs do not show panel-owned fee hints or AW l
     panelSource,
     /mode\.kind === "commit-staging" &&[\s\S]*configuration\.financialBehavior === "FINANCIAL"/
   );
-  assert.match(
-    panelSource,
-    /mode\.kind === "adjustment" \|\| mode\.kind === "commit-staging"/
-  );
+  assert.doesNotMatch(panelSource, /mode\.kind === "adjustment"/);
+  assert.doesNotMatch(panelSource, /kind: "adjustment"/);
 
   const commitModeBranch = panelSource.slice(
     panelSource.indexOf('configurePanelMode === "commit-staging"'),

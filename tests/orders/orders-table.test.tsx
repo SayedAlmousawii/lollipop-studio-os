@@ -27,6 +27,7 @@ test("OrdersTable renders canonical financial projection amounts and status", ()
   assert.match(markup, /130\.000 KD/);
   assert.match(markup, /Partially paid/);
   assert.doesNotMatch(markup, /Pending/);
+  assert.doesNotMatch(markup, /Workspace/);
 });
 
 test("OrdersTable renders explicit missing financial case placeholders", () => {
@@ -79,6 +80,5 @@ function orderFixture(overrides: Pick<Order, "financial">): Order {
     createdAt: "2026-05-17",
     primaryInvoiceId: "invoice-1",
     primaryInvoiceNumber: "INV-1",
-    hasOpenAdjustmentWorkspace: false,
   };
 }
