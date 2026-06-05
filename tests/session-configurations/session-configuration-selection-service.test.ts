@@ -16,6 +16,7 @@ import {
   SessionConfigurationPricingMode,
   UserRole,
 } from "@prisma/client";
+import { OrderCommitDraftActiveError } from "@/modules/orders/order.errors";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -392,6 +393,55 @@ test("session configuration selection service writes full package sets with fres
         }),
         1
       );
+
+      await createActiveOrderCommitDraft(db, fixture);
+      await assert.rejects(
+        () =>
+          writeOrderPackageSelections(
+            fixture.orderPackageId,
+            [
+              {
+                configurationId: fixture.selectConfigId,
+                kind: "select",
+                optionId: fixture.selectOptionId,
+              },
+            ],
+            managerActor
+          ),
+        (error) => {
+          assert.match(
+            String(error),
+            new RegExp(escapeRegExp(new OrderCommitDraftActiveError().message))
+          );
+          return true;
+        }
+      );
+      await assert.rejects(
+        () =>
+          writeOrderPackageSelections(
+            fixture.orderPackageId,
+            [
+              {
+                configurationId: fixture.operationalConfigId,
+                kind: "text",
+                textValue: "Draft should win",
+              },
+            ],
+            postLockActor,
+            {
+              allowPostLock: true,
+              postLockAudit: { actorUserId: fixture.managerUserId },
+            }
+          ),
+        (error) => {
+          assert.match(
+            String(error),
+            new RegExp(escapeRegExp(new OrderCommitDraftActiveError().message))
+          );
+          assert.doesNotMatch(String(error), /locked/i);
+          return true;
+        }
+      );
     } finally {
       process.env.DATABASE_URL = previousDatabaseUrl;
     }
@@ -582,4 +632,31 @@ async function createFixture(db: typeof import("@/lib/db")["db"]) {
     selectOptionId: selectConfig.options[0].id,
     toggleConfigId: toggleConfig.id,
   };
+}
+
+async function createActiveOrderCommitDraft(
+  db: typeof import("@/lib/db")["db"],
+  fixture: Awaited<ReturnType<typeof createFixture>>
+) {
+  await db.orderCommitDraft.create({
+    data: {
+      orderId: fixture.orderId,
+      financialCaseId: fixture.financialCaseId,
+      pendingSnapshotJson: {
+        schemaVersion: "order_commit_snapshot_v1",
+        orderId: fixture.orderId,
+        financialCaseId: fixture.financialCaseId,
+        currency: "KWD",
+        lines: [],
+        totals: { netTotal: "0.000" },
+      },
+      ownerUserId: fixture.managerUserId,
+      openedByUserId: fixture.managerUserId,
+      lastTouchedByUserId: fixture.managerUserId,
+    },
+  });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

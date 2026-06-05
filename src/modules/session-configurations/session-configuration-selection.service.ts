@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { PERMISSIONS, requirePermission } from "@/lib/permissions";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
+import { assertNoActiveOrderCommitDraft } from "@/modules/orders/policies/order-commit-draft-guard";
 import type { SessionConfigurationRequiredSelectionMissingError } from "./session-configuration-resolver";
 import type { SelectionInput } from "./session-configuration-selection.schema";
 
@@ -252,7 +253,11 @@ export async function writeOrderPackageSelections(
   orderPackageId: string,
   desiredSelections: SelectionInput[],
   actor: SessionConfigurationActor,
-  options: { allowPostLock?: boolean; postLockAudit?: { actorUserId: string } } = {}
+  options: {
+    allowPostLock?: boolean;
+    postLockAudit?: { actorUserId: string };
+    bypassOrderCommitDraftGuard?: boolean;
+  } = {}
 ): Promise<{ orderPackageId: string; writtenSelectionIds: string[] }> {
   requirePermission(actor, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
 
@@ -284,6 +289,17 @@ export async function writeOrderPackageSelections(
           if (!orderPackage) {
             throw new SessionConfigurationSelectionConfigurationNotFoundError();
           }
+
+          await assertNoActiveOrderCommitDraft({
+            orderId: orderPackage.orderId,
+            actorContext: {
+              actorUserId: actor.id,
+              actorRole: actor.role,
+              bypassOrderCommitDraftGuard:
+                options.bypassOrderCommitDraftGuard ?? false,
+            },
+            tx,
+          });
 
           const finalInvoice = orderPackage.order.invoices[0] ?? null;
           if (finalInvoice?.isLocked && options.allowPostLock !== true) {
