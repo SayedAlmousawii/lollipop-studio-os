@@ -65,7 +65,6 @@ export interface Order {
   createdAt: string;
   primaryInvoiceId: string | null;
   primaryInvoiceNumber: string | null;
-  hasOpenAdjustmentWorkspace: boolean;
 }
 
 export interface CustomerOrderHistoryItem {

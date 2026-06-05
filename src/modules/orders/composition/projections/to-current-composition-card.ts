@@ -22,7 +22,7 @@ export function toCurrentCompositionCard(
   const lines = compositionLinesForCard(model, snapshot, options.source);
 
   return {
-    mode: options.mode ?? (model.state === "adjustment" ? "adjustment" : "locked"),
+    mode: options.mode ?? "locked",
     rows: projectCompositionRows(lines),
     total:
       options.source === "pendingDeltas"

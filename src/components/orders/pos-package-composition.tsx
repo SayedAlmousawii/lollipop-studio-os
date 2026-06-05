@@ -30,10 +30,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { ConfigurationMissingRequiredBadge } from "@/components/session-configurations/configuration-missing-required-badge";
 import { ConfigurationSummaryChip } from "@/components/session-configurations/configuration-summary-chip";
-import {
-  ConfigureSessionPanel,
-  type PendingSessionConfigurationOverlay,
-} from "@/components/session-configurations/configure-session-panel";
+import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import {
   Select,
   SelectContent,
@@ -79,26 +76,10 @@ type POSPackageCompositionProps =
   | (POSPackageCompositionBaseProps & {
       configurePanelMode?: "auto";
       expectedVersion?: never;
-      workspaceId?: never;
-      workspaceVersion?: never;
-      pendingOverlayByOrderPackageId?: never;
     })
   | (POSPackageCompositionBaseProps & {
       configurePanelMode: "commit-staging";
       expectedVersion: number;
-      workspaceId?: never;
-      workspaceVersion?: never;
-      pendingOverlayByOrderPackageId?: never;
-    })
-  | (POSPackageCompositionBaseProps & {
-      configurePanelMode: "adjustment";
-      expectedVersion?: never;
-      workspaceId: string;
-      workspaceVersion: number;
-      pendingOverlayByOrderPackageId: Record<
-        string,
-        PendingSessionConfigurationOverlay
-      >;
     });
 
 export function POSPackageComposition(props: POSPackageCompositionProps) {
@@ -106,14 +87,6 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
   const configurePanelMode = props.configurePanelMode ?? "auto";
   const commitStagingVersion =
     props.configurePanelMode === "commit-staging" ? props.expectedVersion : null;
-  const adjustmentPanelContext =
-    props.configurePanelMode === "adjustment"
-      ? {
-          workspaceId: props.workspaceId,
-          workspaceVersion: props.workspaceVersion,
-          pendingOverlayByOrderPackageId: props.pendingOverlayByOrderPackageId,
-        }
-      : null;
   const workspaceLineById = new Map(
     workspace.packageLines.map((line) => [line.id, line])
   );
@@ -163,30 +136,13 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                         line: workspaceLine,
                         expectedVersion:
                           commitStagingVersion ?? undefined,
-                        workspaceVersion:
-                          adjustmentPanelContext?.workspaceVersion,
-                        pendingOverlay:
-                          adjustmentPanelContext?.pendingOverlayByOrderPackageId[
-                            workspaceLine.id
-                          ],
                       })}
                       orderId={workspace.orderId}
                       orderPackageId={workspaceLine.id}
                       packageName={line.packageName}
                       sessionTypeName={line.sessionTypeName ?? workspaceLine.sessionTypeName}
                       mode={
-                        configurePanelMode === "adjustment" && adjustmentPanelContext
-                          ? {
-                              kind: "adjustment",
-                              workspaceId: adjustmentPanelContext.workspaceId,
-                              workspaceVersion:
-                                adjustmentPanelContext.workspaceVersion,
-                              pendingOverlay:
-                                adjustmentPanelContext.pendingOverlayByOrderPackageId[
-                                  workspaceLine.id
-                                ] ?? {},
-                            }
-                          : commitStagingVersion !== null
+                        commitStagingVersion !== null
                             ? {
                                 kind: "commit-staging",
                                 expectedVersion: commitStagingVersion,
@@ -270,19 +226,15 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
 }
 
 function configureSessionPanelKey(input: {
-  mode: "auto" | "commit-staging" | "adjustment";
+  mode: "auto" | "commit-staging";
   line: POSPackageLine;
   expectedVersion?: number;
-  workspaceVersion?: number;
-  pendingOverlay?: PendingSessionConfigurationOverlay;
 }): string {
   return JSON.stringify({
     id: input.line.id,
     mode: input.mode,
     expectedVersion: input.expectedVersion,
-    workspaceVersion: input.workspaceVersion,
     currentSelections: input.line.currentSelections,
-    pendingOverlay: input.pendingOverlay ?? {},
   });
 }
 

@@ -19,15 +19,15 @@ test("CurrentCompositionCard renders locked mode header and rows", () => {
   assert.match(markup, /210\.000 KD/);
 });
 
-test("CurrentCompositionCard renders adjustment mode header and the same row layout", () => {
+test("CurrentCompositionCard renders locked mode for projected rows", () => {
   const markup = renderToStaticMarkup(
     createElement(CurrentCompositionCard, {
-      view: viewFixture("adjustment"),
+      view: viewFixture("locked"),
     })
   );
 
-  assert.match(markup, /Preview Composition/);
-  assert.match(markup, /Preview/);
+  assert.match(markup, /Current Composition/);
+  assert.match(markup, /Read only/);
   assert.match(markup, /Album Change: Album 30x30 → Album 20x20 \(-40\.000 KD\)/);
   assert.match(markup, /Premium Package/);
 });

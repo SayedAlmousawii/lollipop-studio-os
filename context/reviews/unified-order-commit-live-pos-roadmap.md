@@ -905,7 +905,7 @@ Numbering is sequential from the next available sequence (135) and matches depen
 
 ## Phase 6 - Adjustment Workspace Retirement
 
-**Status: In progress. P6-1 shipped as Spec 144: the AW route is hidden behind a Sales redirect, route-local AW server actions refuse stale employee-surface POSTs, and R1 (direct-URL reachability) is closed. P6-2 shipped as Spec 145: the canonical order-composition read model no longer imports or queries Adjustment Workspace. Destructive deletion remains sequenced for later P6 specs.**
+**Status: In progress. P6-1 shipped as Spec 144: the AW route is hidden behind a Sales redirect, route-local AW server actions refuse stale employee-surface POSTs, and R1 (direct-URL reachability) is closed. P6-2 shipped as Spec 145: the canonical order-composition read model no longer imports or queries Adjustment Workspace. P6-3 shipped as Spec 146: the order-detail configure action path, Configure Session AW mode/deep-link, composition-view AW type mode, and orders-table AW badge/type field are removed. Destructive deletion remains sequenced for later P6 specs.**
 
 ### Objective
 

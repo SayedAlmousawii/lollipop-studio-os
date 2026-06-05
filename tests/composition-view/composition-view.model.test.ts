@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildCompositionView } from "@/modules/composition-view/composition-view.model";
-import type {
-  AdjustmentCompositionLine,
-  AdjustmentCompositionTotals,
-} from "@/modules/adjustment-workspace/adjustment-workspace.types";
+
+type CompositionViewTestLine = {
+  lineId: string;
+  kind?: string;
+  refId?: string | null;
+  label: string;
+  quantity: number;
+  unitPrice: string;
+  lineTotalNet: string;
+};
+
+type CompositionViewTestTotals = {
+  netPayable: string;
+};
 
 test("drops only zero-delta self-swap no-op rows", () => {
   const view = buildCompositionView({
@@ -33,7 +43,7 @@ test("drops only zero-delta self-swap no-op rows", () => {
 
 test("groups same-category swap pairs without losing money", () => {
   const view = buildCompositionView({
-    mode: "adjustment",
+    mode: "locked",
     lines: [
       line({
         lineId: "remove-album",
@@ -208,8 +218,8 @@ test("normalizes the album screenshot regression fixture", () => {
 });
 
 function line(
-  overrides: Partial<AdjustmentCompositionLine>
-): AdjustmentCompositionLine {
+  overrides: Partial<CompositionViewTestLine>
+): CompositionViewTestLine {
   const unitPrice = overrides.unitPrice ?? "10.000";
   const quantity = overrides.quantity ?? 1;
   const lineTotalNet =
@@ -222,18 +232,13 @@ function line(
     label: "Line",
     quantity,
     unitPrice,
-    lineTotalGross: lineTotalNet,
     lineTotalNet,
-    taxBreakdown: [],
     ...overrides,
   };
 }
 
-function totals(netPayable: string): AdjustmentCompositionTotals {
+function totals(netPayable: string): CompositionViewTestTotals {
   return {
-    gross: netPayable,
-    discount: "0.000",
-    tax: "0.000",
     netPayable,
   };
 }

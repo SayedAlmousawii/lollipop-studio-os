@@ -1,10 +1,18 @@
-import type {
-  AdjustmentCompositionLine,
-  AdjustmentCompositionTotals,
-} from "@/modules/adjustment-workspace/adjustment-workspace.types";
+type CompositionViewInputLine = {
+  lineId: string;
+  kind?: string;
+  label: string;
+  refId?: string | null;
+  quantity: number;
+  unitPrice: string;
+  lineTotalNet: string;
+};
 
-export type CompositionViewMode = "locked" | "adjustment";
-// future: "draft"
+type CompositionViewInputTotals = {
+  netPayable: string;
+};
+
+export type CompositionViewMode = "locked";
 
 export type CompositionViewRow = {
   id: string;
@@ -24,8 +32,8 @@ export type CompositionView = {
 };
 
 export function buildCompositionView(input: {
-  lines: AdjustmentCompositionLine[];
-  totals: AdjustmentCompositionTotals;
+  lines: CompositionViewInputLine[];
+  totals: CompositionViewInputTotals;
   mode: CompositionViewMode;
 }): CompositionView {
   const visibleLines = input.lines.filter((line) => !isZeroSelfSwap(line));
@@ -81,7 +89,7 @@ export function buildCompositionView(input: {
   };
 }
 
-function isZeroSelfSwap(line: AdjustmentCompositionLine): boolean {
+function isZeroSelfSwap(line: CompositionViewInputLine): boolean {
   return parseMoney(line.lineTotalNet) === 0 && hasSameFromToLabel(line.label);
 }
 
@@ -92,11 +100,11 @@ function hasSameFromToLabel(label: string): boolean {
 }
 
 function findSwapPair(
-  removalLine: AdjustmentCompositionLine,
+  removalLine: CompositionViewInputLine,
   change: { from: string; to: string },
-  lines: AdjustmentCompositionLine[],
+  lines: CompositionViewInputLine[],
   usedLineIds: Set<string>
-): AdjustmentCompositionLine | undefined {
+): CompositionViewInputLine | undefined {
   const removalIndex = lines.indexOf(removalLine);
   const candidates = lines
     .map((line, index) => ({ line, index }))
@@ -122,7 +130,7 @@ function findSwapPair(
 }
 
 function isLikelySwapAddition(
-  line: AdjustmentCompositionLine,
+  line: CompositionViewInputLine,
   change: { from: string; to: string },
   options: { allowCategoryMatch: boolean }
 ): boolean {
@@ -141,7 +149,7 @@ function isLikelySwapAddition(
   );
 }
 
-function toPlainRow(line: AdjustmentCompositionLine): CompositionViewRow {
+function toPlainRow(line: CompositionViewInputLine): CompositionViewRow {
   const kind = classifyLineKind(line);
   return {
     id: line.lineId,
@@ -154,7 +162,7 @@ function toPlainRow(line: AdjustmentCompositionLine): CompositionViewRow {
 }
 
 function classifyLineKind(
-  line: AdjustmentCompositionLine
+  line: CompositionViewInputLine
 ): CompositionViewRow["kind"] {
   if (line.kind === "package") return "package";
   if (line.kind === "addon") return "addOn";
@@ -162,10 +170,10 @@ function classifyLineKind(
   return "line";
 }
 
-function isExtraPhotoLine(line: AdjustmentCompositionLine): boolean {
+function isExtraPhotoLine(line: CompositionViewInputLine): boolean {
   return (
     line.lineId.startsWith("extra-photo:") ||
-    line.refId.startsWith("Extra photos - ")
+    (line.refId?.startsWith("Extra photos - ") ?? false)
   );
 }
 

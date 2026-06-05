@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 146 is complete: the order-detail AW configure action path is removed, the Configure Session panel no longer exposes AW mode or deep-links, `CompositionViewMode` is locked-only, and the orders-table AW badge/type field is retired while the P6-4 policy read remains in POS composition.
 - Spec 145 is complete: the canonical order-composition read model is Adjustment Workspace-free, `getOrderCompositionViewModel` reads operational `Order*` rows only, pending AW composition is owned by the frozen AW module, and orders-table AW presence now defaults false without querying AW rows until P6-3 removes the badge/type.
 - Spec 144 is complete: the employee-facing Adjustment Workspace route now redirects to Sales, every route-local AW server action refuses with the retired-surface error, and a centralization-wired source guard freezes the seven known legacy `app/**` / `src/components/**` references until P6-2…P6-5 remove them.
 - Spec 135 is complete: session-configuration writes now respect the active-draft guard, so Sales-surface session-configuration edits can no longer bypass an open `OrderCommitDraft`; Spec 137 supersedes this temporary refusal with draft routing.
@@ -157,6 +158,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **146 P6-3** — Removed the non-AW-route order-detail Configure Session AW action path, deleted the panel's AW mode/deep-link, collapsed `CompositionViewMode` to locked-only, retired the orders-table AW badge/type field, and tightened the source guard while keeping POS composition's P6-4 policy read allowlisted.
 - **145 P6-2** — Removed the Adjustment Workspace dependency from the order-composition read model, relocated pending AW composition helpers into the frozen AW module with one-way imports from shared composition primitives, removed order-list AW row reads, and added centralization coverage for the AW-free composition boundary.
 - **144 P6-1** — Hid the employee-facing Adjustment Workspace route behind a Sales redirect, made all route-local AW server actions refuse stale employee-surface POSTs, and added a centralization source guard with the amended seven-file legacy allowlist while leaving AW code, tables, `writeOrderPackageSelections`, the Spec 135 guard, and `hasOpenAdjustmentWorkspace` untouched.
 - **143** — Linked-product session-configuration Sales snapshot targets now omit the ambiguous shared `orderEntityId`, with regression coverage for captured linked-product REMOVE/UPSERT target resolution, coupled linked-add-on removal/update, materialized removal pre-null/delete ordering, and Spec 137 identity rules.

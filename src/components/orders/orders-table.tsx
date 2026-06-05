@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/table";
 import { OrderStatusBadge } from "./order-status-badge";
 import { InvoiceStatusBadge } from "./invoice-status-badge";
-import { Badge } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/formatting/money";
 import { FINANCIAL_CASE_PAYMENT_STATUS_LABELS } from "@/modules/financial-cases/financial-case-summary.constants";
 import type { Order } from "@/modules/orders/order.types";
@@ -61,14 +60,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
                 {order.customerPhone}
               </TableCell>
               <TableCell className="text-sm font-medium text-text-primary">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>{order.jobNumber}</span>
-                  {order.hasOpenAdjustmentWorkspace ? (
-                    <Badge className="rounded-md border-info/30 bg-info-soft text-info">
-                      Workspace
-                    </Badge>
-                  ) : null}
-                </div>
+                {order.jobNumber}
               </TableCell>
               <TableCell className="text-sm text-text-secondary">
                 {order.bookingDate}

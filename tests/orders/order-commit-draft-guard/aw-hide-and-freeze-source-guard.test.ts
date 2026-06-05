@@ -7,12 +7,9 @@ const repoRoot = process.cwd();
 const RETIRED_MESSAGE = "Adjustment Workspace is retired — use POS";
 
 const knownLegacyAwReferenceFiles = [
-  "app/orders/[orderId]/actions.ts",
   "src/components/orders/financial-sidebar-adjustment.tsx",
   "src/components/orders/financial-sidebar-locked.tsx",
-  "src/components/orders/orders-table.tsx",
   "src/components/orders/pos-package-composition.tsx",
-  "src/components/session-configurations/configure-session-panel.tsx",
 ];
 
 test("AW route redirects to Sales without rendering the legacy workspace", () => {

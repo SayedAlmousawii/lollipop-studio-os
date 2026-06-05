@@ -3,27 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { PaymentType } from "@prisma/client";
-import { z } from "zod";
 import {
   PERMISSIONS,
   requireCurrentAppUserPermission,
 } from "@/lib/permissions";
 import { createInvoiceForOrder } from "@/modules/invoices/invoice.service";
-import { applyEdit } from "@/modules/adjustment-workspace/adjustment-workspace.service";
-import { adjustmentWorkspaceEditSchema } from "@/modules/adjustment-workspace/adjustment-workspace.schema";
 import { SessionConfigurationRequiredSelectionMissingError } from "@/modules/session-configurations/session-configuration-resolver";
 import {
   formatMissingSessionConfigurationMessage,
-  resolveConfigureSessionRoute,
-  SessionConfigurationSelectionConfigurationNotFoundError,
-  SessionConfigurationSelectionFinancialNotAllowedError,
-  SessionConfigurationSelectionInputMismatchError,
-  SessionConfigurationSelectionLockedError,
-  SessionConfigurationSelectionOptionMismatchError,
-  SessionConfigurationSelectionPostLockMisuseError,
-  writeOrderPackageSelections,
 } from "@/modules/session-configurations/session-configuration-selection.service";
-import { writeSelectionsPayloadSchema } from "@/modules/session-configurations/session-configuration-selection.schema";
 import { recordPaymentSchema } from "@/modules/payments/payment.schema";
 import {
   recordUpgradePaymentForOrder,
@@ -43,11 +31,6 @@ import {
   updateOrderProductionWorkflow,
 } from "@/modules/orders/order.service";
 import {
-  buildOrderEditModePolicy,
-  ORDER_EDIT_MODE_MESSAGES,
-  ORDER_EDIT_KIND,
-} from "@/modules/orders/policies/edit-mode-policy";
-import {
   WorkflowGuardError,
   type WorkflowGuardErrorCode,
 } from "@/modules/orders/order.errors";
@@ -58,12 +41,6 @@ export type UpdateEditingActionState = {
 
 export type CreateOrderInvoiceActionState = {
   errors?: Partial<Record<string, string[]>>;
-};
-
-export type ConfigureSessionActionState = {
-  errors?: Partial<Record<string, string[]>>;
-  adjustmentWorkspaceHref?: string;
-  version?: number;
 };
 
 export type RecordUpgradePaymentActionState = {
@@ -122,143 +99,6 @@ export async function createOrderInvoiceAction(
   redirect(`/invoices/${invoice.id}`);
 }
 
-export async function configureSessionAction(
-  orderId: string,
-  _prev: ConfigureSessionActionState,
-  formData: FormData
-): Promise<ConfigureSessionActionState> {
-  const parsedSelections = parseJsonPayload(
-    formData.get("selections"),
-    "Selections payload"
-  );
-  if (!parsedSelections.success) {
-    return { errors: { selections: [parsedSelections.error] } };
-  }
-
-  const parsed = writeSelectionsPayloadSchema.safeParse({
-    orderPackageId: formData.get("orderPackageId"),
-    selections: parsedSelections.value,
-  });
-  if (!parsed.success) {
-    return { errors: parsed.error.flatten().fieldErrors };
-  }
-
-  const appUser = await requireCurrentAppUserPermission(
-    PERMISSIONS.ORDER_FINANCIAL_UPDATE
-  );
-
-  try {
-    const route = await resolveConfigureSessionRoute(
-      orderId,
-      parsed.data.orderPackageId,
-      parsed.data.selections.map((selection) => selection.configurationId)
-    );
-    const financialSelections = parsed.data.selections.filter((selection) =>
-      route.financialConfigurationIds.has(selection.configurationId)
-    );
-    const selectedFinancialEdit = financialSelections.length > 0;
-    const policy = buildOrderEditModePolicy({
-      orderId,
-      mode: route.locked ? "locked" : "draft",
-      orderStatus: route.orderStatus,
-      finalInvoiceIsLocked: route.locked,
-      openAdjustmentWorkspaceId: route.openAdjustmentWorkspaceId,
-      editKind: selectedFinancialEdit
-        ? ORDER_EDIT_KIND.SESSION_CONFIGURATION_FINANCIAL_EDIT
-        : ORDER_EDIT_KIND.SESSION_CONFIGURATION_OPERATIONAL_EDIT,
-      affectedConfigurationNames: financialSelections.map(
-        (selection) =>
-          route.configurationNameById.get(selection.configurationId) ??
-          "Session configuration"
-      ),
-    });
-
-    if (!policy.canEditDirectly) {
-      return {
-        errors: {
-          _global: [policy.userFacingMessage],
-        },
-        adjustmentWorkspaceHref: policy.routeTarget?.href,
-      };
-    }
-
-    if (route.locked) {
-      const operationalSelections = parsed.data.selections.filter((selection) =>
-        route.operationalConfigurationIds.has(selection.configurationId)
-      );
-      await writeOrderPackageSelections(
-        parsed.data.orderPackageId,
-        operationalSelections,
-        {
-          id: appUser.id,
-          role: appUser.role,
-        },
-        { allowPostLock: true, postLockAudit: { actorUserId: appUser.id } }
-      );
-    } else {
-      await writeOrderPackageSelections(parsed.data.orderPackageId, parsed.data.selections, {
-        id: appUser.id,
-        role: appUser.role,
-      });
-    }
-  } catch (error) {
-    return { errors: { _global: [messageForConfigureSessionError(error)] } };
-  }
-
-  revalidatePath("/orders");
-  revalidatePath(`/orders/${orderId}`);
-  revalidatePath(`/orders/${orderId}/sales`);
-  revalidatePath("/invoices");
-  return {};
-}
-
-export async function applySessionConfigurationWorkspaceEditAction(
-  workspaceId: string,
-  version: number,
-  edit: Omit<
-    Extract<
-      z.infer<typeof adjustmentWorkspaceEditSchema>,
-      { op: "change_session_configuration_selection" }
-    >,
-    "id"
-  >
-): Promise<ConfigureSessionActionState> {
-  const parsedEdit = adjustmentWorkspaceEditSchema.safeParse({
-    ...edit,
-    id: createWorkspaceEditId(),
-  });
-  if (!parsedEdit.success) {
-    return { errors: parsedEdit.error.flatten().fieldErrors };
-  }
-  if (parsedEdit.data.op !== "change_session_configuration_selection") {
-    return { errors: { _global: ["Invalid session configuration workspace edit."] } };
-  }
-  const parsedVersion = z.coerce.number().int().min(0).safeParse(version);
-  if (!parsedVersion.success) {
-    return { errors: { version: ["Workspace version is required."] } };
-  }
-
-  const appUser = await requireCurrentAppUserPermission(
-    PERMISSIONS.ORDER_FINANCIAL_UPDATE
-  );
-  try {
-    const workspace = await applyEdit(
-      workspaceId,
-      { version: parsedVersion.data, edit: parsedEdit.data },
-      { actorUserId: appUser.id, actorRole: appUser.role }
-    );
-    revalidatePath(`/orders/${workspace.orderId}/adjustment-workspace`);
-    revalidatePath(`/orders/${workspace.orderId}/sales`);
-    return { version: workspace.version };
-  } catch (error) {
-    return { errors: { _global: [messageForConfigureSessionError(error)] } };
-  }
-}
-
-function createWorkspaceEditId(): string {
-  return `cm${Date.now().toString(36)}${crypto.randomUUID().replace(/-/g, "").slice(0, 18)}`;
-}
-
 export async function updateEditingWorkflowAction(
   orderId: string,
   _prev: UpdateEditingActionState,
@@ -296,48 +136,6 @@ export async function updateEditingWorkflowAction(
   revalidatePath("/orders");
   revalidatePath(`/orders/${orderId}`);
   return {};
-}
-
-function parseJsonPayload(
-  value: FormDataEntryValue | null,
-  label: string
-): { success: true; value: unknown } | { success: false; error: string } {
-  if (typeof value !== "string") {
-    return { success: false, error: `${label} is required.` };
-  }
-
-  try {
-    return { success: true, value: JSON.parse(value) };
-  } catch {
-    return { success: false, error: `${label} is invalid.` };
-  }
-}
-
-function messageForConfigureSessionError(error: unknown): string {
-  if (error instanceof SessionConfigurationSelectionLockedError) {
-    return ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS;
-  }
-  if (error instanceof SessionConfigurationSelectionPostLockMisuseError) {
-    return "Order lock state changed. Refresh and try again.";
-  }
-  if (error instanceof SessionConfigurationSelectionFinancialNotAllowedError) {
-    return `Edit ${error.offendingConfigurationCodes.join(", ")} in the Adjustment Workspace.`;
-  }
-  if (error instanceof SessionConfigurationSelectionConfigurationNotFoundError) {
-    return "One of the session settings is no longer available. Refresh and try again.";
-  }
-  if (error instanceof SessionConfigurationSelectionOptionMismatchError) {
-    return "One of the selected options is no longer available. Refresh and try again.";
-  }
-  if (error instanceof SessionConfigurationSelectionInputMismatchError) {
-    return "One of the session settings has an invalid value. Review the panel and try again.";
-  }
-  if (error instanceof z.ZodError) {
-    return "Review the session configuration values and try again.";
-  }
-  return error instanceof Error
-    ? error.message
-    : "Unable to save session configuration.";
 }
 
 export async function recordUpgradePaymentAction(

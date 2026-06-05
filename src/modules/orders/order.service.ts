@@ -3092,7 +3092,6 @@ function mapOrderRow(
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
-    hasOpenAdjustmentWorkspace: false,
   };
 }
 
