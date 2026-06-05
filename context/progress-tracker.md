@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 144 is complete: the employee-facing Adjustment Workspace route now redirects to Sales, every route-local AW server action refuses with the retired-surface error, and a centralization-wired source guard freezes the seven known legacy `app/**` / `src/components/**` references until P6-2…P6-5 remove them.
 - Spec 135 is complete: session-configuration writes now respect the active-draft guard, so Sales-surface session-configuration edits can no longer bypass an open `OrderCommitDraft`; Spec 137 supersedes this temporary refusal with draft routing.
 - Spec 143 is complete: linked-product session configurations now resolve their Sales staging target by unique selection-line identity only, so captured linked-product configs can be removed or edited without the shared `orderEntityId` multi-match while preserving Spec 137 linked-product ownership and fee pairing.
 - Spec 141 is complete: snapshot-derived Sales composition now re-derives included package deliverables from the catalog-current package id and overlays package-item upgrades by `packageItemId`, so active drafts and locked FINAL orders show deliverables/Upgrade/Replace affordances while totals, diffs, staged rows, and financial preview remain unchanged.
@@ -155,6 +156,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **144 P6-1** — Hid the employee-facing Adjustment Workspace route behind a Sales redirect, made all route-local AW server actions refuse stale employee-surface POSTs, and added a centralization source guard with the amended seven-file legacy allowlist while leaving AW code, tables, `writeOrderPackageSelections`, the Spec 135 guard, and `hasOpenAdjustmentWorkspace` untouched.
 - **143** — Linked-product session-configuration Sales snapshot targets now omit the ambiguous shared `orderEntityId`, with regression coverage for captured linked-product REMOVE/UPSERT target resolution, coupled linked-add-on removal/update, materialized removal pre-null/delete ordering, and Spec 137 identity rules.
 - **141** — Restored included deliverables in snapshot-derived Sales composition by loading catalog-current package items in the Sales read loader and overlaying PACKAGE_ITEM_UPGRADE rows by packageItemId, with active-draft, swap-back, locked-FINAL, source-boundary, and unchanged financial/staged projection coverage.
 - **142** — Removed reducer-only package mirror metadata from OrderCommit package staging, added restored-package no-op diff coverage, blocked true no-op commits before materialization/audit artifacts, and mapped Sales no-op commit errors to stable action state.

@@ -469,7 +469,7 @@ test("R8a POS package component keeps photo draft helpers out of the client comp
   }
 });
 
-test("R8a sales and adjustment pages consume composition projectors instead of buildCompositionView", () => {
+test("R8a sales page consumes composition projectors and retired AW page redirects", () => {
   const salesSource = readFileSync(
     "app/orders/[orderId]/sales/page.tsx",
     "utf8"
@@ -483,7 +483,8 @@ test("R8a sales and adjustment pages consume composition projectors instead of b
     "utf8"
   );
   assert.doesNotMatch(adjustmentSource, /buildCompositionView/);
-  assert.match(adjustmentSource, /toCurrentCompositionCard/);
+  assert.doesNotMatch(adjustmentSource, /toCurrentCompositionCard/);
+  assert.match(adjustmentSource, /redirect\(`\/orders\/\$\{orderId\}\/sales`\)/);
 });
 
 test("R8b add-on marketplace does not derive current state from POSWorkspace add-ons", () => {
