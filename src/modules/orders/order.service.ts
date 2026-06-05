@@ -1,7 +1,6 @@
 import {
   AuditAction,
   AuditEntityType,
-  AdjustmentWorkspaceStatus,
   InvoiceType,
   InvoiceStatus,
   OrderActivityType,
@@ -2898,13 +2897,6 @@ async function fetchOrders(filters: OrderFilters) {
     ...(filters.editorId
       ? { editingJob: { assignedEditorId: filters.editorId } }
       : {}),
-    ...(filters.hasOpenWorkspace
-      ? {
-          adjustmentWorkspaces: {
-            some: { status: AdjustmentWorkspaceStatus.OPEN },
-          },
-        }
-      : {}),
   };
 
   return db.order.findMany({
@@ -2951,11 +2943,6 @@ async function fetchOrders(filters: OrderFilters) {
         },
         orderBy: { createdAt: "desc" },
       },
-      adjustmentWorkspaces: {
-        where: { status: AdjustmentWorkspaceStatus.OPEN },
-        select: { id: true },
-        take: 1,
-      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -2984,11 +2971,6 @@ function fetchOrdersByCustomerId(customerId: string, limit: number) {
           createdAt: true,
         },
         orderBy: { createdAt: "desc" },
-      },
-      adjustmentWorkspaces: {
-        where: { status: AdjustmentWorkspaceStatus.OPEN },
-        select: { id: true },
-        take: 1,
       },
     },
     orderBy: { createdAt: "desc" },
@@ -3110,8 +3092,7 @@ function mapOrderRow(
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
-    hasOpenAdjustmentWorkspace:
-      "adjustmentWorkspaces" in row && row.adjustmentWorkspaces.length > 0,
+    hasOpenAdjustmentWorkspace: false,
   };
 }
 

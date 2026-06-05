@@ -42,7 +42,7 @@ test("Adjustment Workspace package and session metadata matches locked POS compo
         { seedPhaseBFixtures, buildCheckedInWorkflowFixture },
         { createInvoiceForOrder, issueInvoice },
         { recordPayment },
-        { openWorkspace },
+        { getPendingAdjustmentOrderCompositionViewModel, openWorkspace },
         { getOrderCompositionViewModel },
         { toLockedPOSComposition },
       ] = await Promise.all([
@@ -109,11 +109,36 @@ test("Adjustment Workspace package and session metadata matches locked POS compo
       assert.ok(lockedModel, "expected locked composition model");
       const lockedPOS = toLockedPOSComposition(lockedModel);
       const workspace = await openWorkspace(invoice.id, fixtures.adminActor);
-      const workspaceModel = await getOrderCompositionViewModel({
-        workspaceId: workspace.id,
+      const orderModelWithOpenWorkspace = await getOrderCompositionViewModel({
+        orderId: workflow.orderId,
       });
+      assert.ok(
+        orderModelWithOpenWorkspace,
+        "expected order composition model with open workspace"
+      );
+      const orderPOSWithOpenWorkspace = toLockedPOSComposition(
+        orderModelWithOpenWorkspace
+      );
+      const workspaceModel = await getPendingAdjustmentOrderCompositionViewModel(
+        workspace.id
+      );
       assert.ok(workspaceModel, "expected workspace composition model");
       const workspacePOS = toLockedPOSComposition(workspaceModel);
+
+      assert.deepEqual(
+        orderPOSWithOpenWorkspace.packageLines.map((line) => ({
+          packageName: line.packageName,
+          sessionTypeName: line.sessionTypeName,
+          includedPhotoCount: line.includedPhotoCount,
+          selectedPhotoCount: line.selectedPhotoCount,
+        })),
+        lockedPOS.packageLines.map((line) => ({
+          packageName: line.packageName,
+          sessionTypeName: line.sessionTypeName,
+          includedPhotoCount: line.includedPhotoCount,
+          selectedPhotoCount: line.selectedPhotoCount,
+        }))
+      );
 
       assert.deepEqual(
         workspacePOS.packageLines.map((line) => ({

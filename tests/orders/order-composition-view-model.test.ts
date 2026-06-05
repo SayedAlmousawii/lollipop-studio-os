@@ -34,9 +34,14 @@ moduleWithLoader._load = function loadWithServerOnlyStub(request, parent, isMain
 };
 
 let compositionModule: typeof import("@/modules/orders/composition") | null = null;
+let adjustmentCompositionModule: typeof import("@/modules/adjustment-workspace/adjustment-composition.service") | null =
+  null;
 
 before(async () => {
   compositionModule = await import("@/modules/orders/composition");
+  adjustmentCompositionModule = await import(
+    "@/modules/adjustment-workspace/adjustment-composition.service"
+  );
 });
 
 test("draft composition exposes packages, deliverables, photos, add-ons, session configurations, and raw totals", () => {
@@ -66,7 +71,7 @@ test("draft composition exposes packages, deliverables, photos, add-ons, session
 });
 
 test("locked effective composition preserves finalized positive and negative adjustment metadata", () => {
-  const snapshot = composition().buildCompositionSnapshotFromAdjustmentSnapshot({
+  const snapshot = adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot({
     capturedAt: "2026-05-19T00:00:00.000Z",
     lines: [
       adjustmentLine({
@@ -274,7 +279,7 @@ test("pending adjustment metadata covers every composition-affecting edit op wit
     },
   ];
 
-  const snapshot = composition().buildCompositionSnapshotFromAdjustmentSnapshot(proposed, {
+  const snapshot = adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot(proposed, {
     baseSnapshot: base,
     edits,
     adjustmentLines: [
@@ -451,7 +456,7 @@ test("pending adjustment metadata covers every composition-affecting edit op wit
 });
 
 test("unclassified adjustment line falls back to displayKind 'line' and is not dropped", () => {
-  const snapshot = composition().buildCompositionSnapshotFromAdjustmentSnapshot({
+  const snapshot = adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot({
     capturedAt: "2026-05-19T00:00:00.000Z",
     lines: [
       adjustmentLine({
@@ -539,7 +544,7 @@ test("adjustment POS projection preserves package included-photo baseline for se
     ],
   });
   const pendingAdjustmentComposition =
-    composition().buildCompositionSnapshotFromAdjustmentSnapshot(base);
+    adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot(base);
   const model = {
     orderId: "order-1",
     jobNumber: "JOB-1",
@@ -796,7 +801,7 @@ test("R8c overview and production projectors cover multi-package composition row
 
 test("R8c production deliverables expose a no-structured-deliverable fallback", () => {
   const effectiveComposition =
-    composition().buildCompositionSnapshotFromAdjustmentSnapshot({
+    adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot({
       capturedAt: "2026-05-19T00:00:00.000Z",
       lines: [
         adjustmentLine({
@@ -887,7 +892,7 @@ test("current composition card projector uses structured swap and upgrade metada
     ],
   });
   const pendingAdjustmentComposition =
-    composition().buildCompositionSnapshotFromAdjustmentSnapshot(proposed, {
+    adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot(proposed, {
       baseSnapshot: base,
       edits: [
         {
@@ -957,8 +962,8 @@ test("current composition card projector uses structured swap and upgrade metada
     orderId: "order-1",
     jobNumber: "JOB-1",
     state: "adjustment" as const,
-    baseComposition: composition().buildCompositionSnapshotFromAdjustmentSnapshot(base),
-    effectiveComposition: composition().buildCompositionSnapshotFromAdjustmentSnapshot(base),
+    baseComposition: adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot(base),
+    effectiveComposition: adjustmentComposition().buildCompositionSnapshotFromAdjustmentSnapshot(base),
     pendingAdjustmentComposition,
     totals: pendingAdjustmentComposition.totals,
   };
@@ -1053,6 +1058,41 @@ test("R7b projector files stay pure", () => {
     });
 
   assert.deepEqual(violations, []);
+});
+
+test("Spec 145 order composition service is Adjustment Workspace-free", () => {
+  const source = readFileSync(
+    join(
+      process.cwd(),
+      "src/modules/orders/composition/order-composition.service.ts"
+    ),
+    "utf8"
+  );
+
+  for (const forbidden of [
+    "@/modules/adjustment-workspace",
+    "AdjustmentWorkspaceStatus",
+    "AdjustmentWorkspaceEdit",
+    "getPendingAdjustmentOrderCompositionViewModel",
+    "workspaceId",
+    ".adjustmentWorkspace",
+  ]) {
+    assert.doesNotMatch(source, new RegExp(escapeRegExp(forbidden)));
+  }
+});
+
+test("Spec 145 orders table projection does not read Adjustment Workspace rows", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/modules/orders/order.service.ts"),
+    "utf8"
+  );
+  const fetchOrdersBody = functionBody(source, "fetchOrders", "fetchOrdersByCustomerId");
+  const mapOrderBody = functionBody(source, "mapOrderRow", "formatOrderPackageNames");
+
+  assert.doesNotMatch(fetchOrdersBody, /adjustmentWorkspaces/);
+  assert.doesNotMatch(fetchOrdersBody, /AdjustmentWorkspaceStatus/);
+  assert.match(mapOrderBody, /hasOpenAdjustmentWorkspace:\s*false/);
+  assert.doesNotMatch(mapOrderBody, /adjustmentWorkspaces/);
 });
 
 test("adjustment POS adapter consumes the R7 model and projector path", () => {
@@ -1316,6 +1356,13 @@ function composition(): typeof import("@/modules/orders/composition") {
   return compositionModule;
 }
 
+function adjustmentComposition(): typeof import(
+  "@/modules/adjustment-workspace/adjustment-composition.service"
+) {
+  assert.ok(adjustmentCompositionModule);
+  return adjustmentCompositionModule;
+}
+
 function adjustmentSnapshot(input: {
   lines: AdjustmentCompositionLine[];
   sessionConfigurationSelections?: AdjustmentBaseSnapshot["sessionConfigurationSelections"];
@@ -1378,4 +1425,8 @@ function functionBody(
   assert.notEqual(start, -1, `${functionName} must exist`);
   assert.notEqual(end, -1, `${nextFunctionName} must follow ${functionName}`);
   return source.slice(start, end);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
