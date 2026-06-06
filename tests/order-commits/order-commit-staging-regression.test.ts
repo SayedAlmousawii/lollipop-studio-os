@@ -1337,7 +1337,6 @@ type FakeOrderCommitDraftRow = {
   ownerUserId: string;
   openedByUserId: string;
   lastTouchedByUserId: string;
-  legacyAdjustmentWorkspaceId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -1401,7 +1400,6 @@ function fakeOrderCommitClient(options: FakeOrderCommitClientOptions = {}) {
     documentApplications: [{ id: "application-1", amount: "10.000" }],
     creditNotes: [{ id: "credit-note-1", amount: "10.000" }],
     refunds: [{ id: "refund-1", amount: "5.000" }],
-    adjustmentWorkspaces: [{ id: "workspace-1", pendingChangesJson: { old: true } }],
   };
   const root = {
     orderCommitDraft: {
@@ -1537,7 +1535,6 @@ function fakeDraft(
     ownerUserId: overrides.ownerUserId ?? "owner-user",
     openedByUserId: overrides.openedByUserId ?? "owner-user",
     lastTouchedByUserId: overrides.lastTouchedByUserId ?? "owner-user",
-    legacyAdjustmentWorkspaceId: overrides.legacyAdjustmentWorkspaceId ?? null,
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
   };

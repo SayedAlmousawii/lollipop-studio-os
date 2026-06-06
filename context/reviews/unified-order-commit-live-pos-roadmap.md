@@ -23,8 +23,8 @@ This roadmap is intentionally split into separate phases and separate PRs. Do no
 - Phase 3 — **Complete** (Spec 123, preview/diff engine).
 - Phase 4 — **Complete** (Spec 124, commit execution; Spec 132 emission-routing correction).
 - Phase 5 — **Complete** (Specs 125–133 unified the Sales page over OrderCommit for both locked and unlocked orders; Spec 134 was a package-tier photo-normalization follow-up — see below). Phase 5 wired only the `PACKAGE` and `PHOTO` staging domains to the Sales surface.
-- Phase 5.5 — **Planned below**: full domain staging coverage. Wires the remaining staging domains (`PACKAGE_ITEM_UPGRADE`, `SESSION_CONFIGURATION`, `ADD_ON`) to the Sales surface and closes a session-configuration draft-bypass. Specs 135–138. **Gates Phase 6.**
-- Phase 6 — **Revised below**: Adjustment Workspace retirement after parity checks **and** Phase 5.5 domain coverage.
+- Phase 5.5 — **Complete**: full domain staging coverage wired the remaining staging domains (`PACKAGE_ITEM_UPGRADE`, `SESSION_CONFIGURATION`, `ADD_ON`) to the Sales surface and closed the session-configuration draft-bypass. Specs 135–138.
+- Phase 6 — **Complete**: Adjustment Workspace route, module, tests, schema tables/enums, and legacy `OrderCommit*` backrefs are removed. Spec 149 completes the phase.
 - Phase 7 — **Revised below**: polish, redesign, history, and takeover.
 
 ### Spec 134 (already shipped, previously unrecorded here)
@@ -45,7 +45,7 @@ The original Phase 5 ("POS routing through OrderCommit services") assumed the lo
 - `pendingOpsJson` may be retained for audit, history, and UX, but commit diffing compares snapshot to snapshot.
 - Staged UI/action targets must match active `OrderCommit` snapshot line identity. When draft ids materialize into `Order*` rows, remap staged snapshot identities before persisted `OrderCommit.snapshotJson` is written so future drafts do not inherit stale `draft:` targets.
 - `OrderCommitDocument` links commits to emitted financial documents.
-- Adjustment Workspace remains as **frozen legacy** through Phase 5 and is deleted in Phase 6. No new code calls it.
+- Adjustment Workspace is fully retired. New post-lock changes use `OrderCommit` / `OrderCommitDraft` and emitted document links use `OrderCommitDocument`.
 - No new public service, DTO, route, prop, copy, or employee-facing UI should expose Adjustment Workspace naming.
 
 ### Canonical Sources (single source of truth per concern)
@@ -138,7 +138,6 @@ Add `OrderCommit` with fields:
 - `committedByUserId`
 - `createdAt`
 - `updatedAt`
-- optional `legacyAdjustmentWorkspaceId`
 
 Recommended constraints:
 
@@ -312,7 +311,6 @@ Add `OrderCommitDraft` with fields:
 - `lastTouchedByUserId`
 - `createdAt`
 - `updatedAt`
-- optional `legacyAdjustmentWorkspaceId`
 
 Recommended constraints:
 
@@ -905,28 +903,17 @@ Numbering is sequential from the next available sequence (135) and matches depen
 
 ## Phase 6 - Adjustment Workspace Retirement
 
-**Status: In progress. P6-1 shipped as Spec 144: the AW route is hidden behind a Sales redirect, route-local AW server actions refuse stale employee-surface POSTs, and R1 (direct-URL reachability) is closed. P6-2 shipped as Spec 145: the canonical order-composition read model no longer imports or queries Adjustment Workspace. P6-3 shipped as Spec 146: the order-detail configure action path, Configure Session AW mode/deep-link, composition-view AW type mode, and orders-table AW badge/type field are removed. P6-4 shipped as Spec 147: policy-level AW affordances and locked direct-mutator AW copy are removed while the draft guard remains the mutation gate. Destructive deletion remains sequenced for later P6 specs.**
+**Status: Complete.** P6-1 shipped as Spec 144, P6-2 as Spec 145, P6-3 as Spec 146, P6-4 as Spec 147, P6-5 as Spec 148, and P6-6 as Spec 149. The retired workspace route, module, tests, schema tables/enums, and `OrderCommit*` legacy schema backrefs are gone.
 
 ### Objective
 
-Delete Adjustment Workspace. After Phase 5, AW has zero live callers from the Sales page; Phase 6 removes the module, its tables, and its public route once parity is proven and no other surface depends on it.
+Retire the old post-lock workspace path and leave `OrderCommit` as the only post-lock order-change pipeline.
 
 ### Scope
 
-- Migrate or freeze any remaining open `AdjustmentWorkspace` rows. Dev environments reset; production data is empty per [[project_dev_data_reset]].
-- Delete `src/modules/adjustment-workspace/**` including:
-  - workspace lifecycle service
-  - per-domain materializers (package tier, add-on, item upgrade, photo count, session config)
-  - `createWorkspaceAdjustmentInvoice` (the workspace-specific invoice emitter)
-  - `getOpenWorkspaceForInvoice`
-- Delete the legacy direct-mutator service functions if no callers remain (`updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`) — these stay live in Phase 5 only because AW finalize calls them.
-- Delete the AW session-configuration path made Sales-dead by Spec 137: `applySessionConfigurationWorkspaceEditAction`, the AW deep-link in `ConfigureSessionPanel` (and the `adjustment` panel mode), and — once no caller remains — the legacy `configureSessionAction` live-write branch and `writeOrderPackageSelections` (or whatever subset is genuinely callerless after Phase 5.5).
-- Remove the Spec 135 hotfix guard on `writeOrderPackageSelections` alongside the other legacy direct-mutator guards (the `bypassOrderCommitDraftGuard` mechanism is removed when AW finalize is deleted).
-- Replace the Phase 5 / 5.5 draft-presence guards with the sole gate: all mutation flows go through `OrderCommitDraft` staging.
-- Remove `assertDirectPOSMutationAllowed`'s `LOCKED_INVOICE_WORKSPACE_REQUIRED` branch.
-- Delete `app/orders/[orderId]/adjustment-workspace/` if it still exists.
-- Drop `AdjustmentWorkspace` and `AdjustmentWorkspaceEvent` tables.
-- Delete `tests/adjustment-workspace/**`.
+- Specs 144-148 removed route, module, UI, policy, and test references.
+- Spec 149 confirmed empty workspace tables, dropped the retired tables/enums, removed the legacy `OrderCommit*` schema backrefs, and regenerated Prisma client types.
+- `OrderCommitDraft` staging is the sole gate for Sales-surface post-lock order edits.
 - Confirm `createAdjustmentInvoiceWithClient` and `createCreditNoteWithClient` (shared financial primitives) remain in place — they are not AW-specific.
 
 ### Out Of Scope
@@ -947,13 +934,10 @@ Delete Adjustment Workspace. After Phase 5, AW has zero live callers from the Sa
 
 ### Schema Impact
 
-- Drop `AdjustmentWorkspace`.
-- Drop `AdjustmentWorkspaceEvent`.
-- Verify no foreign keys point at these tables before drop.
+- Retired workspace tables/enums and the `OrderCommit*` legacy backref columns are removed.
 
 ### Service-Layer Impact
 
-- AW module deleted.
 - All locked-invoice and unlocked-invoice flows go through `commitOrderChanges` exclusively.
 
 ### UI Impact
@@ -963,20 +947,19 @@ Delete Adjustment Workspace. After Phase 5, AW has zero live callers from the Sa
 
 ### Migration / Backfill Impact
 
-- Verify zero open `AdjustmentWorkspace` rows in any environment that retains data.
+- Migration guards abort if retired workspace rows exist in any data-retaining environment.
 - Preserve historical financial documents — they are not AW-owned and remain valid.
 - `OrderCommitDocument` is the forward-going link between commits and emitted documents.
 
 ### Tests / Invariants
 
-- Repo-level grep test: no `AdjustmentWorkspace` import in `app/`, `src/components/`, or `src/modules/order-commits/`.
+- Repo-level grep tests block retired workspace imports/naming in active order-commit and UI surfaces.
 - All centralization, backend-invariant, and financial-invariant suites pass without AW.
 - No regression in locked-invoice flow on Sales page.
 
 ### Acceptance Criteria
 
-- AW module, tables, route, and tests are deleted.
-- Legacy direct-mutator service functions are deleted (or have no callers).
+- Retired workspace module, tables, route, and tests are deleted.
 - All Sales page flows route through `commitOrderChanges`.
 - `npm run test:centralization` passes.
 - `npm run test:backend-invariants` passes.

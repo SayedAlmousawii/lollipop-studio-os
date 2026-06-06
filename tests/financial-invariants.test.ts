@@ -101,6 +101,14 @@ test("financial invariants all pass against seeded fixtures", async () => {
         assert.equal(autoAdjustmentInvoice.invoiceNumber.startsWith("ADJ-"), true);
         assert.equal(autoAdjustmentInvoice.lineItems.length, 1);
         assert.equal(autoAdjustmentInvoice.lineItems[0]?.lineTotal.toFixed(3), "15.000");
+        assert.ok(
+          autoAdjustmentInvoice.lineItems[0]?.causeOrderEntityKind,
+          "OrderCommit-emitted ADJ line should carry a cause kind"
+        );
+        assert.ok(
+          autoAdjustmentInvoice.lineItems[0]?.causeOrderEntityId,
+          "OrderCommit-emitted ADJ line should carry a cause id"
+        );
 
         const autoAdjustmentOrderId = autoAdjustmentInvoice.orderId;
         assert.ok(autoAdjustmentOrderId, "expected auto adjustment to belong to an order");
