@@ -187,8 +187,6 @@ const SALES_LINKED_FINANCIAL_DOCUMENT_TYPES = [
   InvoiceType.REFUND,
   InvoiceType.CREDIT_NOTE,
 ] as const;
-const LOCKED_INVOICE_WORKSPACE_REQUIRED =
-  ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS;
 
 export class OrderAddOnOwnedBySessionConfigurationError extends Error {
   constructor(configurationLabel: string) {
@@ -209,7 +207,7 @@ function assertDirectPOSMutationAllowed(
   invoice: { isLocked: boolean } | null | undefined
 ): void {
   if (invoice?.isLocked) {
-    throw new Error(LOCKED_INVOICE_WORKSPACE_REQUIRED);
+    throw new Error(ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS);
   }
 }
 

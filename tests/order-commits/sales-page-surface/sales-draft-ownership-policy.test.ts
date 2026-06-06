@@ -67,10 +67,6 @@ test("OrderCommit Sales surface projection enables locked policies without works
   assert.equal(packagePolicies.selectedPhotoCountChange.isInteractive, true);
   assert.equal(addOnPolicies.addAddOn.isInteractive, true);
   assert.equal(financialPolicies.invoiceLocked.isInteractive, true);
-  assert.equal(
-    packagePolicies.packageTierChange.shouldOpenAdjustmentWorkspace,
-    false
-  );
   assert.equal(packagePolicies.packageTierChange.routeTarget, null);
   assert.equal(packagePolicies.packageTierChange.blockedReason, null);
   assert.equal(financialPolicies.invoiceLocked.routeTarget, null);
@@ -131,18 +127,11 @@ function policy(
     editKind,
     canEditDirectly: !input.locked,
     isInteractive: !input.locked,
-    shouldOpenAdjustmentWorkspace: input.locked ?? false,
     requiresManagerApproval: false,
-    openWorkspaceIsActive: input.locked ?? false,
-    blockedReason: input.locked ? "LOCKED_DIRECT_POS_REQUIRES_WORKSPACE" : null,
-    routeTarget: input.locked
-      ? {
-          href: "/orders/order-1/adjustment-workspace",
-          label: "Edit in Adjustment Workspace",
-        }
-      : null,
+    blockedReason: input.locked ? "LOCKED_DIRECT_POS_REQUIRES_COMMIT" : null,
+    routeTarget: null,
     userFacingMessage: input.locked
-      ? "Locked invoices can only be changed through an Adjustment Workspace."
+      ? "Locked invoices must be changed through the Sales draft and committed from POS."
       : "Allowed",
   };
 }

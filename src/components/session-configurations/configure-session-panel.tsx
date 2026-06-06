@@ -38,7 +38,7 @@ type ActionState = {
 export type ConfigureSessionPanelMode =
   | { kind: "draft" }
   | { kind: "commit-staging"; expectedVersion: number }
-  | { kind: "locked"; workspaceIsOpen: boolean };
+  | { kind: "locked" };
 
 export function ConfigureSessionPanel({
   orderId,
@@ -115,14 +115,6 @@ export function ConfigureSessionPanel({
   const globalErrors = [
     ...(commitStagingState.errors?._global ?? []),
   ];
-
-  if (mode.kind === "locked" && mode.workspaceIsOpen) {
-    return (
-      <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-sm text-warning">
-        {editPolicies.financial.userFacingMessage}
-      </div>
-    );
-  }
 
   function submitCommitStagingEdits() {
     if (mode.kind !== "commit-staging") return;

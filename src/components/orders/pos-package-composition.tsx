@@ -148,13 +148,8 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                                 expectedVersion: commitStagingVersion,
                               }
                           : editPolicies.sessionConfigurationFinancialEdit
-                                .shouldOpenAdjustmentWorkspace
-                            ? {
-                                kind: "locked",
-                                workspaceIsOpen:
-                                  editPolicies.sessionConfigurationFinancialEdit
-                                    .openWorkspaceIsActive,
-                              }
+                                .mode === "locked"
+                            ? { kind: "locked" }
                             : { kind: "draft" }
                       }
                       editPolicies={{

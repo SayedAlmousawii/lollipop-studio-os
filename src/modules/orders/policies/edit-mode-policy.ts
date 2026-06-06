@@ -13,12 +13,11 @@ export const ORDER_EDIT_KIND = {
 
 export type OrderEditKind = (typeof ORDER_EDIT_KIND)[keyof typeof ORDER_EDIT_KIND];
 
-export type OrderEditMode = "draft" | "locked" | "adjustment";
+export type OrderEditMode = "draft" | "locked";
 
 export type OrderEditBlockedReason =
   | "ORDER_DELIVERED"
-  | "LOCKED_DIRECT_POS_REQUIRES_WORKSPACE"
-  | "OPEN_WORKSPACE_REQUIRES_WORKSPACE";
+  | "LOCKED_DIRECT_POS_REQUIRES_COMMIT";
 
 export type OrderEditRouteTarget = {
   href: string;
@@ -30,9 +29,7 @@ export type OrderEditModePolicy = {
   editKind: OrderEditKind;
   canEditDirectly: boolean;
   isInteractive: boolean;
-  shouldOpenAdjustmentWorkspace: boolean;
   requiresManagerApproval: boolean;
-  openWorkspaceIsActive: boolean;
   blockedReason: OrderEditBlockedReason | null;
   routeTarget: OrderEditRouteTarget | null;
   userFacingMessage: string;
@@ -43,7 +40,6 @@ export type OrderEditModePolicyContext = {
   mode: OrderEditMode;
   orderStatus: OrderStatus;
   finalInvoiceIsLocked: boolean;
-  openAdjustmentWorkspaceId?: string | null;
 };
 
 export type BuildOrderEditModePolicyInput = OrderEditModePolicyContext & {
@@ -72,14 +68,10 @@ export type POSFinancialSidebarEditPolicies = {
 export const ORDER_EDIT_MODE_MESSAGES = {
   deliveredOrder: "Delivered orders cannot be edited",
   lockedDirectPOS:
-    "Locked invoices can only be changed through an Adjustment Workspace.",
-  openWorkspace:
-    "An Adjustment Workspace is open. Continue this edit there.",
+    "Locked invoices must be changed through the Sales draft and committed from POS.",
   draftDirect: "This edit saves directly to the sales workspace.",
   lockedOperationalSessionConfiguration:
     "Operational session settings can be saved directly and will be audit logged.",
-  adjustmentWorkspace:
-    "Changes are staged in this Adjustment Workspace; manager approval is checked when finalizing.",
   directReductiveApproval:
     "Reductions may require manager confirmation before the direct edit can be saved.",
 } as const;
@@ -87,10 +79,8 @@ export const ORDER_EDIT_MODE_MESSAGES = {
 export function buildOrderEditModePolicy(
   input: BuildOrderEditModePolicyInput
 ): OrderEditModePolicy {
-  const routeTarget = adjustmentWorkspaceRoute(input.orderId);
   const isDelivered = input.orderStatus === OrderStatus.DELIVERED;
   const isLocked = input.finalInvoiceIsLocked;
-  const hasOpenWorkspace = Boolean(input.openAdjustmentWorkspaceId);
 
   if (isDelivered) {
     return {
@@ -98,27 +88,10 @@ export function buildOrderEditModePolicy(
       editKind: input.editKind,
       canEditDirectly: false,
       isInteractive: false,
-      shouldOpenAdjustmentWorkspace: false,
       requiresManagerApproval: false,
-      openWorkspaceIsActive: false,
       blockedReason: "ORDER_DELIVERED",
       routeTarget: null,
       userFacingMessage: ORDER_EDIT_MODE_MESSAGES.deliveredOrder,
-    };
-  }
-
-  if (input.mode === "adjustment") {
-    return {
-      mode: input.mode,
-      editKind: input.editKind,
-      canEditDirectly: false,
-      isInteractive: true,
-      shouldOpenAdjustmentWorkspace: false,
-      requiresManagerApproval: false,
-      openWorkspaceIsActive: false,
-      blockedReason: null,
-      routeTarget: null,
-      userFacingMessage: ORDER_EDIT_MODE_MESSAGES.adjustmentWorkspace,
     };
   }
 
@@ -129,9 +102,7 @@ export function buildOrderEditModePolicy(
         editKind: input.editKind,
         canEditDirectly: true,
         isInteractive: true,
-        shouldOpenAdjustmentWorkspace: false,
         requiresManagerApproval: false,
-        openWorkspaceIsActive: false,
         blockedReason: null,
         routeTarget: null,
         userFacingMessage:
@@ -144,17 +115,12 @@ export function buildOrderEditModePolicy(
       editKind: input.editKind,
       canEditDirectly: false,
       isInteractive: false,
-      shouldOpenAdjustmentWorkspace: true,
       requiresManagerApproval: false,
-      openWorkspaceIsActive: hasOpenWorkspace,
-      blockedReason: hasOpenWorkspace
-        ? "OPEN_WORKSPACE_REQUIRES_WORKSPACE"
-        : "LOCKED_DIRECT_POS_REQUIRES_WORKSPACE",
-      routeTarget,
-      userFacingMessage: hasOpenWorkspace
-        ? ORDER_EDIT_MODE_MESSAGES.openWorkspace
-        : financialSessionConfigurationMessage(input) ??
-          ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS,
+      blockedReason: "LOCKED_DIRECT_POS_REQUIRES_COMMIT",
+      routeTarget: null,
+      userFacingMessage:
+        financialSessionConfigurationMessage(input) ??
+        ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS,
     };
   }
 
@@ -163,9 +129,7 @@ export function buildOrderEditModePolicy(
     editKind: input.editKind,
     canEditDirectly: true,
     isInteractive: true,
-    shouldOpenAdjustmentWorkspace: false,
     requiresManagerApproval: isDirectReductiveEdit(input.editKind),
-    openWorkspaceIsActive: false,
     blockedReason: null,
     routeTarget: null,
     userFacingMessage: isDirectReductiveEdit(input.editKind)
@@ -235,27 +199,13 @@ export function orderEditModeContextFromWorkspace(input: {
   orderId: string;
   orderStatus: OrderStatus;
   finalInvoiceIsLocked: boolean;
-  openAdjustmentWorkspaceId?: string | null;
-  persistenceContext: "sales" | "adjustment";
+  persistenceContext: "sales";
 }): OrderEditModePolicyContext {
   return {
     orderId: input.orderId,
     orderStatus: input.orderStatus,
     finalInvoiceIsLocked: input.finalInvoiceIsLocked,
-    openAdjustmentWorkspaceId: input.openAdjustmentWorkspaceId ?? null,
-    mode:
-      input.persistenceContext === "adjustment"
-        ? "adjustment"
-        : input.finalInvoiceIsLocked
-          ? "locked"
-          : "draft",
-  };
-}
-
-function adjustmentWorkspaceRoute(orderId: string): OrderEditRouteTarget {
-  return {
-    href: `/orders/${orderId}/adjustment-workspace`,
-    label: "Edit in Adjustment Workspace",
+    mode: input.finalInvoiceIsLocked ? "locked" : "draft",
   };
 }
 
@@ -279,9 +229,9 @@ function financialSessionConfigurationMessage(
     (name) => name.trim().length > 0
   );
   if (names.length === 0) {
-    return "Edit financial session settings in the Adjustment Workspace.";
+    return ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS;
   }
-  return `Edit ${names.join(", ")} in the Adjustment Workspace.`;
+  return `Change ${names.join(", ")} through the Sales draft and commit from POS.`;
 }
 
 function isDirectReductiveEdit(editKind: OrderEditKind): boolean {

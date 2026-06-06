@@ -1,7 +1,6 @@
 import {
   AuditAction,
   AuditEntityType,
-  AdjustmentWorkspaceStatus,
   InvoiceType,
   OrderStatus,
   Prisma,
@@ -95,7 +94,7 @@ export class SessionConfigurationSelectionFinancialNotAllowedError extends Error
 
   constructor(offendingConfigurationCodes: string[]) {
     super(
-      `Financial session configuration edits must use the Adjustment Workspace: ${offendingConfigurationCodes.join(", ")}`
+      `Financial session configuration edits must use the Sales draft and be committed from POS: ${offendingConfigurationCodes.join(", ")}`
     );
     this.name = "SessionConfigurationSelectionFinancialNotAllowedError";
     this.offendingConfigurationCodes = offendingConfigurationCodes;
@@ -129,7 +128,6 @@ export class SessionConfigurationSelectionInputMismatchError extends Error {
 export type ConfigureSessionRoute = {
   locked: boolean;
   orderStatus: OrderStatus;
-  openAdjustmentWorkspaceId: string | null;
   financialConfigurationIds: Set<string>;
   operationalConfigurationIds: Set<string>;
   configurationNameById: Map<string, string>;
@@ -155,11 +153,6 @@ export async function resolveConfigureSessionRoute(
             },
             select: { isLocked: true },
             orderBy: { createdAt: "asc" },
-            take: 1,
-          },
-          adjustmentWorkspaces: {
-            where: { status: AdjustmentWorkspaceStatus.OPEN },
-            select: { id: true },
             take: 1,
           },
         },
@@ -195,8 +188,6 @@ export async function resolveConfigureSessionRoute(
   return {
     locked: orderPackage.order.invoices[0]?.isLocked === true,
     orderStatus: orderPackage.order.status,
-    openAdjustmentWorkspaceId:
-      orderPackage.order.adjustmentWorkspaces[0]?.id ?? null,
     financialConfigurationIds,
     operationalConfigurationIds,
     configurationNameById,

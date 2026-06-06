@@ -10,9 +10,6 @@ const BLOCKED_BY_OWNER_MESSAGE =
   "Another user owns this Sales draft. Refresh or coordinate before editing.";
 const ORDER_COMMIT_SALES_STAGING_MESSAGE =
   "This edit stages in the Sales draft and is applied when changes are committed.";
-const shouldOpenWorkspaceKey = ["shouldOpen", "Adjustment", "Workspace"].join(
-  ""
-) as keyof OrderEditModePolicy;
 
 export function applyOrderCommitSalesSurfaceToPackagePolicies(
   policies: POSPackageCompositionEditPolicies
@@ -101,8 +98,6 @@ function enableOrderCommitStagingPolicy(
     ...policy,
     canEditDirectly: true,
     isInteractive: true,
-    [shouldOpenWorkspaceKey]: false,
-    openWorkspaceIsActive: false,
     blockedReason: null,
     routeTarget: null,
     userFacingMessage: ORDER_COMMIT_SALES_STAGING_MESSAGE,
