@@ -79,7 +79,6 @@ const files = [
   "tests/orders/pos-handler-components.test.tsx",
   "tests/orders/production-workflow-policy.test.ts",
   "tests/orders/settlement-summary.test.ts",
-  "tests/integration/pos-reductive-approval.test.ts",
   "tests/orders/orders-table-customer-history-parity.test.ts",
   "tests/orders/workflow-action-availability-parity.test.ts",
 ];

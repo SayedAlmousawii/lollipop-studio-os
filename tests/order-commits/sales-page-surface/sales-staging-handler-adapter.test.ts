@@ -125,7 +125,6 @@ test("action errors are normalized into HandlerResult errors", async () => {
       _global: ["draft.stale"],
       packageId: ["Package is unavailable"],
     },
-    approval: undefined,
   });
 });
 
@@ -195,7 +194,6 @@ test("package-item upgrade action errors map to non-ok HandlerResult", async () 
       _global: ["draft.stale"],
       toProductId: ["Replacement product is unavailable"],
     },
-    approval: undefined,
   });
 });
 

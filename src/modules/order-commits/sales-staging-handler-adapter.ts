@@ -89,7 +89,6 @@ export function createOrderCommitSalesCompositionHandlers({
     changePackageTier,
     upgradePackageItem,
     changeSelectedPhotoCount,
-    shouldPromptInlineApproval: false,
   };
 }
 
@@ -143,7 +142,6 @@ export function createOrderCommitSalesAddOnHandlers({
   return {
     addAddOn,
     removeAddOn,
-    shouldPromptInlineApproval: false,
   };
 }
 
@@ -171,7 +169,6 @@ function handlerResultFromActionState(
   return {
     ok: false,
     errors: normalizeActionErrors(state.errors),
-    approval: state.kind === "approval-required" ? state.payload : undefined,
   };
 }
 

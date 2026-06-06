@@ -65,12 +65,10 @@ test("locked POS edit controls follow edit-mode policy interactivity", async () 
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
     const addOnHandlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const lockedMarkup = renderToStaticMarkup(
@@ -205,7 +203,7 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     if (request === "server-only") return {};
     if (request === "@/app/orders/[orderId]/sales/actions") {
       return {
-        confirmReductiveEditWithApproval: async () => ({ kind: "success" }),
+        stageSessionConfigurationSelectionAction: async () => ({ kind: "success" }),
       };
     }
     if (request === "@/app/orders/[orderId]/actions") {

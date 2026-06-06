@@ -70,12 +70,10 @@ test("POS handler components render the stable sales DOM labels from handler pro
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
     const addOnHandlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -129,12 +127,10 @@ test("R9 POS handler components render locked notices from policy fixtures", asy
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
     const addOnHandlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const packageMarkup = renderToStaticMarkup(
@@ -177,7 +173,6 @@ test("R8b POS add-on marketplace renders current add-ons and catalog badges from
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -215,7 +210,6 @@ test("POS add-on marketplace quick actions use add-on catalog options", async ()
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -251,7 +245,6 @@ test("POS add-on marketplace quick actions stay interactive in draft mode", asyn
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -282,7 +275,6 @@ test("R8b POS add-on marketplace keeps empty catalog and current-row empty state
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -321,7 +313,6 @@ test("R8b POS add-on marketplace displays null-target current rows without remov
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -361,7 +352,6 @@ test("R8b POS add-on marketplace removes projected current row target", async ()
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -388,7 +378,6 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
 
     const markup = renderToStaticMarkup(
@@ -418,7 +407,6 @@ test("POSPackageComposition renders package-item upgrade row from projection", a
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
 
     const markup = renderToStaticMarkup(
@@ -571,7 +559,6 @@ function quickActionButtonIsDisabled(markup: string, label: string): boolean {
 
 async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> {
   const originalModuleLoad = moduleWithLoader._load;
-  // The approval modal is statically imported and still owns the sales approval action.
   moduleWithLoader._load = function loadWithSalesActionStub(
     request,
     parent,
@@ -580,7 +567,7 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     if (request === "server-only") return {};
     if (request === "@/app/orders/[orderId]/sales/actions") {
       return {
-        confirmReductiveEditWithApproval: async () => ({ kind: "success" }),
+        stageSessionConfigurationSelectionAction: async () => ({ kind: "success" }),
       };
     }
     if (request === "@/app/orders/[orderId]/actions") {

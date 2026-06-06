@@ -12,7 +12,6 @@ export type HandlerResult<T = void> =
   | {
       ok: false;
       errors: Record<string, string[]>;
-      approval?: POSApprovalPayload;
     };
 
 export type POSMutationActionState = {
@@ -38,7 +37,6 @@ export type POSCompositionHandlers = {
     extraDigitalCount: number;
     extraPrintCount: number;
   }) => Promise<HandlerResult>;
-  shouldPromptInlineApproval: boolean;
 };
 
 export type POSAddOnHandlers = {
@@ -54,5 +52,4 @@ export type POSAddOnHandlers = {
     addOnId: string;
     quantity: number;
   }) => Promise<HandlerResult>;
-  shouldPromptInlineApproval: boolean;
 };
