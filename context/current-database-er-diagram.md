@@ -1,10 +1,10 @@
 # Current Database ER Diagram
 
-_Generated: 2026-05-18 | Source: `prisma/schema.prisma`_
+_Generated: 2026-06-06 | Source: `prisma/schema.prisma`_
 
 ## Summary
 
-The current Prisma schema defines **35 models** and **27 enums** on PostgreSQL.
+The current Prisma schema defines **36 models** and **25 enums** on PostgreSQL.
 
 The database is organized around five connected areas:
 
@@ -66,8 +66,6 @@ Financial records hang off a required **`FinancialCase`**, which is currently **
 - `Payment`
 - `PaymentAllocation`
 - `DocumentApplication`
-- `AdjustmentWorkspace`
-- `AdjustmentWorkspaceEvent`
 - `AuditLog`
 
 ### Utilities
@@ -114,8 +112,6 @@ erDiagram
     Payment
     PaymentAllocation
     DocumentApplication
-    AdjustmentWorkspace
-    AdjustmentWorkspaceEvent
     IdentifierSequence
 
     Customer ||--o{ Child : "has"
@@ -131,8 +127,6 @@ erDiagram
     User ||--o{ OrderActivity : "attributed to"
     User ||--o{ AuditLog : "acts in"
     User ||--o{ DocumentApplication : "applies"
-    User ||--o{ AdjustmentWorkspace : "opens/owns"
-    User ||--o{ AdjustmentWorkspaceEvent : "acts in"
     User ||--o{ Order : "delivery completed by"
 
     StudioDepartment ||--o{ SessionType : "owns"
@@ -182,7 +176,6 @@ erDiagram
     Order ||--o{ OrderPackage : "has"
     Order ||--o{ OrderPackageItemUpgrade : "has"
     Order ||--o{ Invoice : "context for"
-    Order ||--o{ AdjustmentWorkspace : "adjusted through"
 
     OrderPackage ||--o{ OrderAddOn : "scopes"
     OrderPackage ||--o{ OrderPackageItemUpgrade : "upgrades"
@@ -196,7 +189,6 @@ erDiagram
     Invoice ||--o{ Payment : "receives"
     Invoice ||--o{ PaymentAllocation : "allocated by"
     Invoice ||--o{ DocumentApplication : "source/target"
-    Invoice ||--o{ AdjustmentWorkspace : "parent/finalized in"
     Invoice ||--o{ Invoice : "adjusts"
 
     Payment ||--o| PaymentAllocation : "allocates to"
@@ -204,7 +196,6 @@ erDiagram
 
     InvoiceLineItem o|--o{ DocumentApplication : "target line"
 
-    AdjustmentWorkspace ||--o{ AdjustmentWorkspaceEvent : "records"
 ```
 
 ---
@@ -225,7 +216,6 @@ erDiagram
 - **`Payment -> Invoice`**: the relation uses the composite target `[invoiceId, financialCaseId] -> Invoice[id, financialCaseId]`, which ensures the payment and invoice stay inside the same financial case.
 - **`PaymentAllocation`**: currently each payment can have at most one allocation because `paymentId` is unique in this table.
 - **`Invoice -> Invoice`**: invoices can form parent/adjustment chains through `parentInvoiceId`.
-- **`AdjustmentWorkspace`**: adjustments are tracked as a workspace attached to both a parent invoice and an order, with optional linkage to the finalized adjustment invoice.
 - **`DocumentApplication`**: invoice documents can be applied from one invoice to another and optionally to a specific target line item.
 
 ---
@@ -235,7 +225,7 @@ erDiagram
 ### Identity
 
 - `User.clerkId` is nullable and unique.
-- `User` is used for photographer assignment, editing assignment, delivery attribution, audit actions, document application attribution, and adjustment workspace ownership/events.
+- `User` is used for photographer assignment, editing assignment, delivery attribution, audit actions, and document application attribution.
 
 ### Booking and catalog
 
@@ -280,7 +270,6 @@ The schema currently defines these enum groups:
 - Invoicing and payments: `InvoiceStatus`, `InvoiceType`, `InvoiceLineType`, `PaymentMethod`, `PaymentType`, `PaymentDirection`
 - Catalog and order metadata: `ProductCategory`, `MediaType`, `OrderEntityKind`, `OrderActivityType`
 - Audit and configuration: `AuditEntityType`, `AuditAction`, `SessionConfigurationInputType`, `SessionConfigurationPricingMode`, `SessionConfigurationFinancialBehavior`, `SessionConfigurationCounterPricingMode`
-- Adjustment workflow: `AdjustmentWorkspaceStatus`, `AdjustmentWorkspaceEventType`
 
 ---
 

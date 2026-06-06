@@ -821,7 +821,6 @@ registerInvariant({
         invoice: {
           select: {
             orderId: true,
-            finalizedAdjustmentWorkspaces: { select: { id: true }, take: 1 },
           },
         },
       },
@@ -829,9 +828,6 @@ registerInvariant({
 
     const violations: InvariantViolation[] = [];
     for (const line of adjustmentLines) {
-      if (line.invoice.finalizedAdjustmentWorkspaces.length > 0) {
-        continue;
-      }
       if (
         !line.invoice.orderId ||
         !line.causeOrderEntityKind ||

@@ -290,16 +290,14 @@ test("schema defines the additive order commit draft table and indexes", () => {
   assert.match(schema, /@@index\(\[financialCaseId\]\)/);
   assert.match(schema, /@@index\(\[baseCommitId\]\)/);
   assert.match(schema, /@@index\(\[ownerUserId\]\)/);
-  assert.match(schema, /@@index\(\[legacyAdjustmentWorkspaceId\]\)/);
+  assert.doesNotMatch(schema, /legacyAdjustmentWorkspaceId/);
+  assert.doesNotMatch(schema, /AdjustmentWorkspace/);
 });
 
 test("order commit draft public module avoids legacy workspace terminology", () => {
   const sources = listSourceFiles("src/modules/order-commits").map((file) => ({
     file,
-    source: readFileSync(join(process.cwd(), file), "utf8").replaceAll(
-      "legacyAdjustmentWorkspaceId",
-      ""
-    ),
+    source: readFileSync(join(process.cwd(), file), "utf8"),
   }));
 
   const publicWorkspaceNaming = sources

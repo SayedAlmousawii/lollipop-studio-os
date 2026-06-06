@@ -1281,7 +1281,6 @@ type FakeOrderCommitDraftRow = {
   ownerUserId: string;
   openedByUserId: string;
   lastTouchedByUserId: string;
-  legacyAdjustmentWorkspaceId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -1337,7 +1336,6 @@ type FakeFinancialRows = {
   documentApplications: Array<{ id: string; amount: string; sourceInvoiceId: string }>;
   refunds: Array<{ id: string; amount: string; sourcePaymentId: string }>;
   creditNotes: Array<{ id: string; amount: string; sourceInvoiceId: string }>;
-  adjustmentWorkspaces: Array<{ id: string; pendingChangesJson: unknown }>;
 };
 
 type FakeOrderFindManyArgs = {
@@ -1531,7 +1529,6 @@ function fakeOrderCommitClient(
           ownerUserId: args.data.ownerUserId,
           openedByUserId: args.data.openedByUserId,
           lastTouchedByUserId: args.data.lastTouchedByUserId,
-          legacyAdjustmentWorkspaceId: null,
           createdAt: now,
           updatedAt: now,
         };
@@ -1663,12 +1660,6 @@ function fakeFinancialRows(): FakeFinancialRows {
         sourceInvoiceId: "invoice-1",
       },
     ],
-    adjustmentWorkspaces: [
-      {
-        id: "workspace-1",
-        pendingChangesJson: { untouched: true },
-      },
-    ],
   };
 }
 
@@ -1789,7 +1780,6 @@ function fakeDraft(overrides: Partial<FakeOrderCommitDraftRow> & { id: string })
     ownerUserId: overrides.ownerUserId ?? "user-1",
     openedByUserId: overrides.openedByUserId ?? "user-1",
     lastTouchedByUserId: overrides.lastTouchedByUserId ?? "user-1",
-    legacyAdjustmentWorkspaceId: overrides.legacyAdjustmentWorkspaceId ?? null,
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
   };
