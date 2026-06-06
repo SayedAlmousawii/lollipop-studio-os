@@ -25,9 +25,10 @@ import {
   syncOrderInvoiceForFinancialEdit,
 } from "@/modules/invoices/invoice.service";
 import {
-  addOrderProductAddOn,
-  updateOrderPackage,
-} from "@/modules/orders/order.service";
+  addOrderAddOnChange,
+  commitOrderEditForTest,
+  updateOrderPackageChange,
+} from "../order-commits/helpers/commit-order-edit";
 import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import { recordPayment } from "@/modules/payments/payment.service";
 import { generateBookingReference } from "@/modules/identifiers/identifier.service";
@@ -309,9 +310,15 @@ async function runE10ConcurrentEditCancellationStaleState(
   });
 
   await assert.rejects(
-    () => addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor),
-    /Delivered orders cannot be edited|Failed to add order add-on/
+    () =>
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: addOrderAddOnChange(fixtures.addOnProductId),
+        actorContext: fixtures.adminActor,
+      }),
+    /Delivered orders cannot be edited|OrderCommit/
   );
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
   assert.equal(
     await db.invoice.count({ where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT } }),
     0
@@ -587,14 +594,18 @@ async function runEc24PackageDowngradeBlocked(
   const orderPackage = await firstOrderPackage(db, workflow.orderId);
   await expectRejectsWithoutPartialWrites(
     () =>
-      updateOrderPackage(
-        workflow.orderId,
-        { orderPackageId: orderPackage.id, packageId: fixtures.cheaperPackageId },
-        fixtures.adminActor
-      ),
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: updateOrderPackageChange({
+          orderPackageId: orderPackage.id,
+          packageId: fixtures.cheaperPackageId,
+        }),
+        actorContext: fixtures.adminActor,
+      }),
     () => invoiceTypeSnapshot(db, workflow.orderId),
-    /Manager confirmation is required|Failed to update order package/
+    /OrderCommit approval is required/
   );
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
 }
 
 async function runEc26ConfirmedBookingHardDeleteBlocked(
@@ -729,13 +740,17 @@ async function runEc34SessionTypeMismatchBlocked(
   const orderPackage = await firstOrderPackage(db, workflow.orderId);
   await assert.rejects(
     () =>
-      updateOrderPackage(
-        workflow.orderId,
-        { orderPackageId: orderPackage.id, packageId: fixtures.otherSessionPackageId },
-        fixtures.adminActor
-      ),
-    /session type|Failed to update order package/
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: updateOrderPackageChange({
+          orderPackageId: orderPackage.id,
+          packageId: fixtures.otherSessionPackageId,
+        }),
+        actorContext: fixtures.adminActor,
+      }),
+    /cross-session package changes are not supported/
   );
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
 }
 
 async function runEc36MissingDocumentApplicationDetected(

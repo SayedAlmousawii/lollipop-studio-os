@@ -20,15 +20,18 @@ import {
   createCreditNote,
 } from "@/modules/invoices/invoice.service";
 import {
-  addOrderProductAddOn,
-  removeOrderAddOn,
   updateOrderDeliveryWorkflow,
   updateOrderEditingWorkflow,
-  updateOrderPackage,
   updateOrderProductionWorkflow,
 } from "@/modules/orders/order.service";
 import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import { recordPayment } from "@/modules/payments/payment.service";
+import {
+  addOrderAddOnChange,
+  commitOrderEditForTest,
+  removeOrderAddOnChange,
+  updateOrderPackageChange,
+} from "../order-commits/helpers/commit-order-edit";
 import {
   assertMoney,
   assertNoFinancialRecordsForBooking,
@@ -60,12 +63,12 @@ export async function runPhaseBWorkflowIntegrationMatrix(
   await runInt05FinalInvoiceCreationAtPos(db, fixtures);
   await runInt06PartialPaymentOnFinalInvoice(db, fixtures);
   await runInt07FullPaymentLocksFinalInvoice(db, fixtures);
-  await runInt08LockedDirectEditBlocked(db, fixtures);
+  await runInt08LockedOrderCommitEditEmitsAdjustment(db, fixtures);
   await runInt09AdjustmentInvoicePayment(db, fixtures);
   await runInt10ReductiveEditRequiresManager(db, fixtures);
   await runInt11CreditNoteIssuance(db, fixtures);
   await runInt12RefundIssuance(db, fixtures);
-  await runInt13LockedPackageUpgradeBlocked(db, fixtures);
+  await runInt13LockedPackageUpgradeEmitsAdjustment(db, fixtures);
   await runInt14NoShowHandling(db, fixtures);
   await runInt15OrderDeliveryCompletionGuards(db, fixtures);
 }
@@ -337,21 +340,16 @@ async function runInt07FullPaymentLocksFinalInvoice(
   assert.equal(editingJob.status, OrderEditingStatus.IN_PROGRESS);
 }
 
-async function runInt08LockedDirectEditBlocked(
+async function runInt08LockedOrderCommitEditEmitsAdjustment(
   db: PrismaClient,
   fixtures: PhaseBFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "int08");
-  await expectRejectsWithoutPartialWrites(
-    () =>
-      addOrderProductAddOn(
-        workflow.orderId,
-        { productId: fixtures.addOnProductId },
-        fixtures.adminActor
-      ),
-    () => snapshotOrderEditFinancialState(db, workflow.orderId),
-    /Sales draft|Failed to add order add-on/
-  );
+  await commitOrderEditForTest(db, {
+    orderId: workflow.orderId,
+    change: addOrderAddOnChange(fixtures.addOnProductId),
+    actorContext: fixtures.adminActor,
+  });
   assert.equal(
     await db.invoice.count({
       where: {
@@ -360,8 +358,8 @@ async function runInt08LockedDirectEditBlocked(
         parentInvoiceId: workflow.finalInvoiceId,
       },
     }),
-    0,
-    "direct locked edit must not emit an ADJ"
+    1,
+    "locked OrderCommit edit must emit one ADJ"
   );
 
   const zeroWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
@@ -369,16 +367,21 @@ async function runInt08LockedDirectEditBlocked(
     fixtures,
     "int08-zero"
   );
-  await expectRejectsWithoutPartialWrites(
-    () =>
-      addOrderProductAddOn(
-        zeroWorkflow.orderId,
-        { productId: fixtures.zeroPriceAddOnProductId },
-        fixtures.adminActor
-      ),
-    () =>
-      snapshotOrderEditFinancialState(db, zeroWorkflow.orderId),
-    /Sales draft|Failed to add order add-on/
+  await commitOrderEditForTest(db, {
+    orderId: zeroWorkflow.orderId,
+    change: addOrderAddOnChange(fixtures.zeroPriceAddOnProductId),
+    actorContext: fixtures.adminActor,
+  });
+  assert.equal(
+    await db.invoice.count({
+      where: {
+        orderId: zeroWorkflow.orderId,
+        invoiceType: InvoiceType.ADJUSTMENT,
+        parentInvoiceId: zeroWorkflow.finalInvoiceId,
+      },
+    }),
+    0,
+    "zero-value locked OrderCommit edit must not emit an ADJ"
   );
 }
 
@@ -426,14 +429,15 @@ async function runInt10ReductiveEditRequiresManager(
 
   await expectRejectsWithoutPartialWrites(
     () =>
-      removeOrderAddOn(
-        workflow.orderId,
-        { addOnId: addOn.id },
-        fixtures.adminActor
-      ),
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: removeOrderAddOnChange(addOn.id),
+        actorContext: fixtures.adminActor,
+      }),
     () => snapshotOrderEditFinancialState(db, workflow.orderId),
-    /Manager confirmation is required|Failed to remove order add-on/
+    /OrderCommit approval is required/
   );
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
 }
 
 async function runInt11CreditNoteIssuance(
@@ -529,7 +533,7 @@ async function runInt12RefundIssuance(
   });
 }
 
-async function runInt13LockedPackageUpgradeBlocked(
+async function runInt13LockedPackageUpgradeEmitsAdjustment(
   db: PrismaClient,
   fixtures: PhaseBFixtures
 ): Promise<void> {
@@ -539,19 +543,32 @@ async function runInt13LockedPackageUpgradeBlocked(
     select: { id: true, currentPackageId: true },
   });
 
-  await expectRejectsWithoutPartialWrites(
-    () =>
-      updateOrderPackage(
-        workflow.orderId,
-        {
-          orderPackageId: orderPackage.id,
-          packageId: fixtures.upgradePackageId,
-        },
-        fixtures.adminActor
-      ),
-    () => snapshotOrderEditFinancialState(db, workflow.orderId),
-    /Sales draft|Failed to update order package/
+  await commitOrderEditForTest(db, {
+    orderId: workflow.orderId,
+    change: updateOrderPackageChange({
+      orderPackageId: orderPackage.id,
+      packageId: fixtures.upgradePackageId,
+    }),
+    actorContext: fixtures.adminActor,
+  });
+
+  const adjustmentInvoice = await onlyAdjustmentInvoice(
+    db,
+    workflow.orderId,
+    workflow.finalInvoiceId
   );
+  assertMoney(
+    adjustmentInvoice.totalAmount,
+    "100",
+    "package upgrade adjustment amount"
+  );
+  assert.equal(adjustmentInvoice.lineItems.length, 1);
+  assert.equal(adjustmentInvoice.lineItems[0]?.lineType, "PACKAGE_UPGRADE");
+  assert.equal(
+    adjustmentInvoice.lineItems[0]?.causeOrderEntityKind,
+    "PACKAGE_TIER_UPGRADE"
+  );
+  assert.equal(adjustmentInvoice.lineItems[0]?.causeOrderEntityId, orderPackage.id);
 }
 
 async function runInt14NoShowHandling(

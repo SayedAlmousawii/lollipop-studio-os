@@ -11,6 +11,11 @@ import {
   PaymentType,
   UserRole,
 } from "@prisma/client";
+import {
+  addOrderAddOnChange,
+  commitOrderEditForTest,
+  removeOrderAddOnChange,
+} from "../order-commits/helpers/commit-order-edit";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -40,13 +45,11 @@ test("AuditLog records co-transactional financial and booking actions", async (t
         { db },
         { seedPhaseBFixtures, buildFinalInvoiceWorkflowFixture, buildLockedFinalInvoiceWorkflowFixture },
         { recordPayment },
-        { addOrderProductAddOn, removeOrderAddOn },
         { recordAuditLog },
       ] = await Promise.all([
         import("@/lib/db"),
         import("../financial-phase-b/fixtures"),
         import("@/modules/payments/payment.service"),
-        import("@/modules/orders/order.service"),
         import("@/modules/audit/audit-log.service"),
       ]);
 
@@ -86,11 +89,11 @@ test("AuditLog records co-transactional financial and booking actions", async (t
           fixtures,
           "audit-credit"
         );
-        await addOrderProductAddOn(
-          workflow.orderId,
-          { productId: fixtures.addOnProductId },
-          fixtures.adminActor
-        );
+        await commitOrderEditForTest(db, {
+          orderId: workflow.orderId,
+          change: addOrderAddOnChange(fixtures.addOnProductId),
+          actorContext: fixtures.adminActor,
+        });
         const adjustment = await db.invoice.findFirstOrThrow({
           where: {
             orderId: workflow.orderId,
@@ -113,15 +116,12 @@ test("AuditLog records co-transactional financial and booking actions", async (t
           select: { id: true },
         });
 
-        await removeOrderAddOn(
-          workflow.orderId,
-          {
-            addOnId: addOn.id,
-            managerApprovedReductionByUserId: fixtures.managerId,
-            managerApprovedReason: "Audit reversal test",
-          },
-          fixtures.managerActor
-        );
+        await commitOrderEditForTest(db, {
+          orderId: workflow.orderId,
+          change: removeOrderAddOnChange(addOn.id),
+          actorContext: fixtures.managerActor,
+          approvalActorUserId: fixtures.managerId,
+        });
 
         const row = await db.auditLog.findFirstOrThrow({
           where: { action: AuditAction.CREDIT_NOTE_ISSUED },

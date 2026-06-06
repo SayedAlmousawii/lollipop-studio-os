@@ -3,6 +3,7 @@ import {
   AuditEntityType,
   InvoiceLineType,
   OrderActivityType,
+  OrderStatus,
   Prisma,
   type PrismaClient,
   UserRole,
@@ -228,6 +229,7 @@ const orderCommitExecutionDraftSelect = {
 
 const orderCommitExecutionOrderSelect = {
   id: true,
+  status: true,
   booking: {
     select: {
       financialCase: { select: { id: true } },
@@ -272,6 +274,9 @@ async function commitOrderChangesWithTransaction(
     throw new Error(
       `OrderCommit execution failed: order ${input.orderId} was not found.`
     );
+  }
+  if (order.status === OrderStatus.DELIVERED) {
+    throw new Error("Delivered orders cannot be edited.");
   }
 
   await lockOrderCommitDraftForUpdate(client, input.orderId);
