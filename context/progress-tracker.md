@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- Spec 150 is complete: the dead inline reductive-edit approval island is removed from Sales, reduction approval remains solely on the OrderCommit Review & Commit path, and the five legacy direct service mutators remain as test scaffolding pending a separate migration spec.
 - Spec 149 P6-6 is complete: Adjustment Workspace tables/enums and the `OrderCommit*` legacy FKs are dropped, the final AW financial-invariant relation exemption is removed, Adjustment Workspace is fully retired, and Phase 6 is complete.
 - Spec 148 P6-5 is complete: the Adjustment Workspace module, employee route, dead financial sidebars, and AW-only tests are removed; `bypassOrderCommitDraftGuard` is retired; the five legacy direct Sales mutators stay live behind the unconditional OrderCommitDraft guard.
 - Spec 147 is complete: the centralized edit-mode policy and locked direct-mutator guard no longer expose Adjustment Workspace affordances or copy; locked direct writes remain blocked with Sales draft / POS commit messaging, and the draft guard remains the mutation gate.
@@ -157,6 +158,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **150** — Removed the unreachable inline reductive-edit approval island, including the dead modal components, approval server-action helpers, orphaned Sales action wrappers, handler-contract approval plumbing, and dead-path integration coverage while preserving the commit-dialog approval flow and retained direct service mutators.
 - **149 P6-6** — Dropped the retired Adjustment Workspace tables/enums and `OrderCommit*` legacy workspace FK columns, removed the final `finalizedAdjustmentWorkspaces` financial-invariant exemption, regenerated the schema docs around OrderCommit-only post-lock changes, and completed Phase 6.
 - **147 P6-4** — Removed AW affordances from the edit-mode policy DTO and POS composition Configure Session mode selection, dropped open-workspace route context from session-configuration routing, reworded the retained locked direct-mutator guard to Sales draft / POS commit copy, and tightened the targeted P6-4 source guard while keeping the five draft guards, bypass marker, AW module, route, and tables for P6-5.
 - **146 P6-3** — Removed the non-AW-route order-detail Configure Session AW action path, deleted the panel's AW mode/deep-link, collapsed `CompositionViewMode` to locked-only, retired the orders-table AW badge/type field, and tightened the source guard while keeping POS composition's P6-4 policy read allowlisted.
@@ -294,7 +296,6 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **73c** — Order add-on split: `OrderPackageItemUpgrade` separated from `OrderAddOn`.
 
 ## Open Follow-Ups
-- Spec 150 (drafted, not implemented): remove the dead reductive-edit inline-approval island (`ReductiveEditApprovalModal`, `credit-note-approval-fields`, `executeReductiveEdit`, `confirmReductiveEditWithApproval`, orphaned `*Action` wrappers, `shouldPromptInlineApproval`). Behavior-preserving — reduction approval already runs through the commit dialog.
 - After Spec 150: delete the five legacy direct mutators (`updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`) + `assertDirectPOSMutationAllowed`. Blocked on migrating heavy financial/audit test scaffolding (`adjustment-reversal`, `financial-phase-b/c/d`, `inv-18`, `audit-log`) off the mutators onto the OrderCommit staging+commit path. Separate larger spec.
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.

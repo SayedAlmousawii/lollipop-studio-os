@@ -47,7 +47,6 @@ test("Commercial Actions add-on catalog renders one-to-one with projected market
         handlers: {
           addAddOn: async () => ({ ok: true }),
           removeAddOn: async () => ({ ok: true }),
-          shouldPromptInlineApproval: false,
         },
         editPolicies: buildAddOnPolicies(workspace),
       })
@@ -133,7 +132,7 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     if (request === "server-only") return {};
     if (request === "@/app/orders/[orderId]/sales/actions") {
       return {
-        confirmReductiveEditWithApproval: async () => ({ kind: "success" }),
+        stageSessionConfigurationSelectionAction: async () => ({ kind: "success" }),
       };
     }
     return originalModuleLoad.call(this, request, parent, isMain);

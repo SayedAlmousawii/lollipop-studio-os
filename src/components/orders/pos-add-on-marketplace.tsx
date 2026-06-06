@@ -7,7 +7,6 @@ import { Lock, PackagePlus, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ReductiveEditApprovalModal } from "@/components/orders/reductive-edit-approval-modal";
 import {
   Dialog,
   DialogContent,
@@ -109,7 +108,6 @@ export function POSAddOnMarketplace({
               {workspace.addOnCatalog.map((item) => (
                 <CatalogCard
                   key={item.id}
-                  orderId={workspace.orderId}
                   item={item}
                   productState={productStateById.get(item.id) ?? null}
                   handlers={handlers}
@@ -124,7 +122,6 @@ export function POSAddOnMarketplace({
           )}
 
           <CurrentAddOns
-            orderId={workspace.orderId}
             addOns={marketplace.currentAddOns}
             handlers={handlers}
             removePolicy={editPolicies.removeAddOn}
@@ -210,13 +207,11 @@ function QuickAddDialog({
 }
 
 function CatalogCard({
-  orderId,
   item,
   productState,
   handlers,
   policies,
 }: {
-  orderId: string;
   item: POSAddOnCatalogItem;
   productState: POSAddOnMarketplaceProductStateProjection | null;
   handlers: POSAddOnHandlers;
@@ -282,24 +277,6 @@ function CatalogCard({
               />
               <GlobalError messages={removeState.errors?._global} />
             </form>
-            {handlers.shouldPromptInlineApproval ? (
-              <ReductiveEditApprovalModal
-                orderId={orderId}
-                action="remove-add-on"
-                approval={removeState.payload}
-                hiddenFields={[
-                  { name: "addOnId", value: removalOrderAddOnId },
-                  ...(removalOrderAddOnQuantity !== null
-                    ? [
-                        {
-                          name: "currentQuantity",
-                          value: String(removalOrderAddOnQuantity),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            ) : null}
           </>
         ) : null}
       </div>
@@ -308,12 +285,10 @@ function CatalogCard({
 }
 
 function CurrentAddOns({
-  orderId,
   addOns,
   handlers,
   removePolicy,
 }: {
-  orderId: string;
   addOns: POSAddOnMarketplaceCurrentAddOnProjection[];
   handlers: POSAddOnHandlers;
   removePolicy: OrderEditModePolicy;
@@ -326,7 +301,6 @@ function CurrentAddOns({
           {addOns.map((addOn) => (
             <CurrentAddOnRow
               key={addOn.id}
-              orderId={orderId}
               addOn={addOn}
               handlers={handlers}
               removePolicy={removePolicy}
@@ -343,12 +317,10 @@ function CurrentAddOns({
 }
 
 function CurrentAddOnRow({
-  orderId,
   addOn,
   handlers,
   removePolicy,
 }: {
-  orderId: string;
   addOn: POSAddOnMarketplaceCurrentAddOnProjection;
   handlers: POSAddOnHandlers;
   removePolicy: OrderEditModePolicy;
@@ -382,20 +354,6 @@ function CurrentAddOnRow({
               />
               <SubmitIconButton disabled={!removePolicy.isInteractive} />
             </form>
-            {handlers.shouldPromptInlineApproval ? (
-              <ReductiveEditApprovalModal
-                orderId={orderId}
-                action="remove-add-on"
-                approval={state.payload}
-                hiddenFields={[
-                  { name: "addOnId", value: addOn.orderAddOnId },
-                  {
-                    name: "currentQuantity",
-                    value: String(addOn.currentQuantity),
-                  },
-                ]}
-              />
-            ) : null}
           </>
         ) : null}
       </div>
@@ -424,14 +382,6 @@ function actionStateFromHandlerResult(
 ): POSMutationActionState {
   if (result.ok) {
     return { kind: "success" };
-  }
-
-  if (result.approval) {
-    return {
-      kind: "approval-required",
-      errors: result.errors,
-      payload: result.approval,
-    };
   }
 
   return { kind: "error", errors: result.errors };

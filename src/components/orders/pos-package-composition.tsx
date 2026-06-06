@@ -16,7 +16,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ReductiveEditApprovalModal } from "@/components/orders/reductive-edit-approval-modal";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -50,7 +49,6 @@ import {
   readProjectedPhotoPreview,
   type DraftPOSCompositionProjection,
   type PhotoLineDraft,
-  type PhotoPayload,
   type POSCompositionPackageItemProjection,
   type POSCompositionPackageLineProjection,
 } from "@/modules/orders/composition/projections";
@@ -125,7 +123,6 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                 {workspaceLine ? (
                   <>
                     <PackageUpgradeDialog
-                      orderId={workspace.orderId}
                       line={workspaceLine}
                       handlers={handlers}
                       policy={editPolicies.packageTierChange}
@@ -185,7 +182,6 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                   <DeliverableCard
                     key={item.id}
                     item={item}
-                    orderId={workspace.orderId}
                     orderPackageId={line.orderPackageId}
                     productOptions={workspace.productOptions}
                     handlers={handlers}
@@ -234,7 +230,6 @@ function configureSessionPanelKey(input: {
 }
 
 export function POSPhotoCountCard({
-  workspace,
   composition,
   handlers,
   editPolicies,
@@ -252,7 +247,6 @@ export function POSPhotoCountCard({
           {composition.packageLines.map((line) => (
             <POSPhotoLineForm
               key={`${line.id}:${line.selectedPhotoCount}:${line.extraDigitalCount}:${line.extraPrintCount}`}
-              orderId={workspace.orderId}
               line={line}
               handlers={handlers}
               policy={policy}
@@ -265,12 +259,10 @@ export function POSPhotoCountCard({
 }
 
 function POSPhotoLineForm({
-  orderId,
   line,
   handlers,
   policy,
 }: {
-  orderId: string;
   line: POSCompositionPackageLineProjection;
   handlers: POSCompositionHandlers;
   policy: OrderEditModePolicy;
@@ -286,8 +278,6 @@ function POSPhotoLineForm({
   );
   const [draft, setDraft] = useState(() => createProjectedPhotoDraft(line));
   const [clientErrors, setClientErrors] = useState<POSMutationActionState["errors"]>({});
-  const [approvalPayload, setApprovalPayload] =
-    useState<PhotoPayload | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const selectedHiddenInputRef = useRef<HTMLInputElement>(null);
   const digitalHiddenInputRef = useRef<HTMLInputElement>(null);
@@ -323,7 +313,6 @@ function POSPhotoLineForm({
 
     setClientErrors({});
     lastSubmittedPayloadRef.current = payloadKey;
-    setApprovalPayload(payload);
 
     if (
       !formRef.current ||
@@ -593,28 +582,6 @@ function POSPhotoLineForm({
       </div>
         <GlobalError messages={state.errors?._global} />
       </form>
-      {handlers.shouldPromptInlineApproval ? (
-        <ReductiveEditApprovalModal
-          orderId={orderId}
-          action="update-selected-photo-count"
-          approval={state.payload}
-          hiddenFields={[
-            { name: "orderPackageId", value: line.orderPackageId },
-            {
-              name: "selectedPhotoCount",
-              value: approvalPayload?.selectedPhotoCount ?? line.selectedPhotoCount,
-            },
-            {
-              name: "extraDigitalCount",
-              value: approvalPayload?.extraDigitalCount ?? line.extraDigitalCount,
-            },
-            {
-              name: "extraPrintCount",
-              value: approvalPayload?.extraPrintCount ?? line.extraPrintCount,
-            },
-          ]}
-        />
-      ) : null}
     </>
   );
 }
@@ -739,12 +706,10 @@ function PhotoLineSaveStatus({ pending }: { pending: boolean }) {
 }
 
 function PackageUpgradeDialog({
-  orderId,
   line,
   handlers,
   policy,
 }: {
-  orderId: string;
   line: POSPackageLine;
   handlers: POSCompositionHandlers;
   policy: OrderEditModePolicy;
@@ -812,17 +777,6 @@ function PackageUpgradeDialog({
             />
           </DialogFooter>
         </form>
-        {handlers.shouldPromptInlineApproval ? (
-          <ReductiveEditApprovalModal
-            orderId={orderId}
-            action="update-package"
-            approval={state.payload}
-            hiddenFields={[
-              { name: "orderPackageId", value: line.id },
-              { name: "packageId", value: selectedPackageId },
-            ]}
-          />
-        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -830,14 +784,12 @@ function PackageUpgradeDialog({
 
 function DeliverableCard({
   item,
-  orderId,
   orderPackageId,
   productOptions,
   handlers,
   policy,
 }: {
   item: POSCompositionPackageItemProjection;
-  orderId: string;
   orderPackageId: string;
   productOptions: POSProductOption[];
   handlers: POSCompositionHandlers;
@@ -868,7 +820,6 @@ function DeliverableCard({
         {item.quantity}x · {formatMoney(item.unitAmount)}
       </p>
       <ItemUpgradeDialog
-        orderId={orderId}
         orderPackageId={orderPackageId}
         item={item}
         options={replacementOptions}
@@ -880,14 +831,12 @@ function DeliverableCard({
 }
 
 function ItemUpgradeDialog({
-  orderId,
   orderPackageId,
   item,
   options,
   handlers,
   policy,
 }: {
-  orderId: string;
   orderPackageId: string;
   item: POSCompositionPackageItemProjection;
   options: POSProductOption[];
@@ -956,18 +905,6 @@ function ItemUpgradeDialog({
             <SubmitButton label="Apply Upgrade" disabled={disabled || !selectedProductId} />
           </DialogFooter>
         </form>
-        {handlers.shouldPromptInlineApproval ? (
-          <ReductiveEditApprovalModal
-            orderId={orderId}
-            action="upgrade-package-item"
-            approval={state.payload}
-            hiddenFields={[
-              { name: "orderPackageId", value: orderPackageId },
-              { name: "packageItemId", value: item.id },
-              { name: "newProductId", value: selectedProductId },
-            ]}
-          />
-        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -994,14 +931,6 @@ function actionStateFromHandlerResult(
 ): POSMutationActionState {
   if (result.ok) {
     return { kind: "success" };
-  }
-
-  if (result.approval) {
-    return {
-      kind: "approval-required",
-      errors: result.errors,
-      payload: result.approval,
-    };
   }
 
   return { kind: "error", errors: result.errors };
