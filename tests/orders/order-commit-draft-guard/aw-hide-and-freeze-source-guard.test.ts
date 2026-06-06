@@ -9,7 +9,6 @@ const RETIRED_MESSAGE = "Adjustment Workspace is retired — use POS";
 const knownLegacyAwReferenceFiles = [
   "src/components/orders/financial-sidebar-adjustment.tsx",
   "src/components/orders/financial-sidebar-locked.tsx",
-  "src/components/orders/pos-package-composition.tsx",
 ];
 
 test("AW route redirects to Sales without rendering the legacy workspace", () => {
@@ -93,6 +92,29 @@ test("app and components cannot add new AW imports or route hrefs", () => {
     .filter((file) => !isAllowedLegacyAwReference(file));
 
   assert.deepEqual(matches, []);
+});
+
+test("P6-4 cleaned policy and service files stay AW affordance-free", () => {
+  const cleanedFiles = [
+    "src/modules/orders/policies/edit-mode-policy.ts",
+    "src/modules/orders/order.service.ts",
+    "src/modules/session-configurations/session-configuration-selection.service.ts",
+  ];
+
+  for (const file of cleanedFiles) {
+    const source = readFileSync(file, "utf8");
+    assert.doesNotMatch(source, /adjustment-workspace/, `${file} has an AW href`);
+    assert.doesNotMatch(
+      source,
+      /Adjustment Workspace/,
+      `${file} has public AW copy`
+    );
+    assert.doesNotMatch(
+      source,
+      /shouldOpenAdjustmentWorkspace|openAdjustmentWorkspaceId|adjustmentWorkspaceRoute|LOCKED_INVOICE_WORKSPACE_REQUIRED/,
+      `${file} has a retired P6-4 policy symbol`
+    );
+  }
 });
 
 function hasAwReference(source: string): boolean {

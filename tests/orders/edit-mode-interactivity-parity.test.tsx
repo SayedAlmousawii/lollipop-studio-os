@@ -54,7 +54,7 @@ type AddOnComponents = {
 
 const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 
-test("locked and adjustment POS edit controls follow edit-mode policy interactivity", async () => {
+test("locked POS edit controls follow edit-mode policy interactivity", async () => {
   await withPOSComponentStubs(async () => {
     const { POSPackageComposition, POSPhotoCountCard } =
       await loadPackageComponents();
@@ -106,13 +106,13 @@ test("locked and adjustment POS edit controls follow edit-mode policy interactiv
           workspace,
           composition: { ...composition, sourceState: "adjustment" },
           handlers: compositionHandlers,
-          editPolicies: buildPackagePolicies(workspace, "adjustment"),
+          editPolicies: buildPackagePolicies(workspace, "sales"),
         }),
         createElement(POSPhotoCountCard, {
           workspace,
           composition: { ...composition, sourceState: "adjustment" },
           handlers: compositionHandlers,
-          editPolicies: buildPackagePolicies(workspace, "adjustment"),
+          editPolicies: buildPackagePolicies(workspace, "sales"),
         }),
         createElement(POSAddOnMarketplace, {
           workspace,
@@ -121,15 +121,15 @@ test("locked and adjustment POS edit controls follow edit-mode policy interactiv
             sourceState: "adjustment",
           }),
           handlers: addOnHandlers,
-          editPolicies: buildAddOnPolicies(workspace, "adjustment"),
+          editPolicies: buildAddOnPolicies(workspace, "sales"),
         })
       )
     );
 
     const lockedPackagePolicy = buildPackagePolicies(workspace, "sales");
     const lockedAddOnPolicy = buildAddOnPolicies(workspace, "sales");
-    const adjustmentPackagePolicy = buildPackagePolicies(workspace, "adjustment");
-    const adjustmentAddOnPolicy = buildAddOnPolicies(workspace, "adjustment");
+    const adjustmentPackagePolicy = buildPackagePolicies(workspace, "sales");
+    const adjustmentAddOnPolicy = buildAddOnPolicies(workspace, "sales");
 
     assert.equal(
       buttonIsDisabled(lockedMarkup, "Upgrade Package"),
@@ -169,7 +169,7 @@ test("locked and adjustment POS edit controls follow edit-mode policy interactiv
 
 function buildPackagePolicies(
   workspace: POSWorkspace,
-  persistenceContext: "sales" | "adjustment"
+  persistenceContext: "sales"
 ): POSPackageCompositionEditPolicies {
   return buildPOSPackageCompositionEditPolicies(
     orderEditModeContextFromWorkspace({
@@ -183,7 +183,7 @@ function buildPackagePolicies(
 
 function buildAddOnPolicies(
   workspace: POSWorkspace,
-  persistenceContext: "sales" | "adjustment"
+  persistenceContext: "sales"
 ): POSAddOnEditPolicies {
   return buildPOSAddOnEditPolicies(
     orderEditModeContextFromWorkspace({

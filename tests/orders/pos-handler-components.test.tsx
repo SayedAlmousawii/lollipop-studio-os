@@ -232,11 +232,11 @@ test("POS add-on marketplace quick actions use add-on catalog options", async ()
   });
 });
 
-test("POS add-on marketplace quick actions stay interactive in adjustment mode", async () => {
+test("POS add-on marketplace quick actions stay interactive in draft mode", async () => {
   await withPOSComponentStubs(async () => {
     const { POSAddOnMarketplace } = await loadAddOnComponents();
     const workspace = {
-      ...lockedPOSWorkspaceFixture(),
+      ...buildPOSWorkspaceFixture(),
       productOptions: [],
       addOnCatalog: [
         {
@@ -259,7 +259,7 @@ test("POS add-on marketplace quick actions stay interactive in adjustment mode",
         workspace,
         marketplace: toPOSAddOnMarketplace(buildDraftPOSCompositionFixture(workspace)),
         handlers,
-        editPolicies: buildAddOnPolicies(workspace, "adjustment"),
+        editPolicies: buildAddOnPolicies(workspace, "sales"),
       })
     );
 
@@ -396,7 +396,7 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
         workspace,
         composition,
         handlers,
-        editPolicies: buildPackagePolicies(workspace, "adjustment"),
+        editPolicies: buildPackagePolicies(workspace, "sales"),
       })
     );
 
@@ -540,7 +540,7 @@ function hasImportFrom(filePath: string, modulePath: string): boolean {
 
 function buildPackagePolicies(
   workspace: POSWorkspace,
-  persistenceContext: "sales" | "adjustment" = "sales"
+  persistenceContext: "sales" = "sales"
 ): POSPackageCompositionEditPolicies {
   return buildPOSPackageCompositionEditPolicies(
     orderEditModeContextFromWorkspace({
@@ -554,7 +554,7 @@ function buildPackagePolicies(
 
 function buildAddOnPolicies(
   workspace: POSWorkspace,
-  persistenceContext: "sales" | "adjustment" = "sales"
+  persistenceContext: "sales" = "sales"
 ): POSAddOnEditPolicies {
   return buildPOSAddOnEditPolicies(
     orderEditModeContextFromWorkspace({
