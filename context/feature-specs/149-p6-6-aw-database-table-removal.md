@@ -19,6 +19,8 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (Section C → P6
     - `:1016-1017` — `AdjustmentWorkspace.legacyOrderCommits / legacyOrderCommitDrafts` back-refs.
 - `context/development-utilities.md` — dev reset / migration workflow.
 - `context/target-data-model.md` — update the canonical schema reference after the drop.
+- **Runtime use of the `Invoice.finalizedAdjustmentWorkspaces` relation (surfaced during Spec 148 review — not in the original report):** `src/modules/financial/invariants.ts:824,831-833` selects `invoice.finalizedAdjustmentWorkspaces` and uses `if (line.invoice.finalizedAdjustmentWorkspaces.length > 0) continue;` to **exempt** AW-finalized ADJUSTMENT lines from the "adjustment cause still exists" invariant. Dropping the relation in this spec breaks this code, so it must be cleaned up here.
+- **Carry-over from P6-5:** the five legacy direct mutators (`updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`) were **retained** in P6-5 (not callerless — the live `executeReductiveEdit` / `reductive-edit-approval-modal.tsx` path calls them) with the now-unconditional draft guard. P6-6 does not touch them; their migration off direct writes is a separate future effort.
 
 ## Rules
 
@@ -26,6 +28,7 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (Section C → P6
 - **Sever inbound FKs before dropping tables.** Remove `OrderCommit.legacyAdjustmentWorkspaceId` and `OrderCommitDraft.legacyAdjustmentWorkspaceId` (columns, relations, indexes) and the `User`/`Invoice` back-relation fields, then drop `AdjustmentWorkspace`, `AdjustmentWorkspaceEvent`, and the two enums. A single Prisma migration can express all of it in the correct order; verify the generated SQL drops FKs/columns before tables.
 - Preserve all `Invoice`/`Payment` history. Dropping `Invoice.adjustmentWorkspaces` back-refs removes only the relation field, not any invoice row. Historical ADJUSTMENT / CREDIT_NOTE / REFUND invoices remain; `OrderCommitDocument` is the forward-going commit↔document link.
 - Losing `legacyAdjustmentWorkspaceId` is acceptable: it was a bootstrap/debug backref to AW rows that no longer exist. Confirm nothing reads it (P6-5 deleted AW code; grep to be sure no service reads the column).
+- **Remove the `finalizedAdjustmentWorkspaces` exemption from the financial invariant before/with dropping the relation.** In `financial/invariants.ts`, drop the `finalizedAdjustmentWorkspaces` select and the `if (...length > 0) continue;` exemption. Semantic effect: AW-finalized ADJUSTMENT lines are no longer exempted from the "adjustment cause still exists" check — but post-AW every ADJUSTMENT is emitted by `commitOrderChanges` with proper `causeOrderEntityKind`/`causeOrderEntityId`, and no AW-finalized ADJ data remains (dev resets; empty production), so the check holds. Treat this as a deliberate financial-invariant change, not an incidental edit — cover it with a test.
 - Provide a coherent down-migration (recreate tables/enums/columns) even though restoring data is not expected — schema-revertibility only.
 - No application code change in this spec beyond Prisma client regeneration and any type fallout from the removed relation fields (there should be none if P6-5 was clean).
 
@@ -33,8 +36,9 @@ Source of truth: `context/reviews/phase-6-readiness-report.md` (Section C → P6
 
 ### In Scope
 
-- Prisma migration that, in order: drops the `legacyAdjustmentWorkspaceId` columns/relations/indexes on `OrderCommit` and `OrderCommitDraft`; removes the `User` and `Invoice` AW back-relation fields; drops `AdjustmentWorkspaceEvent`; drops `AdjustmentWorkspace`; drops `AdjustmentWorkspaceStatus` and `AdjustmentWorkspaceEventType` enums.
-- Regenerate the Prisma client; fix any residual type references (expected none post-P6-5).
+- **Code-before-schema within this spec:** first remove the `finalizedAdjustmentWorkspaces` select + exemption branch from `financial/invariants.ts:824,831-833` (so the relation has no runtime reader), then drop the relation.
+- Prisma migration that, in order: drops the `legacyAdjustmentWorkspaceId` columns/relations/indexes on `OrderCommit` and `OrderCommitDraft`; removes the `User` and `Invoice` AW back-relation fields (`User.openedAdjustmentWorkspaces`/`ownedAdjustmentWorkspaces`/`adjustmentWorkspaceEvents`, `Invoice.adjustmentWorkspaces`/`finalizedAdjustmentWorkspaces`); drops `AdjustmentWorkspaceEvent`; drops `AdjustmentWorkspace`; drops `AdjustmentWorkspaceStatus` and `AdjustmentWorkspaceEventType` enums.
+- Regenerate the Prisma client; fix any residual type references (expected none post-P6-5 once `financial/invariants.ts` is cleaned).
 - Pre-flight emptiness assertion (script or migration guard) for the two AW tables.
 - Update `context/target-data-model.md` and `context/current-database-er-diagram.md` to drop AW entities.
 - Update the workflow test-data reset if it referenced AW tables (verify the reset no longer needs to clear them).
@@ -78,8 +82,9 @@ This is a schema-only, schema-last migration. First confirm the AW tables are em
 - Pre-flight: `AdjustmentWorkspace` and `AdjustmentWorkspaceEvent` are empty in every data-retaining environment before the migration.
 - The migration removes `legacyAdjustmentWorkspaceId` (columns, relations, indexes) from `OrderCommit` and `OrderCommitDraft`, the `User`/`Invoice` AW back-relations, both AW models, and both AW enums — with generated SQL dropping constraints/columns before tables.
 - No Prisma model, enum, or relation references Adjustment Workspace after the migration.
+- `financial/invariants.ts` no longer selects or reads `finalizedAdjustmentWorkspaces`; the ADJUSTMENT-cause invariant runs for all ADJUSTMENT lines (no AW exemption) and is covered by a test proving OrderCommit-emitted ADJ lines still pass.
 - Historical `Invoice`/`Payment` rows (incl. ADJUSTMENT/CREDIT_NOTE/REFUND) are preserved; `OrderCommitDocument` linkage intact.
-- Prisma client regenerates with no type errors; no application code references `legacyAdjustmentWorkspaceId`.
+- Prisma client regenerates with no type errors; no application code references `legacyAdjustmentWorkspaceId` or `finalizedAdjustmentWorkspaces`.
 - A working down-migration recreates the dropped structures.
 - Data-model docs and ER diagram updated.
 - `npm run test:centralization` passes.
