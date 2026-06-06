@@ -5,6 +5,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 **Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
 
 ## Now
+- OrderCommit chapter is closed: the OrderCommit migration + Adjustment Workspace retirement arc (Phases 1–6, Specs 150–151) is complete. `commitOrderChanges` is the sole production financial-emission path; the legacy direct-edit engine `syncOrderInvoiceForFinancialEdit` has no production caller and remains test-only. Spec 152 (retire that engine) is **deferred** — see Open Follow-Ups.
 - Spec 151 is complete: financial/audit test scaffolding now drives locked-order edits through OrderCommit draft staging and commit, the five legacy direct service mutators plus `assertDirectPOSMutationAllowed` are removed, and `commitOrderChanges` intentionally blocks delivered orders at the service boundary.
 - Spec 150 is complete: the dead inline reductive-edit approval island is removed from Sales, reduction approval remains solely on the OrderCommit Review & Commit path, and the direct-mutator follow-up was completed by Spec 151.
 - Spec 149 P6-6 is complete: Adjustment Workspace tables/enums and the `OrderCommit*` legacy FKs are dropped, the final AW financial-invariant relation exemption is removed, Adjustment Workspace is fully retired, and Phase 6 is complete.
@@ -298,7 +299,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **73c** — Order add-on split: `OrderPackageItemUpgrade` separated from `OrderAddOn`.
 
 ## Open Follow-Ups
-- Spec 152: retire direct `syncOrderInvoiceForFinancialEdit` callers after the remaining non-mutator financial scaffolding is migrated to the intended OrderCommit/financial-service path.
+- Spec 152 (**deferred** — OrderCommit chapter closed): retire the legacy direct-edit financial engine `syncOrderInvoiceForFinancialEdit` and migrate its remaining direct non-mutator callers onto the OrderCommit/financial-service path. Not urgent: after Spec 151 the engine has **no production caller** (`commitOrderChanges` is the sole production emission path) and survives only as test-only scaffolding. Revisit when convenient; placeholder spec at `context/feature-specs/152-retire-sync-order-invoice-for-financial-edit-placeholder.md`.
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.
 - Fix remaining Phase C/F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, voucher redemption schema.

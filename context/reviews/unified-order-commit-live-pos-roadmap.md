@@ -25,6 +25,8 @@ This roadmap is intentionally split into separate phases and separate PRs. Do no
 - Phase 5 — **Complete** (Specs 125–133 unified the Sales page over OrderCommit for both locked and unlocked orders; Spec 134 was a package-tier photo-normalization follow-up — see below). Phase 5 wired only the `PACKAGE` and `PHOTO` staging domains to the Sales surface.
 - Phase 5.5 — **Complete**: full domain staging coverage wired the remaining staging domains (`PACKAGE_ITEM_UPGRADE`, `SESSION_CONFIGURATION`, `ADD_ON`) to the Sales surface and closed the session-configuration draft-bypass. Specs 135–138.
 - Phase 6 — **Complete**: Adjustment Workspace route, module, tests, schema tables/enums, and legacy `OrderCommit*` backrefs are removed. Spec 149 completes the phase.
+- Post-Phase-6 cleanup — **Complete**: Spec 150 removed the dead inline reductive-edit approval island; Spec 151 deleted the five legacy direct mutators + `assertDirectPOSMutationAllowed` and migrated the financial/audit test scaffolding onto `commitOrderChanges`.
+- **OrderCommit chapter closed.** `commitOrderChanges` is the sole production financial-emission path. The legacy direct-edit engine `syncOrderInvoiceForFinancialEdit` has **no production caller** and remains test-only. **Spec 152** (retire that engine + migrate its remaining direct non-mutator test callers) is **deferred** — low urgency, no production exposure; placeholder at `context/feature-specs/152-retire-sync-order-invoice-for-financial-edit-placeholder.md`.
 - Phase 7 — **Revised below**: polish, redesign, history, and takeover.
 
 ### Spec 134 (already shipped, previously unrecorded here)
