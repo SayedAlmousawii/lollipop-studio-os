@@ -13,7 +13,6 @@ import {
   buildCheckedInWorkflowFixture,
   type PhaseBFixtures,
 } from "../financial-phase-b/fixtures";
-import type { AdjustmentWorkspaceEdit } from "../../src/modules/adjustment-workspace/adjustment-workspace.types";
 
 const fixtures: PhaseBFixtures = phaseBFixtures();
 
@@ -33,7 +32,6 @@ export async function runEndToEndStudioWalkthroughSmokeTest(
       getOrderProductionWorkflowById,
       getOrderDeliveryWorkflowById,
     },
-    adjustmentWorkspace,
     { getFinancialCaseSummary },
     { getOrderCompositionViewModel },
     { toLockedPOSComposition },
@@ -42,7 +40,6 @@ export async function runEndToEndStudioWalkthroughSmokeTest(
     import("../../src/modules/invoices/invoice.service"),
     import("../../src/modules/payments/payment.service"),
     import("../../src/modules/orders/order.service"),
-    import("../../src/modules/adjustment-workspace/adjustment-workspace.service"),
     import("../../src/modules/financial-cases"),
     import("../../src/modules/orders/composition"),
     import("../../src/modules/orders/composition/projections"),
@@ -60,22 +57,12 @@ export async function runEndToEndStudioWalkthroughSmokeTest(
   assert.equal(summary.stage, "booking");
   assert.equal(summary.awaitingFinalInvoiceAfterCheckIn, true);
 
-  const existingAddOn = await db.orderAddOn.create({
-    data: {
-      orderId: workflow.orderId,
-      productId: fixtures.addOnProductId,
-      nameSnapshot: "R13c E2E removable add-on",
-      priceSnapshot: 50,
-      quantity: 1,
-    },
-    select: { id: true },
-  });
   const invoice = await createInvoiceForOrder(workflow.orderId, fixtures.adminActor);
   await issueInvoice(invoice.id, fixtures.adminActor);
   await recordPayment(
     invoice.id,
     {
-      amount: 530,
+      amount: 480,
       method: PaymentMethod.CASH,
       paymentType: PaymentType.FINAL,
     },
@@ -115,43 +102,6 @@ export async function runEndToEndStudioWalkthroughSmokeTest(
     { action: "markStarted", editedPhotoCount: 10 },
     fixtures.adminActor
   );
-
-  const workspace = await adjustmentWorkspace.openWorkspace(
-    invoice.id,
-    fixtures.adminActor
-  );
-  let version = 0;
-  for (const edit of [
-    {
-      id: "r13c-e2e-remove",
-      op: "remove_line",
-      targetLineId: `addon:${existingAddOn.id}`,
-    },
-    {
-      id: "r13c-e2e-add",
-      op: "add_line",
-      kind: "addon",
-      refId: fixtures.addOnProductId,
-      quantity: 1,
-    },
-  ] satisfies AdjustmentWorkspaceEdit[]) {
-    const view = await adjustmentWorkspace.applyEdit(
-      workspace.id,
-      { version, edit },
-      fixtures.adminActor
-    );
-    version = view.version;
-  }
-  await adjustmentWorkspace.finalizeWorkspace(
-    workspace.id,
-    { version },
-    fixtures.adminActor
-  );
-  const adjustedModel = await getOrderCompositionViewModel({ invoiceId: invoice.id });
-  assert.ok(adjustedModel, "expected locked model after adjustment");
-  const adjustedPackage = toLockedPOSComposition(adjustedModel).packageLines[0];
-  assert.ok(adjustedPackage, "expected adjusted package projection");
-  assert.equal(adjustedPackage.selectedPhotoCount, lockedPackage.selectedPhotoCount);
 
   await updateOrderEditingWorkflow(
     workflow.orderId,

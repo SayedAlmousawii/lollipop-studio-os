@@ -55,9 +55,6 @@ async function main() {
     const { runEndToEndStudioWalkthroughSmokeTest } = await import(
       "./end-to-end-studio-walkthrough.smoke"
     );
-    const { runLockedAdjustmentSmokeTest } = await import(
-      "./locked-adjustment.smoke"
-    );
     const { runPOSInvoicePaymentSmokeTest } = await import(
       "./pos-invoice-payment.smoke"
     );
@@ -100,7 +97,6 @@ async function main() {
     await runDeliveryPickupSmokeTest(databaseUrl);
     await runEditingStartGateSmokeTest(databaseUrl);
     await runEndToEndStudioWalkthroughSmokeTest(databaseUrl);
-    await runLockedAdjustmentSmokeTest(databaseUrl);
     await runPOSInvoicePaymentSmokeTest(databaseUrl);
     await runProductionReadinessSmokeTest(databaseUrl);
     await runPhaseGFinancialReconciliation(db);

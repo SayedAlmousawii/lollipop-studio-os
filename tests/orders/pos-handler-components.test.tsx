@@ -469,7 +469,7 @@ test("R8a POS package component keeps photo draft helpers out of the client comp
   }
 });
 
-test("R8a sales page consumes composition projectors and retired AW page redirects", () => {
+test("R8a sales page consumes composition projectors", () => {
   const salesSource = readFileSync(
     "app/orders/[orderId]/sales/page.tsx",
     "utf8"
@@ -477,14 +477,6 @@ test("R8a sales page consumes composition projectors and retired AW page redirec
   assert.doesNotMatch(salesSource, /buildCompositionView/);
   assert.match(salesSource, /getSalesPageView/);
   assert.match(salesSource, /composition=\{salesPageView\.composition\}/);
-
-  const adjustmentSource = readFileSync(
-    "app/orders/[orderId]/adjustment-workspace/page.tsx",
-    "utf8"
-  );
-  assert.doesNotMatch(adjustmentSource, /buildCompositionView/);
-  assert.doesNotMatch(adjustmentSource, /toCurrentCompositionCard/);
-  assert.match(adjustmentSource, /redirect\(`\/orders\/\$\{orderId\}\/sales`\)/);
 });
 
 test("R8b add-on marketplace does not derive current state from POSWorkspace add-ons", () => {
@@ -499,7 +491,6 @@ test("R8b add-on marketplace does not derive current state from POSWorkspace add
 
 test("R9 POS components do not reintroduce local locked edit-mode notice copy", () => {
   for (const filePath of [
-    "src/components/orders/financial-sidebar-draft.tsx",
     "src/components/orders/pos-package-composition.tsx",
     "src/components/orders/pos-add-on-marketplace.tsx",
   ]) {

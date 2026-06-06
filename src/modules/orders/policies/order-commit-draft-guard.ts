@@ -12,10 +12,6 @@ export async function assertNoActiveOrderCommitDraft(input: {
   actorContext: ActorContext;
   tx: OrderCommitDraftGuardClient;
 }): Promise<void> {
-  if (input.actorContext.bypassOrderCommitDraftGuard === true) {
-    return;
-  }
-
   const draft = await input.tx.orderCommitDraft.findUnique({
     where: { orderId: input.orderId },
     select: { id: true },
