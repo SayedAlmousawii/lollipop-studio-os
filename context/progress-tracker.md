@@ -294,6 +294,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **73c** — Order add-on split: `OrderPackageItemUpgrade` separated from `OrderAddOn`.
 
 ## Open Follow-Ups
+- Spec 150 (drafted, not implemented): remove the dead reductive-edit inline-approval island (`ReductiveEditApprovalModal`, `credit-note-approval-fields`, `executeReductiveEdit`, `confirmReductiveEditWithApproval`, orphaned `*Action` wrappers, `shouldPromptInlineApproval`). Behavior-preserving — reduction approval already runs through the commit dialog.
+- After Spec 150: delete the five legacy direct mutators (`updateOrderPackage`, `upgradeOrderPackageItem`, `addOrderProductAddOn`, `removeOrderAddOn`, `updateOrderSelectedPhotoCount`) + `assertDirectPOSMutationAllowed`. Blocked on migrating heavy financial/audit test scaffolding (`adjustment-reversal`, `financial-phase-b/c/d`, `inv-18`, `audit-log`) off the mutators onto the OrderCommit staging+commit path. Separate larger spec.
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.
 - Fix remaining Phase C/F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, voucher redemption schema.
