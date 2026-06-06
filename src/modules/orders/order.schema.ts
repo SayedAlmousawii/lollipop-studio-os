@@ -7,75 +7,6 @@ import {
   ORDER_SELECTION_STATUS_VALUES,
 } from "./order.constants";
 
-const optionalTrimmedString = z.preprocess(
-  (value) => {
-    if (typeof value !== "string") return value;
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  },
-  z.string().trim().optional()
-);
-
-const reductionApprovalFields = {
-  managerApprovedReductionByUserId: optionalTrimmedString,
-  managerApprovedReason: optionalTrimmedString.pipe(
-    z.string().max(500, "Reduction reason must be 500 characters or fewer").optional()
-  ),
-};
-
-type ReductionApprovalInput = {
-  managerApprovedReductionByUserId?: string;
-  managerApprovedReason?: string;
-};
-
-function withReductionApprovalFields<T extends z.ZodRawShape>(shape: T) {
-  return z.object({
-    ...shape,
-    ...reductionApprovalFields,
-  }).refine(
-    (value) => {
-      const approval = value as ReductionApprovalInput;
-      return (
-        Boolean(approval.managerApprovedReductionByUserId) ||
-        !approval.managerApprovedReason
-      );
-    },
-    {
-      message: "Manager approval is required when a reduction reason is provided",
-      path: ["managerApprovedReductionByUserId"],
-    }
-  );
-}
-
-function requiredIntegerInput({
-  requiredMessage,
-  integerMessage,
-  minMessage,
-}: {
-  requiredMessage: string;
-  integerMessage: string;
-  minMessage: string;
-}) {
-  return z.preprocess(
-    (value) => {
-      if (value === null || value === undefined) return "";
-      if (typeof value === "number") return String(value);
-      return value;
-    },
-    z
-      .string()
-      .trim()
-      .min(1, requiredMessage)
-      .transform((value) => Number(value))
-      .pipe(
-        z
-          .number()
-          .int(integerMessage)
-          .min(0, minMessage)
-      )
-  );
-}
-
 export const updateOrderWorkflowSchema = z.object({
   selectionStatus: z.enum(ORDER_SELECTION_STATUS_VALUES).optional(),
   editingStatus: z.enum(ORDER_EDITING_STATUS_VALUES).optional(),
@@ -89,44 +20,6 @@ export const updateOrderWorkflowSchema = z.object({
     value.deliveryStatus,
   "At least one workflow status is required"
 );
-
-export const updateOrderPackageSchema = withReductionApprovalFields({
-  orderPackageId: z.string().trim().min(1, "Package line is required"),
-  packageId: z.string().trim().min(1, "Package is required"),
-});
-
-export const upgradeOrderPackageItemSchema = withReductionApprovalFields({
-  orderPackageId: z.string().trim().min(1, "Package line is required"),
-  packageItemId: z.string().trim().min(1, "Package item is required"),
-  newProductId: z.string().trim().min(1, "Replacement product is required"),
-});
-
-export const addOrderProductAddOnSchema = z.object({
-  productId: z.string().trim().min(1, "Product is required"),
-});
-
-export const removeOrderAddOnSchema = withReductionApprovalFields({
-  addOnId: z.string().trim().min(1, "Add-on is required"),
-});
-
-export const updateOrderSelectedPhotoCountSchema = withReductionApprovalFields({
-  orderPackageId: z.string().trim().min(1, "Package line is required"),
-  selectedPhotoCount: requiredIntegerInput({
-    requiredMessage: "Selected photos are required",
-    integerMessage: "Selected photos must be a whole number",
-    minMessage: "Selected photos cannot be negative",
-  }),
-  extraDigitalCount: requiredIntegerInput({
-    requiredMessage: "Digital extras are required",
-    integerMessage: "Digital extras must be a whole number",
-    minMessage: "Digital extras cannot be negative",
-  }),
-  extraPrintCount: requiredIntegerInput({
-    requiredMessage: "Print extras are required",
-    integerMessage: "Print extras must be a whole number",
-    minMessage: "Print extras cannot be negative",
-  }),
-});
 
 export const updateOrderEditingWorkflowSchema = z.object({
   action: z.enum([
@@ -173,11 +66,6 @@ export const updateOrderDeliveryWorkflowSchema = z.object({
 });
 
 export type UpdateOrderWorkflowInput = z.infer<typeof updateOrderWorkflowSchema>;
-export type UpdateOrderPackageInput = z.infer<typeof updateOrderPackageSchema>;
-export type UpgradeOrderPackageItemInput = z.infer<typeof upgradeOrderPackageItemSchema>;
-export type AddOrderProductAddOnInput = z.infer<typeof addOrderProductAddOnSchema>;
-export type RemoveOrderAddOnInput = z.infer<typeof removeOrderAddOnSchema>;
-export type UpdateOrderSelectedPhotoCountInput = z.infer<typeof updateOrderSelectedPhotoCountSchema>;
 export type UpdateOrderEditingWorkflowInput = z.infer<typeof updateOrderEditingWorkflowSchema>;
 export type UpdateOrderProductionWorkflowInput = z.infer<typeof updateOrderProductionWorkflowSchema>;
 export type UpdateOrderDeliveryWorkflowInput = z.infer<typeof updateOrderDeliveryWorkflowSchema>;

@@ -327,6 +327,19 @@ function remapMaterializedSessionConfigurationLine(
     };
   }
 
+  if (line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE) {
+    const upgradeId = materializedId(line.orderEntityId, draftToOrderEntityMap);
+    const metadata = { ...line.metadata };
+    delete metadata.draftPackageItemUpgradeId;
+    return {
+      ...line,
+      lineId: `item-upgrade:${upgradeId}`,
+      orderEntityId: upgradeId,
+      stableKey: `order-package-item-upgrade:${upgradeId}`,
+      metadata,
+    };
+  }
+
   if (line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION) {
     const selectionId = materializedId(line.orderEntityId, draftToOrderEntityMap);
     const linkedMetadata = remapLinkedProductMetadata(

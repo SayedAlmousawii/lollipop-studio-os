@@ -17,6 +17,10 @@ import {
   UserRole,
 } from "@prisma/client";
 import { OrderCommitDraftActiveError } from "@/modules/orders/order.errors";
+import {
+  commitOrderEditForTest,
+  removeOrderAddOnChange,
+} from "../order-commits/helpers/commit-order-edit";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -45,10 +49,6 @@ test("session configuration selection service writes full package sets with fres
 
     try {
       const { db } = await import("@/lib/db");
-      const {
-        OrderAddOnOwnedBySessionConfigurationError,
-        removeOrderAddOn,
-      } = await import("@/modules/orders/order.service");
       const {
         SessionConfigurationSelectionInputMismatchError,
         SessionConfigurationSelectionFinancialNotAllowedError,
@@ -187,13 +187,17 @@ test("session configuration selection service writes full package sets with fres
       assert.equal(linkedAddOn.quantity, 1);
       await assert.rejects(
         () =>
-          removeOrderAddOn(
-            fixture.orderId,
-            { addOnId: linkedSelection.orderAddOnId ?? "" },
-            { actorUserId: managerActor.id, actorRole: managerActor.role }
-          ),
-        OrderAddOnOwnedBySessionConfigurationError
+          commitOrderEditForTest(db, {
+            orderId: fixture.orderId,
+            change: removeOrderAddOnChange(linkedSelection.orderAddOnId ?? ""),
+            actorContext: {
+              actorUserId: managerActor.id,
+              actorRole: managerActor.role,
+            },
+          }),
+        /linked-product session-configuration add-ons cannot be mutated/
       );
+      await db.orderCommitDraft.deleteMany({ where: { orderId: fixture.orderId } });
       assert.equal(
         await db.orderAddOn.count({ where: { id: linkedSelection.orderAddOnId } }),
         1

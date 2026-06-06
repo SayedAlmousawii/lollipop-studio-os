@@ -22,11 +22,15 @@ import {
   snapshotInvoiceLineItems,
   syncOrderInvoiceForFinancialEdit,
 } from "@/modules/invoices/invoice.service";
-import { getOrderEditingWorkflowById, updateOrderPackage } from "@/modules/orders/order.service";
+import { getOrderEditingWorkflowById } from "@/modules/orders/order.service";
 import { recordPayment } from "@/modules/payments/payment.service";
 import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import { runAllInvariants } from "@/modules/financial/invariants";
 import { assertMoney, assertSinglePaymentAllocation } from "../financial-phase-b/assertions";
+import {
+  commitOrderEditForTest,
+  updateOrderPackageChange,
+} from "../order-commits/helpers/commit-order-edit";
 import {
   addSecondPackageLine,
   buildCheckedInWorkflowFixture,
@@ -368,16 +372,17 @@ async function runReg7002CrossSessionPackageBlocked(
 
   await assert.rejects(
     () =>
-      updateOrderPackage(
-        workflow.orderId,
-        {
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: updateOrderPackageChange({
           orderPackageId: orderPackage.id,
           packageId: fixtures.otherSessionPackageId,
-        },
-        fixtures.adminActor
-      ),
-    /session type/
+        }),
+        actorContext: fixtures.adminActor,
+      }),
+    /cross-session package changes are not supported/
   );
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
 }
 
 async function runReg7003PackageScopedAddonCascade(

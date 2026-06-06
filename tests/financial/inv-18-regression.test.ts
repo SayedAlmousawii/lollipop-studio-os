@@ -5,6 +5,11 @@ import Module from "node:module";
 import process from "node:process";
 import test from "node:test";
 import { InvoiceType, PaymentMethod, PaymentType } from "@prisma/client";
+import {
+  addOrderAddOnChange,
+  commitOrderEditForTest,
+  removeOrderAddOnChange,
+} from "../order-commits/helpers/commit-order-edit";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -31,9 +36,6 @@ test("INV-18 stays balanced when a paid adjustment cause is removed before a man
         buildLockedFinalInvoiceWorkflowFixture,
         seedPhaseBFixtures,
       } = await import("../financial-phase-b/fixtures");
-      const { addOrderProductAddOn, removeOrderAddOn } = await import(
-        "@/modules/orders/order.service"
-      );
       const { createCreditNote } = await import(
         "@/modules/invoices/invoice.service"
       );
@@ -49,11 +51,11 @@ test("INV-18 stays balanced when a paid adjustment cause is removed before a man
         "inv-18-regression"
       );
 
-      await addOrderProductAddOn(
-        workflow.orderId,
-        { productId: fixtures.addOnProductId },
-        fixtures.adminActor
-      );
+      await commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: addOrderAddOnChange(fixtures.addOnProductId),
+        actorContext: fixtures.adminActor,
+      });
 
       const adjustment = await db.invoice.findFirstOrThrow({
         where: {
@@ -80,15 +82,12 @@ test("INV-18 stays balanced when a paid adjustment cause is removed before a man
         },
       });
 
-      await removeOrderAddOn(
-        workflow.orderId,
-        {
-          addOnId: addOn.id,
-          managerApprovedReductionByUserId: fixtures.managerId,
-          managerApprovedReason: "INV-18 repro: remove paid adjustment cause",
-        },
-        fixtures.adminActor
-      );
+      await commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: removeOrderAddOnChange(addOn.id),
+        actorContext: fixtures.adminActor,
+        approvalActorUserId: fixtures.managerId,
+      });
 
       await createCreditNote({
         targetFinalInvoiceId: workflow.finalInvoiceId,

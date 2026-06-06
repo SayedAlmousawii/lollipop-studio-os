@@ -5,6 +5,7 @@ import {
   OrderCommitApprovalRequiredError,
   OrderCommitConcurrentCommitError,
   OrderCommitCreditCapacityExhaustedError,
+  OrderCommitDeliveredOrderError,
   OrderCommitNoOpCommitError,
   OrderCommitStaleDraftError,
 } from "@/modules/order-commits";
@@ -141,6 +142,15 @@ test("commitSalesChangesActionWithDependencies maps commit-time errors to stable
   assert.equal(noOp.kind, "error");
   assert.deepEqual(noOp.errors?._global?.at(-1), "commit.noOp");
   assert.match(noOp.errors?._global?.[0] ?? "", /no staged changes/i);
+
+  const delivered = await runError(
+    new OrderCommitDeliveredOrderError({ orderId: "order-1" })
+  );
+  assert.equal(delivered.kind, "error");
+  assert.deepEqual(delivered.errors?._global, [
+    "Delivered orders cannot be edited",
+    "commit.orderDelivered",
+  ]);
 });
 
 test("commitSalesChangesActionWithDependencies rethrows permission and unknown failures", async () => {

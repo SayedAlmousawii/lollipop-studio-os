@@ -3,6 +3,7 @@ import {
   AuditEntityType,
   InvoiceLineType,
   OrderActivityType,
+  OrderStatus,
   Prisma,
   type PrismaClient,
   UserRole,
@@ -10,6 +11,7 @@ import {
 import type { ActorContext } from "@/lib/auth";
 import { withRetry } from "@/lib/retry";
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
+import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 import {
   createOrderCommitDocumentLinks,
 } from "./order-commit-document.service";
@@ -138,6 +140,17 @@ export class OrderCommitNoOpCommitError extends Error {
   }
 }
 
+export class OrderCommitDeliveredOrderError extends Error {
+  constructor(
+    public readonly payload: {
+      orderId: string;
+    }
+  ) {
+    super(ORDER_EDIT_MODE_MESSAGES.deliveredOrder);
+    this.name = "OrderCommitDeliveredOrderError";
+  }
+}
+
 export type OrderCommitEmissionResult = {
   emissions: Array<{
     invoice: { id: string };
@@ -228,6 +241,7 @@ const orderCommitExecutionDraftSelect = {
 
 const orderCommitExecutionOrderSelect = {
   id: true,
+  status: true,
   booking: {
     select: {
       financialCase: { select: { id: true } },
@@ -272,6 +286,9 @@ async function commitOrderChangesWithTransaction(
     throw new Error(
       `OrderCommit execution failed: order ${input.orderId} was not found.`
     );
+  }
+  if (order.status === OrderStatus.DELIVERED) {
+    throw new OrderCommitDeliveredOrderError({ orderId: input.orderId });
   }
 
   await lockOrderCommitDraftForUpdate(client, input.orderId);

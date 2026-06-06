@@ -147,6 +147,7 @@ export {
   OrderCommitApprovalRequiredError,
   OrderCommitConcurrentCommitError,
   OrderCommitCreditCapacityExhaustedError,
+  OrderCommitDeliveredOrderError,
   OrderCommitNoOpCommitError,
   OrderCommitStaleDraftError,
   type CommitOrderChangesInput,
