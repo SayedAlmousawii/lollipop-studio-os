@@ -4,6 +4,7 @@ import {
   OrderCommitApprovalRequiredError,
   OrderCommitConcurrentCommitError,
   OrderCommitCreditCapacityExhaustedError,
+  OrderCommitDeliveredOrderError,
   OrderCommitNoOpCommitError,
   OrderCommitStaleDraftError,
   type commitOrderChanges,
@@ -105,6 +106,15 @@ export function mapSalesCommitActionError(
           "There are no staged changes to commit. Discard the draft or make a change before committing.",
           "commit.noOp",
         ],
+      },
+    };
+  }
+
+  if (error instanceof OrderCommitDeliveredOrderError) {
+    return {
+      kind: "error",
+      errors: {
+        _global: [error.message, "commit.orderDelivered"],
       },
     };
   }

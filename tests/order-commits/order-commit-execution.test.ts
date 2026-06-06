@@ -6,6 +6,7 @@ import test, { after } from "node:test";
 import {
   AuditAction,
   InvoiceStatus,
+  OrderStatus,
   Prisma,
   SessionConfigurationFinancialBehavior,
   SessionConfigurationInputType,
@@ -129,8 +130,43 @@ test("commitOrderChanges rejects no-op drafts before writes", async () => {
   assert.equal(harness.calls.paymentsCreated, 0);
 });
 
+test("commitOrderChanges rejects delivered orders before writes", async () => {
+  const harness = fakeExecutionHarness({
+    orderStatus: OrderStatus.DELIVERED,
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package refreshed",
+      unitPrice: 125,
+    }),
+  });
+  activeHarness = harness;
+  const { commitOrderChanges, OrderCommitDeliveredOrderError } =
+    await loadExecutionService();
+
+  await assert.rejects(
+    commitOrderChanges({
+      orderId: "order-1",
+      expectedDraftVersion: 2,
+      actorContext,
+      client: harness.client,
+    }),
+    OrderCommitDeliveredOrderError
+  );
+
+  assert.deepEqual(harness.calls.orderCommitCreates, []);
+  assert.deepEqual(harness.calls.documentCreateMany, []);
+  assert.deepEqual(harness.calls.audit, []);
+  assert.deepEqual(harness.calls.activity, []);
+  assert.deepEqual(harness.calls.invariants, []);
+  assert.deepEqual(harness.calls.draftDeletes, []);
+  assert.equal(harness.state.invoiceTotal, 100);
+  assert.equal(harness.state.draftExists, true);
+});
+
 test("commitOrderChanges persists materialized operational session configuration ids before snapshotJson", async () => {
   const harness = fakeExecutionHarness({
+    finalInvoice: { id: "final-invoice-1", isLocked: false },
+    initialInvoiceTotal: 100,
     pendingSnapshot: snapshot({
       catalogEntityId: "package-base",
       label: "Base package",
@@ -302,6 +338,64 @@ test("commitOrderChanges persists materialized order-level add-on ids before sna
   assert.equal(committedAddOnLine?.parentOrderPackageId, null);
   assert.equal("draftOrderAddOnId" in (committedAddOnLine?.metadata ?? {}), false);
   assert.doesNotMatch(JSON.stringify(committedSnapshot), /draft:order-add-on-canvas/);
+});
+
+test("commitOrderChanges persists materialized package-item-upgrade ids before snapshotJson", async () => {
+  const harness = fakeExecutionHarness({
+    finalInvoice: { id: "final-invoice-1", isLocked: false },
+    initialInvoiceTotal: 100,
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 100,
+      extraLines: [
+        {
+          ...packageItemUpgradeLine({
+            upgradeId: "draft:package-item-upgrade-album",
+            packageItemId: "package-item-album",
+            label: "Basic Album to Premium Album",
+            quantity: 1,
+            unitPrice: 25,
+          }),
+          metadata: {
+            packageItemId: "package-item-album",
+            draftPackageItemUpgradeId: "draft:package-item-upgrade-album",
+            notes: null,
+          },
+        },
+      ],
+    }),
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 2,
+    actorContext,
+    client: harness.client,
+  });
+
+  const committedSnapshot = harness.calls.orderCommitCreates[0]?.data
+    .snapshotJson as OrderCommitSnapshotV1;
+  const committedUpgradeLine = committedSnapshot.lines.find(
+    (line) =>
+      line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE_ITEM_UPGRADE
+  );
+  assert.equal(committedUpgradeLine?.orderEntityId, "upgrade-1");
+  assert.equal(committedUpgradeLine?.lineId, "item-upgrade:upgrade-1");
+  assert.equal(
+    committedUpgradeLine?.stableKey,
+    "order-package-item-upgrade:upgrade-1"
+  );
+  assert.equal(
+    "draftPackageItemUpgradeId" in (committedUpgradeLine?.metadata ?? {}),
+    false
+  );
+  assert.doesNotMatch(
+    JSON.stringify(committedSnapshot),
+    /draft:package-item-upgrade-album/
+  );
 });
 
 test("commitOrderChanges rebuilds unlocked FINAL without document links", async () => {
@@ -784,6 +878,7 @@ function fakeExecutionHarness(input?: {
   draftVersion?: number;
   draftOwnerUserId?: string;
   finalInvoice?: { id: string; isLocked: boolean };
+  orderStatus?: OrderStatus;
   initialInvoiceTotal?: number;
   pendingSnapshot?: OrderCommitSnapshotV1;
   initialCommits?: Array<Record<string, unknown>>;
@@ -860,6 +955,7 @@ function fakeExecutionHarness(input?: {
   };
   const order = {
     id: "order-1",
+    status: input?.orderStatus ?? OrderStatus.ACTIVE,
     bookingId: "booking-1",
     jobId: "job-1",
     jobNumber: "JOB-1",

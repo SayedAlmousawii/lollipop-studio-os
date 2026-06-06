@@ -13,6 +13,8 @@ import {
 import { deletePendingBooking, recordBookingDeposit } from "@/modules/bookings/booking.service";
 import { classifyEditDelta } from "@/modules/financial/edit-classifier";
 import { runAllInvariants } from "@/modules/financial/invariants";
+import { OrderCommitDeliveredOrderError } from "@/modules/order-commits";
+import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 import {
   applyDepositToFinalIfPresent,
   closeInvoice,
@@ -316,7 +318,9 @@ async function runE10ConcurrentEditCancellationStaleState(
         change: addOrderAddOnChange(fixtures.addOnProductId),
         actorContext: fixtures.adminActor,
       }),
-    /Delivered orders cannot be edited|OrderCommit/
+    (error) =>
+      error instanceof OrderCommitDeliveredOrderError &&
+      error.message === ORDER_EDIT_MODE_MESSAGES.deliveredOrder
   );
   await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
   assert.equal(

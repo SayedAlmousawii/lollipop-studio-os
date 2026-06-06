@@ -11,6 +11,7 @@ import {
 import type { ActorContext } from "@/lib/auth";
 import { withRetry } from "@/lib/retry";
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
+import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 import {
   createOrderCommitDocumentLinks,
 } from "./order-commit-document.service";
@@ -136,6 +137,17 @@ export class OrderCommitNoOpCommitError extends Error {
       `OrderCommit no-op commit rejected for order ${payload.orderId} at draft version ${payload.draftVersion}.`
     );
     this.name = "OrderCommitNoOpCommitError";
+  }
+}
+
+export class OrderCommitDeliveredOrderError extends Error {
+  constructor(
+    public readonly payload: {
+      orderId: string;
+    }
+  ) {
+    super(ORDER_EDIT_MODE_MESSAGES.deliveredOrder);
+    this.name = "OrderCommitDeliveredOrderError";
   }
 }
 
@@ -276,7 +288,7 @@ async function commitOrderChangesWithTransaction(
     );
   }
   if (order.status === OrderStatus.DELIVERED) {
-    throw new Error("Delivered orders cannot be edited.");
+    throw new OrderCommitDeliveredOrderError({ orderId: input.orderId });
   }
 
   await lockOrderCommitDraftForUpdate(client, input.orderId);
