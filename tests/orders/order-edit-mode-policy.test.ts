@@ -13,7 +13,6 @@ import {
 const base = {
   orderId: "order-1",
   orderStatus: OrderStatus.WAITING_SELECTION,
-  openAdjustmentWorkspaceId: null,
 };
 
 test("OrderEditModePolicy allows unlocked sales edits directly", () => {
@@ -27,10 +26,9 @@ test("OrderEditModePolicy allows unlocked sales edits directly", () => {
   assert.equal(policy.mode, "draft");
   assert.equal(policy.canEditDirectly, true);
   assert.equal(policy.isInteractive, true);
-  assert.equal(policy.shouldOpenAdjustmentWorkspace, false);
-  assert.equal(policy.openWorkspaceIsActive, false);
   assert.equal(policy.requiresManagerApproval, false);
   assert.equal(policy.blockedReason, null);
+  assert.equal(policy.routeTarget, null);
 });
 
 test("OrderEditModePolicy marks direct reductive sales edits as manager-approval candidates", () => {
@@ -50,7 +48,7 @@ test("OrderEditModePolicy marks direct reductive sales edits as manager-approval
   );
 });
 
-test("OrderEditModePolicy routes locked sales composition edits to workspace", () => {
+test("OrderEditModePolicy blocks locked sales composition edits without a route target", () => {
   for (const editKind of [
     ORDER_EDIT_KIND.PACKAGE_TIER_CHANGE,
     ORDER_EDIT_KIND.PACKAGE_ITEM_UPGRADE,
@@ -67,29 +65,12 @@ test("OrderEditModePolicy routes locked sales composition edits to workspace", (
 
     assert.equal(policy.canEditDirectly, false);
     assert.equal(policy.isInteractive, false);
-    assert.equal(policy.shouldOpenAdjustmentWorkspace, true);
-    assert.equal(policy.openWorkspaceIsActive, false);
     assert.equal(policy.requiresManagerApproval, false);
-    assert.equal(policy.blockedReason, "LOCKED_DIRECT_POS_REQUIRES_WORKSPACE");
-    assert.equal(policy.routeTarget?.href, "/orders/order-1/adjustment-workspace");
+    assert.equal(policy.blockedReason, "LOCKED_DIRECT_POS_REQUIRES_COMMIT");
+    assert.equal(policy.routeTarget, null);
     assert.equal(policy.userFacingMessage, ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS);
+    assert.doesNotMatch(policy.userFacingMessage, /Adjustment Workspace/);
   }
-});
-
-test("OrderEditModePolicy uses open-workspace messaging for locked sales", () => {
-  const policy = buildOrderEditModePolicy({
-    ...base,
-    mode: "locked",
-    finalInvoiceIsLocked: true,
-    openAdjustmentWorkspaceId: "workspace-1",
-    editKind: ORDER_EDIT_KIND.PACKAGE_TIER_CHANGE,
-  });
-
-  assert.equal(policy.shouldOpenAdjustmentWorkspace, true);
-  assert.equal(policy.isInteractive, false);
-  assert.equal(policy.openWorkspaceIsActive, true);
-  assert.equal(policy.blockedReason, "OPEN_WORKSPACE_REQUIRES_WORKSPACE");
-  assert.equal(policy.userFacingMessage, ORDER_EDIT_MODE_MESSAGES.openWorkspace);
 });
 
 test("OrderEditModePolicy distinguishes operational and financial locked configuration edits", () => {
@@ -113,28 +94,14 @@ test("OrderEditModePolicy distinguishes operational and financial locked configu
 
   assert.equal(operational.canEditDirectly, true);
   assert.equal(operational.isInteractive, true);
-  assert.equal(operational.shouldOpenAdjustmentWorkspace, false);
+  assert.equal(operational.blockedReason, null);
   assert.equal(financial.canEditDirectly, false);
   assert.equal(financial.isInteractive, false);
-  assert.equal(financial.shouldOpenAdjustmentWorkspace, true);
-  assert.equal(financial.userFacingMessage, "Edit Keepsake Box in the Adjustment Workspace.");
-});
-
-test("OrderEditModePolicy treats adjustment workspace edits as staged edits", () => {
-  const policy = buildOrderEditModePolicy({
-    ...base,
-    mode: "adjustment",
-    finalInvoiceIsLocked: true,
-    openAdjustmentWorkspaceId: "workspace-1",
-    editKind: ORDER_EDIT_KIND.SELECTED_PHOTO_COUNT_CHANGE,
-  });
-
-  assert.equal(policy.canEditDirectly, false);
-  assert.equal(policy.isInteractive, true);
-  assert.equal(policy.shouldOpenAdjustmentWorkspace, false);
-  assert.equal(policy.requiresManagerApproval, false);
-  assert.equal(policy.blockedReason, null);
-  assert.equal(policy.userFacingMessage, ORDER_EDIT_MODE_MESSAGES.adjustmentWorkspace);
+  assert.equal(financial.blockedReason, "LOCKED_DIRECT_POS_REQUIRES_COMMIT");
+  assert.equal(
+    financial.userFacingMessage,
+    "Change Keepsake Box through the Sales draft and commit from POS."
+  );
 });
 
 test("OrderEditModePolicy blocks delivered orders before edit-mode routing", () => {
@@ -148,7 +115,6 @@ test("OrderEditModePolicy blocks delivered orders before edit-mode routing", () 
 
   assert.equal(policy.canEditDirectly, false);
   assert.equal(policy.isInteractive, false);
-  assert.equal(policy.shouldOpenAdjustmentWorkspace, false);
   assert.equal(policy.blockedReason, "ORDER_DELIVERED");
   assert.equal(policy.userFacingMessage, ORDER_EDIT_MODE_MESSAGES.deliveredOrder);
 });
@@ -162,4 +128,10 @@ test("direct POS guard locked message and policy locked message stay aligned", (
   });
 
   assert.equal(policy.userFacingMessage, ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS);
+});
+
+test("OrderEditModePolicy source no longer exposes Adjustment Workspace affordances", () => {
+  for (const value of Object.values(ORDER_EDIT_MODE_MESSAGES)) {
+    assert.doesNotMatch(value, /Adjustment Workspace/);
+  }
 });

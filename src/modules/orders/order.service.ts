@@ -1,7 +1,6 @@
 import {
   AuditAction,
   AuditEntityType,
-  AdjustmentWorkspaceStatus,
   InvoiceType,
   InvoiceStatus,
   OrderActivityType,
@@ -26,11 +25,9 @@ import { db } from "@/lib/db";
 import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
-import { syncUpgradeCommissionForOrder } from "@/modules/commissions/commission.service";
 import { formatCustomerPhone } from "@/modules/customers/customer.utils";
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
-import { PendingCreditNoteApprovalError } from "@/modules/financial/edit-classifier";
 import { getFinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.service";
 import { mapFinancialCasePaymentStatusToLabel } from "@/modules/financial-cases/financial-case-summary.constants";
 import { getOrdersTableFinancialProjections } from "@/modules/financial-cases/orders-table-projections.service";
@@ -41,7 +38,6 @@ import {
 } from "@/modules/invoices/invoice-lock.service";
 import {
   snapshotInvoiceLineItemsWithClient,
-  syncOrderInvoiceForFinancialEdit,
 } from "@/modules/invoices/invoice.service";
 import { recordPaymentWithClient } from "@/modules/payments/payment.service";
 import type { RecordPaymentInput } from "@/modules/payments/payment.schema";
@@ -72,24 +68,13 @@ import {
   updateOrderEditingWorkflowSchema,
   updateOrderDeliveryWorkflowSchema,
   updateOrderProductionWorkflowSchema,
-  updateOrderPackageSchema,
-  upgradeOrderPackageItemSchema,
-  addOrderProductAddOnSchema,
-  removeOrderAddOnSchema,
-  updateOrderSelectedPhotoCountSchema,
   updateOrderWorkflowSchema,
-  type AddOrderProductAddOnInput,
   type UpdateOrderEditingWorkflowInput,
   type UpdateOrderDeliveryWorkflowInput,
-  type UpdateOrderPackageInput,
   type UpdateOrderProductionWorkflowInput,
-  type RemoveOrderAddOnInput,
-  type UpdateOrderSelectedPhotoCountInput,
-  type UpgradeOrderPackageItemInput,
   type UpdateOrderWorkflowInput,
 } from "./order.schema";
 import { getOrderTotalSelectedPhotoCount } from "./order.utils";
-import { ORDER_EDIT_MODE_MESSAGES } from "./policies/edit-mode-policy";
 import {
   assertEditingReadyToStartPolicy,
   buildEditingWorkflowPolicy,
@@ -187,8 +172,6 @@ const SALES_LINKED_FINANCIAL_DOCUMENT_TYPES = [
   InvoiceType.REFUND,
   InvoiceType.CREDIT_NOTE,
 ] as const;
-const LOCKED_INVOICE_WORKSPACE_REQUIRED =
-  ORDER_EDIT_MODE_MESSAGES.lockedDirectPOS;
 
 export class OrderAddOnOwnedBySessionConfigurationError extends Error {
   constructor(configurationLabel: string) {
@@ -202,14 +185,6 @@ export class OrderAddOnOwnedBySessionConfigurationError extends Error {
 function assertFinancialActorContext(actorContext: ActorContext): void {
   if (!actorContext.actorUserId || !actorContext.actorRole) {
     throw new Error("Missing actor context");
-  }
-}
-
-function assertDirectPOSMutationAllowed(
-  invoice: { isLocked: boolean } | null | undefined
-): void {
-  if (invoice?.isLocked) {
-    throw new Error(LOCKED_INVOICE_WORKSPACE_REQUIRED);
   }
 }
 
@@ -391,6 +366,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
               booking: {
                 select: {
                   sessionDate: true,
+                  assignedPhotographer: { select: { name: true } },
                   financialCase: {
                     select: {
                       id: true,
@@ -427,6 +403,11 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
                       },
                     },
                   },
+                },
+              },
+              job: {
+                select: {
+                  assignedPhotographer: { select: { name: true } },
                 },
               },
               packages: {
@@ -568,7 +549,12 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     (invoice) => invoice.invoiceStatus !== "Draft" && invoice.remainingAmount <= 0
   );
   const packageLines = mapPOSPackageLines({
-    lines: order.packages,
+    lines: order.packages.map((line) => ({
+      ...line,
+      packageItemUpgrades: order.packageItemUpgrades.filter(
+        (upgrade) => upgrade.orderPackageId === line.id
+      ),
+    })),
     packageOptions: packageRows,
     pricingRows: extraPhotoPricingRows,
     resolvedConfigurationsByPackageId,
@@ -586,7 +572,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     order.orderAddOns,
     order.packageItemUpgrades
   );
-  const addOns = mapPOSAddOns(combinedAddOnRows);
+  const addOns = mapPOSAddOns(order.orderAddOns);
   const addOnTotal = sumOrderAddOnRowsDecimal(combinedAddOnRows);
   const packageBaseTotal = new Prisma.Decimal(
     packageLines.reduce((sum, line) => sum + line.currentPackage.price, 0)
@@ -639,6 +625,10 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     sessionDate: formatDateTime(order.booking.sessionDate),
     customerName: order.customer.name,
     customerPhone: formatCustomerPhone(order.customer.phone),
+    photographerName:
+      order.job.assignedPhotographer?.name ??
+      order.booking.assignedPhotographer?.name ??
+      null,
     packageLines,
     packageItems,
     rawDeliverableTotal: sumPOSPackageItemsDecimal(packageItems).toNumber(),
@@ -1156,790 +1146,6 @@ export async function getOrderDeliveryWorkflowById(
     order,
     await getDeliveryPaymentSettlementContext(order.id)
   );
-}
-
-export async function updateOrderPackage(
-  orderId: string,
-  input: UpdateOrderPackageInput,
-  actorContext: ActorContext
-): Promise<POSWorkspace> {
-  const data = updateOrderPackageSchema.parse(input);
-  assertFinancialActorContext(actorContext);
-  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
-
-  await withRetry(
-    () =>
-      db.$transaction(async (tx) => {
-        const [order, selectedPackage] = await Promise.all([
-          tx.order.findUnique({
-            where: { id: orderId },
-            include: {
-              packages: {
-                where: { id: data.orderPackageId },
-                include: {
-                  currentPackage: { select: { id: true, name: true, price: true, photoCount: true } },
-                },
-                take: 1,
-              },
-              invoices: {
-                where: FINAL_PARENT_INVOICE_WHERE,
-                select: { id: true, isLocked: true },
-                orderBy: { createdAt: "asc" },
-                take: 1,
-              },
-              orderAddOns: {
-                select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
-                orderBy: { createdAt: "asc" },
-              },
-              packageItemUpgrades: {
-                select: packageItemUpgradeSelect,
-                orderBy: { createdAt: "asc" },
-              },
-            },
-          }),
-          tx.package.findUnique({
-            where: { id: data.packageId },
-            select: {
-              id: true,
-              name: true,
-              price: true,
-              photoCount: true,
-              isActive: true,
-              packageFamily: { select: { sessionTypeId: true } },
-            },
-          }),
-        ]);
-
-        if (!order) throw new Error("Order not found");
-        if (order.status === OrderStatus.DELIVERED) {
-          throw new Error("Delivered orders cannot be edited");
-        }
-        assertDirectPOSMutationAllowed(order.invoices[0]);
-        if (!selectedPackage || !selectedPackage.isActive) {
-          throw new Error("Selected package is not available");
-        }
-
-        const orderPackage = order.packages[0] ?? null;
-        if (!orderPackage) throw new Error("Package line not found on this order");
-        const previousPackage = orderPackage.currentPackage;
-        if (!previousPackage) throw new Error("Order has no package price");
-        if (selectedPackage.packageFamily.sessionTypeId !== orderPackage.sessionTypeId) {
-          throw new Error("Selected package does not belong to this line's session type");
-        }
-        const previousAddOns = mapStructuredAddOns(
-          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
-        );
-        const previousIncludedPhotoCount = previousPackage.photoCount;
-        const nextSelectedPhotoCount =
-          orderPackage.selectedPhotoCount === null ||
-          orderPackage.selectedPhotoCount === 0 ||
-          orderPackage.selectedPhotoCount === previousIncludedPhotoCount
-            ? selectedPackage.photoCount
-            : orderPackage.selectedPhotoCount > previousIncludedPhotoCount
-              ? Math.max(orderPackage.selectedPhotoCount, selectedPackage.photoCount)
-              : undefined;
-
-        await tx.orderPackageItemUpgrade.deleteMany({
-          where: {
-            orderId,
-            orderPackageId: orderPackage.id,
-          },
-        });
-
-        await tx.orderPackage.update({
-          where: { id: orderPackage.id },
-          data: {
-            currentPackage: { connect: { id: selectedPackage.id } },
-            currentPackageNameSnapshot: selectedPackage.name,
-            finalPackagePriceSnapshot: selectedPackage.price,
-            selectedPhotoCount: nextSelectedPhotoCount,
-          },
-        });
-        await syncOrderSelectedPhotoCountFromPackageLines(tx, orderId);
-
-        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
-          orderId,
-          actorContext,
-          previousAddOns,
-          previousSelectedPhotoCount: null,
-          previousIncludedPhotoCount,
-          managerApprovedReductionByUserId:
-            data.managerApprovedReductionByUserId,
-          managerApprovedReason: data.managerApprovedReason,
-        });
-
-        await syncUpgradeCommissionForOrder(tx, {
-          orderId,
-          upgradeAmount: invoiceSummary.packageAdjustmentAmount,
-        });
-
-        if (previousPackage.id !== selectedPackage.id) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.ORDER_PACKAGE_LINE_CHANGED,
-            title: "Package line changed",
-            description: `${previousPackage.name} changed to ${selectedPackage.name}.`,
-            metadata: {
-              orderPackageId: orderPackage.id,
-              previousPackageId: previousPackage.id,
-              previousPackageName: previousPackage.name,
-              nextPackageId: selectedPackage.id,
-              nextPackageName: selectedPackage.name,
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              packageAdjustmentBaseline: invoiceSummary.packageAdjustmentBaseline.toFixed(3),
-            },
-          });
-        }
-
-        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
-            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
-            metadata: {
-              invoiceId: invoiceSummary.invoiceId,
-              invoiceNumber: invoiceSummary.invoiceNumber,
-              totalAmount: invoiceSummary.totalAmount,
-              paidAmount: invoiceSummary.paidAmount,
-              remainingAmount: invoiceSummary.remainingAmount,
-              status: invoiceSummary.status,
-              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-            },
-          });
-        }
-      }),
-    "Failed to update order package",
-    undefined,
-    shouldRetryOrderFinancialEditError
-  );
-
-  const workspace = await getPOSWorkspace(orderId);
-  if (!workspace) throw new Error("Order not found after package update");
-  return workspace;
-}
-
-export async function upgradeOrderPackageItem(
-  orderId: string,
-  input: UpgradeOrderPackageItemInput,
-  actorContext: ActorContext
-): Promise<POSWorkspace> {
-  const data = upgradeOrderPackageItemSchema.parse(input);
-  assertFinancialActorContext(actorContext);
-  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
-
-  await withRetry(
-    () =>
-      db.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({
-          where: { id: orderId },
-          include: {
-            packages: {
-              where: { id: data.orderPackageId },
-              include: {
-                currentPackage: { select: { id: true, price: true, photoCount: true } },
-              },
-              take: 1,
-            },
-            invoices: {
-              where: FINAL_PARENT_INVOICE_WHERE,
-              select: { id: true, isLocked: true },
-              orderBy: { createdAt: "asc" },
-              take: 1,
-            },
-            orderAddOns: {
-              select: { productId: true, nameSnapshot: true, priceSnapshot: true, quantity: true },
-              orderBy: { createdAt: "asc" },
-            },
-            packageItemUpgrades: {
-              select: packageItemUpgradeSelect,
-              orderBy: { createdAt: "asc" },
-            },
-          },
-        });
-        if (!order) throw new Error("Order not found");
-        if (order.status === OrderStatus.DELIVERED) {
-          throw new Error("Delivered orders cannot be edited");
-        }
-        assertDirectPOSMutationAllowed(order.invoices[0]);
-
-        const orderPackage = order.packages[0] ?? null;
-        if (!orderPackage) throw new Error("Package line not found on this order");
-        const currentPackage = orderPackage.currentPackage;
-
-        const [currentItem, newProduct] = await Promise.all([
-          tx.packageItem.findUnique({
-            where: { id: data.packageItemId },
-            include: { product: { select: { id: true, name: true, category: true } } },
-          }),
-          tx.product.findUnique({
-            where: { id: data.newProductId },
-            select: {
-              id: true,
-              name: true,
-              category: true,
-              canonicalPrice: true,
-              isActive: true,
-              isPackageDeliverable: true,
-            },
-          }),
-        ]);
-
-        if (!currentItem || currentItem.packageId !== currentPackage.id) {
-          throw new Error("Package item is not part of the current order package");
-        }
-        if (!newProduct || !newProduct.isActive || !newProduct.isPackageDeliverable) {
-          throw new Error("Replacement product is not available");
-        }
-        if (newProduct.category !== currentItem.product.category) {
-          throw new Error("Replacement product must be in the same category");
-        }
-        if (newProduct.id === currentItem.productId) {
-          throw new Error("Replacement product is already included");
-        }
-
-        const previousAddOns = mapStructuredAddOns(
-          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
-        );
-        const unitDelta = newProduct.canonicalPrice.minus(currentItem.priceSnapshot);
-        const adjustmentTotal = unitDelta.mul(currentItem.quantity);
-        const existingAddOn = await tx.orderPackageItemUpgrade.findFirst({
-          where: {
-            orderId,
-            orderPackageId: orderPackage.id,
-            packageItemId: currentItem.id,
-          },
-          select: { id: true },
-        });
-        const addOn = existingAddOn
-          ? await tx.orderPackageItemUpgrade.update({
-              where: { id: existingAddOn.id },
-              data: {
-                orderPackageId: orderPackage.id,
-                nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
-                priceSnapshot: unitDelta,
-                quantity: currentItem.quantity,
-                notes: `Package item upgrade from ${currentItem.product.name}`,
-              },
-              select: { id: true },
-            })
-          : await tx.orderPackageItemUpgrade.create({
-              data: {
-                orderId,
-                orderPackageId: orderPackage.id,
-                packageItemId: currentItem.id,
-                nameSnapshot: `${currentItem.product.name} to ${newProduct.name}`,
-                priceSnapshot: unitDelta,
-                quantity: currentItem.quantity,
-                notes: `Package item upgrade from ${currentItem.product.name}`,
-              },
-              select: { id: true },
-            });
-
-        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
-          orderId,
-          actorContext,
-          previousAddOns,
-          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
-          previousIncludedPhotoCount: currentPackage.photoCount,
-          managerApprovedReductionByUserId:
-            data.managerApprovedReductionByUserId,
-          managerApprovedReason: data.managerApprovedReason,
-        });
-
-        await recordOrderActivity(tx, {
-          orderId,
-          userId: actorContext.actorUserId ?? null,
-          type: OrderActivityType.ADD_ON_CHANGED,
-          title: "Package item upgraded",
-          description: `${currentItem.product.name} changed to ${newProduct.name} for ${formatSignedMoney(adjustmentTotal)}.`,
-          metadata: {
-            orderPackageItemUpgradeId: addOn.id,
-            orderPackageId: orderPackage.id,
-            packageItemId: currentItem.id,
-            previousProductId: currentItem.productId,
-            previousProductName: currentItem.product.name,
-            nextProductId: newProduct.id,
-            nextProductName: newProduct.name,
-            quantity: currentItem.quantity,
-            unitPriceDelta: unitDelta.toFixed(3),
-            priceDelta: adjustmentTotal.toFixed(3),
-          },
-        });
-
-        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
-            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
-            metadata: {
-              invoiceId: invoiceSummary.invoiceId,
-              invoiceNumber: invoiceSummary.invoiceNumber,
-              totalAmount: invoiceSummary.totalAmount,
-              paidAmount: invoiceSummary.paidAmount,
-              remainingAmount: invoiceSummary.remainingAmount,
-              status: invoiceSummary.status,
-              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-            },
-          });
-        }
-      }),
-    "Failed to upgrade package item",
-    undefined,
-    shouldRetryOrderFinancialEditError
-  );
-
-  const workspace = await getPOSWorkspace(orderId);
-  if (!workspace) throw new Error("Order not found after package item upgrade");
-  return workspace;
-}
-
-export async function addOrderProductAddOn(
-  orderId: string,
-  input: AddOrderProductAddOnInput,
-  actorContext: ActorContext
-): Promise<POSWorkspace> {
-  const data = addOrderProductAddOnSchema.parse(input);
-  assertFinancialActorContext(actorContext);
-  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
-
-  await withRetry(
-    () =>
-      db.$transaction(async (tx) => {
-        const [order, product] = await Promise.all([
-          tx.order.findUnique({
-            where: { id: orderId },
-            include: {
-              invoices: {
-                where: FINAL_PARENT_INVOICE_WHERE,
-                select: { id: true, isLocked: true },
-                orderBy: { createdAt: "asc" },
-                take: 1,
-              },
-              orderAddOns: {
-                select: {
-                  productId: true,
-                  nameSnapshot: true,
-                  priceSnapshot: true,
-                  quantity: true,
-                },
-                orderBy: { createdAt: "asc" },
-              },
-              packageItemUpgrades: {
-                select: packageItemUpgradeSelect,
-                orderBy: { createdAt: "asc" },
-              },
-              packages: {
-                select: {
-                  selectedPhotoCount: true,
-                  currentPackage: { select: { photoCount: true } },
-                },
-              },
-            },
-          }),
-          tx.product.findUnique({
-            where: { id: data.productId },
-            select: {
-              id: true,
-              name: true,
-              canonicalPrice: true,
-              isActive: true,
-              isAddOn: true,
-              isPackageDeliverable: true,
-            },
-          }),
-        ]);
-
-        if (!order) throw new Error("Order not found");
-        if (order.status === OrderStatus.DELIVERED) {
-          throw new Error("Delivered orders cannot be edited");
-        }
-        assertDirectPOSMutationAllowed(order.invoices[0]);
-        if (!product || !product.isActive || (!product.isAddOn && !product.isPackageDeliverable)) {
-          throw new Error("Selected add-on product is not available");
-        }
-        const previousAddOns = mapStructuredAddOns(
-          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
-        );
-        const addOn = await tx.orderAddOn.create({
-          data: {
-            orderId,
-            productId: product.id,
-            nameSnapshot: product.name,
-            priceSnapshot: product.canonicalPrice,
-            quantity: 1,
-          },
-          select: { id: true },
-        });
-
-        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
-          orderId,
-          actorContext,
-          previousAddOns,
-          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
-          previousIncludedPhotoCount: null,
-        });
-
-        await recordOrderActivity(tx, {
-          orderId,
-          userId: actorContext.actorUserId ?? null,
-          type: OrderActivityType.ADD_ON_CHANGED,
-          title: "Add-on added",
-          description: `${product.name} was added for ${formatMoney(product.canonicalPrice)}.`,
-          metadata: {
-            orderAddOnId: addOn.id,
-            productId: product.id,
-            productName: product.name,
-            price: product.canonicalPrice.toFixed(3),
-            addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-          },
-        });
-
-        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
-            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
-            metadata: {
-              invoiceId: invoiceSummary.invoiceId,
-              invoiceNumber: invoiceSummary.invoiceNumber,
-              totalAmount: invoiceSummary.totalAmount,
-              paidAmount: invoiceSummary.paidAmount,
-              remainingAmount: invoiceSummary.remainingAmount,
-              status: invoiceSummary.status,
-              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-            },
-          });
-        }
-      }),
-    "Failed to add order add-on"
-  );
-
-  const workspace = await getPOSWorkspace(orderId);
-  if (!workspace) throw new Error("Order not found after add-on update");
-  return workspace;
-}
-
-export async function removeOrderAddOn(
-  orderId: string,
-  input: RemoveOrderAddOnInput,
-  actorContext: ActorContext
-): Promise<POSWorkspace> {
-  const data = removeOrderAddOnSchema.parse(input);
-  assertFinancialActorContext(actorContext);
-  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
-
-  await withRetry(
-    () =>
-      db.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({
-          where: { id: orderId },
-          include: {
-            invoices: {
-              where: FINAL_PARENT_INVOICE_WHERE,
-              select: { id: true, isLocked: true },
-              orderBy: { createdAt: "asc" },
-              take: 1,
-            },
-            orderAddOns: {
-              select: {
-                productId: true,
-                nameSnapshot: true,
-                priceSnapshot: true,
-                quantity: true,
-              },
-              orderBy: { createdAt: "asc" },
-            },
-            packageItemUpgrades: {
-              select: packageItemUpgradeSelect,
-              orderBy: { createdAt: "asc" },
-            },
-            packages: {
-              select: {
-                selectedPhotoCount: true,
-                currentPackage: { select: { photoCount: true } },
-              },
-            },
-          },
-        });
-
-        if (!order) throw new Error("Order not found");
-        if (order.status === OrderStatus.DELIVERED) {
-          throw new Error("Delivered orders cannot be edited");
-        }
-        assertDirectPOSMutationAllowed(order.invoices[0]);
-
-        const previousAddOns = mapStructuredAddOns(
-          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
-        );
-        const addOn = await tx.orderAddOn.findFirst({
-          where: {
-            id: data.addOnId,
-            orderId,
-          },
-          select: {
-            id: true,
-            productId: true,
-            nameSnapshot: true,
-            priceSnapshot: true,
-            quantity: true,
-          },
-        });
-        if (!addOn) {
-          throw new Error("Selected add-on is not on this order");
-        }
-        const selectionOwner =
-          await tx.orderPackageSessionConfigurationSelection.findFirst({
-            where: { orderAddOnId: addOn.id },
-            select: { id: true, snapshotLabel: true },
-          });
-        if (selectionOwner) {
-          console.info(
-            JSON.stringify({
-              metric: "add_on.delete_blocked_by_session_configuration",
-              orderId,
-              orderAddOnId: addOn.id,
-              selectionId: selectionOwner.id,
-            })
-          );
-          throw new OrderAddOnOwnedBySessionConfigurationError(
-            selectionOwner.snapshotLabel
-          );
-        }
-
-        if (addOn.quantity > 1) {
-          await tx.orderAddOn.update({
-            where: { id: addOn.id },
-            data: { quantity: addOn.quantity - 1 },
-          });
-        } else {
-          await tx.orderAddOn.delete({ where: { id: addOn.id } });
-        }
-
-        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
-          orderId,
-          actorContext,
-          previousAddOns,
-          previousSelectedPhotoCount: getOrderTotalSelectedPhotoCount(order.packages),
-          previousIncludedPhotoCount: null,
-          managerApprovedReductionByUserId:
-            data.managerApprovedReductionByUserId,
-          managerApprovedReason: data.managerApprovedReason,
-        });
-
-        await recordOrderActivity(tx, {
-          orderId,
-          userId: actorContext.actorUserId ?? null,
-          type: OrderActivityType.ADD_ON_CHANGED,
-          title: "Add-on removed",
-          description: `${addOn.nameSnapshot} was removed.`,
-          metadata: {
-            orderAddOnId: addOn.id,
-            productId: addOn.productId,
-            productName: addOn.nameSnapshot,
-            price: addOn.priceSnapshot.toFixed(3),
-            previousQuantity: addOn.quantity,
-            nextQuantity: Math.max(addOn.quantity - 1, 0),
-            addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-          },
-        });
-
-        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
-            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
-            metadata: {
-              invoiceId: invoiceSummary.invoiceId,
-              invoiceNumber: invoiceSummary.invoiceNumber,
-              totalAmount: invoiceSummary.totalAmount,
-              paidAmount: invoiceSummary.paidAmount,
-              remainingAmount: invoiceSummary.remainingAmount,
-              status: invoiceSummary.status,
-              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-            },
-          });
-        }
-      }),
-    "Failed to remove order add-on",
-    undefined,
-    shouldRetryOrderFinancialEditError
-  );
-
-  const workspace = await getPOSWorkspace(orderId);
-  if (!workspace) throw new Error("Order not found after add-on removal");
-  return workspace;
-}
-
-export async function updateOrderSelectedPhotoCount(
-  orderId: string,
-  input: UpdateOrderSelectedPhotoCountInput,
-  actorContext: ActorContext
-): Promise<POSWorkspace> {
-  const data = updateOrderSelectedPhotoCountSchema.parse(input);
-  assertFinancialActorContext(actorContext);
-  assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
-
-  await withRetry(
-    () =>
-      db.$transaction(async (tx) => {
-        const order = await tx.order.findUnique({
-          where: { id: orderId },
-          include: {
-            packages: {
-              where: { id: data.orderPackageId },
-              include: {
-                currentPackage: { select: { price: true, photoCount: true } },
-              },
-              take: 1,
-            },
-            invoices: {
-              where: FINAL_PARENT_INVOICE_WHERE,
-              select: { id: true, isLocked: true },
-              orderBy: { createdAt: "asc" },
-              take: 1,
-            },
-            orderAddOns: {
-              select: {
-                productId: true,
-                nameSnapshot: true,
-                priceSnapshot: true,
-                quantity: true,
-              },
-              orderBy: { createdAt: "asc" },
-            },
-            packageItemUpgrades: {
-              select: packageItemUpgradeSelect,
-              orderBy: { createdAt: "asc" },
-            },
-          },
-        });
-
-        if (!order) throw new Error("Order not found");
-        if (order.status === OrderStatus.DELIVERED) {
-          throw new Error("Delivered orders cannot be edited");
-        }
-        assertDirectPOSMutationAllowed(order.invoices[0]);
-
-        const orderPackage = order.packages[0] ?? null;
-        if (!orderPackage) throw new Error("Package line not found on this order");
-        const currentPackage = orderPackage.currentPackage;
-        if (data.selectedPhotoCount < currentPackage.photoCount) {
-          throw new Error("Selected photos cannot be below included package photos");
-        }
-        const derivedExtraCount = Math.max(
-          data.selectedPhotoCount - currentPackage.photoCount,
-          0
-        );
-        if (data.extraDigitalCount + data.extraPrintCount !== derivedExtraCount) {
-          throw new Error(
-            "Digital and print extra allocations must equal the derived extra-photo count."
-          );
-        }
-
-        const previousAddOns = mapStructuredAddOns(
-          combineFinancialAddOnRows(order.orderAddOns, order.packageItemUpgrades)
-        );
-        const previousExtraPhotoCharge = await calculateOrderPackageLineExtraPhotoTotal(
-          tx,
-          {
-            sessionTypeId: orderPackage.sessionTypeId,
-            extraDigitalCount: orderPackage.extraDigitalCount,
-            extraPrintCount: orderPackage.extraPrintCount,
-          }
-        );
-        await tx.orderPackage.update({
-          where: { id: orderPackage.id },
-          data: {
-            selectedPhotoCount: data.selectedPhotoCount,
-            extraDigitalCount: data.extraDigitalCount,
-            extraPrintCount: data.extraPrintCount,
-          },
-        });
-        await syncOrderSelectedPhotoCountFromPackageLines(tx, orderId);
-
-        const invoiceSummary = await syncOrderInvoiceForFinancialEdit(tx, {
-          orderId,
-          actorContext,
-          previousAddOns,
-          previousSelectedPhotoCount: null,
-          previousIncludedPhotoCount: currentPackage.photoCount,
-          previousExtraPhotoCharge,
-          managerApprovedReductionByUserId:
-            data.managerApprovedReductionByUserId,
-          managerApprovedReason: data.managerApprovedReason,
-        });
-
-        if (
-          orderPackage.selectedPhotoCount !== data.selectedPhotoCount ||
-          orderPackage.extraDigitalCount !== data.extraDigitalCount ||
-          orderPackage.extraPrintCount !== data.extraPrintCount
-        ) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.ORDER_PACKAGE_EXTRAS_CHANGED,
-            title: "Package line photo selection updated",
-            description: `Selected photos changed to ${data.selectedPhotoCount}.`,
-            metadata: {
-              orderPackageId: orderPackage.id,
-              previousSelectedPhotoCount: orderPackage.selectedPhotoCount,
-              nextSelectedPhotoCount: data.selectedPhotoCount,
-              includedPhotoCount: currentPackage.photoCount,
-              previousExtraDigitalCount: orderPackage.extraDigitalCount,
-              previousExtraPrintCount: orderPackage.extraPrintCount,
-              nextExtraDigitalCount: data.extraDigitalCount,
-              nextExtraPrintCount: data.extraPrintCount,
-              extraPhotoCount: data.extraDigitalCount + data.extraPrintCount,
-            },
-          });
-        }
-
-        if (!invoiceSummary.totalAdjustmentAmount.equals(0) || invoiceSummary.createdInvoice) {
-          await recordOrderActivity(tx, {
-            orderId,
-            userId: actorContext.actorUserId ?? null,
-            type: OrderActivityType.INVOICE_ADJUSTED,
-            title: invoiceSummary.createdInvoice ? "Invoice created" : "Invoice adjusted",
-            description: `Invoice ${invoiceSummary.invoiceNumber} now totals ${invoiceSummary.totalAmount}.`,
-            metadata: {
-              invoiceId: invoiceSummary.invoiceId,
-              invoiceNumber: invoiceSummary.invoiceNumber,
-              totalAmount: invoiceSummary.totalAmount,
-              paidAmount: invoiceSummary.paidAmount,
-              remainingAmount: invoiceSummary.remainingAmount,
-              status: invoiceSummary.status,
-              totalAdjustmentAmount: invoiceSummary.totalAdjustmentAmount.toFixed(3),
-              packageAdjustmentAmount: invoiceSummary.packageAdjustmentAmount.toFixed(3),
-              addOnAdjustmentAmount: invoiceSummary.addOnAdjustmentAmount.toFixed(3),
-            },
-          });
-        }
-      }),
-    "Failed to update selected photo count",
-    undefined,
-    shouldRetryOrderFinancialEditError
-  );
-
-  const workspace = await getPOSWorkspace(orderId);
-  if (!workspace) throw new Error("Order not found after selected photo update");
-  return workspace;
 }
 
 export async function updateOrderEditingWorkflow(
@@ -2877,13 +2083,6 @@ async function fetchOrders(filters: OrderFilters) {
     ...(filters.editorId
       ? { editingJob: { assignedEditorId: filters.editorId } }
       : {}),
-    ...(filters.hasOpenWorkspace
-      ? {
-          adjustmentWorkspaces: {
-            some: { status: AdjustmentWorkspaceStatus.OPEN },
-          },
-        }
-      : {}),
   };
 
   return db.order.findMany({
@@ -2930,11 +2129,6 @@ async function fetchOrders(filters: OrderFilters) {
         },
         orderBy: { createdAt: "desc" },
       },
-      adjustmentWorkspaces: {
-        where: { status: AdjustmentWorkspaceStatus.OPEN },
-        select: { id: true },
-        take: 1,
-      },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -2963,11 +2157,6 @@ function fetchOrdersByCustomerId(customerId: string, limit: number) {
           createdAt: true,
         },
         orderBy: { createdAt: "desc" },
-      },
-      adjustmentWorkspaces: {
-        where: { status: AdjustmentWorkspaceStatus.OPEN },
-        select: { id: true },
-        take: 1,
       },
     },
     orderBy: { createdAt: "desc" },
@@ -3089,8 +2278,6 @@ function mapOrderRow(
     createdAt: formatDate(row.createdAt),
     primaryInvoiceId: row.invoices[0]?.id ?? null,
     primaryInvoiceNumber: row.invoices[0]?.invoiceNumber ?? null,
-    hasOpenAdjustmentWorkspace:
-      "adjustmentWorkspaces" in row && row.adjustmentWorkspaces.length > 0,
   };
 }
 
@@ -3429,35 +2616,6 @@ function zeroMoney(): Prisma.Decimal {
   return new Prisma.Decimal(0);
 }
 
-async function calculateOrderPackageLineExtraPhotoTotal(
-  client: Prisma.TransactionClient,
-  input: {
-    sessionTypeId: string;
-    extraDigitalCount: number;
-    extraPrintCount: number;
-  }
-): Promise<Prisma.Decimal> {
-  const pricingRows = await client.sessionTypeExtraPhotoPricing.findMany({
-    where: {
-      sessionTypeId: input.sessionTypeId,
-      mediaType: { in: [MediaType.DIGITAL, MediaType.PRINT] },
-    },
-    select: { mediaType: true, unitPrice: true },
-  });
-  const priceByMedia = new Map(
-    pricingRows.map((row) => [row.mediaType, row.unitPrice])
-  );
-  const digitalUnitPrice = priceByMedia.get(MediaType.DIGITAL);
-  const printUnitPrice = priceByMedia.get(MediaType.PRINT);
-  if (!digitalUnitPrice || !printUnitPrice) {
-    throw new Error("Extra-photo pricing is required for this package line");
-  }
-
-  return digitalUnitPrice
-    .mul(input.extraDigitalCount)
-    .plus(printUnitPrice.mul(input.extraPrintCount));
-}
-
 async function syncOrderSelectedPhotoCountFromPackageLines(
   client: OrderWriteClient,
   orderId: string
@@ -3607,16 +2765,32 @@ function mapPOSPackageItems(
       name: string;
       category: ProductCategory;
     };
-  }>
+  }>,
+  packageItemUpgrades: Array<{
+    packageItemId: string;
+    nameSnapshot: string;
+    priceSnapshot: Prisma.Decimal;
+    quantity: number;
+  }> = []
 ): POSPackageItem[] {
+  const upgradeByPackageItemId = new Map(
+    packageItemUpgrades.map((upgrade) => [upgrade.packageItemId, upgrade])
+  );
+
   return rows.map((row) => ({
     id: row.id,
     productId: row.productId,
-    productName: row.product.name,
+    productName: upgradeByPackageItemId.get(row.id)?.nameSnapshot ?? row.product.name,
     category: row.product.category,
-    quantity: row.quantity,
-    priceSnapshot: row.priceSnapshot.toNumber(),
-    priceSnapshotLabel: formatMoney(row.priceSnapshot),
+    quantity: upgradeByPackageItemId.get(row.id)?.quantity ?? row.quantity,
+    priceSnapshot: row.priceSnapshot
+      .plus(upgradeByPackageItemId.get(row.id)?.priceSnapshot ?? zeroMoney())
+      .toNumber(),
+    priceSnapshotLabel: formatMoney(
+      row.priceSnapshot.plus(
+        upgradeByPackageItemId.get(row.id)?.priceSnapshot ?? zeroMoney()
+      )
+    ),
   }));
 }
 
@@ -3629,20 +2803,17 @@ function mapPOSAddOns(
     quantity: number;
   }>
 ): POSAddOn[] {
-  return rows.flatMap((row) => {
-    const entries: POSAddOn[] = [];
+  return rows.map((row) => {
     const rowId = row.id ?? row.nameSnapshot;
-    for (let index = 0; index < row.quantity; index++) {
-      entries.push({
-        id: row.quantity === 1 ? rowId : `${rowId}-${index + 1}`,
-        addOnRowId: rowId,
-        productId: row.productId,
-        name: row.nameSnapshot,
-        price: row.priceSnapshot.toNumber(),
-        priceLabel: formatMoney(row.priceSnapshot),
-      });
-    }
-    return entries;
+    return {
+      id: rowId,
+      addOnRowId: rowId,
+      productId: row.productId,
+      name: row.nameSnapshot,
+      quantity: row.quantity,
+      price: row.priceSnapshot.toNumber(),
+      priceLabel: formatMoney(row.priceSnapshot),
+    };
   });
 }
 
@@ -3674,6 +2845,12 @@ function mapPOSPackageLines(input: {
       bundleAdjustment: Prisma.Decimal;
       items: Parameters<typeof mapPOSPackageItems>[0];
     };
+    packageItemUpgrades: Array<{
+      packageItemId: string;
+      nameSnapshot: string;
+      priceSnapshot: Prisma.Decimal;
+      quantity: number;
+    }>;
   }>;
   packageOptions: Array<{
     id: string;
@@ -3719,6 +2896,10 @@ function mapPOSPackageLines(input: {
     const sessionConfigurationPricing = priceSelections(
       resolvedConfigurations?.selections ?? []
     );
+    const packageItemUpgradeTotal = sumOrderAddOnRowsDecimal(
+      line.packageItemUpgrades
+    );
+    const packageUpgradeDelta = upgradeDelta.plus(packageItemUpgradeTotal);
 
     return {
       id: line.id,
@@ -3735,7 +2916,10 @@ function mapPOSPackageLines(input: {
         name: line.currentPackageNameSnapshot,
         price: finalPrice,
       }),
-      packageItems: mapPOSPackageItems(currentPackage.items),
+      packageItems: mapPOSPackageItems(
+        currentPackage.items,
+        line.packageItemUpgrades
+      ),
       includedPhotoCount: currentPackage.photoCount,
       selectedPhotoCount,
       extraDigitalCount: line.extraDigitalCount,
@@ -3744,9 +2928,9 @@ function mapPOSPackageLines(input: {
       extraDigitalUnitPrice: digitalUnitPrice.toNumber(),
       extraPrintUnitPrice: printUnitPrice.toNumber(),
       extraPhotoTotal: extraPhotoTotal.toNumber(),
-      packageSubtotal: packageSubtotal.toNumber(),
-      upgradeDelta: upgradeDelta.toNumber(),
-      upgradeDeltaLabel: formatSignedMoney(upgradeDelta),
+      packageSubtotal: packageSubtotal.plus(packageItemUpgradeTotal).toNumber(),
+      upgradeDelta: packageUpgradeDelta.toNumber(),
+      upgradeDeltaLabel: formatSignedMoney(packageUpgradeDelta),
       packageOptions: mapPOSPackageOptions(scopedPackageOptions, {
         id: currentPackage.id,
         price: finalPrice,
@@ -3816,6 +3000,8 @@ function mapCurrentSessionConfigurationSelection(
     selectionId: selection.id,
     snapshotLabel: selection.snapshotLabel,
     snapshotPriceDelta: selection.snapshotPriceDelta.toNumber(),
+    snapshotLinkedProductId: selection.snapshotLinkedProductId,
+    orderAddOnId: selection.orderAddOnId,
   };
 
   switch (selection.snapshotInputType) {
@@ -5059,11 +4245,4 @@ function mapProductionQueueRow(row: ProductionQueueRow): ProductionQueueItem {
     productionStatus: ORDER_PRODUCTION_STATUS_LABELS[productionStatus],
     sectionSummary: `${completedSections} of 6 sections complete`,
   };
-}
-
-function shouldRetryOrderFinancialEditError(error: unknown): boolean {
-  return !(
-    error instanceof PendingCreditNoteApprovalError ||
-    error instanceof OrderAddOnOwnedBySessionConfigurationError
-  );
 }

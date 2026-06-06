@@ -13,13 +13,8 @@ import {
 import { deletePendingBooking, recordBookingDeposit } from "@/modules/bookings/booking.service";
 import { classifyEditDelta } from "@/modules/financial/edit-classifier";
 import { runAllInvariants } from "@/modules/financial/invariants";
-import {
-  applyEdit,
-  finalizeWorkspace,
-  getAdjustmentWorkspaceView,
-  openWorkspace,
-} from "@/modules/adjustment-workspace/adjustment-workspace.service";
-import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
+import { OrderCommitDeliveredOrderError } from "@/modules/order-commits";
+import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 import {
   applyDepositToFinalIfPresent,
   closeInvoice,
@@ -32,10 +27,10 @@ import {
   syncOrderInvoiceForFinancialEdit,
 } from "@/modules/invoices/invoice.service";
 import {
-  addOrderProductAddOn,
-  removeOrderAddOn,
-  updateOrderPackage,
-} from "@/modules/orders/order.service";
+  addOrderAddOnChange,
+  commitOrderEditForTest,
+  updateOrderPackageChange,
+} from "../order-commits/helpers/commit-order-edit";
 import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import { recordPayment } from "@/modules/payments/payment.service";
 import { generateBookingReference } from "@/modules/identifiers/identifier.service";
@@ -73,7 +68,6 @@ export async function runPhaseCEdgeCaseExpansion(db: PrismaClient): Promise<void
     { id: "E8", run: runE8AdjustmentOfAdjustmentBlocked },
     { id: "E9", run: runE9AdjustmentLineReductionTargetsFinal },
     { id: "E10", run: runE10ConcurrentEditCancellationStaleState },
-    { id: "E11", run: runE11PaidAdjustmentCauseRemovalCharacterization },
     { id: "E12", run: runE12QuantityIncrease },
     { id: "EC-13", run: runEc13DoubleConfirmation },
     { id: "EC-14", run: runEc14DepositBelowMinimum },
@@ -87,17 +81,13 @@ export async function runPhaseCEdgeCaseExpansion(db: PrismaClient): Promise<void
     { id: "EC-22", run: runEc22AppendOnlyPaymentOnLockedFinal },
     { id: "EC-23", run: runEc23StalePaymentAfterInvoiceLocks },
     { id: "EC-24", run: runEc24PackageDowngradeBlocked },
-    { id: "EC-25", run: runEc25EqualPricePackageSwap },
     { id: "EC-26", run: runEc26ConfirmedBookingHardDeleteBlocked },
     { id: "EC-27", run: runEc27DirectLockedInvoiceUnlockCharacterization },
-    { id: "EC-28", run: runEc28OpenAdjustmentAfterCancellationCharacterization },
     { id: "EC-29", run: runEc29MultiPackageInvoiceLines },
     { id: "EC-30", run: runEc30PackageScopedAddonDeletion },
     { id: "EC-31", run: runEc31PhotographerAssignmentChange },
-    { id: "EC-32", run: runEc32CommissionUpgradeHookGap },
     { id: "EC-33", run: runEc33NoUpgradeNoCommissionRows },
     { id: "EC-34", run: runEc34SessionTypeMismatchBlocked },
-    { id: "EC-35", run: runEc35StaleRecalculationAfterAdjustmentPaid },
     { id: "EC-36", run: runEc36MissingDocumentApplicationDetected },
     { id: "EC-37", run: runEc37PaymentRaceLockCoverageCharacterization },
     { id: "EC-38", run: runEc38RefundInvoiceAmountIntegrity },
@@ -269,10 +259,7 @@ async function runE8AdjustmentOfAdjustmentBlocked(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "e8");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "e8-addon",
-  });
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.addOnProductId);
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
 
   await assert.rejects(
@@ -298,10 +285,7 @@ async function runE9AdjustmentLineReductionTargetsFinal(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "e9");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "e9-addon",
-  });
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.addOnProductId);
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
@@ -328,68 +312,21 @@ async function runE10ConcurrentEditCancellationStaleState(
   });
 
   await assert.rejects(
-    () => addOrderProductAddOn(workflow.orderId, { productId: fixtures.addOnProductId }, fixtures.adminActor),
-    /Delivered orders cannot be edited|Failed to add order add-on/
+    () =>
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: addOrderAddOnChange(fixtures.addOnProductId),
+        actorContext: fixtures.adminActor,
+      }),
+    (error) =>
+      error instanceof OrderCommitDeliveredOrderError &&
+      error.message === ORDER_EDIT_MODE_MESSAGES.deliveredOrder
   );
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
   assert.equal(
     await db.invoice.count({ where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT } }),
     0
   );
-}
-
-async function runE11PaidAdjustmentCauseRemovalCharacterization(
-  db: PrismaClient,
-  fixtures: PhaseCFixtures
-): Promise<void> {
-  const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "e11");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "e11-addon",
-  });
-  const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
-  await recordPayment(
-    adjustment.id,
-    { amount: 50, method: PaymentMethod.CASH, paymentType: PaymentType.ADJUSTMENT },
-    fixtures.adminActor
-  );
-  const negativeAdjustmentId = await finalizeWorkspaceLineRemoval(
-    fixtures,
-    workflow,
-    fixtures.addOnProductId,
-    "e11-remove-paid-adjustment-line"
-  );
-
-  const [
-    creditNotes,
-    refunds,
-    adjustments,
-    paidAdjustment,
-    negativeAdjustment,
-    order,
-  ] = await Promise.all([
-    db.invoice.count({
-      where: { orderId: workflow.orderId, invoiceType: InvoiceType.CREDIT_NOTE },
-    }),
-    db.invoice.count({
-      where: { orderId: workflow.orderId, invoiceType: InvoiceType.REFUND },
-    }),
-    db.invoice.count({
-      where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT },
-    }),
-    db.invoice.findUniqueOrThrow({ where: { id: adjustment.id } }),
-    db.invoice.findUniqueOrThrow({ where: { id: negativeAdjustmentId } }),
-    db.order.findUniqueOrThrow({
-      where: { id: workflow.orderId },
-      select: { refundPending: true },
-    }),
-  ]);
-  assert.equal(adjustments, 2, "workspace removal emits one consolidated negative ADJ");
-  assert.equal(creditNotes, 0, "workspace removal no longer uses direct credit-note reversal");
-  assert.equal(refunds, 0, "workspace removal marks refund pending instead of issuing a refund");
-  assertMoney(negativeAdjustment.totalAmount, "-50", "negative workspace adjustment amount");
-  assert.equal(negativeAdjustment.isLocked, true);
-  assert.equal(order.refundPending, true);
-  assert.equal(paidAdjustment.status, InvoiceStatus.CLOSED);
 }
 
 async function runE12QuantityIncrease(): Promise<void> {
@@ -546,10 +483,7 @@ async function runEc19RefundAfterAdjustmentWithoutCreditCharacterization(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec19");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "ec19-addon",
-  });
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.addOnProductId);
   const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   await recordPayment(
     adjustment.id,
@@ -566,20 +500,14 @@ async function runEc20SecondAdjustmentIsSibling(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec20");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "ec20-addon-a",
-  });
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.addOnProductId);
   const firstAdjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
   await recordPayment(
     firstAdjustment.id,
     { amount: 50, method: PaymentMethod.CASH, paymentType: PaymentType.ADJUSTMENT },
     fixtures.adminActor
   );
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.secondAddOnProductId,
-    editId: "ec20-addon-b",
-  });
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.secondAddOnProductId);
 
   const adjustments = await db.invoice.findMany({
     where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT },
@@ -597,14 +525,8 @@ async function runEc21CreditNoteAfterMultipleAdjustments(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec21");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "ec21-addon-a",
-  });
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.secondAddOnProductId,
-    editId: "ec21-addon-b",
-  });
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.addOnProductId);
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.secondAddOnProductId);
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
     lines: [{ description: "Reduction from first adjustment", quantity: 1, unitPrice: 50 }],
@@ -676,50 +598,18 @@ async function runEc24PackageDowngradeBlocked(
   const orderPackage = await firstOrderPackage(db, workflow.orderId);
   await expectRejectsWithoutPartialWrites(
     () =>
-      updateOrderPackage(
-        workflow.orderId,
-        { orderPackageId: orderPackage.id, packageId: fixtures.cheaperPackageId },
-        fixtures.adminActor
-      ),
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: updateOrderPackageChange({
+          orderPackageId: orderPackage.id,
+          packageId: fixtures.cheaperPackageId,
+        }),
+        actorContext: fixtures.adminActor,
+      }),
     () => invoiceTypeSnapshot(db, workflow.orderId),
-    /Manager confirmation is required|Failed to update order package/
+    /OrderCommit approval is required/
   );
-}
-
-async function runEc25EqualPricePackageSwap(
-  db: PrismaClient,
-  fixtures: PhaseCFixtures
-): Promise<void> {
-  const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec25");
-  const orderPackage = await firstOrderPackage(db, workflow.orderId);
-  const beforeFinancial = await invoiceTypeSnapshot(db, workflow.orderId);
-  await expectRejectsWithoutPartialWrites(
-    () =>
-      updateOrderPackage(
-        workflow.orderId,
-        { orderPackageId: orderPackage.id, packageId: fixtures.equalPackageId },
-        fixtures.adminActor
-      ),
-    () => invoiceTypeSnapshot(db, workflow.orderId),
-    /Adjustment Workspace|Failed to update order package/
-  );
-  await finalizePackageTierWorkspaceAdjustment(fixtures, workflow, {
-    orderPackageId: orderPackage.id,
-    packageId: fixtures.equalPackageId,
-    editId: "ec25-equal-package-swap",
-  });
-  const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
-  const directActivityCount = await db.orderActivity.count({
-    where: { orderId: workflow.orderId, title: "Package line changed" },
-  });
-  const workspaceActivityCount = await db.orderActivity.count({
-    where: { orderId: workflow.orderId, title: "Adjustment workspace finalized" },
-  });
-  const afterFinancial = await invoiceTypeSnapshot(db, workflow.orderId);
-  assert.equal(afterFinancial.length, beforeFinancial.length + 1);
-  assertMoney(adjustment.totalAmount, "0", "zero-net package swap emits composition ADJ");
-  assert.equal(directActivityCount, 0);
-  assert.equal(workspaceActivityCount, 1);
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
 }
 
 async function runEc26ConfirmedBookingHardDeleteBlocked(
@@ -749,27 +639,6 @@ async function runEc27DirectLockedInvoiceUnlockCharacterization(
   });
   assert.equal(unlocked.isLocked, false, "EC-27 documents missing DB lock immutability");
   await db.invoice.update({ where: { id: workflow.finalInvoiceId }, data: { isLocked: true } });
-}
-
-async function runEc28OpenAdjustmentAfterCancellationCharacterization(
-  db: PrismaClient,
-  fixtures: PhaseCFixtures
-): Promise<void> {
-  const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec28");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "ec28-addon",
-  });
-  await db.order.update({ where: { id: workflow.orderId }, data: { status: OrderStatus.CANCELLED } });
-
-  const openAdjustments = await db.invoice.count({
-    where: {
-      orderId: workflow.orderId,
-      invoiceType: InvoiceType.ADJUSTMENT,
-      status: { not: InvoiceStatus.CLOSED },
-    },
-  });
-  assert.equal(openAdjustments, 1, "EC-28 documents phantom receivable risk after cancellation");
 }
 
 async function runEc29MultiPackageInvoiceLines(
@@ -862,22 +731,6 @@ async function runEc31PhotographerAssignmentChange(
   );
 }
 
-async function runEc32CommissionUpgradeHookGap(
-  db: PrismaClient,
-  fixtures: PhaseCFixtures
-): Promise<void> {
-  const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec32");
-  const orderPackage = await firstOrderPackage(db, workflow.orderId);
-  await finalizePackageTierWorkspaceAdjustment(fixtures, workflow, {
-    orderPackageId: orderPackage.id,
-    packageId: fixtures.upgradePackageId,
-    editId: "ec32-upgrade-package",
-  });
-
-  const maybeCommissionClient = db as PrismaClient & { commission?: unknown };
-  assert.equal(maybeCommissionClient.commission, undefined, "EC-32 documents missing commission persistence model");
-}
-
 async function runEc33NoUpgradeNoCommissionRows(db: PrismaClient): Promise<void> {
   const maybeCommissionClient = db as PrismaClient & { commission?: { count: () => Promise<number> } };
   assert.equal(maybeCommissionClient.commission, undefined);
@@ -891,45 +744,17 @@ async function runEc34SessionTypeMismatchBlocked(
   const orderPackage = await firstOrderPackage(db, workflow.orderId);
   await assert.rejects(
     () =>
-      updateOrderPackage(
-        workflow.orderId,
-        { orderPackageId: orderPackage.id, packageId: fixtures.otherSessionPackageId },
-        fixtures.adminActor
-      ),
-    /session type|Failed to update order package/
-  );
-}
-
-async function runEc35StaleRecalculationAfterAdjustmentPaid(
-  db: PrismaClient,
-  fixtures: PhaseCFixtures
-): Promise<void> {
-  const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec35");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "ec35-addon",
-  });
-  const adjustment = await firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
-  await recordPayment(
-    adjustment.id,
-    { amount: 50, method: PaymentMethod.CASH, paymentType: PaymentType.ADJUSTMENT },
-    fixtures.adminActor
-  );
-  const before = await paymentSnapshot(db, adjustment.id);
-  await assert.rejects(
-    () =>
-      syncOrderInvoiceForFinancialEdit(db, {
+      commitOrderEditForTest(db, {
         orderId: workflow.orderId,
+        change: updateOrderPackageChange({
+          orderPackageId: orderPackage.id,
+          packageId: fixtures.otherSessionPackageId,
+        }),
         actorContext: fixtures.adminActor,
-        previousAddOns: [],
       }),
-    /Manager confirmation is required|Adjustment Workspace/
+    /cross-session package changes are not supported/
   );
-  const after = await paymentSnapshot(db, adjustment.id);
-  const finalInvoice = await db.invoice.findUniqueOrThrow({ where: { id: workflow.finalInvoiceId } });
-
-  assert.deepEqual(after, before);
-  assertMoney(finalInvoice.totalAmount, "500", "stale recalculation must not fold adjustment into final");
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
 }
 
 async function runEc36MissingDocumentApplicationDetected(
@@ -1050,10 +875,7 @@ async function runEc41InvoiceNumberPrefixes(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec41");
-  await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    productId: fixtures.addOnProductId,
-    editId: "ec41-addon",
-  });
+  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.addOnProductId);
   const finalPayment = await firstPayment(db, workflow.finalInvoiceId, PaymentType.FINAL);
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,
@@ -1210,95 +1032,24 @@ async function invoiceTypeSnapshot(db: PrismaClient, orderId: string) {
   });
 }
 
-async function finalizeAddOnWorkspaceAdjustment(
+async function createAddOnAdjustmentInvoice(
   db: PrismaClient,
   fixtures: PhaseCFixtures,
   workflow: FinalInvoiceWorkflow,
-  input: { productId: string; editId: string }
+  productId: string
 ) {
-  await finalizeWorkspaceAdjustment(fixtures, workflow, [
-    {
-      id: input.editId,
-      op: "add_line",
-      kind: "addon",
-      refId: input.productId,
-      quantity: 1,
-    },
-  ]);
+  await createAdjustmentInvoice({
+    parentFinalInvoiceId: workflow.finalInvoiceId,
+    lines: [
+      {
+        lineType: InvoiceLineType.ADD_ON,
+        description: "Approved add-on adjustment",
+        quantity: 1,
+        unitPrice: productId === fixtures.secondAddOnProductId ? 30 : 50,
+      },
+    ],
+    createdByUserId: fixtures.managerId,
+  });
 
   return firstInvoice(db, workflow.orderId, InvoiceType.ADJUSTMENT);
-}
-
-async function finalizePackageTierWorkspaceAdjustment(
-  fixtures: PhaseCFixtures,
-  workflow: FinalInvoiceWorkflow,
-  input: { orderPackageId: string; packageId: string; editId: string }
-): Promise<void> {
-  await finalizeWorkspaceAdjustment(fixtures, workflow, [
-    {
-      id: input.editId,
-      op: "change_package_tier",
-      orderPackageId: input.orderPackageId,
-      toPackageRefId: input.packageId,
-    },
-  ]);
-}
-
-async function finalizeWorkspaceAdjustment(
-  fixtures: PhaseCFixtures,
-  workflow: FinalInvoiceWorkflow,
-  edits: AdjustmentWorkspaceEdit[]
-): Promise<void> {
-  const workspace = await openWorkspace(workflow.finalInvoiceId, fixtures.adminActor);
-  let version = 0;
-  for (const edit of edits) {
-    const view = await applyEdit(
-      workspace.id,
-      { version, edit },
-      fixtures.adminActor
-    );
-    version = view.version;
-  }
-  const result = await finalizeWorkspace(
-    workspace.id,
-    { version },
-    fixtures.adminActor
-  );
-  assert.ok(result.adjustmentInvoiceId, "workspace finalize must emit an ADJ");
-}
-
-async function finalizeWorkspaceLineRemoval(
-  fixtures: PhaseCFixtures,
-  workflow: FinalInvoiceWorkflow,
-  refId: string,
-  editId: string
-): Promise<string> {
-  const workspace = await openWorkspace(workflow.finalInvoiceId, fixtures.adminActor);
-  const initialView = await getAdjustmentWorkspaceView(workspace.id);
-  assert.ok(initialView, "expected workspace view");
-  const targetLine = initialView.baseSnapshot.lines.find((line) => line.refId === refId);
-  assert.ok(targetLine, "expected effective composition line to remove");
-  const view = await applyEdit(
-    workspace.id,
-    {
-      version: initialView.version,
-      edit: {
-        id: editId,
-        op: "remove_line",
-        targetLineId: targetLine.lineId,
-      },
-    },
-    fixtures.adminActor
-  );
-  const result = await finalizeWorkspace(
-    workspace.id,
-    {
-      version: view.version,
-      managerApprovedReductionByUserId: fixtures.managerId,
-      managerApprovedReason: "Workspace removal regression",
-    },
-    fixtures.adminActor
-  );
-  assert.ok(result.adjustmentInvoiceId, "workspace line removal must emit an ADJ");
-  return result.adjustmentInvoiceId;
 }

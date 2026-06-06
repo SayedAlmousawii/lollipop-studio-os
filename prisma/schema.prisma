@@ -155,6 +155,7 @@ enum MediaType {
 
 enum OrderActivityType {
   ORDER_CREATED
+  ORDER_COMMITTED
   PACKAGE_CHANGED
   ORDER_PACKAGE_ADDED
   ORDER_PACKAGE_LINE_CHANGED
@@ -177,6 +178,7 @@ enum AuditEntityType {
   INVOICE
   PAYMENT
   ORDER
+  ORDER_COMMIT
   BOOKING
   FINANCIAL_CASE
   CREDIT_NOTE
@@ -212,6 +214,7 @@ enum SessionConfigurationCounterPricingMode {
 enum AuditAction {
   INVOICE_LOCKED
   INVOICE_TOTAL_MUTATED
+  ORDER_COMMIT_CREATED
   PAYMENT_RECORDED
   PAYMENT_REFUNDED
   CREDIT_NOTE_ISSUED
@@ -220,28 +223,6 @@ enum AuditAction {
   BOOKING_CONFIRMED
   BOOKING_NO_SHOW
   ORDER_LOCKED_FIELD_MUTATED
-}
-
-enum AdjustmentWorkspaceStatus {
-  OPEN      @map("open")
-  FINALIZED @map("finalized")
-  CANCELLED @map("cancelled")
-
-  @@map("adjustment_workspace_status")
-}
-
-enum AdjustmentWorkspaceEventType {
-  OPENED                @map("opened")
-  EDIT_ADDED            @map("edit_added")
-  EDIT_REMOVED          @map("edit_removed")
-  EDIT_MODIFIED         @map("edit_modified")
-  PACKAGE_SWAPPED       @map("package_swapped")
-  TAKEN_OVER            @map("taken_over")
-  FINALIZED             @map("finalized")
-  CANCELLED             @map("cancelled")
-  PARENT_INVOICE_VOIDED @map("parent_invoice_voided")
-
-  @@map("adjustment_workspace_event_type")
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
@@ -263,9 +244,10 @@ model User {
   auditLogs                  AuditLog[]
   deliveryCompletions        Order[]                    @relation("DeliveryCompletedBy")
   documentApplications       DocumentApplication[]
-  openedAdjustmentWorkspaces AdjustmentWorkspace[]      @relation("AdjustmentWorkspaceOpenedBy")
-  ownedAdjustmentWorkspaces  AdjustmentWorkspace[]      @relation("AdjustmentWorkspaceCurrentOwner")
-  adjustmentWorkspaceEvents  AdjustmentWorkspaceEvent[]
+  orderCommits               OrderCommit[]              @relation("OrderCommitCommittedBy")
+  ownedOrderCommitDrafts     OrderCommitDraft[]         @relation("OrderCommitDraftOwner")
+  openedOrderCommitDrafts    OrderCommitDraft[]         @relation("OrderCommitDraftOpenedBy")
+  touchedOrderCommitDrafts   OrderCommitDraft[]         @relation("OrderCommitDraftLastTouchedBy")
 
   @@map("users")
 }
@@ -302,6 +284,8 @@ model FinancialCase {
   job      Job?      @relation(fields: [jobId], references: [id])
   invoices Invoice[]
   payments Payment[]
+  orderCommits OrderCommit[]
+  orderCommitDrafts OrderCommitDraft[]
 
   @@index([customerId])
   @@index([jobId])
@@ -634,7 +618,8 @@ model Order {
   orderAddOns             OrderAddOn[]
   packageItemUpgrades     OrderPackageItemUpgrade[]
   packages                OrderPackage[]
-  adjustmentWorkspaces    AdjustmentWorkspace[]
+  orderCommits            OrderCommit[]
+  orderCommitDraft         OrderCommitDraft?
   refundPending           Boolean                   @default(false) @map("refund_pending")
 
   @@index([jobNumber])
@@ -844,6 +829,70 @@ model OrderPackageItemUpgrade {
   @@map("order_package_item_upgrades")
 }
 
+model OrderCommit {
+  id                          String   @id @default(cuid())
+  orderId                     String
+  financialCaseId             String
+  previousCommitId            String?
+  sequence                    Int
+  committedFromDraftId        String?
+  committedFromDraftVersion   Int?
+  kind                        String
+  status                      String
+  snapshotVersion             Int      @default(1)
+  snapshotJson                Json
+  metadataJson                Json     @default("{}")
+  committedAt                 DateTime @default(now())
+  committedByUserId           String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  order                     Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  financialCase             FinancialCase        @relation(fields: [financialCaseId], references: [id])
+  previousCommit            OrderCommit?         @relation("OrderCommitSequence", fields: [previousCommitId], references: [id], onDelete: SetNull)
+  nextCommits               OrderCommit[]        @relation("OrderCommitSequence")
+  baseOrderCommitDrafts     OrderCommitDraft[]   @relation("OrderCommitDraftBaseCommit")
+  orderCommitDocuments      OrderCommitDocument[] @relation("OrderCommitDocumentOrderCommit")
+  committedByUser           User?                @relation("OrderCommitCommittedBy", fields: [committedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([orderId, sequence])
+  @@unique([orderId, committedFromDraftId])
+  @@index([orderId])
+  @@index([financialCaseId])
+  @@index([previousCommitId])
+  @@index([committedAt])
+  @@map("order_commits")
+}
+
+model OrderCommitDraft {
+  id                          String   @id @default(cuid())
+  orderId                     String
+  financialCaseId             String
+  baseCommitId                String?
+  pendingSnapshotVersion      Int      @default(1)
+  pendingSnapshotJson         Json
+  pendingOpsJson              Json     @default("{\"schemaVersion\":\"order_commit_draft_pending_ops_v1\",\"operations\":[]}")
+  version                     Int      @default(0)
+  ownerUserId                 String
+  openedByUserId              String
+  lastTouchedByUserId         String
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  order                     Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  financialCase             FinancialCase        @relation(fields: [financialCaseId], references: [id])
+  baseCommit                OrderCommit?         @relation("OrderCommitDraftBaseCommit", fields: [baseCommitId], references: [id], onDelete: SetNull)
+  ownerUser                 User                 @relation("OrderCommitDraftOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  openedByUser              User                 @relation("OrderCommitDraftOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  lastTouchedByUser         User                 @relation("OrderCommitDraftLastTouchedBy", fields: [lastTouchedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId])
+  @@index([financialCaseId])
+  @@index([baseCommitId])
+  @@index([ownerUserId])
+  @@map("order_commit_drafts")
+}
+
 model Invoice {
   id              String        @id @default(cuid())
   publicId        String        @unique
@@ -881,8 +930,7 @@ model Invoice {
   documentApplicationsAsSource  DocumentApplication[] @relation("DocumentApplicationSource")
   documentApplicationsAsTarget  DocumentApplication[] @relation("DocumentApplicationTarget")
   paymentAllocations            PaymentAllocation[]
-  adjustmentWorkspaces          AdjustmentWorkspace[] @relation("AdjustmentWorkspaceParentInvoice")
-  finalizedAdjustmentWorkspaces AdjustmentWorkspace[] @relation("AdjustmentWorkspaceFinalizedInvoice")
+  orderCommitDocuments          OrderCommitDocument[] @relation("OrderCommitDocumentInvoice")
 
   @@unique([id, financialCaseId])
   @@index([financialCaseId])
@@ -891,52 +939,20 @@ model Invoice {
   @@map("invoices")
 }
 
-model AdjustmentWorkspace {
-  id                           String                    @id @default(cuid())
-  invoiceId                    String                    @map("invoice_id")
-  orderId                      String                    @map("order_id")
-  status                       AdjustmentWorkspaceStatus @default(OPEN)
-  openedByUserId               String                    @map("opened_by_user_id")
-  openedAt                     DateTime                  @default(now()) @map("opened_at")
-  lastActivityAt               DateTime                  @default(now()) @map("last_activity_at")
-  currentOwnerUserId           String?                   @map("current_owner_user_id")
-  version                      Int                       @default(0)
-  baseSnapshotJson             Json                      @map("base_snapshot_json")
-  pendingChangesJson           Json                      @default("{\"edits\":[]}") @map("pending_changes_json")
-  finalizedAdjustmentInvoiceId String?                   @map("finalized_adjustment_invoice_id")
-  operationalStateAppliedAt    DateTime?                 @map("operational_state_applied_at")
-  cancelledReason              String?                   @map("cancelled_reason")
-  createdAt                    DateTime                  @default(now()) @map("created_at")
-  updatedAt                    DateTime                  @updatedAt @map("updated_at")
+model OrderCommitDocument {
+  id            String   @id @default(cuid())
+  orderCommitId String
+  invoiceId     String
+  role          String
+  createdAt     DateTime @default(now())
 
-  invoice                    Invoice                    @relation("AdjustmentWorkspaceParentInvoice", fields: [invoiceId], references: [id], onDelete: Cascade)
-  order                      Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  openedByUser               User                       @relation("AdjustmentWorkspaceOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
-  currentOwnerUser           User?                      @relation("AdjustmentWorkspaceCurrentOwner", fields: [currentOwnerUserId], references: [id], onDelete: SetNull)
-  finalizedAdjustmentInvoice Invoice?                   @relation("AdjustmentWorkspaceFinalizedInvoice", fields: [finalizedAdjustmentInvoiceId], references: [id], onDelete: SetNull)
-  events                     AdjustmentWorkspaceEvent[]
+  orderCommit OrderCommit @relation("OrderCommitDocumentOrderCommit", fields: [orderCommitId], references: [id], onDelete: Cascade)
+  invoice     Invoice     @relation("OrderCommitDocumentInvoice", fields: [invoiceId], references: [id], onDelete: Restrict)
 
-  @@index([invoiceId, status])
-  @@index([orderId, status])
-  @@index([currentOwnerUserId])
-  @@map("adjustment_workspaces")
-}
-
-model AdjustmentWorkspaceEvent {
-  id          String                       @id @default(cuid())
-  workspaceId String                       @map("workspace_id")
-  actorUserId String?                      @map("actor_user_id")
-  at          DateTime                     @default(now())
-  eventType   AdjustmentWorkspaceEventType @map("event_type")
-  payloadJson Json                         @default("{}") @map("payload_json")
-
-  workspace AdjustmentWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  actor     User?               @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
-
-  @@index([workspaceId, at])
-  @@index([actorUserId, at])
-  @@index([eventType, at])
-  @@map("adjustment_workspace_events")
+  @@unique([orderCommitId, invoiceId, role])
+  @@index([orderCommitId])
+  @@index([invoiceId])
+  @@map("order_commit_documents")
 }
 
 model InvoiceLockSnapshot {

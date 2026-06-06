@@ -2,28 +2,18 @@
 
 Update this file after meaningful implementation changes. Keep it as a current-state snapshot, not a history log.
 
-**Structure (do not drift from this):** Now · Key State (non-obvious decisions only) · Feature History (one line each, newest first) · Open Follow-Ups (actionable items only, remove when done) · Validation Pattern. No file lists, no per-feature implementation notes, no validation command logs — those belong in git.
+**Structure (do not drift from this):**
+- **Now** — current state only; ≤ 6 bullets; no per-spec implementation notes (those go in Feature History or git)
+- **Key State** — non-obvious architectural decisions not derivable from code; subsection headers required
+- **Feature History** — one line per entry, newest first; all entries preserved; no multi-sentence paragraphs
+- **Open Follow-Ups** — actionable items only; remove when done
+- **Validation Pattern** — static; do not expand
 
 ## Now
-- Adjustment Workspace preview composition package-tier display fix is complete: pending full preview now renders the proposed package row for `change_package_tier` while keeping pending delta rows as "Package Change" summaries.
-- Spec 119 package-tier materialization fix is complete: `change_package_tier` is now the canonical Adjustment Workspace package-tier materialization path, legacy `swap_package` remains compatible, mixed tier/add-on finalizes materialize together, and the action path regression proves the UI stages the canonical op.
-- Feature 118 invoice replay collapse is complete: locked composition now delegates to current operational composition rows, finalized ADJ invoice lines are financial documents only, and mixed finalized-workspace projection parity is regression-covered.
-- Feature 117 photo-count materialization is complete: workspace finalize now applies post-lock selected-photo and extra digital/print count edits back to `OrderPackage`, resyncs `Order.selectedPhotoCount`, emits one extras activity per changed package line, and feeds locked composition through operational rows.
-- Feature 116 package-item upgrade materialization is complete: workspace finalize now applies post-lock package-item upgrade add/remove/quantity edits back to `OrderPackageItemUpgrade`, emits matching item-upgrade activities, and feeds locked composition through operational rows.
-- Feature 115 add-on materialization is complete: workspace finalize now applies post-lock add-on add/remove/quantity edits back to `OrderAddOn`, emits `ADD_ON_CHANGED` activities, and feeds locked composition through operational rows.
-- Feature 114 package-swap materialization is complete: workspace finalize now applies `swap_package` edits back to `OrderPackage` current identity/price/photo fields, clears scoped item upgrades, records package-line activity, and feeds locked composition through operational rows.
-- Feature 112 order-package identity schema is complete: `OrderPackage` now carries immutable original package identity, mutable current package identity, optional `BookingPackage` lineage, separate name snapshots, and initialized original/final price snapshots; pre-lock package swaps update only current identity.
-- R13d manual QA + freeze signoff is complete: the freeze checklist has concrete dev/staging manual QA bodies, the acceptable-changes log, explicit reconciliation deferrals, freeze-eve gate confirmation, and the R0-R13 roadmap closure line dated 2026-05-20.
-- R13c workflow smoke and deferred parity matrices are complete: service-level booking/POS/adjustment/editing/production/delivery/end-to-end smoke coverage is wired into `test:backend-invariants`, and the orders-table/customer-history, Adjustment Workspace metadata, and workflow action parity tests are wired into `test:centralization`.
-- R13b automated regression gate is complete: deposit terminology is source/render guarded, selected-photo baseline, Commercial Actions catalog, and edit-mode interactivity parity tests are wired into `test:centralization`, and the POS reductive approval harness mismatch is fixed/classified as a broken test.
-- R13a verification inventory and test gate wiring is complete: `test:centralization` runs the existing R0-R12 centralization regression set through a literal runner, with the inventory and freeze checklist published.
-- POS Commercial Actions quick-add catalog fix is complete: quick-action buttons now derive availability from active add-on catalog products while preserving R8b projected current add-on rows and R9 edit-mode interactivity gates.
-- Adjustment Workspace selected-photo POS projection fix is complete: package included-photo baselines, selected-photo baselines, and session labels are preserved through adjustment snapshots/projectors, with live POS fallback only for missing snapshot selected counts.
-- R12 compatibility cleanup is complete: legacy order settlement helpers, booking deposit dedup, and `OrderDetail` aggregate photo-count fields are removed; centralization roadmap R0-R12 is closed except the deferred orders-table-projections performance follow-up.
-- **Current phase:** Phase 3 — Core operational completeness. Financial rearchitecture Phases 0–2 are complete (allocations, applications, ADJUSTMENT, CREDIT_NOTE, REFUND); Phase 3 audit attribution, locked-invoice DB immutability, over-collection prevention, and ADJUSTMENT-chain prevention are live.
-- **Active roadmap:** `context/reviews/centralization-roadmap.md`. R0 (Context Reconciliation & Cleanup Gate) is complete: main docs are canonical, `*-summary.md` files archived, `AGENTS.md` default reads updated, Canonical Architecture Standards + Canonical Read Layer sections live in `architecture-context.md`.
-- **Session Configurations subsystem complete (Features 88–94):** schema, admin CRUD, pricing engine, configure panel, post-lock routing, invoice display, linked-product retrofit as selection-owned `OrderAddOn` rows.
-- **Adjustment Workspace subsystem complete (Features 82–84c):** staged post-lock edits with optimistic versioning, POS-shaped derived workspace read model, shared CurrentCompositionCard, draft/locked/adjustment financial sidebar split, and Stage Edits → Preview → Pending Changes → Adjustment Summary flow.
+- **OrderCommit arc complete (Specs 120–151):** `commitOrderChanges` is the sole production financial-emission path; all Sales order edits (locked and unlocked) flow through OrderCommit staging → preview → commit.
+- **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
+- **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
+- **Active roadmap:** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned. Centralization R0–R12 fully archived.
 
 ## Key State
 
@@ -43,17 +33,19 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ### POS / orders / composition
 - POS is the canonical writable workspace for order package changes, selected photos, add-ons, invoice preview, and final payment. The legacy edit order route redirects there; order detail selection is read-only.
-- Shared POS components that may mount in multiple persistence contexts use handler props from `src/modules/orders/pos-handlers.types.ts`. Sales passes commit-through server-action adapters with inline reductive approval enabled; AdjustmentWorkspace passes staged-edit adapters with inline approval disabled, finalize-time approval preserved.
-- `OrderEditModePolicy` is the centralized source for draft, locked, adjustment, direct-write, Adjustment Workspace route, blocked-message, and manager-approval edit affordances across POS and configure-session surfaces.
-- `AdjustmentWorkspace.operationalStateAppliedAt` remains a materialization idempotency/debugging flag; composition no longer replays finalized adjustment invoice lines, so locked composition reads current `Order*` rows directly.
-- Finalizing package-item upgrade materializable workspaces upserts, updates, or deletes `OrderPackageItemUpgrade` rows after package-swap materialization and before ADJ creation; same-workspace swap + item-upgrade edits survive the swap cleanup and locked composition reads the materialized row state.
-- Finalizing photo-count materializable workspaces writes proposal-resolved `selectedPhotoCount`, `extraDigitalCount`, and `extraPrintCount` to affected `OrderPackage` rows after package-item upgrade materialization and before ADJ creation; `Order.selectedPhotoCount` is resynced once afterward and same-workspace swap + photo-count edits leave proposal-intended counts.
-- Finalizing add-on materializable workspaces applies `add_line` / `remove_line` / `modify_quantity` addon edits to `OrderAddOn` rows before ADJ creation, while session-configuration-owned linked add-ons remain owned by the session-configuration finalizer.
-- Finalizing a `swap_package` workspace materializes the affected `OrderPackage` current package identity/name, final package price, selected-photo baseline, and scoped item-upgrade cleanup before ADJ creation; the ADJ remains the immutable financial delta source and locked composition reads the materialized row state.
-- `derivePOSWorkspaceFromAdjustmentWorkspace()` is the canonical bridge for rendering staged post-lock edits through POS modules without mutating the locked invoice or reusing sales commit-through.
-- Locked POS operational edits stay direct/audited; locked POS financial edits route to workspace; open workspaces disable locked direct edits.
+- Shared POS components use handler props from `src/modules/orders/pos-handlers.types.ts`; Sales passes OrderCommit-backed staging server-action adapters. Reduction approval is solely the commit-dialog path (`OrderCommitReviewDialog` → `commitSalesChangesAction`); the inline reductive-approval modal was removed in Spec 150.
+- `OrderEditModePolicy` is the centralized source for draft, locked, direct-write, blocked-message, and manager-approval edit affordances across POS and configure-session surfaces; Adjustment Workspace route affordances are retired.
+- Adjustment Workspace is fully retired (Phase 6 / Specs 144–149): runtime module, route, components, tests, and DB tables/enums/`legacyAdjustmentWorkspaceId` FKs are all removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid (not AW-owned).
+- Financial/audit scaffolding uses the shared OrderCommit test helper (`getOrCreateOrderCommitDraft` → `stageOrderCommitDraftChange` → `commitOrderChanges`); the five legacy direct service mutators and `assertDirectPOSMutationAllowed` are removed. Spec 151 also made delivered-order blocking a live `commitOrderChanges` guard, including stale drafts and unlocked FINAL rebuild attempts, using the shared edit-mode delivered message. Spec 152 remains the follow-up for retiring direct `syncOrderInvoiceForFinancialEdit` callers.
+- All Sales order edits (locked and unlocked, additive and reductive) flow through OrderCommit staging → preview → commit; locked-FINAL reductions emit ADJUSTMENT/CREDIT_NOTE/refund-needed via `commitOrderChanges`.
+- OrderCommit execution is additive and service-only: `commitOrderChanges` is the public commit entry point, `pendingSnapshotJson` is the execution truth, `pendingOpsJson` stays history-only, `OrderCommitDocument` links emitted invoices only, `committedFromDraftVersion` is the double-submit guard, and `REFUND_NEEDED` sets `Order.refundPending` without issuing a refund payment.
 - Multi-package is the only package model: `BookingPackage` and `OrderPackage` are the source of truth; each `OrderPackage` preserves immutable `originalPackageId` / original name snapshot and mutable `currentPackageId` / current name snapshot, with `finalPackagePriceSnapshot` initialized at creation rather than using null as a no-swap marker.
-- Package-item upgrades reference `PackageItem` snapshots via `OrderPackageItemUpgrade`; true add-ons reference `Product` via `OrderAddOn`. The two are not overloaded.
+- Package-item upgrades reference `PackageItem` snapshots via `OrderPackageItemUpgrade`; true add-ons reference `Product` via `OrderAddOn`. The two are not overloaded. Committed OrderCommit snapshots remap draft package-item-upgrade ids to materialized `OrderPackageItemUpgrade.id` values before persistence.
+- Marketplace add-ons are order-level true add-ons (`OrderAddOn.orderPackageId = null`); `OrderAddOn.orderPackageId` remains reserved for linked-product session configurations and optional legacy/AW scoped rows.
+- OrderCommit draft package staging removes scoped package-item upgrades only on actual package identity changes; same-package pricing/metadata/included-photo refreshes preserve existing scoped upgrades.
+- OrderCommit draft package staging normalizes package-tier included-photo changes before snapshot validation: absent an explicit intended photo outcome, selected photos become at least the new included count, digital extras become zero, remaining extras become print, and absorbed extra-photo lines are removed.
+- Snapshot-derived Sales included-deliverable display is catalog-current, not commit-historical; Option B snapshot-embedded deliverables remains deferred unless commit-time deliverable fidelity becomes required.
+- OrderCommit draft domain staging now flows through `stageOrderCommitDraftChange`; the replacement snapshot is draft truth, the typed `SNAPSHOT_REPLACED` operation is history/UX metadata only, and package+explicit-photo composite staging is ordered package before photo.
 - Selected-photo totals are derived from `OrderPackage.selectedPhotoCount`; `Order.selectedPhotoCount` is a synchronized cache, not a read source.
 - Extra selected photos are stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, emitted as per-line/per-media Final Invoice lines.
 - Order package changes are scoped to each line's stored session type; cross-session overrides are blocked until a future permissioned, audited repricing workflow.
@@ -62,6 +54,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `session-configuration-selection.service.ts` is the sole production writer for per-package selection diffs and the only writer of selection-owned add-ons; manual deletion of selection-owned add-ons is blocked.
 - `session-configuration-pricing.ts` is the canonical snapshot-selection money path; `session-configuration-resolver.ts` gates live active required configs.
 - `OrderPackageSessionConfigurationSelection.orderAddOnId` links linked-product selections to real `OrderAddOn` rows. Locked historical selections retain old `SESSION_CONFIGURATION` invoice lines.
+- OrderCommit draft session-configuration staging is reducer-only: callers pass resolved selection/pricing/linked-product inputs, newly staged linked products use `draftOrderAddOnId`, and materialized linked products use `orderAddOnId`.
 - Admin CRUD lives at `/session-configurations` behind `PACKAGE_CATALOG_MANAGE`; `SessionConfiguration.code` is generated from session type code + name and frozen on update.
 
 ### Lifecycle / bookings
@@ -85,55 +78,127 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
-- **Adjustment Workspace preview package-tier display fix** — Normalized pending package-tier swap metadata back into package rows for the full preview card while preserving pending-delta summaries, with projector regression coverage.
-- **119 package-tier materialization fix** — Made `change_package_tier` the canonical package-tier materialization path while preserving legacy `swap_package`, added action-path staging coverage, and covered canonical single/mixed finalize regressions without invoice replay.
-- **118 OPS7** — Collapsed locked composition projection to current operational rows, deleted invoice-line replay helpers, proved mixed finalized-workspace locked composition parity, preserved FINAL/ADJ invoice line snapshots, and archived superseded materialization review notes.
-- **117 OPS6** — Materialized post-lock selected-photo and extra digital/print count workspace edits into `OrderPackage`, resynced the order selected-photo cache, emitted `ORDER_PACKAGE_EXTRAS_CHANGED`, and covered photo-only plus same-line swap/photo finalize ordering.
-- **116 OPS5** — Materialized post-lock package-item upgrade add/remove/quantity workspace edits into `OrderPackageItemUpgrade`, emitted item-upgrade activities consistent with direct edits, preserved ADJ line shape, and covered item-only plus same-line swap/item finalize ordering.
-- **115 OPS4** — Materialized post-lock add-on add/remove/quantity workspace edits into `OrderAddOn`, emitted `ADD_ON_CHANGED` activities, preserved ADJ line shape, and covered add-on-only, mixed swap/add-on, and session-config coexistence finalize paths.
-- **114 OPS3** — Materialized post-lock `swap_package` edits into `OrderPackage` rows during finalize, emitted package-line activities, preserved ADJ line shape, and enabled replay skip via `operationalStateAppliedAt`.
-- **113 OPS2** — Added `AdjustmentWorkspace.operationalStateAppliedAt`, wired finalize to persist the null default, and muted invoice-line replay for finalized workspaces marked operationally materialized.
-- **112 OPS1** — Split `OrderPackage.packageId` into immutable original/current package identity fields with booking-line lineage, rewired POS/order/composition/invoice readers, seed/test factories, and package reference checks.
-- **111 R13d** — Filled the R13 freeze checklist with concrete manual QA steps, traceable acceptable behavior changes, reconciliation operational deferrals, named signoff, and the 2026-05-20 centralization roadmap closure line.
-- **110 R13c** — Added service-level workflow smoke coverage for booking, POS settlement, locked adjustments, editing start, production readiness, delivery pickup/override, and the end-to-end studio walkthrough; closed the three deferred parity matrices in `test:centralization`.
-- **109 R13b** — Added deposit terminology source/render guards, selected-photo baseline parity, Commercial Actions catalog parity, locked/adjustment edit interactivity parity, and moved the fixed POS reductive approval harness into `test:centralization`.
-- **108 R13a** — Published the R13 verification inventory and freeze checklist, added `test:centralization` with a literal R0-R12 centralization regression runner, and linked the R13 gate from the roadmap.
-- **POS Commercial Actions quick-add catalog fix** — Rewired POSAddOnMarketplace quick actions to use add-on catalog availability instead of package deliverable product options, with draft/empty-category/adjustment-mode regression coverage.
-- **Adjustment Workspace POS selected-photo baseline fix** — Preserved package included-photo metadata through adjustment snapshots and composition projectors, backfilled older adjustment snapshots from normal POS workspace data, and added regression coverage for included+1 photo allocation plus snapshot-primary selected-count fallback.
-- **107 R12** — Removed legacy order settlement helpers, routed order/customer-history statuses through FinancialCase orders-table projections, preserved Overridden payment labeling, removed booking deposit-invoice dedup after canonicalization audit, dropped `OrderDetail` aggregate photo counts, and added source/audit/parity coverage.
-- **106 R11** — Moved order-detail operational configuration display and empty composition DTOs into composition projections, shifted production photo counts onto `ProductionDeliverablesProjection`, corrected stale deposit copy, and added page-thinning/projector regression coverage.
-- **105 R10d** — Added delivery workflow policy DTO/builder, wired delivery blockers/override/actions to policy output, moved delivery payment settlement and pickup guard decisions to FinancialCaseSummary payment status, and covered settled/unsettled/missing-summary/guard/source regressions.
-- **105 R10c** — Added production workflow policy DTO/builder, wired production section/final-readiness actions to policy output, aligned readiness/assembly guard messages, and covered section matrices, blockers, terminal states, and source regression checks.
-- **105 R10b** — Added editing workflow policy DTO/builder, wired editing workflow form actions to policy output while preserving form inputs/payment warnings, and covered action matrix/start blocker/source regression alignment.
-- **105 R10a** — Added booking workflow policy DTO/builder, wired booking status actions to policy output, kept confirmation in the deposit flow, and covered status/action/transition drift with regression tests.
-- **104 R9 review fixes** — Added policy-owned interactivity/open-workspace fields, moved configure-session write gating before all direct writes, and covered locked POS/open-workspace/staged-context regressions.
-- **104 R9** — Added centralized `OrderEditModePolicy` and wired POS package/photo/add-on sidebars plus configure-session routing/messages to policy DTOs with locked/open-workspace and guard-message regression coverage.
-- **103 R8c follow-up** — Order detail now falls back gracefully when composition projection data is unavailable and avoids contradictory empty deliverable UI.
-- **103 R8c** — Swapped order detail overview package/deliverable/add-on/session-configuration readouts and production deliverable summaries onto R7 composition projectors, with regression coverage against legacy composition DTO reads.
-- **103 R8b** — Swapped POS add-on marketplace current rows, product counts, Added badges, and removal targets onto a pure composition marketplace projection while preserving catalog and handler behavior.
-- **103 R8a** — Swapped draft sidebar, POS package/photo composition, locked sales current composition, and adjustment preview cards onto R7 composition projectors; moved photo draft/preview payload helpers out of the client component with regression coverage.
-- **102 R7b** — Added pure OrderCompositionViewModel projectors for POS, current-composition, overview, and production deliverables; rewired the adjustment-workspace POS adapter through the canonical model/projector path with regression coverage for package-item upgrade and downgrade pricing equivalence.
-- **102 R7a** — Added the read-only OrderCompositionViewModel core for draft, locked/effective, and pending-adjustment composition state with structured metadata and no new label-derived swap parsing path.
-- **101 R6** — Removed temporary FinancialCase discrepancy/parity logger and reconciliation invariant, refreshed the invariant catalog, and added static guards for projector purity plus removed-symbol regressions.
-- **100 R5** — Removed direct app/component DB imports by moving configure-session routing, missing-session-setting messages, upgrade-payment outstanding-balance validation, and new-booking page data loading into service helpers; added a service-only DB access regression guard.
-- **99 R4** — Centralized KD formatting, signed money display, and money-input parsing in `src/lib/formatting/money.ts`; migrated targeted UI/action/service display call sites and added formatter plus regression guard tests.
-- **98 R3b** — Booking page financial readout now consumes `toBookingPageFinancial`; confirmed booking-stage and checked-in active-stage displays use canonical FinancialCase projection data, and the legacy package remaining balance label is removed.
-- **98 R3a** — Order header and orders table financial readouts now consume `FinancialCaseSummary` projectors; orders-table projection loading is batched; R3b booking-page swap remains next.
-- **96** — R1b FinancialCaseSummary projectors completed for header, draft sidebar financials, payment dialog, orders table, booking page, and invoice list; parity checker now covers header/table projections.
+- **151** — Migrated financial/audit test scaffolding to OrderCommit; removed five legacy direct mutators + `assertDirectPOSMutationAllowed`; added delivered-order blocking to `commitOrderChanges`.
+- **150** — Removed dead inline reductive-edit approval island; commit-dialog (`OrderCommitReviewDialog`) is now the sole reduction-approval path.
+- **149 P6-6** — Dropped AW tables/enums and legacy `OrderCommit*` FK columns; removed final `finalizedAdjustmentWorkspaces` invariant exemption; completed Phase 6.
+- **148 P6-5** — Removed AW module, employee route, dead financial sidebars, AW-only tests, and `bypassOrderCommitDraftGuard`.
+- **147 P6-4** — Removed AW affordances from edit-mode policy and Configure Session; reworded locked direct-mutator guard copy.
+- **146 P6-3** — Removed order-detail AW configure action, AW mode from Configure Session panel; collapsed `CompositionViewMode` to locked-only; retired AW orders-table badge/type field.
+- **145 P6-2** — Removed AW dependency from order-composition read model; relocated pending AW composition helpers into the frozen AW module.
+- **144 P6-1** — Redirected AW employee route to Sales; made route-local AW server actions refuse; added centralization source guard.
+- **143** — Linked-product session-config Sales snapshot targets now use unique selection-line identity only, not shared `orderEntityId`.
+- **142** — Removed reducer-only package mirror metadata from staging; blocked true no-op commits before materialization/audit.
+- **141** — Restored included deliverables in snapshot-derived Sales composition from catalog-current package items overlaid with `PACKAGE_ITEM_UPGRADE` rows.
+- **140** — Changed `PACKAGE_ITEM_UPGRADE` re-application to set-style replacement by package plus included item (not quantity stacking).
+- **139** — Fixed Sales composition to render package-item upgrades on their owning package deliverables; add-ons render as single quantity-N rows.
+- **138** — Wired Sales marketplace add/remove add-ons through OrderCommit as order-level `ADD_ON` staging with committed snapshot id remapping.
+- **137** — Wired Sales Configure Session edits through OrderCommit staging with draft-version threading and linked-product identity forwarding.
+- **136 follow-up** — Wired Sales package-item Upgrade/Replace to the OrderCommit staging adapter with `OrderPackageItemUpgrade` materialization coverage.
+- **136** — Fixed `PACKAGE_ITEM_UPGRADE` staging to require replacement product identity and lock replacement-price delta into pending snapshots.
+- **OrderCommit package photo normalization follow-up** — Normalized package-change snapshots so included-photo count increases raise selected photos and absorb extra-photo lines.
+- **135** — Session-configuration writes now respect the active-draft guard; sales-surface edits can no longer bypass an open `OrderCommitDraft`.
+- **133** — Aligned Sales financial preview with `FinancialCaseSummary` case-level payment truth; payment targeting routes to open FINAL/ADJUSTMENT.
+- **131** — Unified locked/unlocked Sales page on the OrderCommit surface; added normalized AW/OrderCommit locked-order parity coverage with documented legacy divergences.
+- **130** — Added Sales draft ownership projection, co-editor banner, Sales-only ownership policy overlay, and commit-side owner-or-manager enforcement.
+- **Dev reset OrderCommitDocument cleanup** — Cleared `OrderCommitDocument` rows before invoice deletion in workflow test-data reset to honor restrictive invoice FK.
+- **132 preview follow-up** — Added preview-only `FINAL_INVOICE_REBUILD` document-plan kind; derived preview plans from FINAL invoice lock state.
+- **132 follow-up** — Replaced order-global `committedFromDraftVersion` uniqueness with copied draft-id idempotency; mapped Prisma duplicate conflicts to domain concurrent-commit error.
+- **132** — Fixed OrderCommit unlocked-FINAL replay to route emission from FINAL invoice lock state; unlocked rebuilds update invoice in place with no ADJ/CREDIT.
+- **129 Task 6** — Completed final Sales OrderCommit surface regression and source guards for `SalesPageView` mounting, version forwarding, and locked-branch preservation.
+- **129 Task 5** — Added OrderCommit financial preview sidebar rendering baseline/delta/after-commit from `SalesPageView.financialPreview`.
+- **129 Task 4** — Mounted unlocked Sales staged-changes panel, discard control, and Review & commit dialog over `SalesPageView` data.
+- **129 Task 3** — Wired `getSalesPageView` into the unlocked Sales page; supported package/photo controls route through the OrderCommit staging adapter.
+- **129 Task 2** — Added the Sales OrderCommit staging handler adapter for package-change and photo-count events; blocked unsupported paths.
+- **129 Task 1 P2 follow-up** — Derived projected Sales composition page-level totals from `OrderCommitDraft.pendingSnapshotJson` lines and snapshot totals.
+- **129 Task 1** — Hardened projected Sales composition display fields from draft pending snapshot; improved staged-change parent labels.
+- **128** — Added `commitSalesChangesAction`, the unmounted Review & commit dialog, and centralization wiring without changing live Sales page behavior.
+- **127** — Added canonical `OrderCommitPreview.totals` with assembly/schema parity checks; Sales financial-preview passes totals through without arithmetic.
+- **126** — Added Sales staging/discard actions over `OrderCommitDraft`; guarded legacy direct POS mutators against active drafts with AW-only bypass.
+- **125** — Added Phase 5 Sales page view-model foundation with pure OrderCommit projectors and lazy read-only loader composition.
+- **124 Phase 4 Task 6** — Added `commitOrderChanges` orchestration: serializable transaction, materialization, financial emission, document links, audit/activity, draft deletion.
+- **124 Phase 4 Task 5** — Added the OrderCommit document-link writer for invoice-only `OrderCommitDocument` rows.
+- **124 Phase 4 Task 4** — Added the internal OrderCommit invoice emission layer with mapper-driven document decisions and FINAL credit-capacity precheck.
+- **124 Phase 4 Task 3** — Added the pure OrderCommit financial emission mapper converting snapshot diffs into adjustment lines and credit-note residuals.
+- **124 Phase 4 Task 2** — Added the snapshot-driven OrderCommit materializer for supported `Order*` row writes with draft id mapping.
+- **124 Phase 4 Task 1** — Added additive OrderCommit execution schema with `OrderCommitDocument` links and `committedFromDraftVersion` double-submit protection.
+- **123 Phase 3 Task 7** — Completed final OrderCommit preview regression guards for baseline safety, snapshot truth, source isolation, and read-only preview services.
+- **123 Phase 3 Task 6** — Added `getOrderCommitPreview` loading active draft snapshot, resolving baseline, diffing, classifying, and mapping payment state.
+- **123 Phase 3 Task 5** — Added pure OrderCommit approval/document preview policy for all commit kinds.
+- **123 Phase 3 Task 4** — Added `classifyOrderCommitPreview` aggregating operational change flags and mapping delta to preview commit kinds.
+- **123 Phase 3 Task 3** — Added `diffOrderCommitSnapshots` purely comparing V1 snapshots by stable line identity.
+- **123 Phase 3 Task 2** — Added `resolveOrderCommitPreviewBaseline` selecting latest committed, original package-only, or empty baselines.
+- **123 Phase 3 Task 1** — Added OrderCommit preview DTO/schema/type contracts for baseline, diffs, classification, approval/document-plan, and payment/refund impact.
+- **122 Task 9** — Completed final `OrderCommitDraft` staging regression guards for snapshot truth, ops-history-only semantics, and source isolation.
+- **122 Task 2** — Added `stageOrderCommitDraftChange` pipeline with draft loading, scoped resolution, reducer orchestration, and snapshot-replacement history.
+- **122 reducer review fixes** — Hardened shared target identity resolution, safe package/photo composite deferral, and linked-product draft/materialized identity guards.
+- **122 Task 8** — Added the pure `OrderCommitDraft` session-configuration reducer with linked-product add-on pair management and draft/materialized identity protection.
+- **122 Task 7** — Added the pure `OrderCommitDraft` photo reducer for per-package selected/extra counts with locked pricing on new lines and parity enforcement.
+- **122 Task 6** — Added the pure `OrderCommitDraft` package-item upgrade reducer with package+item merge and zero-quantity removal.
+- **122 Task 5** — Added the pure `OrderCommitDraft` add-on reducer with scoped product merge, quantity management, and linked-product protection.
+- **122 Task 4** — Added the pure `OrderCommitDraft` package reducer with identity/pricing refresh, original metadata preservation, and scoped-upgrade/photo/addon preservation.
+- **122 Task 3** — Added shared OrderCommit snapshot normalization with deterministic ordering, recalculated totals, and duplicate identity guards.
+- **122 Task 1** — Added typed `OrderCommitDraft` staging-change and staging-history payload contracts for the five reducer domains.
+- **121 Phase 2 Task 5** — Completed final `OrderCommitDraft` regression guards for pendingOps/pendingSnapshot isolation and source boundaries.
+- **121 Phase 2 Task 4** — Added `OrderCommitDraft` generic pending-operation append/replace history with expected-version writes.
+- **121 Phase 2 Task 3** — Added `OrderCommitDraft` snapshot replacement with V1 validation, expected-version writes, and `SNAPSHOT_REPLACED` history.
+- **121 Phase 2 Task 2** — Added `OrderCommitDraft` lifecycle helpers for get, get-or-create, and discard with expected-version authorization.
+- **121 Phase 2 Task 1** — Added additive `OrderCommitDraft` schema, generic pending operation contracts, and pending snapshot contract guard.
+- **120 Phase 1 review fixes** — Preserved OPERATIONAL session-configuration selections as zero-value OrderCommit ownership lines; wired order-commit tests into `test:centralization`.
+- **120 Phase 1 Task 5** — Completed final OrderCommit foundation regression guards for latest lookup, backfill, snapshot immutability, and source boundaries.
+- **120 Phase 1 Task 4** — Added idempotent OrderCommit bootstrap backfill for financially committed orders.
+- **120 Phase 1 Task 3** — Added latest committed snapshot lookup, transactional commit creation with chaining, and idempotent bootstrap.
+- **120 Phase 1 Task 2.5** — Hardened OrderCommit snapshot determinism with final line sorting and canonical metadata normalization.
+- **120 Phase 1 Task 2** — Added `captureOrderCommitSnapshotFromOrderRows` capturing the V1 committed operational baseline from `Order*` rows.
+- **120 Phase 1 Task 1** — Added additive `OrderCommit` schema/migration, V1 snapshot contracts, and source guards.
+- **AW preview package-tier display fix** — Normalized pending package-tier swap metadata into package rows for the full preview card.
+- **119 package-tier fix** — Made `change_package_tier` the canonical AW package-tier materialization path; preserved legacy `swap_package` compatibility.
+- **118 OPS7** — Collapsed locked composition projection to current operational rows; deleted invoice-line replay helpers.
+- **117 OPS6** — Materialized post-lock selected-photo and extra digital/print workspace edits into `OrderPackage`; resynced order selected-photo cache.
+- **116 OPS5** — Materialized post-lock package-item upgrade add/remove/quantity workspace edits into `OrderPackageItemUpgrade`.
+- **115 OPS4** — Materialized post-lock add-on add/remove/quantity workspace edits into `OrderAddOn`.
+- **114 OPS3** — Materialized post-lock `swap_package` workspace edits into `OrderPackage` rows; enabled replay skip via `operationalStateAppliedAt`.
+- **113 OPS2** — Added `AdjustmentWorkspace.operationalStateAppliedAt`; muted invoice-line replay for operationally finalized workspaces.
+- **112 OPS1** — Split `OrderPackage.packageId` into immutable original/current fields; rewired POS/order/composition/invoice readers.
+- **111 R13d** — Filled R13 freeze checklist with manual QA steps, acceptable-behavior changes, and 2026-05-20 centralization roadmap closure.
+- **110 R13c** — Added service-level workflow smoke coverage for booking, POS, locked adjustments, editing, production, delivery, and end-to-end walkthrough.
+- **109 R13b** — Added deposit terminology guards, selected-photo baseline parity, Commercial Actions catalog parity, and locked/adjustment edit interactivity parity.
+- **108 R13a** — Published R13 verification inventory and freeze checklist; added `test:centralization` literal runner.
+- **POS Commercial Actions quick-add catalog fix** — Rewired `POSAddOnMarketplace` quick actions to add-on catalog availability; preserved existing handler/catalog behavior.
+- **AW POS selected-photo baseline fix** — Preserved package included-photo metadata through adjustment snapshots; backfilled older snapshots from normal POS data.
+- **107 R12** — Removed legacy order settlement helpers, booking deposit dedup, and `OrderDetail` aggregate photo counts.
+- **106 R11** — Moved order-detail operational config display and empty composition DTOs into composition projections.
+- **105 R10d** — Added delivery workflow policy DTO/builder; moved delivery blockers/override/actions and payment settlement decisions to `FinancialCaseSummary`.
+- **105 R10c** — Added production workflow policy DTO/builder; wired production section/final-readiness actions to policy output.
+- **105 R10b** — Added editing workflow policy DTO/builder; wired editing workflow form actions to policy output.
+- **105 R10a** — Added booking workflow policy DTO/builder; wired booking status actions to policy output.
+- **104 R9 review fixes** — Added policy-owned interactivity/open-workspace fields; moved configure-session write gating before direct writes.
+- **104 R9** — Added centralized `OrderEditModePolicy`; wired POS package/photo/add-on sidebars and configure-session routing to policy DTOs.
+- **103 R8c follow-up** — Order detail falls back gracefully when composition projection data is unavailable.
+- **103 R8c** — Swapped order detail overview and production deliverable readouts onto R7 composition projectors.
+- **103 R8b** — Swapped POS add-on marketplace current rows and removal targets onto a pure composition marketplace projection.
+- **103 R8a** — Swapped draft sidebar, POS package/photo, locked sales, and adjustment preview cards onto R7 composition projectors.
+- **102 R7b** — Added pure `OrderCompositionViewModel` projectors for POS, current-composition, overview, and production deliverables.
+- **102 R7a** — Added the read-only `OrderCompositionViewModel` core for draft, locked/effective, and pending-adjustment composition state.
+- **101 R6** — Removed temporary FinancialCase discrepancy/parity logger and reconciliation invariant; refreshed invariant catalog.
+- **100 R5** — Removed direct app/component DB imports by moving configure-session routing, pricing validation, and booking page data into service helpers.
+- **99 R4** — Centralized KD formatting, signed money display, and money-input parsing in `src/lib/formatting/money.ts`.
+- **98 R3b** — Booking page financial readout now consumes `toBookingPageFinancial`; legacy package remaining balance label removed.
+- **98 R3a** — Order header and orders-table financial readouts now consume `FinancialCaseSummary` projectors; table loading batched.
+- **96** — R1b `FinancialCaseSummary` projectors completed for header, draft sidebar, payment dialog, orders table, booking page, and invoice list.
 - **94** — Linked-product session configurations materialize as selection-owned `OrderAddOn` rows; display-mode enum/columns retired.
-- **93** — Session-config selections snapshot option labels; invoice/detail lines use shared grouped renderer; staff-only operational config display; adjustment deltas get Added/Removed/Changed descriptions.
-- **92a** — Configure Session panel made three-mode (`draft`/`locked`/`adjustment`); operational-only workspace finalization closes without issuing an empty adjustment invoice.
+- **93** — Session-config selections snapshot option labels; invoice/detail lines use shared grouped renderer.
+- **92a** — Configure Session panel made three-mode (draft/locked/adjustment); operational-only finalization closes without empty adjustment invoice.
 - **92** — Post-lock session-configuration routing through AdjustmentWorkspace; `SESSION_CONFIGURATION` adjustment invoice lines.
 - **91** — Configure Session dialog, per-package summary/missing-required UI, live draft totals; selection service as sole writer.
-- **90** — Session-configuration pricing engine, live required-selection resolver, Final Invoice integration; resync uses same pricing helper.
+- **90** — Session-configuration pricing engine, live required-selection resolver, Final Invoice integration.
 - **89** — Session Configurations admin CRUD at `/session-configurations`.
-- **88** — Session Configuration schema/migration scaffolding (no runtime wiring).
+- **88** — Session Configuration schema/migration scaffolding.
 - **87** — Order Details Financials reads canonical FinancialCase documents; legacy `getOrderFinancialSummary` removed.
 - **86** — Extra-photo pricing admin CRUD with paired digital/print edits.
 - **85** — Session Type admin CRUD; calendar display row-level; default zero-priced extra-photo pricing rows on create.
-- **84c** — AdjustmentWorkspace Stage Edits → Preview → Pending Changes → Pending Adjustment Summary flow; FinancialSidebarAdjustment.
-- **84b** — Locked sales uses CurrentCompositionCard + FinancialSidebarLocked; draft/locked sidebar split.
-- **84a** — Shared CompositionView normalizer and presentational card.
+- **84c** — AdjustmentWorkspace Stage Edits → Preview → Pending Changes → Pending Adjustment Summary flow; `FinancialSidebarAdjustment`.
+- **84b** — Locked sales uses `CurrentCompositionCard` + `FinancialSidebarLocked`; draft/locked sidebar split.
+- **84a** — Shared `CompositionView` normalizer and presentational card.
 - **83c** — AdjustmentWorkspace mounts shared POS modules via staged-edit handler adapters and POS-shaped derived read model.
 - **83b** — POS composition/photo/add-on controls refactored behind typed handler contracts.
 - **83a** — AdjustmentWorkspace edit DSL supports `change_package_tier`, `upgrade_package_item`, `change_selected_photo_count`.
@@ -141,10 +206,10 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **81f** — INV-18 goodwill classification adjustment + audited F6 backfill script.
 - **81e** — Financial invariant catalog + generated owner-facing index.
 - **81d** — Healthchecks.io successful-report pings on reconciliation.
-- **81c** — Canonical settled/outstanding displays across order header, list, invoice detail.
+- **81c** — Canonical settled/outstanding displays across order header, list, and invoice detail.
 - **81b** — `createRefundInvoice` privatized; refund flows via `issueRefundWithPayment`.
 - **81a** — Dual-read warning path and feature flag removed; classifier is canonical.
-- **80c** — DB triggers for PaymentAllocation over-collection and ADJUSTMENT-parent chains.
+- **80c** — DB triggers for `PaymentAllocation` over-collection and ADJUSTMENT-parent chains.
 - **80b** — `InvoiceLockSnapshot` + locked-invoice frozen-field trigger.
 - **80a** — `AuditLog` with co-transactional audit writes across booking/payment/invoice/adjustment/credit-note/refund.
 - **79d** — Manager credit-note approval modal for POS reductive locked edits.
@@ -152,13 +217,14 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **79b** — Legacy deposit-deduction balance formulas removed; canonical `Invoice.remainingAmount` everywhere.
 - **78a** — Settlement row lock + auto-close fully paid FINAL invoices.
 - **78b** — Required `ActorContext.actorRole`; `recordPayment()` service-boundary guard.
-- **77 (Phases A–G)** — Financial invariant CI; workflow integration matrix; edge-case expansion; regression suite for 74/75/76; concurrency/security/recovery suite; production reconciliation runner.
-- **76 (a/b/c)** — REFUND invoice + outbound payment; CREDIT_NOTE invoice + DocumentApplication binding; reductions wired to credit notes.
+- **77 (Phases A–G)** — Financial invariant CI, workflow integration matrix, edge-case expansion, regression suite, concurrency/security/recovery suite, production reconciliation runner.
+- **76 (a/b/c)** — REFUND invoice + outbound payment; CREDIT_NOTE + `DocumentApplication` binding; reductions wired to credit notes.
 - **75c** — POS adjustment settlement: `PaymentType.ADJUSTMENT`, settled invoice close/lock.
 - **74 (a–e)** — Document/application allocation foundation, backfill, payment creation choke point, recalculation dual-read, Phase 1 cutover + nightly reconciliation.
 - **73c** — Order add-on split: `OrderPackageItemUpgrade` separated from `OrderAddOn`.
 
 ## Open Follow-Ups
+- Spec 152 (**deferred** — OrderCommit chapter closed): retire the legacy direct-edit financial engine `syncOrderInvoiceForFinancialEdit` and migrate its remaining direct non-mutator callers onto the OrderCommit/financial-service path. Not urgent: after Spec 151 the engine has **no production caller** (`commitOrderChanges` is the sole production emission path) and survives only as test-only scaffolding. Revisit when convenient; placeholder spec archived.
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.
 - Fix remaining Phase C/F high-risk findings before production financial expansion: open ADJUSTMENT cancellation disposition, commission persistence, voucher redemption schema.

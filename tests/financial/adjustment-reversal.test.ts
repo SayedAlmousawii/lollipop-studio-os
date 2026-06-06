@@ -12,6 +12,14 @@ import {
   ProductCategory,
   type PrismaClient,
 } from "@prisma/client";
+import {
+  addOrderAddOnChange,
+  commitOrderEditForTest,
+  removeOrderAddOnChange,
+  updateOrderAddOnQuantityChange,
+  updateOrderPackageItemUpgradeQuantityChange,
+  upgradeOrderPackageItemChange,
+} from "../order-commits/helpers/commit-order-edit";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -48,26 +56,18 @@ async function buildContext() {
   const [
     { db },
     { seedPhaseBFixtures, buildFinalInvoiceWorkflowFixture, buildLockedFinalInvoiceWorkflowFixture },
-    { addOrderProductAddOn, removeOrderAddOn, upgradeOrderPackageItem },
     { recordPayment },
-    { syncOrderInvoiceForFinancialEdit },
   ] = await Promise.all([
     import("@/lib/db"),
     import("../financial-phase-b/fixtures"),
-    import("@/modules/orders/order.service"),
     import("@/modules/payments/payment.service"),
-    import("@/modules/invoices/invoice.service"),
   ]);
   const fixtures = await seedPhaseBFixtures(db);
 
   return {
     db,
     fixtures,
-    addOrderProductAddOn,
-    removeOrderAddOn,
-    upgradeOrderPackageItem,
     recordPayment,
-    syncOrderInvoiceForFinancialEdit,
     buildLockedWorkflow: (suffix: string) =>
       buildLockedFinalInvoiceWorkflowFixture(db, fixtures, suffix),
     buildFinalWorkflowWithOriginalAddOn: (suffix: string) =>
@@ -83,20 +83,21 @@ test("adjustment reversal regressions A-E", async () => {
   await withFinancialHarness(async (ctx) => {
     {
     const workflow = await ctx.buildLockedWorkflow("a");
-    await ctx.addOrderProductAddOn(
-      workflow.orderId,
-      { productId: ctx.fixtures.addOnProductId },
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: addOrderAddOnChange(ctx.fixtures.addOnProductId),
+      actorContext: ctx.fixtures.adminActor,
+    });
     const adjustment = await firstAdjustmentWithLine(ctx.db, workflow.orderId);
     await payInvoice(ctx, adjustment.id, adjustment.totalAmount);
     const addOn = await firstOrderAddOn(ctx.db, workflow.orderId, ctx.fixtures.addOnProductId);
 
-    await ctx.removeOrderAddOn(
-      workflow.orderId,
-      approvedRemoveInput(addOn.id, ctx.fixtures),
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: removeOrderAddOnChange(addOn.id),
+      actorContext: ctx.fixtures.adminActor,
+      approvalActorUserId: ctx.fixtures.managerId,
+    });
 
     await assertAdjustmentReversal(ctx.db, {
       orderId: workflow.orderId,
@@ -110,19 +111,20 @@ test("adjustment reversal regressions A-E", async () => {
 
     {
     const workflow = await ctx.buildLockedWorkflow("b");
-    await ctx.addOrderProductAddOn(
-      workflow.orderId,
-      { productId: ctx.fixtures.addOnProductId },
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: addOrderAddOnChange(ctx.fixtures.addOnProductId),
+      actorContext: ctx.fixtures.adminActor,
+    });
     const adjustment = await firstAdjustmentWithLine(ctx.db, workflow.orderId);
     const addOn = await firstOrderAddOn(ctx.db, workflow.orderId, ctx.fixtures.addOnProductId);
 
-    await ctx.removeOrderAddOn(
-      workflow.orderId,
-      approvedRemoveInput(addOn.id, ctx.fixtures),
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: removeOrderAddOnChange(addOn.id),
+      actorContext: ctx.fixtures.adminActor,
+      approvalActorUserId: ctx.fixtures.managerId,
+    });
 
     await assertAdjustmentReversal(ctx.db, {
       orderId: workflow.orderId,
@@ -145,36 +147,33 @@ test("adjustment reversal regressions A-E", async () => {
     });
     const replacement = await createReplacementProduct(ctx.db, "c", packageItem.product.category);
 
-    await ctx.upgradeOrderPackageItem(
-      workflow.orderId,
-      {
-        orderPackageId: await firstOrderPackageId(ctx.db, workflow.orderId),
+    const orderPackageId = await firstOrderPackageId(ctx.db, workflow.orderId);
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: upgradeOrderPackageItemChange({
+        orderPackageId,
         packageItemId: packageItem.id,
         newProductId: replacement.id,
-      },
-      ctx.fixtures.adminActor
-    );
+        quantity: 3,
+      }),
+      actorContext: ctx.fixtures.adminActor,
+    });
     const adjustment = await firstAdjustmentWithLine(ctx.db, workflow.orderId);
     await payInvoice(ctx, adjustment.id, adjustment.totalAmount);
     const upgrade = await ctx.db.orderPackageItemUpgrade.findFirstOrThrow({
       where: { orderId: workflow.orderId },
-      select: { id: true, nameSnapshot: true, priceSnapshot: true },
+      select: { id: true },
     });
 
-    await ctx.db.orderPackageItemUpgrade.update({
-      where: { id: upgrade.id },
-      data: { quantity: 2 },
-    });
-    await ctx.syncOrderInvoiceForFinancialEdit(ctx.db, {
+    await commitOrderEditForTest(ctx.db, {
       orderId: workflow.orderId,
+      change: updateOrderPackageItemUpgradeQuantityChange({
+        orderPackageId,
+        orderPackageItemUpgradeId: upgrade.id,
+        quantity: 2,
+      }),
       actorContext: ctx.fixtures.managerActor,
-      previousAddOns: [
-        { name: upgrade.nameSnapshot, price: upgrade.priceSnapshot.toNumber() },
-        { name: upgrade.nameSnapshot, price: upgrade.priceSnapshot.toNumber() },
-        { name: upgrade.nameSnapshot, price: upgrade.priceSnapshot.toNumber() },
-      ],
-      managerApprovedReductionByUserId: ctx.fixtures.managerId,
-      managerApprovedReason: "Test C partial reversal",
+      approvalActorUserId: ctx.fixtures.managerId,
     });
 
     await assertAdjustmentReversal(ctx.db, {
@@ -199,11 +198,12 @@ test("adjustment reversal regressions A-E", async () => {
     const workflow = await ctx.buildFinalWorkflowWithOriginalAddOn("d");
     const addOn = await firstOrderAddOn(ctx.db, workflow.orderId, ctx.fixtures.addOnProductId);
 
-    await ctx.removeOrderAddOn(
-      workflow.orderId,
-      approvedRemoveInput(addOn.id, ctx.fixtures),
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: removeOrderAddOnChange(addOn.id),
+      actorContext: ctx.fixtures.adminActor,
+      approvalActorUserId: ctx.fixtures.managerId,
+    });
 
     const application = await ctx.db.documentApplication.findFirstOrThrow({
       where: {
@@ -225,11 +225,11 @@ test("adjustment reversal regressions A-E", async () => {
     const workflow = await ctx.buildLockedWorkflow("e");
     const secondProduct = await createAddOnProduct(ctx.db, "e-second", "Test E second addon", 30);
 
-    await ctx.addOrderProductAddOn(
-      workflow.orderId,
-      { productId: ctx.fixtures.addOnProductId },
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: addOrderAddOnChange(ctx.fixtures.addOnProductId),
+      actorContext: ctx.fixtures.adminActor,
+    });
     const firstAdjustment = await firstAdjustmentWithLine(ctx.db, workflow.orderId);
     await payInvoice(ctx, firstAdjustment.id, firstAdjustment.totalAmount);
     const firstAddOn = await firstOrderAddOn(
@@ -238,19 +238,20 @@ test("adjustment reversal regressions A-E", async () => {
       ctx.fixtures.addOnProductId
     );
 
-    await ctx.addOrderProductAddOn(
-      workflow.orderId,
-      { productId: secondProduct.id },
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: addOrderAddOnChange(secondProduct.id),
+      actorContext: ctx.fixtures.adminActor,
+    });
     const secondAdjustment = await latestAdjustmentWithLine(ctx.db, workflow.orderId);
     await payInvoice(ctx, secondAdjustment.id, secondAdjustment.totalAmount);
 
-    await ctx.removeOrderAddOn(
-      workflow.orderId,
-      approvedRemoveInput(firstAddOn.id, ctx.fixtures),
-      ctx.fixtures.adminActor
-    );
+    await commitOrderEditForTest(ctx.db, {
+      orderId: workflow.orderId,
+      change: removeOrderAddOnChange(firstAddOn.id),
+      actorContext: ctx.fixtures.adminActor,
+      approvalActorUserId: ctx.fixtures.managerId,
+    });
 
     await assertAdjustmentReversal(ctx.db, {
       orderId: workflow.orderId,
@@ -271,47 +272,49 @@ test("adjustment reversal regressions A-E", async () => {
 
 async function assertSameCauseReversalConsumesAllOpenLines(ctx: TestContext) {
   const workflow = await ctx.buildLockedWorkflow("e-same-cause");
-  await ctx.addOrderProductAddOn(
-    workflow.orderId,
-    { productId: ctx.fixtures.addOnProductId },
-    ctx.fixtures.adminActor
-  );
+  await commitOrderEditForTest(ctx.db, {
+    orderId: workflow.orderId,
+    change: addOrderAddOnChange(ctx.fixtures.addOnProductId),
+    actorContext: ctx.fixtures.adminActor,
+  });
   const firstAdjustment = await firstAdjustmentWithLine(ctx.db, workflow.orderId);
   await payInvoice(ctx, firstAdjustment.id, firstAdjustment.totalAmount);
   const addOn = await firstOrderAddOn(ctx.db, workflow.orderId, ctx.fixtures.addOnProductId);
 
-  await ctx.db.orderAddOn.update({
-    where: { id: addOn.id },
-    data: { quantity: 2 },
-  });
-  await ctx.syncOrderInvoiceForFinancialEdit(ctx.db, {
+  await commitOrderEditForTest(ctx.db, {
     orderId: workflow.orderId,
+    change: updateOrderAddOnQuantityChange(addOn.id, 2),
     actorContext: ctx.fixtures.adminActor,
-    previousAddOns: [{ productId: addOn.productId ?? undefined, name: addOn.nameSnapshot, price: 50 }],
   });
   const secondAdjustment = await latestAdjustmentWithLine(ctx.db, workflow.orderId);
   await payInvoice(ctx, secondAdjustment.id, secondAdjustment.totalAmount);
 
-  await ctx.db.orderAddOn.delete({ where: { id: addOn.id } });
-  await ctx.syncOrderInvoiceForFinancialEdit(ctx.db, {
+  await commitOrderEditForTest(ctx.db, {
     orderId: workflow.orderId,
+    change: removeOrderAddOnChange(addOn.id),
     actorContext: ctx.fixtures.managerActor,
-    previousAddOns: [
-      { productId: addOn.productId ?? undefined, name: addOn.nameSnapshot, price: 50 },
-      { productId: addOn.productId ?? undefined, name: addOn.nameSnapshot, price: 50 },
-    ],
-    managerApprovedReductionByUserId: ctx.fixtures.managerId,
-    managerApprovedReason: "Same-cause review regression",
+    approvalActorUserId: ctx.fixtures.managerId,
   });
 
   const creditNotes = await ctx.db.invoice.findMany({
     where: { orderId: workflow.orderId, invoiceType: InvoiceType.CREDIT_NOTE },
     include: { documentApplicationsAsSource: true, lineItems: true },
   });
-  assert.equal(creditNotes.length, 1, "same-cause removal should create one CREDIT_NOTE");
-  assert.equal(creditNotes[0]?.lineItems.length, 2);
+  assert.equal(
+    creditNotes.length,
+    2,
+    "same-cause removal should credit both adjustment invoices"
+  );
+  assert.equal(
+    creditNotes.reduce((sum, creditNote) => sum + creditNote.lineItems.length, 0),
+    2
+  );
   const targetLineIds = new Set(
-    creditNotes[0]?.documentApplicationsAsSource.map((application) => application.targetInvoiceLineId)
+    creditNotes.flatMap((creditNote) =>
+      creditNote.documentApplicationsAsSource.map(
+        (application) => application.targetInvoiceLineId
+      )
+    )
   );
   assert.deepEqual(
     targetLineIds,
@@ -334,17 +337,6 @@ async function payInvoice(
     },
     ctx.fixtures.adminActor
   );
-}
-
-function approvedRemoveInput(
-  addOnId: string,
-  fixtures: { managerId: string }
-) {
-  return {
-    addOnId,
-    managerApprovedReductionByUserId: fixtures.managerId,
-    managerApprovedReason: "Adjustment reversal regression",
-  };
 }
 
 async function firstAdjustmentWithLine(db: PrismaClient, orderId: string) {
@@ -433,21 +425,11 @@ async function assertAdjustmentReversal(
   assert.equal(application.sourceInvoice.parentInvoiceId, input.adjustmentInvoiceId);
   assert.equal(application.sourceInvoice.lineItems.length >= 1, true);
 
-  const refundCount = await db.invoice.count({
-    where: {
-      orderId: input.orderId,
-      invoiceType: InvoiceType.REFUND,
-      parentInvoiceId: input.adjustmentInvoiceId,
-      payments: {
-        some: {
-          direction: "OUT",
-          paymentType: PaymentType.REFUND,
-          allocations: { some: { amount: new Prisma.Decimal(input.amount) } },
-        },
-      },
-    },
+  const order = await db.order.findUniqueOrThrow({
+    where: { id: input.orderId },
+    select: { refundPending: true },
   });
-  assert.equal(refundCount, input.expectRefund ? 1 : 0);
+  assert.equal(order.refundPending, input.expectRefund);
 }
 
 async function assertFinalUnchanged(

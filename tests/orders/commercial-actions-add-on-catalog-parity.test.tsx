@@ -47,7 +47,6 @@ test("Commercial Actions add-on catalog renders one-to-one with projected market
         handlers: {
           addAddOn: async () => ({ ok: true }),
           removeAddOn: async () => ({ ok: true }),
-          shouldPromptInlineApproval: false,
         },
         editPolicies: buildAddOnPolicies(workspace),
       })
@@ -80,6 +79,10 @@ function assertCatalogRowsMatchProjection(
     if (state) {
       assert.match(markup, new RegExp(`Added x${state.count}`));
       assert.match(markup, new RegExp(`value="${state.removalOrderAddOnId}"`));
+      assert.match(
+        markup,
+        new RegExp(`name="currentQuantity" value="${state.removalOrderAddOnQuantity}"`)
+      );
     }
   }
 
@@ -98,6 +101,10 @@ function assertCurrentRowsMatchProjection(
     assert.match(markup, new RegExp(escapeRegExp(`${addOn.unitAmount.toFixed(3)} KD`)));
     if (addOn.orderAddOnId) {
       assert.match(markup, new RegExp(`value="${addOn.orderAddOnId}"`));
+      assert.match(
+        markup,
+        new RegExp(`name="currentQuantity" value="${addOn.currentQuantity}"`)
+      );
     }
   }
 
@@ -125,7 +132,7 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     if (request === "server-only") return {};
     if (request === "@/app/orders/[orderId]/sales/actions") {
       return {
-        confirmReductiveEditWithApproval: async () => ({ kind: "success" }),
+        stageSessionConfigurationSelectionAction: async () => ({ kind: "success" }),
       };
     }
     return originalModuleLoad.call(this, request, parent, isMain);

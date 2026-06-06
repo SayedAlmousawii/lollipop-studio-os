@@ -1,10 +1,8 @@
 export {
-  buildCompositionSnapshotFromAdjustmentSnapshot,
   buildCompositionSnapshotFromPOSWorkspace,
   getDraftOrderCompositionViewModel,
   getLockedOrderCompositionViewModel,
   getOrderCompositionViewModel,
-  getPendingAdjustmentOrderCompositionViewModel,
 } from "./order-composition.service";
 export {
   toCurrentCompositionCard,

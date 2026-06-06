@@ -15,23 +15,23 @@ import {
   type PrismaClient,
 } from "@prisma/client";
 import { updateBookingStatus } from "@/modules/bookings/booking.service";
-import { createCreditNote } from "@/modules/invoices/invoice.service";
 import {
-  applyEdit,
-  finalizeWorkspace,
-  openWorkspace,
-} from "@/modules/adjustment-workspace/adjustment-workspace.service";
-import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
+  createAdjustmentInvoice,
+  createCreditNote,
+} from "@/modules/invoices/invoice.service";
 import {
-  addOrderProductAddOn,
-  removeOrderAddOn,
   updateOrderDeliveryWorkflow,
   updateOrderEditingWorkflow,
-  updateOrderPackage,
   updateOrderProductionWorkflow,
 } from "@/modules/orders/order.service";
 import { issueRefundWithPayment } from "@/modules/refunds/refund.service";
 import { recordPayment } from "@/modules/payments/payment.service";
+import {
+  addOrderAddOnChange,
+  commitOrderEditForTest,
+  removeOrderAddOnChange,
+  updateOrderPackageChange,
+} from "../order-commits/helpers/commit-order-edit";
 import {
   assertMoney,
   assertNoFinancialRecordsForBooking,
@@ -48,7 +48,6 @@ import {
   getBookingFinancialSnapshot,
   makeOrderReadyForDelivery,
   seedPhaseBFixtures,
-  type FinalInvoiceWorkflow,
   type PhaseBFixtures,
 } from "./fixtures";
 
@@ -64,12 +63,12 @@ export async function runPhaseBWorkflowIntegrationMatrix(
   await runInt05FinalInvoiceCreationAtPos(db, fixtures);
   await runInt06PartialPaymentOnFinalInvoice(db, fixtures);
   await runInt07FullPaymentLocksFinalInvoice(db, fixtures);
-  await runInt08LockedOrderEditRequiresAdjustmentWorkspace(db, fixtures);
+  await runInt08LockedOrderCommitEditEmitsAdjustment(db, fixtures);
   await runInt09AdjustmentInvoicePayment(db, fixtures);
   await runInt10ReductiveEditRequiresManager(db, fixtures);
   await runInt11CreditNoteIssuance(db, fixtures);
   await runInt12RefundIssuance(db, fixtures);
-  await runInt13PackageUpgradeCreatesDeltaAdjustment(db, fixtures);
+  await runInt13LockedPackageUpgradeEmitsAdjustment(db, fixtures);
   await runInt14NoShowHandling(db, fixtures);
   await runInt15OrderDeliveryCompletionGuards(db, fixtures);
 }
@@ -341,21 +340,16 @@ async function runInt07FullPaymentLocksFinalInvoice(
   assert.equal(editingJob.status, OrderEditingStatus.IN_PROGRESS);
 }
 
-async function runInt08LockedOrderEditRequiresAdjustmentWorkspace(
+async function runInt08LockedOrderCommitEditEmitsAdjustment(
   db: PrismaClient,
   fixtures: PhaseBFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "int08");
-  await expectRejectsWithoutPartialWrites(
-    () =>
-      addOrderProductAddOn(
-        workflow.orderId,
-        { productId: fixtures.addOnProductId },
-        fixtures.adminActor
-      ),
-    () => snapshotOrderEditFinancialState(db, workflow.orderId),
-    /Adjustment Workspace|Failed to add order add-on/
-  );
+  await commitOrderEditForTest(db, {
+    orderId: workflow.orderId,
+    change: addOrderAddOnChange(fixtures.addOnProductId),
+    actorContext: fixtures.adminActor,
+  });
   assert.equal(
     await db.invoice.count({
       where: {
@@ -364,50 +358,30 @@ async function runInt08LockedOrderEditRequiresAdjustmentWorkspace(
         parentInvoiceId: workflow.finalInvoiceId,
       },
     }),
-    0,
-    "direct locked edit must not emit an ADJ"
+    1,
+    "locked OrderCommit edit must emit one ADJ"
   );
-
-  const adjustment = await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    editId: "int08-addon",
-  });
-  const finalInvoice = await db.invoice.findUniqueOrThrow({
-    where: { id: workflow.finalInvoiceId },
-  });
-
-  assert.equal(adjustment.status, InvoiceStatus.ISSUED);
-  assert.equal(adjustment.isLocked, false);
-  assertMoney(adjustment.totalAmount, "50", "additive edit adjustment amount");
-  assert.equal(adjustment.lineItems[0]?.lineType, InvoiceLineType.ADD_ON);
-  assert.equal(finalInvoice.status, InvoiceStatus.CLOSED);
-  assert.equal(finalInvoice.isLocked, true);
-  assert.equal(
-    await db.invoice.count({
-      where: { orderId: workflow.orderId, invoiceType: InvoiceType.CREDIT_NOTE },
-    }),
-    0
-  );
-  await assertOrderActivity(db, {
-    orderId: workflow.orderId,
-    title: "Adjustment workspace finalized",
-    userId: fixtures.adminId,
-  });
 
   const zeroWorkflow = await buildLockedFinalInvoiceWorkflowFixture(
     db,
     fixtures,
     "int08-zero"
   );
-  await expectRejectsWithoutPartialWrites(
-    () =>
-      addOrderProductAddOn(
-        zeroWorkflow.orderId,
-        { productId: fixtures.zeroPriceAddOnProductId },
-        fixtures.adminActor
-      ),
-    () =>
-      snapshotOrderEditFinancialState(db, zeroWorkflow.orderId),
-    /greater than 0|Failed to add order add-on/
+  await commitOrderEditForTest(db, {
+    orderId: zeroWorkflow.orderId,
+    change: addOrderAddOnChange(fixtures.zeroPriceAddOnProductId),
+    actorContext: fixtures.adminActor,
+  });
+  assert.equal(
+    await db.invoice.count({
+      where: {
+        orderId: zeroWorkflow.orderId,
+        invoiceType: InvoiceType.ADJUSTMENT,
+        parentInvoiceId: zeroWorkflow.finalInvoiceId,
+      },
+    }),
+    0,
+    "zero-value locked OrderCommit edit must not emit an ADJ"
   );
 }
 
@@ -416,9 +390,7 @@ async function runInt09AdjustmentInvoicePayment(
   fixtures: PhaseBFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "int09");
-  const adjustment = await finalizeAddOnWorkspaceAdjustment(db, fixtures, workflow, {
-    editId: "int09-addon",
-  });
+  const adjustment = await createAddOnAdjustmentInvoice(db, fixtures, workflow);
 
   const payment = await recordPayment(
     adjustment.id,
@@ -457,14 +429,15 @@ async function runInt10ReductiveEditRequiresManager(
 
   await expectRejectsWithoutPartialWrites(
     () =>
-      removeOrderAddOn(
-        workflow.orderId,
-        { addOnId: addOn.id },
-        fixtures.adminActor
-      ),
+      commitOrderEditForTest(db, {
+        orderId: workflow.orderId,
+        change: removeOrderAddOnChange(addOn.id),
+        actorContext: fixtures.adminActor,
+      }),
     () => snapshotOrderEditFinancialState(db, workflow.orderId),
-    /Manager confirmation is required|Failed to remove order add-on/
+    /OrderCommit approval is required/
   );
+  await db.orderCommitDraft.deleteMany({ where: { orderId: workflow.orderId } });
 }
 
 async function runInt11CreditNoteIssuance(
@@ -560,7 +533,7 @@ async function runInt12RefundIssuance(
   });
 }
 
-async function runInt13PackageUpgradeCreatesDeltaAdjustment(
+async function runInt13LockedPackageUpgradeEmitsAdjustment(
   db: PrismaClient,
   fixtures: PhaseBFixtures
 ): Promise<void> {
@@ -570,45 +543,32 @@ async function runInt13PackageUpgradeCreatesDeltaAdjustment(
     select: { id: true, currentPackageId: true },
   });
 
-  await expectRejectsWithoutPartialWrites(
-    () =>
-      updateOrderPackage(
-        workflow.orderId,
-        {
-          orderPackageId: orderPackage.id,
-          packageId: fixtures.upgradePackageId,
-        },
-        fixtures.adminActor
-      ),
-    () => snapshotOrderEditFinancialState(db, workflow.orderId),
-    /Adjustment Workspace|Failed to update order package/
-  );
-
-  await finalizeWorkspaceAdjustment(db, fixtures, workflow, [
-    {
-      id: "int13-package-tier",
-      op: "change_package_tier",
-      orderPackageId: orderPackage.id,
-      toPackageRefId: fixtures.upgradePackageId,
-    },
-  ]);
-
-  const refreshedPackage = await db.orderPackage.findUniqueOrThrow({
-    where: { id: orderPackage.id },
-  });
-  const adjustment = await onlyAdjustmentInvoice(db, workflow.orderId, workflow.finalInvoiceId);
-  const finalInvoice = await db.invoice.findUniqueOrThrow({
-    where: { id: workflow.finalInvoiceId },
-  });
-
-  assert.equal(refreshedPackage.currentPackageId, orderPackage.currentPackageId);
-  assertMoney(adjustment.totalAmount, "100", "upgrade adjustment is delta only");
-  assertMoney(finalInvoice.totalAmount, "500", "locked final remains original amount");
-  await assertOrderActivity(db, {
+  await commitOrderEditForTest(db, {
     orderId: workflow.orderId,
-    title: "Adjustment workspace finalized",
-    userId: fixtures.adminId,
+    change: updateOrderPackageChange({
+      orderPackageId: orderPackage.id,
+      packageId: fixtures.upgradePackageId,
+    }),
+    actorContext: fixtures.adminActor,
   });
+
+  const adjustmentInvoice = await onlyAdjustmentInvoice(
+    db,
+    workflow.orderId,
+    workflow.finalInvoiceId
+  );
+  assertMoney(
+    adjustmentInvoice.totalAmount,
+    "100",
+    "package upgrade adjustment amount"
+  );
+  assert.equal(adjustmentInvoice.lineItems.length, 1);
+  assert.equal(adjustmentInvoice.lineItems[0]?.lineType, "PACKAGE_UPGRADE");
+  assert.equal(
+    adjustmentInvoice.lineItems[0]?.causeOrderEntityKind,
+    "PACKAGE_TIER_UPGRADE"
+  );
+  assert.equal(adjustmentInvoice.lineItems[0]?.causeOrderEntityId, orderPackage.id);
 }
 
 async function runInt14NoShowHandling(
@@ -781,47 +741,24 @@ async function snapshotOrderEditFinancialState(db: PrismaClient, orderId: string
   return { addOns, packages, invoices, applications, activities };
 }
 
-async function finalizeAddOnWorkspaceAdjustment(
+async function createAddOnAdjustmentInvoice(
   db: PrismaClient,
   fixtures: PhaseBFixtures,
-  workflow: FinalInvoiceWorkflow,
-  input: { editId: string }
+  workflow: { orderId: string; finalInvoiceId: string }
 ) {
-  await finalizeWorkspaceAdjustment(db, fixtures, workflow, [
-    {
-      id: input.editId,
-      op: "add_line",
-      kind: "addon",
-      refId: fixtures.addOnProductId,
-      quantity: 1,
-    },
-  ]);
-
+  await createAdjustmentInvoice({
+    parentFinalInvoiceId: workflow.finalInvoiceId,
+    lines: [
+      {
+        description: "Approved add-on adjustment",
+        quantity: 1,
+        unitPrice: 50,
+        lineType: InvoiceLineType.ADD_ON,
+      },
+    ],
+    createdByUserId: fixtures.managerId,
+  });
   return onlyAdjustmentInvoice(db, workflow.orderId, workflow.finalInvoiceId);
-}
-
-async function finalizeWorkspaceAdjustment(
-  db: PrismaClient,
-  fixtures: PhaseBFixtures,
-  workflow: FinalInvoiceWorkflow,
-  edits: AdjustmentWorkspaceEdit[]
-): Promise<void> {
-  const workspace = await openWorkspace(workflow.finalInvoiceId, fixtures.adminActor);
-  let version = 0;
-  for (const edit of edits) {
-    const view = await applyEdit(
-      workspace.id,
-      { version, edit },
-      fixtures.adminActor
-    );
-    version = view.version;
-  }
-  const result = await finalizeWorkspace(
-    workspace.id,
-    { version },
-    fixtures.adminActor
-  );
-  assert.ok(result.adjustmentInvoiceId, "workspace finalize must emit an ADJ");
 }
 
 async function onlyAdjustmentInvoice(

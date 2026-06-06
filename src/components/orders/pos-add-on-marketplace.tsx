@@ -7,7 +7,6 @@ import { Lock, PackagePlus, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ReductiveEditApprovalModal } from "@/components/orders/reductive-edit-approval-modal";
 import {
   Dialog,
   DialogContent,
@@ -109,7 +108,6 @@ export function POSAddOnMarketplace({
               {workspace.addOnCatalog.map((item) => (
                 <CatalogCard
                   key={item.id}
-                  orderId={workspace.orderId}
                   item={item}
                   productState={productStateById.get(item.id) ?? null}
                   handlers={handlers}
@@ -124,7 +122,6 @@ export function POSAddOnMarketplace({
           )}
 
           <CurrentAddOns
-            orderId={workspace.orderId}
             addOns={marketplace.currentAddOns}
             handlers={handlers}
             removePolicy={editPolicies.removeAddOn}
@@ -210,13 +207,11 @@ function QuickAddDialog({
 }
 
 function CatalogCard({
-  orderId,
   item,
   productState,
   handlers,
   policies,
 }: {
-  orderId: string;
   item: POSAddOnCatalogItem;
   productState: POSAddOnMarketplaceProductStateProjection | null;
   handlers: POSAddOnHandlers;
@@ -224,6 +219,7 @@ function CatalogCard({
 }) {
   const added = Boolean(productState);
   const removalOrderAddOnId = productState?.removalOrderAddOnId ?? null;
+  const removalOrderAddOnQuantity = productState?.removalOrderAddOnQuantity ?? null;
   const [addState, addAction] = useHandlerAction(
     handlers.addAddOn,
     (formData) => ({
@@ -235,6 +231,7 @@ function CatalogCard({
     handlers.removeAddOn,
     (formData) => ({
       addOnId: formDataString(formData, "addOnId"),
+      currentQuantity: optionalFormDataInteger(formData, "currentQuantity"),
     })
   );
 
@@ -265,6 +262,13 @@ function CatalogCard({
           <>
             <form action={removeAction} className="space-y-2">
               <input type="hidden" name="addOnId" value={removalOrderAddOnId} />
+              {removalOrderAddOnQuantity !== null ? (
+                <input
+                  type="hidden"
+                  name="currentQuantity"
+                  value={removalOrderAddOnQuantity}
+                />
+              ) : null}
               <SubmitButton
                 label="Remove One"
                 variant="ghost"
@@ -273,14 +277,6 @@ function CatalogCard({
               />
               <GlobalError messages={removeState.errors?._global} />
             </form>
-            {handlers.shouldPromptInlineApproval ? (
-              <ReductiveEditApprovalModal
-                orderId={orderId}
-                action="remove-add-on"
-                approval={removeState.payload}
-                hiddenFields={[{ name: "addOnId", value: removalOrderAddOnId }]}
-              />
-            ) : null}
           </>
         ) : null}
       </div>
@@ -289,12 +285,10 @@ function CatalogCard({
 }
 
 function CurrentAddOns({
-  orderId,
   addOns,
   handlers,
   removePolicy,
 }: {
-  orderId: string;
   addOns: POSAddOnMarketplaceCurrentAddOnProjection[];
   handlers: POSAddOnHandlers;
   removePolicy: OrderEditModePolicy;
@@ -307,7 +301,6 @@ function CurrentAddOns({
           {addOns.map((addOn) => (
             <CurrentAddOnRow
               key={addOn.id}
-              orderId={orderId}
               addOn={addOn}
               handlers={handlers}
               removePolicy={removePolicy}
@@ -324,12 +317,10 @@ function CurrentAddOns({
 }
 
 function CurrentAddOnRow({
-  orderId,
   addOn,
   handlers,
   removePolicy,
 }: {
-  orderId: string;
   addOn: POSAddOnMarketplaceCurrentAddOnProjection;
   handlers: POSAddOnHandlers;
   removePolicy: OrderEditModePolicy;
@@ -338,6 +329,7 @@ function CurrentAddOnRow({
     handlers.removeAddOn,
     (formData) => ({
       addOnId: formDataString(formData, "addOnId"),
+      currentQuantity: optionalFormDataInteger(formData, "currentQuantity"),
     })
   );
 
@@ -355,16 +347,13 @@ function CurrentAddOnRow({
           <>
             <form action={formAction} className="space-y-2">
               <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
+              <input
+                type="hidden"
+                name="currentQuantity"
+                value={addOn.currentQuantity}
+              />
               <SubmitIconButton disabled={!removePolicy.isInteractive} />
             </form>
-            {handlers.shouldPromptInlineApproval ? (
-              <ReductiveEditApprovalModal
-                orderId={orderId}
-                action="remove-add-on"
-                approval={state.payload}
-                hiddenFields={[{ name: "addOnId", value: addOn.orderAddOnId }]}
-              />
-            ) : null}
           </>
         ) : null}
       </div>
@@ -395,14 +384,6 @@ function actionStateFromHandlerResult(
     return { kind: "success" };
   }
 
-  if (result.approval) {
-    return {
-      kind: "approval-required",
-      errors: result.errors,
-      payload: result.approval,
-    };
-  }
-
   return { kind: "error", errors: result.errors };
 }
 
@@ -417,6 +398,17 @@ function handlerErrorResult(error: unknown): HandlerResult {
 function formDataString(formData: FormData, field: string): string {
   const value = formData.get(field);
   return typeof value === "string" ? value : "";
+}
+
+function optionalFormDataInteger(
+  formData: FormData,
+  field: string
+): number | undefined {
+  const value = formDataString(formData, field);
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return undefined;
+  return parsed;
 }
 
 function PolicyNotice({ policy }: { policy: OrderEditModePolicy }) {

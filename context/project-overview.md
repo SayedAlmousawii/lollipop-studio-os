@@ -68,7 +68,7 @@ The FinancialCase is the financial grouping boundary that bridges Booking → Jo
 - **Editing** — assignment, status, revision loop.
 - **Production** — print jobs (in-house) + album jobs (vendor).
 - **Commissions** — track upgrades, calculate photographer commissions, paid/pending status.
-- **Adjustment Workspace** — post-lock staged edits with manager approval, finalizing as ADJ / CN invoices.
+- **Post-lock order edits** — staged changes via `OrderCommitDraft` → preview → `commitOrderChanges`; locked-FINAL changes emit ADJ / CREDIT_NOTE / refund-needed documents; manager approval required for reductions.
 - **Reports** — daily/monthly revenue, upgrade revenue, commissions, pending jobs.
 
 ---

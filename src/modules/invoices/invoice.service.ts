@@ -165,24 +165,7 @@ async function updateUnlockedInvoiceTotal(
   return invoice;
 }
 
-export async function createInvoiceForOrder(
-  orderId: string,
-  actorContext: ActorContext
-): Promise<{ id: string }> {
-  return withRetry(
-    () =>
-      db.$transaction((tx) =>
-        createInvoiceForOrderWithClient(tx, orderId, actorContext)
-      ),
-    "Failed to create invoice"
-  );
-}
-
-export async function createInvoiceForOrderWithClient(
-  client: DbClient,
-  orderId: string,
-  actorContext: ActorContext
-): Promise<{ id: string; status: InvoiceStatus }> {
+async function computeOrderFinalTotalWithClient(client: DbClient, orderId: string) {
   const order = await client.order.findUnique({
     where: { id: orderId },
     include: {
@@ -208,19 +191,15 @@ export async function createInvoiceForOrderWithClient(
     },
   });
   if (!order) throw new Error("Order not found");
+
   const financialCaseId = order.booking.financialCase?.id;
   if (!financialCaseId) {
     throw new Error("Order financial case is required to create a final invoice");
   }
-  const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
-    financialCaseId,
-  });
-  if (existingInvoice) return existingInvoice;
+  if (order.packages.length === 0) throw new Error("Order has no package lines");
 
   const sessionConfigurationPrice =
     await priceRequiredSessionConfigurationsForOrder(client, order.id);
-
-  if (order.packages.length === 0) throw new Error("Order has no package lines");
   const packageAmount = order.packages.reduce(
     (sum, line) =>
       sum.plus(line.finalPackagePriceSnapshot ?? line.currentPackage.price),
@@ -237,6 +216,34 @@ export async function createInvoiceForOrderWithClient(
     )
     .plus(extraPhotoCharge)
     .plus(sessionConfigurationPrice.totalDelta);
+
+  return { order, financialCaseId, totalAmount };
+}
+
+export async function createInvoiceForOrder(
+  orderId: string,
+  actorContext: ActorContext
+): Promise<{ id: string }> {
+  return withRetry(
+    () =>
+      db.$transaction((tx) =>
+        createInvoiceForOrderWithClient(tx, orderId, actorContext)
+      ),
+    "Failed to create invoice"
+  );
+}
+
+export async function createInvoiceForOrderWithClient(
+  client: DbClient,
+  orderId: string,
+  actorContext: ActorContext
+): Promise<{ id: string; status: InvoiceStatus }> {
+  const { order, financialCaseId, totalAmount } =
+    await computeOrderFinalTotalWithClient(client, orderId);
+  const existingInvoice = await findPrimaryWorkflowInvoiceForOrder(client, {
+    financialCaseId,
+  });
+  if (existingInvoice) return existingInvoice;
 
   const invoiceNumberData = await generateInvoiceNumber(client, InvoiceType.FINAL);
   let invoice: { id: string; status: InvoiceStatus };
@@ -290,6 +297,65 @@ export async function createInvoiceForOrderWithClient(
   });
 
   return invoice;
+}
+
+export async function rebuildUnlockedFinalInvoiceForOrderWithClient(
+  client: DbClient,
+  input: {
+    orderId: string;
+    finalInvoiceId: string;
+    actorContext: ActorContext;
+  }
+): Promise<{ id: string; status: InvoiceStatus }> {
+  const { financialCaseId, totalAmount } = await computeOrderFinalTotalWithClient(
+    client,
+    input.orderId
+  );
+  const existingInvoice = await client.invoice.findUnique({
+    where: { id: input.finalInvoiceId },
+    select: {
+      id: true,
+      financialCaseId: true,
+      orderId: true,
+      invoiceType: true,
+      isLocked: true,
+      _count: { select: { lineItems: true } },
+    },
+  });
+  if (!existingInvoice) {
+    throw new Error("Final invoice not found for unlocked rebuild");
+  }
+  if (existingInvoice.invoiceType !== InvoiceType.FINAL) {
+    throw new Error("Only FINAL invoices can be rebuilt from OrderCommit");
+  }
+  if (existingInvoice.financialCaseId !== financialCaseId) {
+    throw new Error("Final invoice financial case does not match the order");
+  }
+  if (existingInvoice.orderId && existingInvoice.orderId !== input.orderId) {
+    throw new Error("Final invoice order does not match the committed order");
+  }
+  if (existingInvoice.isLocked) {
+    throw new Error("Locked FINAL invoices cannot be rebuilt");
+  }
+
+  if (existingInvoice._count.lineItems > 0) {
+    await client.invoiceLineItem.deleteMany({
+      where: { invoiceId: input.finalInvoiceId },
+    });
+  }
+
+  const invoice = await updateUnlockedInvoiceTotal(
+    client,
+    input.finalInvoiceId,
+    totalAmount,
+    input.actorContext
+  );
+  await recalculateInvoiceStatus(invoice.id, client);
+
+  return client.invoice.findUniqueOrThrow({
+    where: { id: invoice.id },
+    select: { id: true, status: true },
+  });
 }
 
 export async function syncOrderInvoiceForFinancialEdit(
@@ -376,7 +442,11 @@ export async function syncOrderInvoiceForFinancialEdit(
   const totalAdjustmentAmount = packageAdjustmentAmount.plus(addOnAdjustmentAmount);
 
   if (existingInvoice?.isLocked) {
-    const openAdjustmentLines = await buildOpenAdjustmentLineMap(client, order.id);
+    const openAdjustmentLines = await buildOpenAdjustmentLineMap(
+      financialCaseId,
+      order.id,
+      client
+    );
     const delta = await computeOrderEditDelta(order.id, client);
     const adjustmentCauseReductions =
       await buildAdjustmentCauseReductions(
@@ -1222,19 +1292,19 @@ async function createSyncedOrderInvoice(
   }
 }
 
-async function findPrimaryWorkflowInvoiceForOrder(
+export async function findPrimaryWorkflowInvoiceForOrder(
   client: DbClient,
   input: {
     financialCaseId: string;
   }
-): Promise<{ id: string; status: InvoiceStatus } | null> {
+): Promise<{ id: string; status: InvoiceStatus; isLocked: boolean } | null> {
   const invoices = await client.invoice.findMany({
     where: {
       parentInvoiceId: null,
       financialCaseId: input.financialCaseId,
       invoiceType: InvoiceType.FINAL,
     },
-    select: { id: true, status: true },
+    select: { id: true, status: true, isLocked: true },
     orderBy: { createdAt: "asc" },
   });
 
@@ -1543,44 +1613,62 @@ async function priceRequiredSessionConfigurationsForOrder(
   );
 }
 
-async function buildOpenAdjustmentLineMap(
-  client: DbClient,
-  orderId: string
+export async function buildOpenAdjustmentLineMap(
+  financialCaseId: string,
+  orderId: string,
+  client: DbClient
 ): Promise<Map<string, OpenAdjustmentLine[]>> {
-  const adjustmentLines = await client.invoiceLineItem.findMany({
-    where: {
-      invoice: {
-        orderId,
-        invoiceType: InvoiceType.ADJUSTMENT,
+  const [adjustmentLines, orderPackages] = await Promise.all([
+    client.invoiceLineItem.findMany({
+      where: {
+        invoice: {
+          financialCaseId,
+          orderId,
+          invoiceType: InvoiceType.ADJUSTMENT,
+        },
+        causeOrderEntityKind: { not: null },
+        causeOrderEntityId: { not: null },
       },
-      causeOrderEntityKind: { not: null },
-      causeOrderEntityId: { not: null },
-    },
-    select: {
-      id: true,
-      invoiceId: true,
-      description: true,
-      lineTotal: true,
-      causeOrderEntityKind: true,
-      causeOrderEntityId: true,
-      invoice: {
-        select: {
-          paymentAllocations: {
-            where: { payment: { direction: PaymentDirection.IN } },
-            select: { amount: true },
-          },
-          lineItems: {
-            select: { id: true, lineTotal: true },
-            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        invoiceId: true,
+        description: true,
+        lineTotal: true,
+        sortOrder: true,
+        causeOrderEntityKind: true,
+        causeOrderEntityId: true,
+        invoice: {
+          select: {
+            invoiceSeq: true,
+            paymentAllocations: {
+              where: { payment: { direction: PaymentDirection.IN } },
+              select: { amount: true },
+            },
+            lineItems: {
+              select: { id: true, lineTotal: true },
+              orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+            },
           },
         },
       },
-    },
-    orderBy: { createdAt: "asc" },
-  });
+      orderBy: [{ invoice: { invoiceSeq: "asc" } }, { sortOrder: "asc" }, { id: "asc" }],
+    }),
+    client.orderPackage.findMany({
+      where: { orderId },
+      select: { id: true, extraDigitalCount: true, extraPrintCount: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    }),
+  ]);
 
   const openLines = new Map<string, OpenAdjustmentLine[]>();
-  for (const line of adjustmentLines) {
+  const chronologicalAdjustmentLines = [...adjustmentLines].sort((left, right) => {
+    const invoiceSeqDelta = left.invoice.invoiceSeq - right.invoice.invoiceSeq;
+    if (invoiceSeqDelta !== 0) return invoiceSeqDelta;
+    const sortOrderDelta = (left.sortOrder ?? 0) - (right.sortOrder ?? 0);
+    if (sortOrderDelta !== 0) return sortOrderDelta;
+    return left.id.localeCompare(right.id);
+  });
+  for (const line of chronologicalAdjustmentLines) {
     if (!line.causeOrderEntityKind || !line.causeOrderEntityId) continue;
 
     const credited = await client.documentApplication.aggregate({
@@ -1617,12 +1705,7 @@ async function buildOpenAdjustmentLineMap(
         0
       );
     }
-    const key = adjustmentCauseKey(
-      line.causeOrderEntityKind,
-      line.causeOrderEntityId
-    );
-    const bucket = openLines.get(key) ?? [];
-    bucket.push({
+    const openLine = {
       invoiceLineId: line.id,
       invoiceId: line.invoiceId,
       causeOrderEntityKind: line.causeOrderEntityKind,
@@ -1631,11 +1714,85 @@ async function buildOpenAdjustmentLineMap(
       remainingAmount,
       isPaid: paidAmount.greaterThan(0),
       lineSnapshot: { name: line.description },
-    });
-    openLines.set(key, bucket);
+    };
+    for (const key of canonicalOpenAdjustmentLineKeys({
+      line: openLine,
+      orderPackages,
+    })) {
+      const bucket = openLines.get(key) ?? [];
+      bucket.push({
+        ...openLine,
+        causeOrderEntityId: key.split(":").slice(1).join(":"),
+      });
+      openLines.set(key, bucket);
+    }
   }
 
   return openLines;
+}
+
+function canonicalOpenAdjustmentLineKeys({
+  line,
+  orderPackages,
+}: {
+  line: OpenAdjustmentLine;
+  orderPackages: Array<{
+    id: string;
+    extraDigitalCount: number;
+    extraPrintCount: number;
+  }>;
+}): string[] {
+  if (
+    line.causeOrderEntityKind === OrderEntityKind.PACKAGE_TIER_UPGRADE &&
+    line.causeOrderEntityId === "package-tier-upgrade"
+  ) {
+    // LEGACY-AW-FALLBACK - remove in Phase 7.
+    return orderPackages.map((orderPackage) =>
+      adjustmentCauseKey(OrderEntityKind.PACKAGE_TIER_UPGRADE, orderPackage.id)
+    );
+  }
+
+  if (
+    line.causeOrderEntityKind === OrderEntityKind.EXTRA_PHOTO &&
+    !isCanonicalExtraPhotoCauseId(line.causeOrderEntityId, orderPackages)
+  ) {
+    const normalized = line.causeOrderEntityId.toLowerCase();
+    const mediaType = normalized.includes("digital")
+      ? MediaType.DIGITAL
+      : normalized.includes("print")
+        ? MediaType.PRINT
+        : null;
+    if (mediaType) {
+      // LEGACY-AW-FALLBACK - remove in Phase 7.
+      return orderPackages
+        .filter((orderPackage) =>
+          mediaType === MediaType.DIGITAL
+            ? orderPackage.extraDigitalCount > 0
+            : orderPackage.extraPrintCount > 0
+        )
+        .map((orderPackage) =>
+          adjustmentCauseKey(
+            OrderEntityKind.EXTRA_PHOTO,
+            `${orderPackage.id}:${mediaType}`
+          )
+        );
+    }
+  }
+
+  return [
+    adjustmentCauseKey(line.causeOrderEntityKind, line.causeOrderEntityId),
+  ];
+}
+
+function isCanonicalExtraPhotoCauseId(
+  causeOrderEntityId: string,
+  orderPackages: Array<{ id: string }>
+): boolean {
+  return orderPackages.some(
+    (orderPackage) =>
+      causeOrderEntityId === `${orderPackage.id}:${MediaType.DIGITAL}` ||
+      causeOrderEntityId === `${orderPackage.id}:${MediaType.PRINT}`
+  );
 }
 
 async function buildAdjustmentCauseReductions(
@@ -1713,6 +1870,7 @@ async function buildCurrentAdjustmentCauseAmounts(
       select: {
         packages: {
           select: {
+            id: true,
             originalPackagePriceSnapshot: true,
             finalPackagePriceSnapshot: true,
             sessionTypeId: true,
@@ -1738,22 +1896,24 @@ async function buildCurrentAdjustmentCauseAmounts(
     );
   }
 
-  const packageTierCause = openAdjustmentLines.find(
+  const packageTierCauses = openAdjustmentLines.filter(
     (line) => line.causeOrderEntityKind === OrderEntityKind.PACKAGE_TIER_UPGRADE
   );
-  if (packageTierCause && order) {
+  if (packageTierCauses.length > 0 && order) {
     const currentPackageUpgradeAmount = order.packages.reduce((sum, line) => {
       const original = line.originalPackagePriceSnapshot ?? line.currentPackage.price;
       const current = line.finalPackagePriceSnapshot ?? line.currentPackage.price;
       return sum.plus(current.minus(original));
     }, new Prisma.Decimal(0));
-    amounts.set(
-      adjustmentCauseKey(
-        OrderEntityKind.PACKAGE_TIER_UPGRADE,
-        packageTierCause.causeOrderEntityId
-      ),
-      Prisma.Decimal.max(currentPackageUpgradeAmount, 0)
-    );
+    for (const packageTierCause of packageTierCauses) {
+      amounts.set(
+        adjustmentCauseKey(
+          OrderEntityKind.PACKAGE_TIER_UPGRADE,
+          packageTierCause.causeOrderEntityId
+        ),
+        Prisma.Decimal.max(currentPackageUpgradeAmount, 0)
+      );
+    }
   }
 
   const extraPhotoCauses = openAdjustmentLines.filter(
@@ -1775,10 +1935,16 @@ async function buildCurrentAdjustmentCauseAmounts(
           orderPackage.sessionTypeId,
           mediaType
         );
+        const amount = unitPrice.mul(quantity);
+        extraPhotoAmounts.set(
+          `${orderPackage.id}:${mediaType}`,
+          (extraPhotoAmounts.get(`${orderPackage.id}:${mediaType}`) ??
+            new Prisma.Decimal(0)).plus(amount)
+        );
         extraPhotoAmounts.set(
           description,
           (extraPhotoAmounts.get(description) ?? new Prisma.Decimal(0)).plus(
-            unitPrice.mul(quantity)
+            amount
           )
         );
       }
@@ -1937,7 +2103,7 @@ export async function createAdjustmentInvoice(
   );
 }
 
-async function createAdjustmentInvoiceWithClient(
+export async function createAdjustmentInvoiceWithClient(
   input: CreateAdjustmentInvoiceInput,
   client: DbClient
 ): Promise<Invoice> {
@@ -2164,7 +2330,7 @@ export async function createCreditNote(
   );
 }
 
-async function createCreditNoteWithClient(
+export async function createCreditNoteWithClient(
   input: CreateCreditNoteInput,
   client: DbClient
 ): Promise<Invoice> {

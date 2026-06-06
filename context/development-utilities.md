@@ -19,7 +19,7 @@ This document tracks development-only UI controls and server utilities that exis
 - **Service function:** `resetWorkflowTestData` in `src/modules/development/dev-reset.service.ts`
 - **Visible in:** Every authenticated app page using the shared topbar, development only.
 - **Confirmation text:** `Reset bookings, orders, invoices, payments, and workflow sequences?`
-- **Data affected:** Adjustment workspaces/events, document applications, payment allocations, payments, invoice snapshots/lines/invoices, order package session-configuration selections, order package item upgrades, order add-ons, order activities, production jobs, editing jobs, order packages, orders, financial cases, booking themes, booking packages, bookings, jobs, and identifier sequences.
+- **Data affected:** Document applications, payment allocations, payments, invoice snapshots/lines/invoices, order package session-configuration selections, order package item upgrades, order add-ons, order activities, production jobs, editing jobs, order packages, orders, financial cases, booking themes, booking packages, bookings, jobs, and identifier sequences.
 - **Sequences reset:** `booking_public_id_seq`, `order_public_id_seq`, `invoice_public_id_seq`, `payment_public_id_seq`, `invoice_number_seq`.
 - **Cache revalidated:** `/bookings`, `/orders`, `/invoices`, `/calendar`
 - **Server guard:** Throws unless `NODE_ENV === "development"`.

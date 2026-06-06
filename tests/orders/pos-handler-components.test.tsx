@@ -70,12 +70,10 @@ test("POS handler components render the stable sales DOM labels from handler pro
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
     const addOnHandlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -129,12 +127,10 @@ test("R9 POS handler components render locked notices from policy fixtures", asy
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
     const addOnHandlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const packageMarkup = renderToStaticMarkup(
@@ -177,7 +173,6 @@ test("R8b POS add-on marketplace renders current add-ons and catalog badges from
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -215,7 +210,6 @@ test("POS add-on marketplace quick actions use add-on catalog options", async ()
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -232,11 +226,11 @@ test("POS add-on marketplace quick actions use add-on catalog options", async ()
   });
 });
 
-test("POS add-on marketplace quick actions stay interactive in adjustment mode", async () => {
+test("POS add-on marketplace quick actions stay interactive in draft mode", async () => {
   await withPOSComponentStubs(async () => {
     const { POSAddOnMarketplace } = await loadAddOnComponents();
     const workspace = {
-      ...lockedPOSWorkspaceFixture(),
+      ...buildPOSWorkspaceFixture(),
       productOptions: [],
       addOnCatalog: [
         {
@@ -251,7 +245,6 @@ test("POS add-on marketplace quick actions stay interactive in adjustment mode",
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -259,7 +252,7 @@ test("POS add-on marketplace quick actions stay interactive in adjustment mode",
         workspace,
         marketplace: toPOSAddOnMarketplace(buildDraftPOSCompositionFixture(workspace)),
         handlers,
-        editPolicies: buildAddOnPolicies(workspace, "adjustment"),
+        editPolicies: buildAddOnPolicies(workspace, "sales"),
       })
     );
 
@@ -282,7 +275,6 @@ test("R8b POS add-on marketplace keeps empty catalog and current-row empty state
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -321,7 +313,6 @@ test("R8b POS add-on marketplace displays null-target current rows without remov
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -361,7 +352,6 @@ test("R8b POS add-on marketplace removes projected current row target", async ()
     const handlers = {
       addAddOn: async () => ({ ok: true }),
       removeAddOn: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSAddOnHandlers;
 
     const markup = renderToStaticMarkup(
@@ -388,7 +378,6 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
 
     const markup = renderToStaticMarkup(
@@ -396,7 +385,7 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
         workspace,
         composition,
         handlers,
-        editPolicies: buildPackagePolicies(workspace, "adjustment"),
+        editPolicies: buildPackagePolicies(workspace, "sales"),
       })
     );
 
@@ -418,7 +407,6 @@ test("POSPackageComposition renders package-item upgrade row from projection", a
       changePackageTier: async () => ({ ok: true }),
       upgradePackageItem: async () => ({ ok: true }),
       changeSelectedPhotoCount: async () => ({ ok: true }),
-      shouldPromptInlineApproval: false,
     } satisfies POSCompositionHandlers;
 
     const markup = renderToStaticMarkup(
@@ -469,15 +457,14 @@ test("R8a POS package component keeps photo draft helpers out of the client comp
   }
 });
 
-test("R8a sales and adjustment pages consume composition projectors instead of buildCompositionView", () => {
-  for (const filePath of [
+test("R8a sales page consumes composition projectors", () => {
+  const salesSource = readFileSync(
     "app/orders/[orderId]/sales/page.tsx",
-    "app/orders/[orderId]/adjustment-workspace/page.tsx",
-  ]) {
-    const source = readFileSync(filePath, "utf8");
-    assert.doesNotMatch(source, /buildCompositionView/);
-    assert.match(source, /toCurrentCompositionCard/);
-  }
+    "utf8"
+  );
+  assert.doesNotMatch(salesSource, /buildCompositionView/);
+  assert.match(salesSource, /getSalesPageView/);
+  assert.match(salesSource, /composition=\{salesPageView\.composition\}/);
 });
 
 test("R8b add-on marketplace does not derive current state from POSWorkspace add-ons", () => {
@@ -492,7 +479,6 @@ test("R8b add-on marketplace does not derive current state from POSWorkspace add
 
 test("R9 POS components do not reintroduce local locked edit-mode notice copy", () => {
   for (const filePath of [
-    "src/components/orders/financial-sidebar-draft.tsx",
     "src/components/orders/pos-package-composition.tsx",
     "src/components/orders/pos-add-on-marketplace.tsx",
   ]) {
@@ -533,7 +519,7 @@ function hasImportFrom(filePath: string, modulePath: string): boolean {
 
 function buildPackagePolicies(
   workspace: POSWorkspace,
-  persistenceContext: "sales" | "adjustment" = "sales"
+  persistenceContext: "sales" = "sales"
 ): POSPackageCompositionEditPolicies {
   return buildPOSPackageCompositionEditPolicies(
     orderEditModeContextFromWorkspace({
@@ -547,7 +533,7 @@ function buildPackagePolicies(
 
 function buildAddOnPolicies(
   workspace: POSWorkspace,
-  persistenceContext: "sales" | "adjustment" = "sales"
+  persistenceContext: "sales" = "sales"
 ): POSAddOnEditPolicies {
   return buildPOSAddOnEditPolicies(
     orderEditModeContextFromWorkspace({
@@ -573,7 +559,6 @@ function quickActionButtonIsDisabled(markup: string, label: string): boolean {
 
 async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> {
   const originalModuleLoad = moduleWithLoader._load;
-  // The approval modal is statically imported and still owns the sales approval action.
   moduleWithLoader._load = function loadWithSalesActionStub(
     request,
     parent,
@@ -582,14 +567,11 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     if (request === "server-only") return {};
     if (request === "@/app/orders/[orderId]/sales/actions") {
       return {
-        confirmReductiveEditWithApproval: async () => ({ kind: "success" }),
+        stageSessionConfigurationSelectionAction: async () => ({ kind: "success" }),
       };
     }
     if (request === "@/app/orders/[orderId]/actions") {
-      return {
-        applySessionConfigurationWorkspaceEditAction: async () => ({ version: 1 }),
-        configureSessionAction: async () => ({}),
-      };
+      return {};
     }
     return originalModuleLoad.call(this, request, parent, isMain);
   };

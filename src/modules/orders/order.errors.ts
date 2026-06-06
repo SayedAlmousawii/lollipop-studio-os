@@ -14,3 +14,12 @@ export class WorkflowGuardError extends Error {
     this.code = code;
   }
 }
+
+export class OrderCommitDraftActiveError extends Error {
+  constructor() {
+    super(
+      "An order commit draft is in progress for this order. Use the staged sales workflow to apply changes."
+    );
+    this.name = "OrderCommitDraftActiveError";
+  }
+}

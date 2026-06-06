@@ -25,7 +25,7 @@ Do NOT read all project docs. Only read what is needed for the current task.
 ## Read If Needed
 - `context/ui-context.md` → any UI work (tokens, page patterns)
 - `context/target-data-model.md` → schema / data shape / migration work
-- `context/reviews/centralization-roadmap.md` → any centralization-adjacent work (financial / composition / policy / read-layer)
+- `context/reviews/unified-order-commit-live-pos-roadmap.md` → any OrderCommit / post-lock edit / financial-emission work
 - `context/git-conventions.md` → before commits or PRs
 - `context/development-utilities.md` → dev resets, scripts, tooling
 

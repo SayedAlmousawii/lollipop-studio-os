@@ -16,7 +16,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ReductiveEditApprovalModal } from "@/components/orders/reductive-edit-approval-modal";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -30,10 +29,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { ConfigurationMissingRequiredBadge } from "@/components/session-configurations/configuration-missing-required-badge";
 import { ConfigurationSummaryChip } from "@/components/session-configurations/configuration-summary-chip";
-import {
-  ConfigureSessionPanel,
-  type PendingSessionConfigurationOverlay,
-} from "@/components/session-configurations/configure-session-panel";
+import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import {
   Select,
   SelectContent,
@@ -53,7 +49,6 @@ import {
   readProjectedPhotoPreview,
   type DraftPOSCompositionProjection,
   type PhotoLineDraft,
-  type PhotoPayload,
   type POSCompositionPackageItemProjection,
   type POSCompositionPackageLineProjection,
 } from "@/modules/orders/composition/projections";
@@ -78,31 +73,18 @@ type POSPackageCompositionBaseProps = {
 type POSPackageCompositionProps =
   | (POSPackageCompositionBaseProps & {
       configurePanelMode?: "auto";
-      workspaceId?: never;
-      workspaceVersion?: never;
-      pendingOverlayByOrderPackageId?: never;
+      expectedVersion?: never;
     })
   | (POSPackageCompositionBaseProps & {
-      configurePanelMode: "adjustment";
-      workspaceId: string;
-      workspaceVersion: number;
-      pendingOverlayByOrderPackageId: Record<
-        string,
-        PendingSessionConfigurationOverlay
-      >;
+      configurePanelMode: "commit-staging";
+      expectedVersion: number;
     });
 
 export function POSPackageComposition(props: POSPackageCompositionProps) {
   const { workspace, composition, handlers, editPolicies } = props;
   const configurePanelMode = props.configurePanelMode ?? "auto";
-  const adjustmentPanelContext =
-    props.configurePanelMode === "adjustment"
-      ? {
-          workspaceId: props.workspaceId,
-          workspaceVersion: props.workspaceVersion,
-          pendingOverlayByOrderPackageId: props.pendingOverlayByOrderPackageId,
-        }
-      : null;
+  const commitStagingVersion =
+    props.configurePanelMode === "commit-staging" ? props.expectedVersion : null;
   const workspaceLineById = new Map(
     workspace.packageLines.map((line) => [line.id, line])
   );
@@ -141,7 +123,6 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                 {workspaceLine ? (
                   <>
                     <PackageUpgradeDialog
-                      orderId={workspace.orderId}
                       line={workspaceLine}
                       handlers={handlers}
                       policy={editPolicies.packageTierChange}
@@ -150,37 +131,22 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                       key={configureSessionPanelKey({
                         mode: configurePanelMode,
                         line: workspaceLine,
-                        workspaceVersion:
-                          adjustmentPanelContext?.workspaceVersion,
-                        pendingOverlay:
-                          adjustmentPanelContext?.pendingOverlayByOrderPackageId[
-                            workspaceLine.id
-                          ],
+                        expectedVersion:
+                          commitStagingVersion ?? undefined,
                       })}
                       orderId={workspace.orderId}
                       orderPackageId={workspaceLine.id}
                       packageName={line.packageName}
                       sessionTypeName={line.sessionTypeName ?? workspaceLine.sessionTypeName}
                       mode={
-                        configurePanelMode === "adjustment" && adjustmentPanelContext
-                          ? {
-                              kind: "adjustment",
-                              workspaceId: adjustmentPanelContext.workspaceId,
-                              workspaceVersion:
-                                adjustmentPanelContext.workspaceVersion,
-                              pendingOverlay:
-                                adjustmentPanelContext.pendingOverlayByOrderPackageId[
-                                  workspaceLine.id
-                                ] ?? {},
-                            }
-                          : editPolicies.sessionConfigurationFinancialEdit
-                                .shouldOpenAdjustmentWorkspace
+                        commitStagingVersion !== null
                             ? {
-                                kind: "locked",
-                                workspaceIsOpen:
-                                  editPolicies.sessionConfigurationFinancialEdit
-                                    .openWorkspaceIsActive,
+                                kind: "commit-staging",
+                                expectedVersion: commitStagingVersion,
                               }
+                          : editPolicies.sessionConfigurationFinancialEdit
+                                .mode === "locked"
+                            ? { kind: "locked" }
                             : { kind: "draft" }
                       }
                       editPolicies={{
@@ -216,7 +182,6 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
                   <DeliverableCard
                     key={item.id}
                     item={item}
-                    orderId={workspace.orderId}
                     orderPackageId={line.orderPackageId}
                     productOptions={workspace.productOptions}
                     handlers={handlers}
@@ -252,22 +217,19 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
 }
 
 function configureSessionPanelKey(input: {
-  mode: "auto" | "adjustment";
+  mode: "auto" | "commit-staging";
   line: POSPackageLine;
-  workspaceVersion?: number;
-  pendingOverlay?: PendingSessionConfigurationOverlay;
+  expectedVersion?: number;
 }): string {
   return JSON.stringify({
     id: input.line.id,
     mode: input.mode,
-    workspaceVersion: input.workspaceVersion,
+    expectedVersion: input.expectedVersion,
     currentSelections: input.line.currentSelections,
-    pendingOverlay: input.pendingOverlay ?? {},
   });
 }
 
 export function POSPhotoCountCard({
-  workspace,
   composition,
   handlers,
   editPolicies,
@@ -285,7 +247,6 @@ export function POSPhotoCountCard({
           {composition.packageLines.map((line) => (
             <POSPhotoLineForm
               key={`${line.id}:${line.selectedPhotoCount}:${line.extraDigitalCount}:${line.extraPrintCount}`}
-              orderId={workspace.orderId}
               line={line}
               handlers={handlers}
               policy={policy}
@@ -298,12 +259,10 @@ export function POSPhotoCountCard({
 }
 
 function POSPhotoLineForm({
-  orderId,
   line,
   handlers,
   policy,
 }: {
-  orderId: string;
   line: POSCompositionPackageLineProjection;
   handlers: POSCompositionHandlers;
   policy: OrderEditModePolicy;
@@ -319,8 +278,6 @@ function POSPhotoLineForm({
   );
   const [draft, setDraft] = useState(() => createProjectedPhotoDraft(line));
   const [clientErrors, setClientErrors] = useState<POSMutationActionState["errors"]>({});
-  const [approvalPayload, setApprovalPayload] =
-    useState<PhotoPayload | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const selectedHiddenInputRef = useRef<HTMLInputElement>(null);
   const digitalHiddenInputRef = useRef<HTMLInputElement>(null);
@@ -356,7 +313,6 @@ function POSPhotoLineForm({
 
     setClientErrors({});
     lastSubmittedPayloadRef.current = payloadKey;
-    setApprovalPayload(payload);
 
     if (
       !formRef.current ||
@@ -626,28 +582,6 @@ function POSPhotoLineForm({
       </div>
         <GlobalError messages={state.errors?._global} />
       </form>
-      {handlers.shouldPromptInlineApproval ? (
-        <ReductiveEditApprovalModal
-          orderId={orderId}
-          action="update-selected-photo-count"
-          approval={state.payload}
-          hiddenFields={[
-            { name: "orderPackageId", value: line.orderPackageId },
-            {
-              name: "selectedPhotoCount",
-              value: approvalPayload?.selectedPhotoCount ?? line.selectedPhotoCount,
-            },
-            {
-              name: "extraDigitalCount",
-              value: approvalPayload?.extraDigitalCount ?? line.extraDigitalCount,
-            },
-            {
-              name: "extraPrintCount",
-              value: approvalPayload?.extraPrintCount ?? line.extraPrintCount,
-            },
-          ]}
-        />
-      ) : null}
     </>
   );
 }
@@ -772,12 +706,10 @@ function PhotoLineSaveStatus({ pending }: { pending: boolean }) {
 }
 
 function PackageUpgradeDialog({
-  orderId,
   line,
   handlers,
   policy,
 }: {
-  orderId: string;
   line: POSPackageLine;
   handlers: POSCompositionHandlers;
   policy: OrderEditModePolicy;
@@ -845,17 +777,6 @@ function PackageUpgradeDialog({
             />
           </DialogFooter>
         </form>
-        {handlers.shouldPromptInlineApproval ? (
-          <ReductiveEditApprovalModal
-            orderId={orderId}
-            action="update-package"
-            approval={state.payload}
-            hiddenFields={[
-              { name: "orderPackageId", value: line.id },
-              { name: "packageId", value: selectedPackageId },
-            ]}
-          />
-        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -863,14 +784,12 @@ function PackageUpgradeDialog({
 
 function DeliverableCard({
   item,
-  orderId,
   orderPackageId,
   productOptions,
   handlers,
   policy,
 }: {
   item: POSCompositionPackageItemProjection;
-  orderId: string;
   orderPackageId: string;
   productOptions: POSProductOption[];
   handlers: POSCompositionHandlers;
@@ -901,7 +820,6 @@ function DeliverableCard({
         {item.quantity}x · {formatMoney(item.unitAmount)}
       </p>
       <ItemUpgradeDialog
-        orderId={orderId}
         orderPackageId={orderPackageId}
         item={item}
         options={replacementOptions}
@@ -913,14 +831,12 @@ function DeliverableCard({
 }
 
 function ItemUpgradeDialog({
-  orderId,
   orderPackageId,
   item,
   options,
   handlers,
   policy,
 }: {
-  orderId: string;
   orderPackageId: string;
   item: POSCompositionPackageItemProjection;
   options: POSProductOption[];
@@ -989,18 +905,6 @@ function ItemUpgradeDialog({
             <SubmitButton label="Apply Upgrade" disabled={disabled || !selectedProductId} />
           </DialogFooter>
         </form>
-        {handlers.shouldPromptInlineApproval ? (
-          <ReductiveEditApprovalModal
-            orderId={orderId}
-            action="upgrade-package-item"
-            approval={state.payload}
-            hiddenFields={[
-              { name: "orderPackageId", value: orderPackageId },
-              { name: "packageItemId", value: item.id },
-              { name: "newProductId", value: selectedProductId },
-            ]}
-          />
-        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -1027,14 +931,6 @@ function actionStateFromHandlerResult(
 ): POSMutationActionState {
   if (result.ok) {
     return { kind: "success" };
-  }
-
-  if (result.approval) {
-    return {
-      kind: "approval-required",
-      errors: result.errors,
-      payload: result.approval,
-    };
   }
 
   return { kind: "error", errors: result.errors };

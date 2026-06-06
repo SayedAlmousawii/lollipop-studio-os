@@ -6,6 +6,10 @@ import process from "node:process";
 import test from "node:test";
 import { withIsolatedBackendInvariantSchema } from "./backend-invariants/harness";
 import { makeManagerActor } from "./fixtures/actor";
+import {
+  commitOrderEditForTest,
+  removeOrderAddOnChange,
+} from "./order-commits/helpers/commit-order-edit";
 
 type ModuleLoader = (
   request: string,
@@ -46,7 +50,6 @@ test("financial invariants all pass against seeded fixtures", async () => {
         },
         { computeEffectivePaidFromAllocations },
         { createPaymentWithAllocation, recordPayment },
-        { removeOrderAddOn },
       ] = await Promise.all([
         import("@prisma/client"),
         import("../src/lib/db"),
@@ -55,7 +58,6 @@ test("financial invariants all pass against seeded fixtures", async () => {
         import("../src/modules/invoices/invoice.service"),
         import("../src/modules/invoices/invoice.calculation"),
         import("../src/modules/payments/payment.service"),
-        import("../src/modules/orders/order.service"),
       ]);
 
       const originalWarn = console.warn;
@@ -101,6 +103,14 @@ test("financial invariants all pass against seeded fixtures", async () => {
         assert.equal(autoAdjustmentInvoice.invoiceNumber.startsWith("ADJ-"), true);
         assert.equal(autoAdjustmentInvoice.lineItems.length, 1);
         assert.equal(autoAdjustmentInvoice.lineItems[0]?.lineTotal.toFixed(3), "15.000");
+        assert.ok(
+          autoAdjustmentInvoice.lineItems[0]?.causeOrderEntityKind,
+          "OrderCommit-emitted ADJ line should carry a cause kind"
+        );
+        assert.ok(
+          autoAdjustmentInvoice.lineItems[0]?.causeOrderEntityId,
+          "OrderCommit-emitted ADJ line should carry a cause id"
+        );
 
         const autoAdjustmentOrderId = autoAdjustmentInvoice.orderId;
         assert.ok(autoAdjustmentOrderId, "expected auto adjustment to belong to an order");
@@ -186,41 +196,51 @@ test("financial invariants all pass against seeded fixtures", async () => {
         assert.equal(adjustmentLine.causeOrderEntityKind, "ADDON");
         assert.equal(adjustmentLine.causeOrderEntityId, adjustedAddOn.id);
 
-        await assert.rejects(
-          () =>
-            removeOrderAddOn(
-              autoAdjustmentOrderId,
-              {
-                addOnId: adjustedAddOn.id,
-                managerApprovedReductionByUserId: manager.id,
-                managerApprovedReason: "Regression reversal test",
-              },
-              makeManagerActor({ actorUserId: manager.id })
-            ),
-          /Adjustment Workspace|Failed to remove order add-on/
-        );
+        await commitOrderEditForTest(db, {
+          orderId: autoAdjustmentOrderId,
+          change: removeOrderAddOnChange(adjustedAddOn.id),
+          actorContext: makeManagerActor({ actorUserId: manager.id }),
+          approvalActorUserId: manager.id,
+        });
 
         assert.equal(
           await db.documentApplication.count({
             where: {
               targetInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
               targetInvoiceLineId: adjustmentLine.id,
+              sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
             },
           }),
-          0
+          1
         );
+        const adjustmentCreditNote = await db.invoice.findFirstOrThrow({
+          where: {
+            orderId: autoAdjustmentOrderId,
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            parentInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
+          },
+          include: { lineItems: true },
+        });
+        assert.equal(adjustmentCreditNote.totalAmount.toFixed(3), "15.000");
+        assert.equal(adjustmentCreditNote.remainingAmount.toFixed(3), "0.000");
+        assert.equal(adjustmentCreditNote.lineItems.length, 1);
+        assert.equal(
+          adjustmentCreditNote.lineItems[0]?.causeOrderEntityKind,
+          "ADDON"
+        );
+        assert.equal(
+          adjustmentCreditNote.lineItems[0]?.causeOrderEntityId,
+          adjustedAddOn.id
+        );
+        const autoAdjustedOrder = await db.order.findUniqueOrThrow({
+          where: { id: autoAdjustmentOrderId },
+          select: { refundPending: true },
+        });
+        assert.equal(autoAdjustedOrder.refundPending, true);
         assert.equal(
           await db.invoice.count({
             where: {
-              invoiceType: InvoiceType.CREDIT_NOTE,
-              parentInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
-            },
-          }),
-          0
-        );
-        assert.equal(
-          await db.invoice.count({
-            where: {
+              orderId: autoAdjustmentOrderId,
               invoiceType: InvoiceType.REFUND,
               parentInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
             },

@@ -65,7 +65,6 @@ export interface Order {
   createdAt: string;
   primaryInvoiceId: string | null;
   primaryInvoiceNumber: string | null;
-  hasOpenAdjustmentWorkspace: boolean;
 }
 
 export interface CustomerOrderHistoryItem {
@@ -304,6 +303,7 @@ export interface POSWorkspace {
   sessionDate: string;
   customerName: string;
   customerPhone: string;
+  photographerName?: string | null;
   packageLines: POSPackageLine[];
   packageItems: POSPackageItem[];
   rawDeliverableTotal: number;
@@ -405,6 +405,8 @@ export type POSSessionConfigurationSelection = SelectionInput & {
   selectionId: string;
   snapshotLabel: string;
   snapshotPriceDelta: number;
+  snapshotLinkedProductId: string | null;
+  orderAddOnId: string | null;
 };
 
 export interface POSPackage {
@@ -431,6 +433,7 @@ export interface POSAddOn {
   addOnRowId: string;
   productId: string | null;
   name: string;
+  quantity?: number;
   price: number;
   priceLabel: string;
 }
