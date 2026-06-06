@@ -8,7 +8,6 @@ import {
   Prisma,
   type PrismaClient,
 } from "@prisma/client";
-import type { AdjustmentWorkspaceEdit } from "@/modules/adjustment-workspace/adjustment-workspace.types";
 import { ORDER_COMMIT_KIND } from "@/modules/order-commits/order-commit.constants";
 import type { OrderCommitDraftStagingChange } from "@/modules/order-commits/order-commit-draft.types";
 import {
@@ -43,7 +42,6 @@ type FinalInvoiceSnapshot = {
 };
 
 type PathOutcome = {
-  financialCaseNetEffect: string;
   netDocumentEffect: string;
   reductionAmount: string;
   refundPending: boolean;
@@ -58,181 +56,81 @@ type PathOutcome = {
   }>;
 };
 
-test("locked OrderCommit parity normalizes AW finalize outcomes", async (t) => {
+test("locked OrderCommit emits expected financial documents", async (t) => {
   await withSpec126Harness(async (ctx) => {
-    await t.test("additive change emits matching adjustment outcome", async () => {
-      const aw = await runAwPhotoPath(ctx, "131-add-aw", {
-        startingCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-        nextCounts: { selectedPhotoCount: 12, extraDigitalCount: 2, extraPrintCount: 0 },
-        finalRemainingAfterPayment: "0",
-      });
-      const oc = await runOrderCommitPhotoPath(ctx, "131-add-oc", {
+    await t.test("additive change emits an adjustment invoice", async () => {
+      const outcome = await runOrderCommitPhotoPath(ctx, "131-add-oc", {
         startingCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
         nextCounts: { selectedPhotoCount: 12, extraDigitalCount: 2, extraPrintCount: 0 },
         finalRemainingAfterPayment: "0",
         expectedPreviewNetDelta: "10.000",
       });
 
-      assertNormalizedParity(aw, oc, {
+      assertOutcome(outcome, {
         expectedEffect: "10.000",
         expectedReduction: "0.000",
         expectedRefundPending: false,
       });
-      assert.deepEqual(documentTypes(aw), [InvoiceType.ADJUSTMENT]);
-      assert.deepEqual(documentTypes(oc), [InvoiceType.ADJUSTMENT]);
-      assert.deepEqual(documentRoles(oc), ["ADJUSTMENT_INVOICE"]);
+      assert.deepEqual(documentTypes(outcome), [InvoiceType.ADJUSTMENT]);
+      assert.deepEqual(documentRoles(outcome), ["ADJUSTMENT_INVOICE"]);
     });
 
-    await t.test(
-      "reductive change treats AW negative ADJUSTMENT and OrderCommit CREDIT_NOTE as equivalent",
-      async () => {
-        const aw = await runAwPhotoPath(ctx, "131-red-aw", {
-          startingCounts: {
-            selectedPhotoCount: 12,
-            extraDigitalCount: 2,
-            extraPrintCount: 0,
-          },
-          nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-          finalRemainingAfterPayment: "20",
-        });
-        const oc = await runOrderCommitPhotoPath(ctx, "131-red-oc", {
-          startingCounts: {
-            selectedPhotoCount: 12,
-            extraDigitalCount: 2,
-            extraPrintCount: 0,
-          },
-          nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-          finalRemainingAfterPayment: "20",
-          seedOrderCommitBaseline: true,
-          expectedPreviewNetDelta: "-10.000",
-        });
+    await t.test("reductive change emits a credit note", async () => {
+      const outcome = await runOrderCommitPhotoPath(ctx, "131-red-oc", {
+        startingCounts: {
+          selectedPhotoCount: 12,
+          extraDigitalCount: 2,
+          extraPrintCount: 0,
+        },
+        nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
+        finalRemainingAfterPayment: "20",
+        seedOrderCommitBaseline: true,
+        expectedPreviewNetDelta: "-10.000",
+      });
 
-        assertNormalizedParity(aw, oc, {
-          expectedEffect: "-10.000",
-          expectedReduction: "10.000",
-          expectedRefundPending: false,
-        });
-        assert.deepEqual(documentTypes(aw), [InvoiceType.ADJUSTMENT]);
-        assert.deepEqual(documentTypes(oc), [InvoiceType.CREDIT_NOTE]);
-        assert.deepEqual(documentRoles(oc), ["CREDIT_NOTE"]);
-      }
-    );
+      assertOutcome(outcome, {
+        expectedEffect: "-10.000",
+        expectedReduction: "10.000",
+        expectedRefundPending: false,
+      });
+      assert.deepEqual(documentTypes(outcome), [InvoiceType.CREDIT_NOTE]);
+      assert.deepEqual(documentRoles(outcome), ["CREDIT_NOTE"]);
+    });
 
-    await t.test(
-      "credit-capacity exhaustion parity sets refundPending when both paths agree",
-      async () => {
-        const aw = await runAwPhotoPath(ctx, "131-refund-aw", {
-          startingCounts: {
-            selectedPhotoCount: 12,
-            extraDigitalCount: 2,
-            extraPrintCount: 0,
-          },
-          nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-          finalRemainingAfterPayment: "0",
-        });
-        const oc = await runOrderCommitPhotoPath(ctx, "131-refund-oc", {
-          startingCounts: {
-            selectedPhotoCount: 12,
-            extraDigitalCount: 2,
-            extraPrintCount: 0,
-          },
-          nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-          finalRemainingAfterPayment: "0",
-          seedOrderCommitBaseline: true,
-          expectedPreviewNetDelta: "-10.000",
-        });
+    await t.test("credit-capacity exhaustion sets refundPending", async () => {
+      const outcome = await runOrderCommitPhotoPath(ctx, "131-refund-oc", {
+        startingCounts: {
+          selectedPhotoCount: 12,
+          extraDigitalCount: 2,
+          extraPrintCount: 0,
+        },
+        nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
+        finalRemainingAfterPayment: "0",
+        seedOrderCommitBaseline: true,
+        expectedPreviewNetDelta: "-10.000",
+      });
 
-        assertNormalizedParity(aw, oc, {
-          expectedEffect: "-10.000",
-          expectedReduction: "10.000",
-          expectedRefundPending: true,
-        });
-        assert.deepEqual(documentTypes(aw), [InvoiceType.ADJUSTMENT]);
-        assert.deepEqual(documentTypes(oc), [InvoiceType.CREDIT_NOTE]);
-        assert.deepEqual(documentRoles(oc), ["CREDIT_NOTE"]);
-      }
-    );
+      assertOutcome(outcome, {
+        expectedEffect: "-10.000",
+        expectedReduction: "10.000",
+        expectedRefundPending: true,
+      });
+      assert.deepEqual(documentTypes(outcome), [InvoiceType.CREDIT_NOTE]);
+      assert.deepEqual(documentRoles(outcome), ["CREDIT_NOTE"]);
+    });
 
-    await t.test("no-op proposal rejects without unnecessary document", async () => {
-      const aw = await runAwNoOpPath(ctx, "131-noop-aw");
-      const oc = await runOrderCommitNoOpPath(ctx, "131-noop-oc");
+    await t.test("no-op proposal rejects without document emission", async () => {
+      const outcome = await runOrderCommitNoOpPath(ctx, "131-noop-oc");
 
-      assertNormalizedParity(aw, oc, {
+      assertOutcome(outcome, {
         expectedEffect: "0.000",
         expectedReduction: "0.000",
         expectedRefundPending: false,
       });
-      assert.deepEqual(aw.documents, []);
-      assert.deepEqual(oc.documents, []);
+      assert.deepEqual(outcome.documents, []);
     });
-
-    await t.test(
-      "legacy divergence documents AW refundPending threshold versus OrderCommit target rule",
-      async () => {
-        const aw = await runAwPhotoPath(ctx, "131-threshold-aw", {
-          startingCounts: {
-            selectedPhotoCount: 12,
-            extraDigitalCount: 2,
-            extraPrintCount: 0,
-          },
-          nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-          finalRemainingAfterPayment: "5",
-        });
-        const oc = await runOrderCommitPhotoPath(ctx, "131-threshold-oc", {
-          startingCounts: {
-            selectedPhotoCount: 12,
-            extraDigitalCount: 2,
-            extraPrintCount: 0,
-          },
-          nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-          finalRemainingAfterPayment: "5",
-          seedOrderCommitBaseline: true,
-          expectedPreviewNetDelta: "-10.000",
-        });
-
-        assert.equal(aw.financialCaseNetEffect, "-10.000");
-        assert.equal(oc.financialCaseNetEffect, "-10.000");
-        assert.equal(aw.reductionAmount, "10.000");
-        assert.equal(oc.reductionAmount, "10.000");
-        assert.equal(aw.refundPending, false);
-        assert.equal(oc.refundPending, true);
-        assert.deepEqual(documentTypes(aw), [InvoiceType.ADJUSTMENT]);
-        assert.deepEqual(documentTypes(oc), [InvoiceType.CREDIT_NOTE]);
-        assert.deepEqual(documentRoles(oc), ["CREDIT_NOTE"]);
-      }
-    );
   });
 });
-
-async function runAwPhotoPath(
-  ctx: Spec126Harness,
-  suffix: string,
-  input: PhotoPathInput
-): Promise<PathOutcome> {
-  const workflow = await buildLockedPhotoWorkflow(ctx, suffix, input);
-  const workspace = await ctx.adjustmentWorkspaceServices.openWorkspace(
-    workflow.finalInvoiceId,
-    ctx.fixtures.adminActor
-  );
-  const view = await ctx.adjustmentWorkspaceServices.applyEdit(
-    workspace.id,
-    {
-      version: 0,
-      edit: photoWorkspaceEdit(workflow.orderPackageId, suffix, input.nextCounts),
-    },
-    ctx.fixtures.adminActor
-  );
-  await ctx.adjustmentWorkspaceServices.finalizeWorkspace(
-    workspace.id,
-    {
-      version: view.version,
-      managerApprovedReductionByUserId: ctx.fixtures.managerId,
-    },
-    ctx.fixtures.adminActor
-  );
-
-  return captureOutcome(ctx.db, workflow);
-}
 
 async function runOrderCommitPhotoPath(
   ctx: Spec126Harness,
@@ -258,7 +156,7 @@ async function runOrderCommitPhotoPath(
     assert.equal(
       moneyString(preview.netDelta),
       input.expectedPreviewNetDelta,
-      "OrderCommit preview net delta should match the parity fixture"
+      "OrderCommit preview net delta should match the locked fixture"
     );
   }
   const commitResult = await ctx.salesActions.commitSalesChangesAction(
@@ -267,28 +165,6 @@ async function runOrderCommitPhotoPath(
     ctx.fixtures.managerId
   );
   assert.equal(commitResult.kind, "success");
-
-  return captureOutcome(ctx.db, workflow);
-}
-
-async function runAwNoOpPath(
-  ctx: Spec126Harness,
-  suffix: string
-): Promise<PathOutcome> {
-  const workflow = await buildLockedPhotoWorkflow(ctx, suffix, {
-    startingCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-    nextCounts: { selectedPhotoCount: 10, extraDigitalCount: 0, extraPrintCount: 0 },
-    finalRemainingAfterPayment: "0",
-  });
-  const workspace = await ctx.adjustmentWorkspaceServices.openWorkspace(
-    workflow.finalInvoiceId,
-    ctx.fixtures.adminActor
-  );
-  await ctx.adjustmentWorkspaceServices.finalizeWorkspace(
-    workspace.id,
-    { version: 0 },
-    ctx.fixtures.adminActor
-  );
 
   return captureOutcome(ctx.db, workflow);
 }
@@ -350,7 +226,7 @@ async function buildLockedPhotoWorkflow(
       orderId: workflow.orderId,
       kind: ORDER_COMMIT_KIND.BASELINE,
       actorContext: ctx.fixtures.adminActor,
-      metadata: { reason: "spec_131_locked_parity_baseline" },
+      metadata: { reason: "spec_131_locked_ordercommit_baseline" },
     });
   }
 
@@ -446,7 +322,6 @@ async function captureOutcome(
   const finalAfter = await captureFinalInvoice(db, workflow.finalInvoiceId);
 
   return {
-    financialCaseNetEffect: netDocumentEffect,
     netDocumentEffect,
     reductionAmount: reductionAmount(netDocumentEffect),
     refundPending: order.refundPending,
@@ -482,40 +357,23 @@ async function captureFinalInvoice(
   };
 }
 
-function assertNormalizedParity(
-  aw: PathOutcome,
-  oc: PathOutcome,
+function assertOutcome(
+  outcome: PathOutcome,
   expected: {
     expectedEffect: string;
     expectedReduction: string;
     expectedRefundPending: boolean;
   }
 ) {
-  assert.equal(aw.financialCaseNetEffect, expected.expectedEffect);
-  assert.equal(oc.financialCaseNetEffect, expected.expectedEffect);
-  assert.equal(aw.netDocumentEffect, expected.expectedEffect);
-  assert.equal(oc.netDocumentEffect, expected.expectedEffect);
-  assert.equal(aw.reductionAmount, expected.expectedReduction);
-  assert.equal(oc.reductionAmount, expected.expectedReduction);
-  assert.equal(aw.refundPending, expected.expectedRefundPending);
-  assert.equal(oc.refundPending, expected.expectedRefundPending);
-  assertLockedFinalImmutable(aw);
-  assertLockedFinalImmutable(oc);
+  assert.equal(outcome.netDocumentEffect, expected.expectedEffect);
+  assert.equal(outcome.reductionAmount, expected.expectedReduction);
+  assert.equal(outcome.refundPending, expected.expectedRefundPending);
+  assertLockedFinalImmutable(outcome);
   assert.ok(
-    aw.documents.every(
-      (document) => document.parentInvoiceId === aw.finalBefore.id
+    outcome.documents.every(
+      (document) => document.parentInvoiceId === outcome.finalBefore.id
     )
   );
-  assert.ok(
-    oc.documents.every(
-      (document) => document.parentInvoiceId === oc.finalBefore.id
-    )
-  );
-  const awCauses = aw.documents.flatMap((document) => document.lineCauses);
-  const ocCauses = oc.documents.flatMap((document) => document.lineCauses);
-  if (awCauses.length > 0 && ocCauses.length > 0) {
-    assert.deepEqual(causeKinds(awCauses), causeKinds(ocCauses));
-  }
 }
 
 function assertLockedFinalImmutable(outcome: PathOutcome) {
@@ -532,19 +390,6 @@ function immutableFinalSnapshot(snapshot: FinalInvoiceSnapshot) {
     status: snapshot.status,
     isLocked: snapshot.isLocked,
     lineItems: snapshot.lineItems,
-  };
-}
-
-function photoWorkspaceEdit(
-  orderPackageId: string,
-  suffix: string,
-  counts: PhotoCounts
-): AdjustmentWorkspaceEdit {
-  return {
-    id: `spec-131-photo-${suffix}`,
-    op: "change_selected_photo_count",
-    orderPackageId,
-    ...counts,
   };
 }
 
@@ -583,10 +428,6 @@ function documentTypes(outcome: PathOutcome): InvoiceType[] {
 
 function documentRoles(outcome: PathOutcome): Array<string | null> {
   return outcome.documents.map((document) => document.role);
-}
-
-function causeKinds(causes: string[]): string[] {
-  return [...new Set(causes.map((cause) => cause.split(":")[0] ?? cause))].sort();
 }
 
 function moneyString(value: Prisma.Decimal.Value): string {

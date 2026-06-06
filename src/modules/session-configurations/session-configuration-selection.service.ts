@@ -247,7 +247,6 @@ export async function writeOrderPackageSelections(
   options: {
     allowPostLock?: boolean;
     postLockAudit?: { actorUserId: string };
-    bypassOrderCommitDraftGuard?: boolean;
   } = {}
 ): Promise<{ orderPackageId: string; writtenSelectionIds: string[] }> {
   requirePermission(actor, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
@@ -286,8 +285,6 @@ export async function writeOrderPackageSelections(
             actorContext: {
               actorUserId: actor.id,
               actorRole: actor.role,
-              bypassOrderCommitDraftGuard:
-                options.bypassOrderCommitDraftGuard ?? false,
             },
             tx,
           });

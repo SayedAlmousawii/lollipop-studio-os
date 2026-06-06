@@ -32,8 +32,6 @@ type OrderServices = typeof import("@/modules/orders/order.service");
 type OrderCommitServices = typeof import("@/modules/order-commits/order-commit.service");
 type SalesActions = typeof import("@/app/orders/[orderId]/sales/actions");
 type SalesPageLoader = typeof import("@/modules/order-commits/projections");
-type AdjustmentWorkspaceServices =
-  typeof import("@/modules/adjustment-workspace/adjustment-workspace.service");
 
 type ActionUser = {
   id: string;
@@ -51,7 +49,6 @@ export type Spec126Harness = {
   orderCommitServices: OrderCommitServices;
   salesActions: SalesActions;
   salesPageLoader: SalesPageLoader;
-  adjustmentWorkspaceServices: AdjustmentWorkspaceServices;
   revalidatedPaths: string[];
   actionActor: ActionActorRef;
   buildCheckedInWorkflow: (suffix: string) => Promise<CheckedInWorkflow>;
@@ -110,9 +107,6 @@ export async function withSpec126Harness<T>(
         );
         const salesActions = await import("@/app/orders/[orderId]/sales/actions");
         const salesPageLoader = await import("@/modules/order-commits/projections");
-        const adjustmentWorkspaceServices = await import(
-          "@/modules/adjustment-workspace/adjustment-workspace.service"
-        );
 
         const fixtures = await fixturesModule.seedPhaseBFixtures(db);
         if (!options.actionActor) {
@@ -126,7 +120,6 @@ export async function withSpec126Harness<T>(
           orderCommitServices,
           salesActions,
           salesPageLoader,
-          adjustmentWorkspaceServices,
           revalidatedPaths,
           actionActor,
           buildCheckedInWorkflow: (suffix) =>
