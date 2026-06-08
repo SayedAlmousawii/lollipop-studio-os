@@ -19,8 +19,12 @@ import {
 } from "@/modules/order-commits/order-commit.constants";
 import {
   ORDER_COMMIT_PREVIEW_BASELINE_SOURCE,
+  ORDER_COMMIT_PREVIEW_COMMIT_KIND,
   ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND,
 } from "@/modules/order-commits/order-commit-preview.constants";
+import {
+  buildOrderCommitApprovalAndDocumentPreview,
+} from "@/modules/order-commits/order-commit-approval-document-preview.service";
 import type {
   OrderCommitDocumentPlanPreview,
   OrderCommitSnapshotDiff,
@@ -942,6 +946,78 @@ test("settleAvailableCreditAgainstOpenReceivables consumes pools and receivables
   );
 });
 
+test("positive preview matches actual settlement sweep when final remaining is not settleable", async () => {
+  const {
+    computeAvailableCaseCredit,
+    settleAvailableCreditAgainstOpenReceivables,
+  } = await loadInvoiceService();
+  const finalRemaining = new Prisma.Decimal(20);
+  const newAdjustmentAmount = new Prisma.Decimal(50);
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
+    classification: {
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      lineDiffs: [],
+      netDelta: newAdjustmentAmount.toNumber(),
+      operationalFlags: meaningfulOperationalFlags(),
+      zeroNetReason: null,
+    },
+    paymentState: {
+      alreadyPaidAmount: 80,
+      currentRemainingAmount: finalRemaining.toNumber(),
+      creditNoteCapacity: 0,
+      overpaymentCapacity: 0,
+      availableCaseCredit: 80,
+    },
+  });
+  const { client, applications } = fakeAvailableCreditClient({
+    creditNotes: [
+      { id: "available-credit", totalAmount: 80, appliedAmount: 0 },
+    ],
+    receivables: [
+      {
+        id: "new-adjustment",
+        invoiceSeq: 2,
+        totalAmount: newAdjustmentAmount.toNumber(),
+      },
+    ],
+  });
+
+  await settleAvailableCreditAgainstOpenReceivables(
+    {
+      financialCaseId: "financial-case-1",
+      orderId: "order-1",
+      appliedByUserId: "manager-user",
+    },
+    client
+  );
+
+  const appliedToNewAdjustment = applications
+    .filter((application) => application.targetInvoiceId === "new-adjustment")
+    .reduce(
+      (sum, application) => sum.plus(application.amountApplied),
+      new Prisma.Decimal(0)
+    );
+  const adjustmentRemaining =
+    newAdjustmentAmount.minus(appliedToNewAdjustment);
+  const actualCaseRemaining = finalRemaining.plus(adjustmentRemaining);
+  const availableAfterSweep = await computeAvailableCaseCredit(
+    { financialCaseId: "financial-case-1" },
+    client
+  );
+
+  assert.equal(preview.paymentImpact.amountDue, 0);
+  assert.equal(preview.paymentImpact.creditAmount, 50);
+  assert.equal(
+    preview.paymentImpact.remainingAfterCommit,
+    actualCaseRemaining.toNumber()
+  );
+  assert.equal(actualCaseRemaining.toFixed(3), "20.000");
+  assert.equal(adjustmentRemaining.toFixed(3), "0.000");
+  assert.equal(availableAfterSweep.toFixed(3), "30.000");
+});
+
 test("order commit execution source avoids out-of-scope integrations", () => {
   const source = readFileSync(
     join(
@@ -956,6 +1032,22 @@ test("order commit execution source avoids out-of-scope integrations", () => {
   assert.doesNotMatch(source, /adjustment-workspace|AdjustmentWorkspace/);
   assert.doesNotMatch(source, /app\/orders|src\/components/);
 });
+
+function meaningfulOperationalFlags() {
+  return {
+    isPackageChange: false,
+    isPackageUpgrade: false,
+    isPackageDowngrade: false,
+    isPackageSwap: false,
+    isAddOnChange: true,
+    isPackageItemUpgradeChange: false,
+    isPhotoChange: false,
+    isSessionConfigurationChange: false,
+    isLinkedProductChange: false,
+    isFinanciallyRelevant: true,
+    isOperationallyMeaningful: true,
+  };
+}
 
 function baseInput(
   client: Prisma.TransactionClient

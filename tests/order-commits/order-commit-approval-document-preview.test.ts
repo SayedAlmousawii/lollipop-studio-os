@@ -167,7 +167,7 @@ test("approval preview reflects pre-existing receivable when credit exceeds new 
 
   assert.equal(preview.paymentImpact.amountDue, 0);
   assert.equal(preview.paymentImpact.creditAmount, 50);
-  assert.equal(preview.paymentImpact.remainingAfterCommit, 0);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 20);
 });
 
 test("approval preview maps unlocked final positive delta to final rebuild", () => {
@@ -188,6 +188,34 @@ test("approval preview maps unlocked final positive delta to final rebuild", () 
   assert.equal(preview.documentPlan.amount, 25);
   assert.equal(preview.documentPlan.requiresPaymentCollection, true);
   assert.equal(preview.paymentImpact.amountDue, 25);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
+});
+
+test("approval preview does not consume available credit for unlocked final rebuild", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "REBUILD_UNLOCKED",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      netDelta: 25,
+    }),
+    paymentState: paymentStateFixture({
+      currentRemainingAmount: 10,
+      availableCaseCredit: 80,
+    }),
+  });
+
+  assert.equal(
+    preview.documentPlan.kind,
+    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD
+  );
+  assert.equal(preview.documentPlan.requiresPaymentCollection, true);
+  assert.equal(
+    preview.paymentImpact.kind,
+    ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.PAYMENT_DUE
+  );
+  assert.equal(preview.paymentImpact.amountDue, 25);
+  assert.equal(preview.paymentImpact.creditAmount, 0);
   assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
 });
 

@@ -100,25 +100,17 @@ function positiveDeltaPreview(input: {
   paymentState: OrderCommitPreviewPaymentState;
 }): OrderCommitApprovalAndDocumentPreview {
   const amount = roundMoney(input.classification.netDelta);
-  const creditAvailableForNewDelta = roundMoney(
-    Math.max(
-      input.paymentState.availableCaseCredit -
-        Math.max(input.paymentState.currentRemainingAmount, 0),
-      0
-    )
-  );
+  const availableCreditForCommit =
+    input.finalInvoiceMode === "EMIT_ADJUSTMENT"
+      ? input.paymentState.availableCaseCredit
+      : 0;
   const consumedCredit = roundMoney(
-    Math.min(amount, creditAvailableForNewDelta)
+    Math.min(amount, availableCreditForCommit)
   );
   const amountDue = roundMoney(amount - consumedCredit);
   const documentKind = documentPlanKindForPositiveDelta(input.finalInvoiceMode);
   const remainingAfterCommit = roundMoney(
-    Math.max(
-      input.paymentState.currentRemainingAmount +
-        amount -
-        input.paymentState.availableCaseCredit,
-      0
-    )
+    input.paymentState.currentRemainingAmount + amount - consumedCredit
   );
 
   return orderCommitApprovalAndDocumentPreviewSchema.parse({
