@@ -250,8 +250,18 @@ clean/draft contract verbatim (`netCustomerTotal`, `cashPaid`, `remainingDue`, o
 overpayment-backed `availableCredit`/`refundable`, and draft `amountDueAfterCommit`) and no
 longer assembles customer-facing settlement from document/accounting fields.
 
-**Settlement arc status:** complete. The remaining financial-plan work is the separate
-accountant-facing document/register presentation, not the Sales receipt summary.
+**Correction pending (Spec 158 · B4):** settlement applications (`SETTLEMENT`/`CAUSE_REVERSAL`)
+insert `DocumentApplication` rows without recalculating the target invoice, so stored
+`ADJUSTMENT.remainingAmount`/`status` go stale (register/detail show 100, receipt shows the
+correct derived 90). Same shape as deposits, which only reconcile when a later payment
+triggers `recalculateInvoiceStatus`. B4 makes `appendCreditApplication` call that canonical
+helper on the target after writing the application (+ close/lock at zero, + a stored-vs-derived
+reconciliation invariant). The receipt (derived) is already correct; B4 fixes the stored cache.
+
+**Settlement arc status:** customer-facing receipt complete; B4 cache-sync correctness pending.
+The remaining financial-plan work after B4 is the separate accountant-facing document/register
+presentation (which will also itemize settlement credits in invoice-detail breakdowns), not the
+Sales receipt summary.
 
 ### Customer-facing effect
 
