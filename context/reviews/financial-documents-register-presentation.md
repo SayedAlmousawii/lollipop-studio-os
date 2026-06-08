@@ -130,3 +130,22 @@ preference. Confirm which the business's accountant reads more naturally.
 - **This page = raw register** (audit/journal). It is **not** the per-order customer
   balance (that's the Sales settlement summary) and **not** the month-end reports
   (separate future project).
+
+---
+
+## 8. Deferred in from the settlement arc (2026-06-09)
+
+**Generalized invoice-detail application breakdown** (floated as "B5", explicitly deferred
+here to keep settlement Spec 158 · B4 a pure service-layer correctness fix).
+
+Today `app/invoices/[id]/page.tsx` renders a "Financial Breakdown" card **only for FINAL**
+(`invoiceType === "FINAL"`), and it only itemizes the **deposit** (`Deposit credited
+(DEP-xxxxx) −20`). So an ADJUSTMENT settled by credit shows correct totals (after B4:
+`Settled 10 / Remaining 90`) but **no line explaining the 10 came from `CN-xxxxx` via a
+`SETTLEMENT`**.
+
+Register work should generalize this: one read-layer breakdown component that lists **every**
+`DocumentApplication` on **any** charge invoice — deposit, settlement, cause-reversal — as
+labelled lines (`Settlement credit applied (CN-xxxxx) −10`, etc.), sourced from the document
+graph. Presentation only; no engine/model change. Numbers are already correct post-B4 — this
+adds the *why*.
