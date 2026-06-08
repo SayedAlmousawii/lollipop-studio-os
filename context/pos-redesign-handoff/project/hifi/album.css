@@ -1,0 +1,408 @@
+/* Album tab — Studio OS
+   Builds on tokens from colors_and_type.css and the workspace chrome
+   in styles.css. Layout follows the screenshot: cover-photo card on
+   the left, hairline-divided spec rows on the right, full-width
+   primary CTA underneath. The Configure modal opens in a blurred
+   scrim with pill-group selectors.
+   ───────────────────────────────────────────────────────────── */
+
+/* ── Tab intro ────────────────────────────────────────────── */
+.al-intro {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.al-intro .left { min-width: 0; }
+.al-intro h2 {
+  margin: 0;
+  font-size: 22px; font-weight: 600;
+  letter-spacing: -0.01em; line-height: 1.2;
+  color: var(--color-text-primary);
+}
+.al-intro .sub {
+  font-size: 13px; color: var(--color-text-muted);
+  margin-top: 4px;
+}
+.al-intro .right {
+  display: inline-flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
+}
+.al-intro .count-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 12px;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  font-size: 12px; color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.al-intro .count-pill b {
+  font-weight: 700; color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Album list ───────────────────────────────────────────── */
+.al-list {
+  display: flex; flex-direction: column;
+  gap: 18px;
+}
+
+/* ── Album card ───────────────────────────────────────────── */
+.al-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.al-card.is-staged { border-color: var(--color-accent); }
+
+/* Eyebrow row sits above the card body */
+.al-card-eyebrow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 18px;
+  background: var(--color-surface-soft);
+  border-bottom: 1px solid var(--color-border);
+}
+.al-card-eyebrow .k {
+  text-transform: uppercase; letter-spacing: 0.14em;
+  font-size: 10.5px; font-weight: 600;
+  color: var(--color-text-muted);
+}
+.al-card-eyebrow .src {
+  font-size: 12.5px; color: var(--color-text-secondary);
+}
+.al-card-eyebrow .src .ref {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--color-text-muted); margin-left: 4px;
+}
+.al-card-eyebrow .spacer { flex: 1; }
+.al-card-eyebrow .staged-flag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 9999px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-dark);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.al-card-eyebrow .staged-flag .dot {
+  width: 6px; height: 6px; border-radius: 9999px;
+  background: var(--color-accent-dark);
+}
+
+/* Card body — cover on left, spec rows on right */
+.al-card-body {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 0;
+}
+.al-cover {
+  position: relative;
+  margin: 18px 0 18px 18px;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  display: flex; align-items: flex-end;
+}
+.al-cover-bg {
+  position: absolute; inset: 0;
+  background-size: cover; background-position: center;
+}
+/* Subtle vignette so the title is always readable on the warm gradient */
+.al-cover::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg,
+    rgba(0,0,0,0) 50%,
+    rgba(0,0,0,0.18) 78%,
+    rgba(0,0,0,0.45) 100%);
+  pointer-events: none;
+}
+.al-cover-tag {
+  position: absolute; top: 12px; left: 12px;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 9999px;
+  background: rgba(31, 31, 31, 0.55);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  z-index: 2;
+}
+.al-cover-text {
+  position: relative; z-index: 2;
+  padding: 16px 18px;
+  color: #fff;
+}
+.al-cover-text .nm {
+  font-size: 22px; font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.005em;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+.al-cover-text .dt {
+  font-size: 12px; color: rgba(255,255,255,0.85);
+  margin-top: 4px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+
+/* Spec column */
+.al-specs {
+  display: flex; flex-direction: column;
+  padding: 4px 22px 4px 26px;
+}
+.al-spec {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.al-spec:last-child { border-bottom: 0; }
+.al-spec .label {
+  text-transform: uppercase; letter-spacing: 0.14em;
+  font-size: 10.5px; font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+.al-spec .left { min-width: 0; }
+.al-spec .value {
+  font-size: 14px;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+}
+.al-spec .value.muted { color: var(--color-text-muted); font-style: italic; }
+.al-spec .accent-meta {
+  font-size: 12px; font-weight: 600;
+  color: var(--color-accent-dark);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Footer with primary CTA */
+.al-card-foot {
+  padding: 14px 18px 18px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+.al-edit-btn {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px;
+  width: 100%; height: 44px;
+  border: 1px solid var(--color-accent-dark);
+  background: var(--color-accent);
+  color: #FFFCF6;
+  font-family: inherit;
+  font-size: 14px; font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.al-edit-btn:hover { background: var(--color-accent-dark); }
+.al-edit-btn svg { color: #FFFCF6; }
+
+/* Empty state — no albums on the order */
+.al-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 56px 24px;
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: 14px;
+  color: var(--color-text-muted);
+}
+.al-empty .ico {
+  width: 52px; height: 52px; border-radius: 9999px;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+.al-empty .t {
+  font-size: 15px; font-weight: 600;
+  color: var(--color-text-primary);
+}
+.al-empty .s {
+  font-size: 12.5px; max-width: 360px; line-height: 1.55;
+}
+
+/* ── Configure modal ──────────────────────────────────────── */
+.al-scrim {
+  position: fixed; inset: 0;
+  background: rgba(31, 31, 31, 0.35);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 32px;
+  z-index: 200;
+  animation: al-scrim-in 160ms ease-out;
+}
+@keyframes al-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.al-modal {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+  width: min(880px, 100%);
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  animation: al-modal-in 200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes al-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.al-modal-head {
+  padding: 24px 28px 20px;
+  display: flex; align-items: flex-start; gap: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+.al-modal-head .text { flex: 1; min-width: 0; }
+.al-modal-head .eyebrow {
+  text-transform: uppercase; letter-spacing: 0.18em;
+  font-size: 10.5px; font-weight: 700;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+}
+.al-modal-head h2 {
+  margin: 0;
+  font-size: 26px; font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--color-text-primary);
+}
+.al-modal-head .sub {
+  font-size: 13px; color: var(--color-text-muted);
+  margin-top: 6px;
+}
+.al-modal-close {
+  width: 36px; height: 36px;
+  border-radius: 8px;
+  background: transparent; border: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms, color 120ms;
+}
+.al-modal-close:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-dark);
+}
+
+.al-modal-body {
+  padding: 22px 28px 24px;
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+  gap: 22px;
+}
+
+/* Two-column grid for the pill-group fields */
+.al-fields-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px 32px;
+}
+.al-field-block { min-width: 0; }
+.al-field-label {
+  text-transform: uppercase; letter-spacing: 0.14em;
+  font-size: 10.5px; font-weight: 700;
+  color: var(--color-text-muted);
+  margin-bottom: 10px;
+}
+
+/* Pill-group selector */
+.al-pills {
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.al-pill {
+  display: inline-flex; align-items: center;
+  height: 34px; padding: 0 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  white-space: nowrap;
+}
+.al-pill:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+.al-pill.is-active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent-dark);
+  font-weight: 600;
+}
+.al-pill:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(176, 138, 74, 0.25);
+}
+
+/* Editor instructions textarea */
+.al-textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-text-primary);
+  resize: vertical;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.al-textarea:focus {
+  outline: 0;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(176, 138, 74, 0.18);
+}
+.al-textarea::placeholder { color: var(--color-text-muted); }
+
+/* Modal footer */
+.al-modal-foot {
+  padding: 16px 28px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
+  display: flex; align-items: center; gap: 12px;
+}
+.al-price-impact {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.al-price-impact .label { font-weight: 500; }
+.al-price-impact .amount {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-accent-dark);
+  margin-left: 6px;
+}
+.al-price-impact .amount.zero { color: var(--color-text-muted); }
+.al-modal-foot .spacer { flex: 1; }
+
+/* ── Responsive ───────────────────────────────────────────── */
+@container workspace (max-width: 880px) {
+  .al-card-body { grid-template-columns: 1fr; }
+  .al-cover { margin: 18px; aspect-ratio: 16 / 10; }
+  .al-specs { padding: 4px 18px 8px; }
+}
+@media (max-width: 720px) {
+  .al-scrim { padding: 16px; }
+  .al-modal-head, .al-modal-body, .al-modal-foot { padding-left: 18px; padding-right: 18px; }
+  .al-fields-grid { grid-template-columns: 1fr; gap: 18px; }
+}

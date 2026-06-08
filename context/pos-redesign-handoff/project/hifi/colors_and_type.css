@@ -1,0 +1,177 @@
+/* ─────────────────────────────────────────────────────────────
+   Lollipop Studio OS — Color + Type Tokens
+   Pulled directly from the production codebase
+   (lollipop-studio-os: app/globals.css + context/ui-context.md)
+
+   Vibe: luxury neutral admin dashboard for a newborn / kids
+   photography studio. Warm off-white canvas, ivory cards,
+   muted gold/bronze accent, dark warm-charcoal sidebar.
+
+   Type: Inter, single family. Medium for headings, regular for
+   body. No decorative or display faces inside the dashboard.
+
+   Note on warmth: every neutral is biased warm (creamy off-whites,
+   parchment surfaces, walnut sidebar). Pure greys would feel
+   clinical against the brand's pink-blossom logo. The accent is a
+   muted bronze — not a yellow gold — to read as elegant, not loud.
+   ───────────────────────────────────────────────────────────── */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Dancing+Script:wght@600;700&display=swap");
+
+:root {
+  /* ── Brand surfaces (warm, parchment) ─────────────────────── */
+  --color-background:   #F7F3EC; /* page canvas — warm off-white */
+  --color-surface:      #FFFFFF; /* card / dialog / panel */
+  --color-surface-soft: #FBF8F2; /* inner surface, muted rows */
+  --color-border:       #E6DED2; /* hairline divider, input border */
+
+  /* ── Text ─────────────────────────────────────────────────── */
+  --color-fg-1:           #1F1F1F; /* primary — charcoal */
+  --color-fg-2:           #6F6A63; /* secondary — warm taupe */
+  --color-fg-3:           #9A9389; /* muted — meta / labels */
+  --color-text-primary:   #1F1F1F;
+  --color-text-secondary: #6F6A63;
+  --color-text-muted:     #9A9389;
+
+  /* ── Accent (soft champagne / warm sand) ──────────────────── */
+  /* Softened from the original #B08A4A bronze — less saturated,
+     luminous against ivory surfaces. The dark variant is still a
+     proper hover/pressed; soft is creamier. */
+  --color-accent:      #C9A77A; /* primary brand accent — soft champagne */
+  --color-accent-dark: #9F8254; /* hover / pressed */
+  --color-accent-soft: #F2E8D6; /* hover bg, focus rings, badges */
+
+  /* ── Semantic (status badges & banners) ───────────────────── */
+  --color-success:      #2F7D4E;
+  --color-success-soft: #E7F4EC;
+  --color-warning:      #B7791F;
+  --color-warning-soft: #FFF3D6;
+  --color-danger:       #B42318;
+  --color-danger-soft:  #FDE7E4;
+  --color-info:         #3B6478;
+  --color-info-soft:    #E5F0F4;
+
+  /* ── Sidebar (dark warm walnut, used ONLY on the sidebar) ── */
+  --color-sidebar:            #1C1917;
+  --color-sidebar-foreground: #D4C5A9;
+  --color-sidebar-muted:      #7A6E63;
+  --color-sidebar-border:     #2D2823;
+  --color-sidebar-active-bg:  #2D2418;
+
+  /* ── Pink whisper (logo / marketing accents only) ─────────── */
+  /* Pulled from the cherry-blossom logo. NEVER use these inside
+     the operations dashboard — they belong on marketing surfaces,
+     login/signup, or empty-state illustrations. */
+  --color-blossom:      #F2C8C4;
+  --color-blossom-deep: #D69A95;
+  --color-blossom-soft: #FBEEEC;
+
+  /* ── Radii ────────────────────────────────────────────────── */
+  --radius:    10px;
+  --radius-sm: 6px;   /* badges, inputs */
+  --radius-md: 10px;  /* buttons, controls */
+  --radius-lg: 14px;  /* cards, tables */
+  --radius-xl: 18px;  /* modals, major panels */
+  --radius-full: 9999px;
+
+  /* ── Elevation (very light — keep restrained) ─────────────── */
+  --shadow-sm: 0 1px 2px rgba(31, 31, 31, 0.04);
+  --shadow-md: 0 4px 12px rgba(31, 31, 31, 0.06);
+  --shadow-lg: 0 16px 32px rgba(31, 31, 31, 0.08);
+  --shadow-focus: 0 0 0 3px rgba(176, 138, 74, 0.25); /* accent ring */
+
+  /* ── Spacing scale (4-px base) ─────────────────────────────── */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ── Type family ──────────────────────────────────────────── */
+  --font-sans:    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-script:  "Dancing Script", "Snell Roundhand", cursive; /* logo wordmark only */
+  --font-mono:    ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* ── Type sizes (dashboard scale, 14px base) ──────────────── */
+  --fs-page-title:    28px; /* h1 — page heading */
+  --fs-section-title: 20px; /* h2 — section heading */
+  --fs-card-title:    16px; /* h3 — card / panel title */
+  --fs-body:          14px; /* default body */
+  --fs-small:         12px; /* meta, labels, table head */
+
+  --lh-tight:  1.2;
+  --lh-snug:   1.35;
+  --lh-normal: 1.5;
+
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+  --fw-bold:     700;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Base
+   ───────────────────────────────────────────────────────────── */
+html, body {
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Semantic type
+   ───────────────────────────────────────────────────────────── */
+h1, .h1 {
+  font-size: var(--fs-page-title);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+h2, .h2 {
+  font-size: var(--fs-section-title);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--color-text-primary);
+}
+h3, .h3 {
+  font-size: var(--fs-card-title);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  color: var(--color-text-primary);
+}
+p, .body {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-normal);
+  color: var(--color-text-primary);
+}
+.subtle, small, .small {
+  font-size: var(--fs-small);
+  color: var(--color-text-muted);
+}
+.label {
+  font-size: var(--fs-small);
+  font-weight: var(--fw-medium);
+  color: var(--color-text-secondary);
+  letter-spacing: 0.02em;
+}
+.mono, code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+.wordmark {
+  /* For brand/marketing only — never inside dashboard chrome */
+  font-family: var(--font-script);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}

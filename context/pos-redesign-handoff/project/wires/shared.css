@@ -1,0 +1,394 @@
+/* ──────────────────────────────────────────────────────
+   Studio OS POS — wireframe stylesheet
+   Low-fi, sketchy, mono-with-warm-cream.
+   Token palette borrowed from the design system but
+   used sparingly (mostly hairlines + champagne accent).
+   ────────────────────────────────────────────────────── */
+
+:root {
+  --cream:         #F7F3EC;
+  --cream-soft:    #FBF8F2;
+  --paper:         #FFFFFF;
+  --ink:           #1F1F1F;
+  --ink-2:         #4a463f;
+  --ink-3:         #6F6A63;
+  --ink-4:         #9A9389;
+  --line:          #1F1F1F;      /* sketchy ink for borders */
+  --line-soft:     #C9C3B8;
+  --line-faint:    #E6DED2;
+  --accent:        #C9A77A;
+  --accent-dark:   #9F8254;
+  --accent-soft:   #F2E8D6;
+  --ok:            #2F7D4E;
+  --ok-soft:       #E7F4EC;
+  --warn:          #B7791F;
+  --warn-soft:     #FFF3D6;
+  --bad:           #B42318;
+  --bad-soft:      #FDE7E4;
+  --info:          #3B6478;
+  --info-soft:     #E5F0F4;
+
+  --hand: "Caveat", "Bradley Hand", "Comic Sans MS", cursive;
+  --sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--ink);
+  background: #efece6;
+}
+
+/* ── Artboard chrome ────────────────────────────────── */
+.wf {
+  width: 100%;
+  height: 100%;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  position: relative;
+}
+.wf.dense { font-size: 12px; }
+
+/* ── Topbar (shared across most directions) ─────────── */
+.wf-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  flex-shrink: 0;
+}
+.wf-top .logo {
+  width: 28px; height: 28px;
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
+  display: grid; place-items: center;
+  font-family: var(--hand);
+  font-weight: 700; font-size: 18px;
+  background: var(--accent-soft);
+}
+.wf-top .crumbs {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--ink-2);
+}
+.wf-top .crumbs .ref {
+  font-family: var(--mono); font-size: 12px; color: var(--ink);
+  background: var(--cream-soft); padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--line-faint);
+}
+.wf-top .spacer { flex: 1; }
+.wf-top .cust {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+  font-size: 12px; color: var(--ink-3);
+}
+.wf-top .cust b { font-size: 13px; color: var(--ink); font-weight: 600; }
+
+/* ── Sidebar (left nav stub) ────────────────────────── */
+.wf-side {
+  width: 56px;
+  background: #1C1917;
+  border-right: 1px solid var(--line);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 6px;
+}
+.wf-side .ico {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  color: #D4C5A9;
+  font-size: 14px;
+}
+.wf-side .ico.active { background: #2D2418; color: var(--accent); }
+
+/* ── Sketchy primitives ─────────────────────────────── */
+.sk-box {
+  border: 1.25px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.sk-box.soft { background: var(--cream-soft); }
+.sk-box.dashed { border-style: dashed; border-color: var(--line-soft); background: transparent; }
+.sk-box.dotted { border-style: dotted; }
+
+.sk-photo {
+  border: 1px dashed var(--line-soft);
+  background:
+    linear-gradient(to top right, transparent calc(50% - 0.5px), var(--line-soft) calc(50% - 0.5px), var(--line-soft) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(to bottom right, transparent calc(50% - 0.5px), var(--line-soft) calc(50% - 0.5px), var(--line-soft) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    var(--cream-soft);
+  border-radius: 3px;
+  aspect-ratio: 4 / 5;
+}
+.sk-photo.sq { aspect-ratio: 1; }
+.sk-photo.wide { aspect-ratio: 4 / 3; }
+.sk-photo.lock::after {
+  content: "🔒"; /* used purely as wireframe glyph, not real chrome */
+}
+
+/* photo state overlays */
+.sk-photo[data-state="owned"]   { box-shadow: inset 0 0 0 2px var(--ok); }
+.sk-photo[data-state="picked"]  { box-shadow: inset 0 0 0 2px var(--accent); background-color: var(--accent-soft); }
+.sk-photo[data-state="extra"]   { box-shadow: inset 0 0 0 2px var(--info); }
+
+/* ── Buttons ────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border: 1.25px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  font: inherit; color: var(--ink); cursor: pointer;
+  font-weight: 500;
+}
+.btn.primary {
+  background: var(--ink); color: var(--cream);
+  border-color: var(--ink);
+}
+.btn.accent {
+  background: var(--accent); color: #1F1F1F;
+  border-color: var(--accent-dark);
+}
+.btn.ghost { background: transparent; }
+.btn.sm { padding: 4px 8px; font-size: 12px; border-radius: 6px; }
+.btn.lg { padding: 9px 18px; font-size: 14px; border-radius: 10px; }
+
+/* ── Pills / badges ─────────────────────────────────── */
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 9999px;
+  font-size: 11px; font-weight: 600;
+  background: var(--cream-soft); color: var(--ink-2);
+  border: 1px solid var(--line-faint);
+  letter-spacing: 0.01em;
+}
+.pill.ok    { background: var(--ok-soft);   color: var(--ok); }
+.pill.warn  { background: var(--warn-soft); color: var(--warn); }
+.pill.bad   { background: var(--bad-soft);  color: var(--bad); }
+.pill.info  { background: var(--info-soft); color: var(--info); }
+.pill.accent{ background: var(--accent-soft); color: var(--accent-dark); }
+.pill.owned { background: var(--ok-soft); color: var(--ok); }
+.pill.staged{ background: var(--accent-soft); color: var(--accent-dark); }
+.pill.locked{ background: #eee; color: var(--ink-2); }
+
+/* ── Sketchy / handwritten annotations ──────────────── */
+.hand {
+  font-family: var(--hand);
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 16px;
+  letter-spacing: 0.01em;
+}
+.hand.muted { color: var(--ink-3); }
+.hand.note  { color: var(--accent-dark); }
+.hand.lg    { font-size: 22px; }
+.hand.xl    { font-size: 28px; }
+
+/* annotation block (with optional arrow) */
+.anno {
+  position: absolute;
+  font-family: var(--hand);
+  font-size: 15px;
+  color: var(--accent-dark);
+  max-width: 180px;
+  line-height: 1.15;
+}
+.anno svg { display: block; }
+
+/* ── Status dot ─────────────────────────────────────── */
+.dot { width: 8px; height: 8px; border-radius: 9999px; background: var(--ink-4); display: inline-block; }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.accent { background: var(--accent); }
+.dot.info { background: var(--info); }
+.dot.bad { background: var(--bad); }
+
+/* ── Layout helpers ─────────────────────────────────── */
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.gap-4 { gap: 4px; } .gap-6 { gap: 6px; } .gap-8 { gap: 8px; } .gap-12 { gap: 12px; } .gap-16 { gap: 16px; } .gap-20 { gap: 20px; }
+.grow { flex: 1; min-width: 0; min-height: 0; }
+.tnum { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--ink-3); }
+.faint { color: var(--ink-4); }
+.eyebrow {
+  text-transform: uppercase; letter-spacing: 0.16em; font-size: 10.5px;
+  color: var(--ink-3); font-weight: 600;
+}
+
+/* sectioned card group */
+.panel {
+  background: var(--paper);
+  border: 1.25px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.panel > .head {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-faint);
+  background: var(--cream-soft);
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 600; font-size: 13px;
+}
+.panel > .body { padding: 12px 14px; }
+
+/* row item (compact list row) */
+.li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px dashed var(--line-faint);
+  font-size: 13px;
+}
+.li:first-child { border-top: 0; }
+.li .qty {
+  width: 28px; height: 22px;
+  border: 1px solid var(--line); border-radius: 4px;
+  display: grid; place-items: center;
+  font-family: var(--mono); font-size: 11px; background: var(--paper);
+}
+.li .name { flex: 1; min-width: 0; }
+.li .price { font-variant-numeric: tabular-nums; font-weight: 500; }
+.li.added { background: linear-gradient(90deg, var(--accent-soft) 0%, transparent 60%); }
+.li.removed { color: var(--ink-4); text-decoration: line-through; }
+.li.locked { background: var(--cream-soft); }
+
+/* DCArtboard wrapper override — give cards a soft shadow so they read on canvas */
+.dc-card { box-shadow: 0 1px 2px rgba(31,31,31,0.04), 0 16px 32px rgba(31,31,31,0.06); }
+
+/* tabs */
+.tabs {
+  display: flex; gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 14px;
+}
+.tabs .tab {
+  padding: 10px 14px;
+  font-size: 13px; font-weight: 500;
+  color: var(--ink-3);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.tabs .tab.active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.tabs .tab .count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  background: var(--cream-soft);
+  border: 1px solid var(--line-faint);
+  border-radius: 9999px;
+  font-size: 10.5px; margin-left: 5px;
+  color: var(--ink-2);
+}
+
+/* stepper */
+.stepper {
+  display: flex; align-items: center; gap: 0;
+  font-size: 12px;
+}
+.stepper .st {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--line-faint);
+  background: var(--cream-soft);
+  color: var(--ink-3);
+  position: relative;
+  font-weight: 500;
+}
+.stepper .st:first-child { border-radius: 8px 0 0 8px; }
+.stepper .st:last-child  { border-radius: 0 8px 8px 0; }
+.stepper .st + .st { border-left: 0; }
+.stepper .st .n {
+  width: 18px; height: 18px;
+  border-radius: 9999px;
+  background: var(--paper); border: 1px solid var(--line-soft);
+  display: grid; place-items: center; font-size: 10px; font-weight: 700;
+}
+.stepper .st.done   { color: var(--ok); }
+.stepper .st.done .n{ background: var(--ok); border-color: var(--ok); color: white; }
+.stepper .st.active { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); font-weight: 600; }
+.stepper .st.active .n { background: var(--accent); border-color: var(--accent-dark); color: var(--ink); }
+
+/* segmented controls */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--paper);
+}
+.seg .s {
+  padding: 5px 10px;
+  font-size: 12px; color: var(--ink-3);
+  border-right: 1px solid var(--line-faint);
+  cursor: pointer;
+}
+.seg .s:last-child { border-right: 0; }
+.seg .s.on { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+
+/* search input stub */
+.search {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-faint);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.search input {
+  border: 0; outline: 0; flex: 1; min-width: 0;
+  background: transparent; color: var(--ink);
+  font: inherit;
+}
+
+/* divider */
+.hr { height: 1px; background: var(--line-faint); }
+.vr { width: 1px; background: var(--line-faint); }
+
+/* tag list */
+.taglist { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* totals card */
+.totals {
+  background: var(--cream-soft);
+  border: 1.25px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+.totals .row { justify-content: space-between; padding: 4px 0; font-size: 13px; }
+.totals .row.big { font-size: 16px; font-weight: 700; padding-top: 8px; border-top: 1px solid var(--line-faint); }
+.totals .row.due { color: var(--bad); }
+
+/* ── Sketchy stroke (used for hand-drawn outlines via SVG) */
+.sketch-rect {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sketch-rect svg { width: 100%; height: 100%; display: block; }
+
+/* big direction labels on canvas */
+.dir-label {
+  font-family: var(--hand);
+  font-size: 26px;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}

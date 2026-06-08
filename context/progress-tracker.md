@@ -13,7 +13,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **OrderCommit arc complete (Specs 120–151):** `commitOrderChanges` is the sole production financial-emission path; all Sales order edits (locked and unlocked) flow through OrderCommit staging → preview → commit.
 - **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
-- **Active roadmap:** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned. Centralization R0–R12 fully archived.
+- **⏸ All roadmap/spec work paused (planning-only phase).** No active implementation until the financial-foundation plans below are finished. Sequencing: (1) financial plans → (2) POS redesign planning specs → (3) remaining Phase 7 from the unified roadmap.
+- **Financial-foundation plans (PLANNING — not implemented):** `context/reviews/credit-settlement-application-plan.md` (credit settlement-application; hard prerequisite for Phase 7's financial summary) and `context/reviews/financial-documents-register-presentation.md` (accountant-facing register presentation; presentation-only, no engine change).
+- **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
 
@@ -224,6 +226,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **73c** — Order add-on split: `OrderPackageItemUpgrade` separated from `OrderAddOn`.
 
 ## Open Follow-Ups
+- **Financial-plan owner confirmations** (before drafting specs from the financial plans): (a) confirm customer-wide store credit that travels across orders is out of scope; (b) ask the accountant whether the register footer should show net invoiced or gross invoiced + separate credits subtotal. See `credit-settlement-application-plan.md` and `financial-documents-register-presentation.md`.
+- **POS redesign open owner questions** (`pos-sales-redesign-planning.md`): S-E (does a multi-package order ever mix session types?) and S-I (session-config quick-config surface). Resolve before POS planning specs.
 - Spec 152 (**deferred** — OrderCommit chapter closed): retire the legacy direct-edit financial engine `syncOrderInvoiceForFinancialEdit` and migrate its remaining direct non-mutator callers onto the OrderCommit/financial-service path. Not urgent: after Spec 151 the engine has **no production caller** (`commitOrderChanges` is the sole production emission path) and survives only as test-only scaffolding. Revisit when convenient; placeholder spec archived.
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.
