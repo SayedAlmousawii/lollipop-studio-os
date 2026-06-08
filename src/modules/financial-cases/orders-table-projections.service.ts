@@ -234,6 +234,7 @@ function buildOrdersTableProjection(
     finalTotal: lockedSummary.finalTotal,
     overpaymentCapacity: 0,
     creditNoteCapacity: 0,
+    availableCaseCredit: 0,
     linkedDocuments: [],
     paymentStatusEnum: deriveFinancialCasePaymentStatus({
       finalInvoiceStatus: finalInvoice.status,

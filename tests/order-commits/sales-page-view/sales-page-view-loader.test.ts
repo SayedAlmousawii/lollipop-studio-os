@@ -814,6 +814,7 @@ function activeFinancialCase(
     finalTotal: 100,
     overpaymentCapacity: 0,
     creditNoteCapacity: 0,
+    availableCaseCredit: 0,
     linkedDocuments: [],
     paymentStatusEnum: "UNPAID",
     ...input,

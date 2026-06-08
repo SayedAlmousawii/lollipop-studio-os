@@ -312,6 +312,7 @@ function activeSummary(
     finalTotal: 100,
     overpaymentCapacity: paymentStatusEnum === "OVERPAID" ? 10 : 0,
     creditNoteCapacity: 0,
+    availableCaseCredit: 0,
     linkedDocuments: [],
     paymentStatusEnum,
   };

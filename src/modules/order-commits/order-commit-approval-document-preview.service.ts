@@ -25,6 +25,7 @@ const orderCommitPreviewPaymentStateSchema = z
     currentRemainingAmount: rawMoneySchema,
     creditNoteCapacity: nonnegativeMoneySchema,
     overpaymentCapacity: nonnegativeMoneySchema,
+    availableCaseCredit: nonnegativeMoneySchema,
   })
   .strict();
 
@@ -99,9 +100,17 @@ function positiveDeltaPreview(input: {
   paymentState: OrderCommitPreviewPaymentState;
 }): OrderCommitApprovalAndDocumentPreview {
   const amount = roundMoney(input.classification.netDelta);
+  const availableCreditForCommit =
+    input.finalInvoiceMode === "EMIT_ADJUSTMENT"
+      ? input.paymentState.availableCaseCredit
+      : 0;
+  const consumedCredit = roundMoney(
+    Math.min(amount, availableCreditForCommit)
+  );
+  const amountDue = roundMoney(amount - consumedCredit);
   const documentKind = documentPlanKindForPositiveDelta(input.finalInvoiceMode);
   const remainingAfterCommit = roundMoney(
-    input.paymentState.currentRemainingAmount + amount
+    input.paymentState.currentRemainingAmount + amount - consumedCredit
   );
 
   return orderCommitApprovalAndDocumentPreviewSchema.parse({
@@ -110,14 +119,17 @@ function positiveDeltaPreview(input: {
     documentPlan: {
       kind: documentKind,
       amount,
-      requiresPaymentCollection: amount > 0,
+      requiresPaymentCollection: amountDue > 0,
       requiresRefundReview: false,
       reason: null,
     },
     paymentImpact: {
-      kind: ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.PAYMENT_DUE,
-      amountDue: amount,
-      creditAmount: 0,
+      kind:
+        amountDue > 0
+          ? ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.PAYMENT_DUE
+          : ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.NONE,
+      amountDue,
+      creditAmount: consumedCredit,
       alreadyPaidAmount: input.paymentState.alreadyPaidAmount,
       remainingAfterCommit,
     },

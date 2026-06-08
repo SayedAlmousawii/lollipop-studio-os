@@ -62,6 +62,7 @@ export type FinancialCaseActiveSummary = {
   finalTotal: number;
   overpaymentCapacity: number;
   creditNoteCapacity: number;
+  availableCaseCredit: number;
   linkedDocuments: LinkedFinancialDocument[];
   paymentStatusEnum: FinancialCasePaymentStatus;
 };

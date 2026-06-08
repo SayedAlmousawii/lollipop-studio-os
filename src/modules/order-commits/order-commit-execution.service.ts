@@ -1,7 +1,6 @@
 import {
   AuditAction,
   AuditEntityType,
-  DocumentApplicationKind,
   InvoiceLineType,
   OrderActivityType,
   OrderStatus,
@@ -198,20 +197,18 @@ export type EmitOrderCommitFinancialDocumentsInput = {
 };
 
 type BuildOpenAdjustmentLineMap = typeof import("@/modules/invoices/invoice.service")["buildOpenAdjustmentLineMap"];
-type BuildOpenReceivableInvoices = typeof import("@/modules/invoices/invoice.service")["buildOpenReceivableInvoices"];
 type ComputeCreditNoteCapacityForFinal = typeof import("@/modules/invoices/invoice.service")["computeCreditNoteCapacityForFinal"];
 type CreateAdjustmentInvoiceWithClient = typeof import("@/modules/invoices/invoice.service")["createAdjustmentInvoiceWithClient"];
 type CreateCreditNoteWithClient = typeof import("@/modules/invoices/invoice.service")["createCreditNoteWithClient"];
 type CreateInvoiceForOrderWithClient = typeof import("@/modules/invoices/invoice.service")["createInvoiceForOrderWithClient"];
 type RebuildUnlockedFinalInvoiceForOrderWithClient = typeof import("@/modules/invoices/invoice.service")["rebuildUnlockedFinalInvoiceForOrderWithClient"];
-type AppendCreditApplication = typeof import("@/modules/invoices/invoice.service")["appendCreditApplication"];
+type SettleAvailableCreditAgainstOpenReceivables = typeof import("@/modules/invoices/invoice.service")["settleAvailableCreditAgainstOpenReceivables"];
 type OpenAdjustmentLineMap = Awaited<ReturnType<BuildOpenAdjustmentLineMap>>;
 
 type OrderCommitInvoiceEmissionDependencies = {
   buildOpenAdjustmentLineMap: BuildOpenAdjustmentLineMap;
-  buildOpenReceivableInvoices: BuildOpenReceivableInvoices;
   computeCreditNoteCapacityForFinal: ComputeCreditNoteCapacityForFinal;
-  appendCreditApplication: AppendCreditApplication;
+  settleAvailableCreditAgainstOpenReceivables: SettleAvailableCreditAgainstOpenReceivables;
   createAdjustmentInvoiceWithClient: CreateAdjustmentInvoiceWithClient;
   createCreditNoteWithClient: CreateCreditNoteWithClient;
   createInvoiceForOrderWithClient: CreateInvoiceForOrderWithClient;
@@ -232,8 +229,6 @@ type ResolvedOrderCommitFinalInvoice = {
   id: string;
   isLocked: boolean;
 } | null;
-
-const ONE_FILS = 0.001;
 
 const orderCommitExecutionDraftSelect = {
   id: true,
@@ -558,6 +553,7 @@ function paymentStateFromFinancialCaseSummary(
       currentRemainingAmount: 0,
       creditNoteCapacity: 0,
       overpaymentCapacity: 0,
+      availableCaseCredit: 0,
     };
   }
 
@@ -566,6 +562,7 @@ function paymentStateFromFinancialCaseSummary(
     currentRemainingAmount: summary.remaining,
     creditNoteCapacity: summary.creditNoteCapacity,
     overpaymentCapacity: summary.overpaymentCapacity,
+    availableCaseCredit: summary.availableCaseCredit,
   };
 }
 
@@ -833,10 +830,10 @@ async function loadOrderCommitInvoiceEmissionDependencies(
   const invoiceService = await import("@/modules/invoices/invoice.service");
   return {
     buildOpenAdjustmentLineMap: invoiceService.buildOpenAdjustmentLineMap,
-    buildOpenReceivableInvoices: invoiceService.buildOpenReceivableInvoices,
     computeCreditNoteCapacityForFinal:
       invoiceService.computeCreditNoteCapacityForFinal,
-    appendCreditApplication: invoiceService.appendCreditApplication,
+    settleAvailableCreditAgainstOpenReceivables:
+      invoiceService.settleAvailableCreditAgainstOpenReceivables,
     createAdjustmentInvoiceWithClient:
       invoiceService.createAdjustmentInvoiceWithClient,
     createCreditNoteWithClient: invoiceService.createCreditNoteWithClient,
@@ -1001,22 +998,6 @@ export async function emitOrderCommitFinancialDocuments(
       invoice: creditNote,
       role: ORDER_COMMIT_DOCUMENT_ROLE.CREDIT_NOTE,
     });
-
-    await applyResidualCreditToOpenReceivables({
-      creditNoteId: creditNote.id,
-      financialCaseId: input.financialCaseId,
-      orderId: input.orderId,
-      residualAmount: emission.creditNoteFinalLines.reduce(
-        (sum, entry) =>
-          round3(sum + entry.line.quantity * Number(entry.line.unitPrice)),
-        0
-      ),
-      appliedByUserId:
-        input.approvalActorUserId ?? input.actorContext.actorUserId,
-      client: input.client,
-      buildOpenReceivableInvoices: dependencies.buildOpenReceivableInvoices,
-      appendCreditApplication: dependencies.appendCreditApplication,
-    });
   }
 
   if (
@@ -1029,6 +1010,17 @@ export async function emitOrderCommitFinancialDocuments(
       select: { id: true },
     });
   }
+
+  await dependencies.settleAvailableCreditAgainstOpenReceivables(
+    {
+      financialCaseId: input.financialCaseId,
+      orderId: input.orderId,
+      appliedByUserId:
+        input.approvalActorUserId ?? input.actorContext.actorUserId,
+      notes: "OrderCommit available credit settlement",
+    },
+    input.client
+  );
 
   return {
     emissions,
@@ -1077,48 +1069,6 @@ function assertLockedParentFinalInvoiceId(input: {
   }
 
   return input.finalInvoice.id;
-}
-
-async function applyResidualCreditToOpenReceivables(input: {
-  creditNoteId: string;
-  financialCaseId: string;
-  orderId: string;
-  residualAmount: number;
-  appliedByUserId: string;
-  client: Prisma.TransactionClient;
-  buildOpenReceivableInvoices: BuildOpenReceivableInvoices;
-  appendCreditApplication: AppendCreditApplication;
-}): Promise<void> {
-  let remainingCredit = round3(input.residualAmount);
-  if (remainingCredit < ONE_FILS) return;
-
-  const receivables = await input.buildOpenReceivableInvoices(
-    input.financialCaseId,
-    input.orderId,
-    input.client
-  );
-
-  for (const receivable of receivables) {
-    if (remainingCredit < ONE_FILS) break;
-
-    const settlementAmount = round3(
-      Math.min(remainingCredit, decimalLikeToNumber(receivable.remainingAmount))
-    );
-    if (settlementAmount < ONE_FILS) continue;
-
-    await input.appendCreditApplication(
-      {
-        creditNoteId: input.creditNoteId,
-        targetInvoiceId: receivable.invoiceId,
-        amount: settlementAmount,
-        kind: DocumentApplicationKind.SETTLEMENT,
-        appliedByUserId: input.appliedByUserId,
-        notes: "OrderCommit residual credit settlement",
-      },
-      input.client
-    );
-    remainingCredit = round3(remainingCredit - settlementAmount);
-  }
 }
 
 function assertFirstCommitHasNoCreditSide(
@@ -1180,10 +1130,6 @@ function creditReasonForFinalLines(
 
 function decimalLikeToNumber(value: Prisma.Decimal | number): number {
   return typeof value === "number" ? value : value.toNumber();
-}
-
-function round3(value: number): number {
-  return Number(value.toFixed(3));
 }
 
 function shouldRetryOrderCommitExecution(error: unknown): boolean {

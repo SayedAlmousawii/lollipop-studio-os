@@ -90,6 +90,17 @@ export type OpenReceivableInvoice = {
   remainingAmount: Prisma.Decimal;
 };
 
+export type ComputeAvailableCaseCreditInput = {
+  financialCaseId: string;
+};
+
+export type SettleAvailableCreditAgainstOpenReceivablesInput = {
+  financialCaseId: string;
+  orderId: string;
+  appliedByUserId: string;
+  notes?: string | null;
+};
+
 export interface OrderInvoiceSyncInput {
   orderId: string;
   previousAddOns: OrderAddOnLine[];
@@ -2400,6 +2411,108 @@ export async function computeCreditNoteAvailable(
   const appliedTotal = applications._sum.amountApplied ?? new Prisma.Decimal(0);
 
   return creditNote.totalAmount.minus(appliedTotal);
+}
+
+export async function computeAvailableCaseCredit(
+  input: ComputeAvailableCaseCreditInput,
+  client: DbClient = db
+): Promise<Prisma.Decimal> {
+  const creditNotes = await client.invoice.findMany({
+    where: {
+      financialCaseId: input.financialCaseId,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+    },
+    select: { id: true },
+    orderBy: [{ invoiceSeq: "asc" }, { id: "asc" }],
+  });
+
+  const availableAmounts = await Promise.all(
+    creditNotes.map((creditNote) =>
+      computeCreditNoteAvailable(creditNote.id, client)
+    )
+  );
+
+  return availableAmounts.reduce(
+    (sum, available) => sum.plus(available),
+    new Prisma.Decimal(0)
+  );
+}
+
+export async function settleAvailableCreditAgainstOpenReceivables(
+  input: SettleAvailableCreditAgainstOpenReceivablesInput,
+  client?: DbClient
+): Promise<void> {
+  if (client) {
+    await settleAvailableCreditAgainstOpenReceivablesWithClient(input, client);
+    return;
+  }
+
+  await withRetry(
+    () =>
+      db.$transaction(
+        (transaction) =>
+          settleAvailableCreditAgainstOpenReceivablesWithClient(
+            input,
+            transaction
+          ),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      ),
+    "Failed to settle available credit"
+  );
+}
+
+async function settleAvailableCreditAgainstOpenReceivablesWithClient(
+  input: SettleAvailableCreditAgainstOpenReceivablesInput,
+  client: DbClient
+): Promise<void> {
+  const receivables = await buildOpenReceivableInvoices(
+    input.financialCaseId,
+    input.orderId,
+    client
+  );
+  if (receivables.length === 0) return;
+
+  const creditNotes = await client.invoice.findMany({
+    where: {
+      financialCaseId: input.financialCaseId,
+      orderId: input.orderId,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+    },
+    select: { id: true },
+    orderBy: [{ invoiceSeq: "asc" }, { id: "asc" }],
+  });
+
+  for (const creditNote of creditNotes) {
+    let availableCredit = await computeCreditNoteAvailable(creditNote.id, client);
+    if (availableCredit.lessThanOrEqualTo(0)) continue;
+
+    for (const receivable of receivables) {
+      if (availableCredit.lessThanOrEqualTo(0)) break;
+      if (receivable.remainingAmount.lessThanOrEqualTo(0)) continue;
+
+      const settlementAmount = Prisma.Decimal.min(
+        availableCredit,
+        receivable.remainingAmount
+      );
+      if (settlementAmount.lessThanOrEqualTo(0)) continue;
+
+      await appendCreditApplication(
+        {
+          creditNoteId: creditNote.id,
+          targetInvoiceId: receivable.invoiceId,
+          amount: settlementAmount,
+          kind: DocumentApplicationKind.SETTLEMENT,
+          appliedByUserId: input.appliedByUserId,
+          notes: input.notes ?? "Available credit settlement",
+        },
+        client
+      );
+
+      availableCredit = availableCredit.minus(settlementAmount);
+      receivable.remainingAmount =
+        receivable.remainingAmount.minus(settlementAmount);
+    }
+  }
 }
 
 export async function appendCreditApplication(

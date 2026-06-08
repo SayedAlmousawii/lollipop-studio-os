@@ -1,7 +1,7 @@
 # Credit Settlement Application — Plan & Investigation
 
-> Status: **B1 removing-side settlement implemented.** B2 adding-side available-credit
-> consumption and B3 canonical settlement projection remain pending.
+> Status: **B1 removing-side settlement implemented. B2 adding-side available-credit
+> consumption implemented.** B3 canonical settlement projection remains pending.
 > This is a **prerequisite for Phase 7** (the Sales redesign's financial summary
 > cannot be honest without it). Does **not** reopen the OrderCommit financial math.
 
@@ -154,7 +154,7 @@ the across-commit case (§2.6) work with the same mechanism.
    (That would be a separate, larger design.)
 5. **Both directions.** Settlement runs on the removing side (credit cancels open
    receivables; **implemented in Spec 154 B1**) **and** the adding side (existing credit
-   reduces new amount due; **pending B2**).
+   reduces new amount due; **implemented in Spec 155 B2**).
 6. **Leftover sits available.** Credit with nothing to cancel against does **not**
    auto-refund. It sits as visible, flagged available credit (overpayment), and can
    be consumed by a future commit.
@@ -193,14 +193,19 @@ the across-commit case (§2.6) work with the same mechanism.
      invariants that currently assert "fully applied at birth" (`invariants.ts`,
      `createCreditNoteWithClient`). No financial *math* changes.
 
-### 5.1 B1 implementation status
+### 5.1 B1/B2 implementation status
 
 Spec 154 B1 implemented the removing side: residual OrderCommit credits create a
 FINAL-parented credit note without a new `CREDIT_TO_FINAL` application, then append
 invoice-targeted `SETTLEMENT` applications to same-order open ADJUSTMENT receivables
 oldest-first. If no receivable is open, or credit exceeds receivables, the unapplied
 remainder stays available by the derived credit-note pool (`total − Σ applications`).
-B2 and B3 remain pending.
+
+Spec 155 B2 implemented the adding side: `FinancialCaseSummary.availableCaseCredit`
+derives the same-case CREDIT_NOTE pool total, positive-delta OrderCommit previews consume
+that credit before cash, and locked document-emitting commits run one shared end-of-commit
+available-credit sweep so pure additions and B1 residual credits settle through the same
+`SETTLEMENT` path. B3 remains pending.
 
 ### Customer-facing effect
 

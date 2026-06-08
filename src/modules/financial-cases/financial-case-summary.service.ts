@@ -4,6 +4,7 @@ import {
   computeEffectivePaidFromAllocations,
 } from "@/modules/invoices/invoice.calculation";
 import {
+  computeAvailableCaseCredit,
   computeCreditNoteCapacityForFinal,
   computeOverpaymentCapacity,
 } from "@/modules/invoices/invoice.service";
@@ -142,6 +143,12 @@ export async function getFinancialCaseSummary(
     ).toNumber(),
     creditNoteCapacity: (
       await computeCreditNoteCapacityForFinal(finalInvoice.id, client)
+    ).toNumber(),
+    availableCaseCredit: (
+      await computeAvailableCaseCredit(
+        { financialCaseId: financialCase.id },
+        client
+      )
     ).toNumber(),
     linkedDocuments,
     paymentStatusEnum: deriveFinancialCasePaymentStatus({
