@@ -192,6 +192,35 @@ the across-commit case (§2.6) work with the same mechanism.
    - **Cost (engineering, not accounting):** changes credit-note lifecycle + the
      invariants that currently assert "fully applied at birth" (`invariants.ts`,
      `createCreditNoteWithClient`). No financial *math* changes.
+10. **Spendable credit is overpayment-backed (refines #6/#9).** The unapplied
+    credit-note pool (`Σ total − Σ applications`, decision #9) is the *document
+    representation* of reductions — it is **not**, by itself, spendable credit. Credit
+    becomes **spendable / refundable only to the extent the customer has paid more cash
+    than the net order is worth**:
+    `availableCredit = max(cashPaid − netCustomerTotal, 0)`
+    (equivalently `max(effectivePaid + unappliedPool − grossCharges, 0)`).
+    A removal on an **unpaid** order reduces the bill (lowers `netCustomerTotal`); it does
+    **not** mint phantom credit that can zero-out a later addition. Letting the raw pool
+    offset a future add (as Spec 155 B2 shipped) double-counts the same reduction and
+    under-collects. **B1 removing-side settlement is unchanged** — netting additions
+    against removals via the sweep is correct; this rule governs only the **adding-side**
+    consumption of *prior* credit. (Locked 2026-06-09; corrects the B2 adding-side basis,
+    see Spec 157 · B2C.)
+11. **Two financial-owned summaries; Sales renders, never assembles (refines #1).** The
+    financial module owns *all* balance meaning and exposes it as **two** read contracts,
+    both under `src/modules/financial-cases/`:
+    - **Customer-facing settlement summary** (receipt-style) — single-meaning, net,
+      customer-readable: `netCustomerTotal`, `cashPaid`, `remainingDue`,
+      `availableCredit`/`refundable` (overpayment, decision #10), plus draft fields.
+      Uses **net presentation (model A)**: a credit note reduces `netCustomerTotal`
+      (`grossCharges − creditsIssued`); the order itself became smaller — the customer
+      does **not** hold the gross amount plus a separate credit.
+    - **Accounting / document summary** — the document-level detail (FINAL / ADJUSTMENT /
+      CREDIT_NOTE / DocumentApplication / effective-paid / open per-invoice balances).
+      This is the financial-documents **register** plan (separate), not the receipt card.
+    `FinancialCaseSummary` stays the low-level/accounting base. Neither the Sales nor the
+    OrderCommit projector may derive financial meaning from raw fields — they **render**
+    the financial-owned summary verbatim. (Locked 2026-06-09; see Spec 156 · B3.)
 
 ### 5.1 B1/B2 implementation status
 
@@ -205,7 +234,18 @@ Spec 155 B2 implemented the adding side: `FinancialCaseSummary.availableCaseCred
 derives the same-case CREDIT_NOTE pool total, positive-delta OrderCommit previews consume
 that credit before cash, and locked document-emitting commits run one shared end-of-commit
 available-credit sweep so pure additions and B1 residual credits settle through the same
-`SETTLEMENT` path. B3 remains pending.
+`SETTLEMENT` path.
+
+**Correction pending (Spec 157 · B2C):** B2 shipped consuming the *raw unapplied pool*
+(`availableCaseCredit`) as spendable credit in `positiveDeltaPreview`. Per locked decision
+#10 that is wrong — spendable credit must be **overpayment-backed**. B2C repoints the
+adding-side preview onto the financial-owned customer-settlement figures (overpayment-based
+`availableCredit` + model-A `remainingDue`), so phantom removal-credit on an unpaid order no
+longer offsets a later addition. The shared sweep (document-level) is unchanged.
+
+**Order of remaining work:** 157 · B2C (adding-side basis correction + financial-owned
+customer-settlement core) **before** 156 · B3 (receipt-style customer summary contract +
+Sales repoint), because B3's draft `amountDueAfterCommit` consumes B2C's corrected preview.
 
 ### Customer-facing effect
 
@@ -225,27 +265,44 @@ a paper trail instead of a trust-me balance.
 ### 6.1 Canonical settlement projection (Sales-facing) — RESOLVED
 
 One canonical set of numbers, each with exactly one meaning, that always reconcile.
-Sales **renders** these; it never assembles them. Two display modes (consistent with
-the rest of the editable POS surface — live preview while a draft exists, last
-committed snapshot when clean).
+This is the **customer-facing settlement summary** of decision #11 — a financial-owned
+read contract (`src/modules/financial-cases/`). Sales **renders** these; it never
+assembles them. Two display modes (consistent with the rest of the editable POS surface —
+live preview while a draft exists, last committed snapshot when clean).
 
-**Clean state (no draft):**
-- **Order total** — full price of everything currently owned
-- **Paid** — cash actually received
-- **Available credit** — credit sitting on the order, unused
-- **Remaining** — still to collect (`total − paid − credit used`)
-- plus breakdown: deposits, discounts
+**Definitions (model A — net; decision #10/#11):**
+- `netCustomerTotal = grossCharges − creditsIssued` — value of everything currently owned
+  (a removal shrinks this; the customer does not hold gross + a separate credit).
+- `cashPaid` — net cash actually received (payments − refunds); **excludes** credit
+  applied to documents.
+- `remainingDue = max(netCustomerTotal − cashPaid, 0)` — what's still to collect. Computed
+  from net and cash, **not** from raw document open-balances (which overstate by any
+  unapplied credit that can't land on FINAL).
+- `availableCredit` / `refundable = max(cashPaid − netCustomerTotal, 0)` — overpayment-
+  backed; one figure, two affordances (spend on a later add, or refund). **Only present
+  when `> 0`.**
 
-**Draft state (pending change):**
-- **Previous total → New total**
-- **Pending difference**
-- **Remaining to collect**
+**Clean state (no draft):** `netCustomerTotal`, `cashPaid`, `remainingDue`,
+`availableCredit`/`refundable` (only when overpaid).
+
+**Draft state (pending change):** `previousTotal`, `pendingDelta`, `afterCommitTotal`,
+`amountDueAfterCommit` (the B2C-corrected figure: `max(pendingDelta − availableCredit, 0)`
+with overpayment-backed `availableCredit`).
+
+**Reconciliation identity:** `netCustomerTotal − cashPaid = remainingDue − availableCredit`
+(positive → owe, negative → owed-back). Never both, never a negative remaining.
 
 **Customer-in-credit presentation — decision (A): split, positive numbers.**
-When the shop owes the customer, show `Remaining: 0` **+** a separate, clearly
-labelled **`Available credit`** line (with a staff-facing "refundable" hint). Money
-owed *to* the customer is its own line and its own action (refund) — never shown as a
-negative "remaining". Rejected (B): a single signed balance that goes negative.
+When the shop owes the customer, show `remainingDue: 0` **+** a separate, clearly labelled
+`availableCredit`/refundable line. Money owed *to* the customer is its own line and its own
+action (refund) — never shown as a negative remaining. Rejected (B): a single signed
+balance that goes negative; rejected: showing gross total + a standing credit line.
+
+**Out of this contract (accounting/document detail — decision #11, register plan):**
+FINAL / ADJUSTMENT / CREDIT_NOTE rows, `DocumentApplication`s, `effectivePaid` / `paidSoFar`,
+per-invoice open balances, gross `customerTotal`, raw `overpaymentCapacity` /
+`creditNoteCapacity` / `availableCaseCredit` pool. The financial module uses these to
+*derive* the receipt fields; the receipt card never shows them.
 
 ---
 

@@ -1,187 +1,181 @@
-# 156 · B3 — Canonical Settlement Projection
+# 156 · B3 — Customer Settlement Summary (receipt-style Sales card)
 
-> Plan label **B3** (settlement arc); repo number **156** is provisional — renumber if a
-> different spec ships first. Depends on **153 · F1**, **154 · B1**, **155 · B2**.
-> Final spec of the settlement arc and the **hard prerequisite for Phase 7's financial
-> summary**. See `context/reviews/credit-settlement-application-plan.md` (§6.1, decisions
-> #1 projector-rendered, A split-lines presentation).
+> Plan label **B3** (settlement arc); repo number **156** is provisional.
+> **Implementation order: ships AFTER 157 · B2C** — B3's draft `amountDueAfterCommit`
+> consumes B2C's corrected adding-side preview, and B3 reuses B2C's financial-owned
+> customer-settlement core.
+> Depends on **153 · F1**, **154 · B1**, **155 · B2**, **157 · B2C**. Final spec of the
+> settlement arc; the **hard prerequisite for Phase 7's financial summary**.
+> See `context/reviews/credit-settlement-application-plan.md` — §6.1 and locked decisions
+> **#10** (overpayment-backed credit), **#11** (financial-owned customer summary;
+> Sales renders, never assembles), **A** (split positive lines).
 
 ## Goal
 
-Give the Sales surface **one canonical, single-meaning set of settlement numbers** to
-render, instead of the overloaded `customerTotal` / `effectivePaid` / `paidSoFar` /
-`remaining` fields it consumes today. After B1/B2 the underlying *documents* reconcile
-correctly (settlement applications make per-invoice balances sum to the true outstanding),
-so this spec is a **read-layer** unit: define the canonical projection, map clean vs.
-draft state, present customer-in-credit as split positive lines (decision A), and repoint
-the Sales financial summary onto it — **without** any visual redesign (Phase 7 restyles
-on top). No financial math, no document changes.
+Give the Sales surface **one financial-owned, single-meaning, receipt-style set of
+settlement numbers** to render, replacing the overloaded `customerTotal` / `effectivePaid` /
+`paidSoFar` / `remaining` it reads today. The financial module owns the meaning (decision
+#11); Sales **renders it verbatim** and performs no arithmetic. This is a **read-layer**
+unit on top of B2C's customer-settlement core — no financial math, no document changes,
+**no visual redesign** (Phase 7 restyles on top).
+
+The numbers are **net (model A, decision #10/#11):** a credit note from a removal reduces
+the order's net value; the customer does not hold the gross amount plus a separate credit.
+Available credit is **overpayment-backed** and shown only when the customer is actually owed
+money (decision A).
 
 ## Read First
 
-- `context/reviews/credit-settlement-application-plan.md` — §6.1 (canonical projection
-  field set), decision #1 (Sales renders, never assembles), decision A (split positive
-  lines; credit owed to customer is its own line, never a negative remaining).
-- `context/feature-specs/155-B2-adding-side-available-credit-consumption.md` —
-  `availableCaseCredit` on `FinancialCaseSummary`.
-- `src/modules/order-commits/projections/to-sales-page-financial-preview.ts` — current
-  `{ baseline, overlay }` projection; the exact repoint target.
-- `src/modules/order-commits/projections/sales-page-view.types.ts` —
-  `SalesPageFinancialPreview` shape.
-- `src/components/orders/order-commit-financial-sidebar.tsx` — current consumer
-  (`baseline.customerTotal/paidSoFar/effectivePaid`, `finalInvoice.remaining`,
-  `overlay` previous/pending). Minimal repoint here; no redesign.
-- `src/modules/financial-cases/financial-case-summary.service.ts` — field meanings:
-  `customerTotal` (owned), `effectivePaid` (cash+credit applied), `remaining` (open
-  balances), `overpaymentCapacity` (cash overpaid), `availableCaseCredit` (unapplied
-  credit pools).
-- `src/lib/formatting/money.ts` — money formatting (raw projector fields only).
+- `context/reviews/credit-settlement-application-plan.md` — §6.1 (the field set + identity),
+  decisions #10, #11, A.
+- `context/feature-specs/157-B2C-overpayment-backed-available-credit.md` — the financial-owned
+  `computeCustomerSettlement` core (`netCustomerTotal`, `cashPaid`, `remainingDue`,
+  `availableCredit`) this renders.
+- `src/modules/financial-cases/projections/` — the **existing** financial-owned projector
+  family (`to-orders-table-row`, `to-order-header-financial`, `to-sales-sidebar-locked`,
+  `to-financial-tab-block`, …). The customer-settlement summary is a new member here, same
+  pattern: `FinancialCaseSummary → projection → UI`.
+- `src/modules/order-commits/projections/to-sales-page-financial-preview.ts` +
+  `sales-page-view.types.ts` — current `{ baseline, overlay }` Sales preview; provides the
+  **draft overlay** (`preview.totals`, `paymentImpact`). It must **render**, not derive.
+- `src/components/orders/order-commit-financial-sidebar.tsx` — the consumer to repoint.
+- `src/lib/formatting/money.ts` — money formatting (raw fields only).
 
 ## Rules
 
+- **Financial module owns the meaning; Sales renders (decision #11).** Define the
+  customer-settlement summary as a **financial-owned** contract in
+  `src/modules/financial-cases/` (projection over B2C's core + the draft overlay). Neither
+  the Sales nor the OrderCommit projector may compute net/cash/credit meaning from raw
+  fields.
 - **Read-layer only.** No change to invoices, applications, payments, refunds, emission,
-  or any money arithmetic. B3 renames/clarifies meaning and re-presents; it does not
-  recompute financial state.
-- **Single meaning per field.** Each canonical field has exactly one definition and they
-  always reconcile (`remaining = open charge balances`, derived from documents).
-- **Sales renders, never assembles** (decision #1). The component reads raw canonical
-  fields and formats via `money.ts`. No arithmetic in pages/components.
-- **Decision A presentation.** Money owed *to* the customer is its own labelled line
-  (`availableCredit` / `refundable`); `remaining` is floored at 0 and never shown
-  negative.
-- **Two display modes** (decision S-D): live overlay (draft preview) while a draft exists;
-  last-committed baseline when clean.
-- **Do not rewrite unrelated read models.** Orders table, booking section, order header,
-  and financial tab consume `remaining`/`customerTotal` and **auto-benefit** from B1/B2's
-  document correctness — leave them unless a test shows a stale meaning. Scope is the
-  Sales settlement surface.
-- No `@/lib/db` imports in `app/**` or `src/components/**`.
+  sweep, or any money arithmetic. B3 re-presents; it does not recompute financial state.
+- **Net presentation (model A).** `netCustomerTotal = grossCharges − creditsIssued`;
+  `remainingDue = max(netCustomerTotal − cashPaid, 0)`, floored at 0 — never negative.
+- **Overpayment-backed credit (decision #10).** `availableCredit`/`refundable =
+  max(cashPaid − netCustomerTotal, 0)`; one figure, two affordances; **shown only when > 0**
+  (decision A split line).
+- **Receipt card excludes accounting mechanics.** The contract does **not** expose FINAL /
+  ADJUSTMENT / CREDIT_NOTE rows, `DocumentApplication`s, `effectivePaid` / `paidSoFar`,
+  per-invoice open balances, gross `customerTotal`, or raw pool/capacity figures. Those
+  belong to the separate document/accounting detail (register plan).
+- **Two display modes (decision S-D).** Live draft overlay while a draft exists; committed
+  clean state otherwise.
+- **Do not rewrite unrelated read models.** Orders table, booking, order header, financial
+  tab auto-benefit from B1/B2/B2C document correctness — leave them (beyond consolidating the
+  shared `getNetCustomerTotal`, done in B2C). Scope is the Sales receipt surface.
+- No `@/lib/db` in `app/**` or `src/components/**`; the component does no money arithmetic.
 
 ## Scope
 
 ### In Scope
 
-- A **canonical settlement projection** (extend `toSalesPageFinancialPreview` /
-  `SalesPageFinancialPreview`, or add a dedicated projector consumed by it) exposing
-  single-meaning fields:
-  - **Clean (committed) state:** `orderTotal` (what the customer owns), `paid` (cash
-    received), `availableCredit` (unapplied credit-note pools = `availableCaseCredit`),
-    `remaining` (open charge balances, ≥ 0), `refundable` (cash overpaid =
-    `overpaymentCapacity`), plus deposit/discount breakdown as already available.
-  - **Draft state:** `previousTotal`, `newTotal`, `pendingDifference`, and
-    `amountDueAfterCommit` (the B2-correct figure: `max(netDelta − availableCredit, 0)`),
-    sourced from the existing preview overlay (`preview.totals`, `paymentImpact`).
-- Map the canonical fields from existing `FinancialCaseSummary` values (no recompute):
-  `orderTotal ← customerTotal`, `paid ← effectivePaid`, `remaining ← remaining`,
-  `availableCredit ← availableCaseCredit`, `refundable ← overpaymentCapacity`.
-- **Customer-in-credit handling (decision A):** when the customer is owed money, keep
-  `remaining = 0` and surface it via `availableCredit`/`refundable` lines — never a
-  negative remaining.
-- **Repoint the Sales financial summary component** onto the canonical fields (drop the
-  ad-hoc `customerTotal`/`paidSoFar`/`effectivePaid` reads). **No visual redesign** — same
-  layout, canonical data; Phase 7 restyles later.
-- Tests for the projection's clean/draft modes, the in-credit split, and the headline
-  scenarios.
+- **A financial-owned `CustomerSettlementSummary`** (receipt-style) in
+  `src/modules/financial-cases/` — a projection over B2C's `computeCustomerSettlement` plus
+  the draft overlay, exposing exactly:
+
+  **Clean (committed) state:**
+  - `netCustomerTotal` — order total (net)
+  - `cashPaid`
+  - `remainingDue`
+  - `availableCredit` / `refundable` — present only when `> 0` (overpayment, decision A)
+
+  **Draft (pending) state:**
+  - `previousTotal`
+  - `pendingDelta`
+  - `afterCommitTotal`
+  - `amountDueAfterCommit` — the B2C-corrected `max(pendingDelta − availableCredit, 0)`,
+    sourced from the corrected preview's `paymentImpact.amountDue`
+
+  Plus a `mode: "clean" | "draft"` discriminator (`"draft"` when a preview/draft exists).
+  Every field is a passthrough/rename of a value the financial module already computes —
+  the **summary computes; the Sales projector and component render**.
+
+- **Repoint the Sales financial sidebar** (`order-commit-financial-sidebar.tsx`, and any
+  draft variant) onto the `CustomerSettlementSummary`, formatting via `money.ts`. Drop the
+  ad-hoc `customerTotal` / `paidSoFar` / `effectivePaid` / `outstandingAmount` reads and the
+  signed `remainingAfterCommit` display. **No visual redesign** — same layout, canonical
+  data; Phase 7 restyles.
+
+- Tests for clean/draft modes, the in-credit split (decision A), the headline scenario, and
+  the no-arithmetic / no-`@/lib/db` guard.
 
 ### Out of Scope
 
-- **Phase 7 visual redesign** of the sidebar/right column — B3 only makes the data
-  canonical; styling, single-view layout, and card structure are Phase 7 B-specs.
-- Rewriting orders-table / booking / order-header / financial-tab read models (they
-  auto-benefit from B1/B2; out of scope unless a stale-meaning test fails).
-- Any change to emission, settlement sweep, available-credit computation (B1/B2), or
-  document/math behavior.
-- The financial-documents **register** presentation (separate plan).
-- No progress-tracker update during this docs-only drafting.
+- **Phase 7 visual redesign** of the sidebar / right column — B3 makes the data canonical
+  and receipt-shaped; styling, card layout, single-view are Phase 7.
+- The **accounting / document detail** view (FINAL/ADJUSTMENT/CREDIT_NOTE/application rows,
+  effective-paid, per-invoice balances) — the financial-documents **register** plan.
+- Any change to emission, the sweep, B2C's credit basis, or document/math behavior.
+- Rewriting orders-table / booking / order-header / financial-tab read models.
+- No progress-tracker update during docs-only drafting.
 
 ## Implementation Direction
 
 Two tasks.
 
-### Task 1 — Canonical projection
+### Task 1 — Financial-owned `CustomerSettlementSummary`
 
-Extend the Sales financial preview projection with the canonical, single-meaning fields
-above, mapped straight from `FinancialCaseSummary` (including B2's `availableCaseCredit`)
-and the preview overlay. Keep the existing `baseline`/`overlay` raw fields during
-transition if other code still reads them, but add the canonical set as the sanctioned
-surface. Compute nothing new — every field is a rename/passthrough of a value the summary
-already provides. Floor `remaining` at 0 and expose `availableCredit`/`refundable`
-separately for the in-credit case (decision A).
+Add a projection in `src/modules/financial-cases/` (e.g.
+`projections/to-customer-settlement-summary.ts`, exported via the projections index) that
+takes `FinancialCaseSummary` (+ the draft overlay for draft mode) and returns the receipt
+contract above by rendering B2C's `computeCustomerSettlement` figures. Compute nothing new
+beyond shaping clean-vs-draft; `remainingDue` floored at 0; `availableCredit` omitted/zero
+unless overpaid. Active-stage only (booking stage → a minimal/empty receipt or `null`,
+matching the existing projector convention).
 
-Draft vs. clean (decision S-D): when a draft/preview exists, the canonical draft fields
-(`previousTotal`/`newTotal`/`pendingDifference`/`amountDueAfterCommit`) drive the display;
-when clean, the committed fields do. Mirror how the editable POS surface already chooses
-live-vs-committed.
+Draft vs. clean (decision S-D): when a draft/preview exists, populate the draft fields from
+the corrected preview overlay (`previousTotal ← totals.baselineTotal`,
+`pendingDelta ← totals.netDelta`, `afterCommitTotal ← totals.pendingTotal`,
+`amountDueAfterCommit ← paymentImpact.amountDue`) and set `mode: "draft"`; otherwise the
+clean committed figures with `mode: "clean"`.
 
-### Task 2 — Repoint Sales summary + tests
+### Task 2 — Repoint the Sales receipt card + tests
 
-Update `order-commit-financial-sidebar.tsx` (and any draft/preview variant) to read the
-canonical fields and format via `money.ts`. Keep the current visual structure — this is a
-data repoint, not a redesign. Remove now-dead ad-hoc field reads where safe.
+Update `order-commit-financial-sidebar.tsx` to consume `CustomerSettlementSummary` and
+format via `money.ts`. Keep the current visual structure — data repoint, not redesign.
+Remove now-dead ad-hoc reads. The component must contain **no money arithmetic**.
 
-Tests (match the projection-parity test layout):
-- **Headline:** FINAL 160 paid, then upgrade +100 / remove −10 committed ⇒ canonical
-  `orderTotal 250`, `paid 160`, `availableCredit 0`, `remaining 90`.
-- **In-credit (decision A):** paid 250, order downgraded to 150 ⇒ `remaining 0`,
-  `refundable 50` (or `availableCredit` per source), **no negative remaining** anywhere.
-- **Leftover credit available:** unapplied credit pool present ⇒ `availableCredit` > 0,
-  `remaining` reflects only open charges.
-- **Draft mode:** with a pending add and existing credit ⇒ `amountDueAfterCommit =
-  max(netDelta − availableCredit, 0)` matches B2; clean mode shows committed figures.
-- **No-assembly guard:** the component performs no money arithmetic; values come from raw
-  canonical fields; no `@/lib/db` import in components.
-- **Reconciliation:** `remaining` equals the sum of open charge balances for each case
-  (documents are the source of truth).
-
-## Observability Checklist
-
-### Dashboards / Metrics
-
-- No production dashboard required.
-- No new reconciliation invariant; B3 is presentational over the B1/B2-corrected
-  documents.
-
-### Rollback Plan
-
-- Revert the component to the prior ad-hoc field reads and drop the canonical fields from
-  the projection. Pure read-layer revert; no data implications.
-
-### Customer-Visible Surface
-
-- The Sales financial summary shows the corrected, single-meaning numbers (e.g.
-  `remaining 90`, and a distinct `Available credit` / `Refundable` line when the customer
-  is owed money) — same layout, correct values. The visual redesign is Phase 7.
-
-## Post-Implementation
-
-- Update `context/progress-tracker.md` Key State (Financial architecture / POS) + Feature
-  History: canonical settlement projection; Sales summary repointed.
-- Update `context/reviews/credit-settlement-application-plan.md`: mark B3 implemented and
-  the settlement arc complete; note Phase 7's financial summary may now build on the
-  canonical projection.
-- Note in `context/reviews/pos-sales-redesign-planning.md` that the right-column financial
-  summary now has its canonical data source (unblocks that Phase 7 piece).
+Tests:
+- **Headline (clean):** FINAL 160 paid, then upgrade +100 / remove −10 committed ⇒
+  `netCustomerTotal 250`, `cashPaid 160`, `remainingDue 90`, `availableCredit` absent/0 —
+  asserted against a **real B1/B2C fixture**, not a hand-built summary.
+- **In-credit (decision A):** paid 250, order downgraded to 150 ⇒ `remainingDue 0`,
+  `availableCredit/refundable 50`; **no negative remaining** anywhere.
+- **Not-overpaid + unapplied credit:** removal on an unpaid order ⇒ `remainingDue` reflects
+  the net (lower) total, `availableCredit` **absent** (it is not spendable; decision #10).
+- **Draft mode:** with a pending add + overpayment credit ⇒ `amountDueAfterCommit =
+  max(pendingDelta − availableCredit, 0)` matches the corrected preview; clean mode shows
+  committed figures.
+- **No-assembly guard:** the component does no arithmetic; values are raw contract fields;
+  no `@/lib/db` import in components; the contract exposes no accounting-mechanic fields.
 
 ## Acceptance Criteria
 
-- A canonical, single-meaning settlement projection exists (`orderTotal`, `paid`,
-  `availableCredit`, `remaining`, `refundable`, + draft `previousTotal`/`newTotal`/
-  `pendingDifference`/`amountDueAfterCommit`), mapped from existing summary values with no
-  new computation.
-- The Sales financial summary renders these canonical fields and performs no arithmetic;
-  the headline scenario shows `orderTotal 250 / paid 160 / availableCredit 0 / remaining
-  90`.
-- Customer-in-credit shows `remaining 0` plus a distinct `availableCredit`/`refundable`
-  line; no surface renders a negative remaining (decision A).
-- Draft mode shows the B2-correct `amountDueAfterCommit`; clean mode shows committed
+- A **financial-owned** `CustomerSettlementSummary` exists under
+  `src/modules/financial-cases/`, exposing the receipt fields (`netCustomerTotal`,
+  `cashPaid`, `remainingDue`, `availableCredit`/`refundable`, + draft `previousTotal`,
+  `pendingDelta`, `afterCommitTotal`, `amountDueAfterCommit`, `mode`) and **no** accounting
+  mechanics. Neither Sales nor OrderCommit projectors derive financial meaning.
+- The Sales receipt card renders these and performs no arithmetic; the headline shows
+  `netCustomerTotal 250 / cashPaid 160 / remainingDue 90`, asserted on a real fixture.
+- Customer-in-credit shows `remainingDue 0` + a distinct overpayment-backed
+  `availableCredit`/refundable line; no surface renders a negative remaining (decision A).
+- Draft mode shows the B2C-correct `amountDueAfterCommit`; clean mode shows committed
   figures (decision S-D).
-- No financial math, document, emission, payment, or refund behavior changes; unrelated
-  read models are untouched and remain correct.
-- The full financial + projection-parity regression suite passes.
-- If this spec adds or changes a financial / composition / workflow / status display
-  surface: it consumes the canonical read model + a projector
-  (`modules/financial-cases/projections/`) instead of re-deriving in pages or components;
-  money read from raw projector fields, formatted via `src/lib/formatting/money.ts`; no
-  `@/lib/db` imports in `app/**` or `src/components/**`.
-- `npm run build` passes.
-- `npm run lint` passes.
+- No financial math, document, emission, sweep, payment, or refund behavior changes;
+  unrelated read models untouched.
+- Consumes the canonical read model + a projector under `modules/financial-cases/`; money
+  formatted via `src/lib/formatting/money.ts`; no `@/lib/db` in `app/**` or
+  `src/components/**`. The full financial + projection regression suite, `npm run build`,
+  and `npm run lint` pass.
+
+## Post-Implementation
+
+- Update `context/progress-tracker.md` Key State + Feature History: financial-owned
+  customer-settlement summary; Sales receipt card repointed; settlement arc complete.
+- Update `context/reviews/credit-settlement-application-plan.md`: mark B3 implemented and the
+  settlement arc complete; Phase 7's financial summary may now build on the customer
+  settlement summary.
+- Note in `context/reviews/pos-sales-redesign-planning.md` that the right-column receipt card
+  now has its canonical, financial-owned data source.
