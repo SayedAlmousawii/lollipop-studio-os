@@ -2,6 +2,7 @@ import type {
   FinancialCasePaymentStatus,
   FinancialCaseSummary,
 } from "../financial-case-summary.types";
+import { getNetCustomerTotal } from "../customer-settlement.calculation";
 
 export type OrderHeaderFinancialProjection = {
   totalOrderValue: number;
@@ -27,14 +28,4 @@ export function toOrderHeaderFinancial(
     hasOverpayment: summary.overpaymentCapacity > 0,
     paymentStatusEnum: summary.paymentStatusEnum,
   };
-}
-
-function getNetCustomerTotal(
-  summary: Extract<FinancialCaseSummary, { stage: "active" }>
-): number {
-  return Math.max(
-    summary.customerTotal -
-      summary.creditNotes.reduce((sum, creditNote) => sum + creditNote.total, 0),
-    0
-  );
 }

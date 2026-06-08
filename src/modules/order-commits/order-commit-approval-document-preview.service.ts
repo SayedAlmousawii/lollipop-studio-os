@@ -25,7 +25,7 @@ const orderCommitPreviewPaymentStateSchema = z
     currentRemainingAmount: rawMoneySchema,
     creditNoteCapacity: nonnegativeMoneySchema,
     overpaymentCapacity: nonnegativeMoneySchema,
-    availableCaseCredit: nonnegativeMoneySchema,
+    availableCredit: nonnegativeMoneySchema,
   })
   .strict();
 
@@ -102,7 +102,7 @@ function positiveDeltaPreview(input: {
   const amount = roundMoney(input.classification.netDelta);
   const availableCreditForCommit =
     input.finalInvoiceMode === "EMIT_ADJUSTMENT"
-      ? input.paymentState.availableCaseCredit
+      ? input.paymentState.availableCredit
       : 0;
   const consumedCredit = roundMoney(
     Math.min(amount, availableCreditForCommit)

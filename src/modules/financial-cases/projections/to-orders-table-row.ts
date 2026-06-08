@@ -3,6 +3,7 @@ import type {
   FinancialCasePaymentStatus,
   FinancialCaseSummary,
 } from "../financial-case-summary.types";
+import { getNetCustomerTotal } from "../customer-settlement.calculation";
 
 export type OrdersTableRowProjection = {
   totalAmount: number;
@@ -26,14 +27,4 @@ export function toOrdersTableRow(
     invoiceStatus: summary.finalInvoice.status,
     paymentStatusEnum: summary.paymentStatusEnum,
   };
-}
-
-function getNetCustomerTotal(
-  summary: Extract<FinancialCaseSummary, { stage: "active" }>
-): number {
-  return Math.max(
-    summary.customerTotal -
-      summary.creditNotes.reduce((sum, creditNote) => sum + creditNote.total, 0),
-    0
-  );
 }

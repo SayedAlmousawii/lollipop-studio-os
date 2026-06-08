@@ -191,7 +191,7 @@ test("preview loader maps latest committed positive delta on unlocked FINAL to r
     client: client.client,
     financialSummaryLoader: fakeSummaryLoader(
       activeSummary({
-        effectivePaid: 120,
+        effectivePaid: 170,
         remaining: 10,
         creditNoteCapacity: 5,
         overpaymentCapacity: 2,
@@ -216,7 +216,7 @@ test("preview loader maps latest committed positive delta on unlocked FINAL to r
     preview.documentPlan.kind,
     ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD
   );
-  assert.equal(preview.paymentImpact.alreadyPaidAmount, 120);
+  assert.equal(preview.paymentImpact.alreadyPaidAmount, 170);
   assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
 });
 
@@ -260,7 +260,7 @@ test("preview loader maps latest committed positive delta on locked FINAL to adj
   assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
 });
 
-test("preview loader maps available case credit into positive delta payment impact", async () => {
+test("preview loader maps overpayment-backed credit into positive delta payment impact", async () => {
   const client = fakePreviewClient({
     commits: [
       fakeCommit({
@@ -287,7 +287,7 @@ test("preview loader maps available case credit into positive delta payment impa
     financialSummaryLoader: fakeSummaryLoader(
       activeSummary({
         isFinalInvoiceLocked: true,
-        availableCaseCredit: 30,
+        effectivePaid: 230,
       })
     ),
   });
@@ -297,6 +297,48 @@ test("preview loader maps available case credit into positive delta payment impa
   assert.equal(preview.paymentImpact.amountDue, 0);
   assert.equal(preview.paymentImpact.creditAmount, 25);
   assert.equal(preview.paymentImpact.remainingAfterCommit, 0);
+});
+
+test("preview loader does not spend raw unapplied credit without overpayment backing", async () => {
+  const client = fakePreviewClient({
+    commits: [
+      fakeCommit({
+        id: "commit-1",
+        sequence: 1,
+        snapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 180 })],
+        }),
+      }),
+    ],
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 205 })],
+        }),
+      }),
+    ],
+  });
+
+  const preview = await getOrderCommitPreview({
+    orderId: "order-1",
+    client: client.client,
+    financialSummaryLoader: fakeSummaryLoader(
+      activeSummary({
+        isFinalInvoiceLocked: true,
+        customerTotal: 180,
+        effectivePaid: 0,
+        availableCaseCredit: 30,
+        creditNotesTotal: 30,
+      })
+    ),
+  });
+
+  assert.equal(preview.netDelta, 25);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, true);
+  assert.equal(preview.paymentImpact.amountDue, 25);
+  assert.equal(preview.paymentImpact.creditAmount, 0);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 175);
 });
 
 test("preview loader maps booking-stage payment state as pre-final-invoice only", async () => {
@@ -730,13 +772,20 @@ function fakeSummaryLoader(
 }
 
 function activeSummary(input: {
+  customerTotal?: number;
   effectivePaid?: number;
   isFinalInvoiceLocked?: boolean;
   remaining?: number;
   creditNoteCapacity?: number;
   overpaymentCapacity?: number;
   availableCaseCredit?: number;
+  creditNotesTotal?: number;
 } = {}): FinancialCaseSummary {
+  const customerTotal = input.customerTotal ?? 180;
+  const creditNotesTotal = input.creditNotesTotal ?? 0;
+  const remaining = input.remaining ?? 0;
+  const effectivePaid =
+    input.effectivePaid ?? Math.max(customerTotal - remaining, 0);
   return {
     stage: "active",
     financialCaseId: "financial-case-1",
@@ -747,22 +796,35 @@ function activeSummary(input: {
       id: "invoice-final",
       invoiceNumber: "INV-1",
       invoiceType: InvoiceType.FINAL,
-      total: 180,
-      remaining: input.remaining ?? 0,
+      total: customerTotal,
+      remaining,
       status: InvoiceStatus.ISSUED,
       isLocked: input.isFinalInvoiceLocked ?? false,
       depositPaidAmount: 0,
     },
     finalizedAdjustments: [],
-    creditNotes: [],
+    creditNotes:
+      creditNotesTotal > 0
+        ? [
+            {
+              id: "invoice-credit-note",
+              invoiceNumber: "CN-1",
+              invoiceType: InvoiceType.CREDIT_NOTE,
+              total: creditNotesTotal,
+              remaining: 0,
+              status: InvoiceStatus.CLOSED,
+              isLocked: true,
+            },
+          ]
+        : [],
     refunds: [],
-    customerTotal: 180,
-    effectivePaid: input.effectivePaid ?? 0,
-    paidSoFar: input.effectivePaid ?? 0,
+    customerTotal,
+    effectivePaid,
+    paidSoFar: effectivePaid,
     depositApplied: 0,
-    remaining: input.remaining ?? 0,
+    remaining,
     totalAdjustments: 0,
-    finalTotal: 180,
+    finalTotal: customerTotal,
     overpaymentCapacity: input.overpaymentCapacity ?? 0,
     creditNoteCapacity: input.creditNoteCapacity ?? 0,
     availableCaseCredit: input.availableCaseCredit ?? 0,

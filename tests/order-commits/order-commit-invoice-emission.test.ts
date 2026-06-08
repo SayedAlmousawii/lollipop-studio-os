@@ -946,7 +946,7 @@ test("settleAvailableCreditAgainstOpenReceivables consumes pools and receivables
   );
 });
 
-test("positive preview matches actual settlement sweep when final remaining is not settleable", async () => {
+test("positive preview ignores raw credit pool while settlement sweep still settles receivables", async () => {
   const {
     computeAvailableCaseCredit,
     settleAvailableCreditAgainstOpenReceivables,
@@ -968,7 +968,7 @@ test("positive preview matches actual settlement sweep when final remaining is n
       currentRemainingAmount: finalRemaining.toNumber(),
       creditNoteCapacity: 0,
       overpaymentCapacity: 0,
-      availableCaseCredit: 80,
+      availableCredit: 0,
     },
   });
   const { client, applications } = fakeAvailableCreditClient({
@@ -1007,11 +1007,11 @@ test("positive preview matches actual settlement sweep when final remaining is n
     client
   );
 
-  assert.equal(preview.paymentImpact.amountDue, 0);
-  assert.equal(preview.paymentImpact.creditAmount, 50);
+  assert.equal(preview.paymentImpact.amountDue, 50);
+  assert.equal(preview.paymentImpact.creditAmount, 0);
   assert.equal(
     preview.paymentImpact.remainingAfterCommit,
-    actualCaseRemaining.toNumber()
+    finalRemaining.plus(newAdjustmentAmount).toNumber()
   );
   assert.equal(actualCaseRemaining.toFixed(3), "20.000");
   assert.equal(adjustmentRemaining.toFixed(3), "0.000");
