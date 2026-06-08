@@ -54,7 +54,8 @@ test("loader composes no-draft view without preview or draft creation", async ()
   assert.equal(calls.getOrCreateDraft, 0);
   assert.equal(calls.draftComposition, 1);
   assert.equal(view.order.jobNumber, "JOB-1");
-  assert.equal(view.financialPreview.baseline.remaining, 100);
+  assert.equal(view.financialPreview.settlement?.mode, "clean");
+  assert.equal(view.financialPreview.settlement?.remainingDue, 100);
 });
 
 test("loader composes with-draft view from pending snapshot and preview once", async () => {
@@ -89,9 +90,13 @@ test("loader composes with-draft view from pending snapshot and preview once", a
   assert.equal(view.preview?.netDelta, 22);
   assert.equal(view.composition.source, "projected");
   assert.equal(view.composition.packageLines[0]?.orderPackageId, "draft:package-1");
-  assert.equal(view.financialPreview.overlay.previousTotal, 100);
-  assert.equal(view.financialPreview.overlay.pendingDelta, 22);
-  assert.equal(view.financialPreview.overlay.pendingTotal, 122);
+  assert.equal(view.financialPreview.settlement?.mode, "draft");
+  if (view.financialPreview.settlement?.mode !== "draft") {
+    throw new Error("Expected draft settlement");
+  }
+  assert.equal(view.financialPreview.settlement.previousTotal, 100);
+  assert.equal(view.financialPreview.settlement.pendingDelta, 22);
+  assert.equal(view.financialPreview.settlement.afterCommitTotal, 122);
   assert.equal(view.permissions.canUpdateOrderFinancial, true);
 });
 
@@ -145,7 +150,11 @@ test("loader fetches catalog items so active draft composition shows included de
     "Basic Album"
   );
   assert.equal(view.composition.totals.netCompositionTotal, 100);
-  assert.equal(view.financialPreview.overlay.pendingDelta, 10);
+  assert.equal(view.financialPreview.settlement?.mode, "draft");
+  if (view.financialPreview.settlement?.mode !== "draft") {
+    throw new Error("Expected draft settlement");
+  }
+  assert.equal(view.financialPreview.settlement.pendingDelta, 10);
 });
 
 test("loader projects no-draft ownership state", async () => {
@@ -381,6 +390,8 @@ test("loader keeps SalesPageView fields bound to their canonical sources", async
   const financialCase = activeFinancialCase({
     financialCaseId: "financial-case-source",
     customerTotal: 901,
+    effectivePaid: 824,
+    paidSoFar: 824,
     remaining: 77,
   });
   const preview = previewFixture({ netDelta: 33 });
@@ -417,8 +428,9 @@ test("loader keeps SalesPageView fields bound to their canonical sources", async
   assert.equal(view.preview, preview);
   assert.equal(view.stagedChanges[0]?.netDelta, 33);
   assert.equal(view.financialCase, financialCase);
-  assert.equal(view.financialPreview.baseline.customerTotal, 901);
-  assert.equal(view.financialPreview.baseline.remaining, 77);
+  assert.equal(view.financialPreview.financialCaseId, "financial-case-source");
+  assert.equal(view.financialPreview.settlement?.netCustomerTotal, 901);
+  assert.equal(view.financialPreview.settlement?.remainingDue, 77);
   assert.equal(view.permissions.actorRole, UserRole.ACCOUNTANT);
   assert.equal(view.permissions.canCreatePayment, true);
   assert.equal(view.permissions.canUpdateOrderFinancial, false);

@@ -13,7 +13,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **OrderCommit arc complete (Specs 120–151):** `commitOrderChanges` is the sole production financial-emission path; all Sales order edits (locked and unlocked) flow through OrderCommit staging → preview → commit.
 - **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
-- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, and 157 B2C are implemented; B3 settlement projection and the accountant-facing register presentation plan remain pending before Phase 7.
+- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, and 156 B3 are implemented; the settlement arc is complete and the accountant-facing register presentation plan remains pending before Phase 7.
 - **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
@@ -32,6 +32,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `DocumentApplication.kind` explicitly distinguishes `DEPOSIT`, `CAUSE_REVERSAL`, `CREDIT_TO_FINAL`, and forward-only `SETTLEMENT`; OrderCommit document emission now runs a shared end-of-commit sweep that settles available same-case/order credit-note pools against open ADJUSTMENT receivables via invoice-targeted `SETTLEMENT` rows before any leftover remains as derived credit-note availability.
 - `FinancialCaseSummary.availableCaseCredit` is the canonical raw same-case CREDIT_NOTE pool (`totalAmount - Σ source applications`) and stays distinct from overpayment-backed spendable credit and credit-note capacity.
 - `computeCustomerSettlement` is the financial-owned model-A customer settlement core: `netCustomerTotal = gross customer total - issued credit notes`, `cashPaid` excludes applied credit, `remainingDue = max(netCustomerTotal - cashPaid, 0)`, and spendable `availableCredit = max(cashPaid - netCustomerTotal, 0)`.
+- `CustomerSettlementSummary` is the Sales receipt-style projection over `computeCustomerSettlement`; Sales renders clean/draft settlement fields verbatim and no longer assembles customer total, effective-paid, document, or remaining semantics.
 - `src/modules/financial/invariant-catalog.ts` is the canonical owner-facing index for registered financial invariants; `npm run docs:generate` refreshes `context/reviews/invariant-catalog.md`.
 - Nightly reconciliation runs in a PostgreSQL `READ ONLY` transaction using `FINANCIAL_RECON_DATABASE_URL`; `RECONCILIATION_PING_URL` (Healthchecks.io) is the no-report monitor.
 
@@ -82,6 +83,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **156 B3** — Added financial-owned customer settlement summary projection, repointed the Sales receipt card to canonical clean/draft settlement fields, and completed the settlement arc.
 - **157 B2C** — Added financial-owned customer settlement core and corrected positive OrderCommit previews to consume overpayment-backed available credit instead of the raw unapplied credit-note pool.
 - **155 B2** — Positive OrderCommit previews now consume derived available case credit before cash, and all locked document-emitting commits run the shared available-credit settlement sweep.
 - **154 B1** — Removing-side OrderCommit residual credits now create FINAL-parented unapplied credit notes, settle same-order ADJUSTMENT receivables oldest-first via `SETTLEMENT`, and no longer apply residual credit to FINAL.

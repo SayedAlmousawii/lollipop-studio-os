@@ -538,7 +538,7 @@ test("staged changes projector drops unchanged restored package diffs", () => {
   assert.deepEqual(rows, []);
 });
 
-test("financial preview passes through financial case and preview fields", () => {
+test("financial preview renders customer settlement summary and draft fields", () => {
   const financialCase = activeFinancialCase({
     customerTotal: 321,
     finalTotal: 300,
@@ -560,29 +560,22 @@ test("financial preview passes through financial case and preview fields", () =>
 
   const projected = toSalesPageFinancialPreview({ preview, financialCase });
 
-  assert.equal(projected.baseline.customerTotal, 321);
-  assert.equal(projected.baseline.finalTotal, 300);
-  assert.equal(projected.baseline.depositApplied, 50);
-  assert.equal(projected.baseline.paidSoFar, 125);
-  assert.equal(projected.baseline.effectivePaid, 140);
-  assert.equal(projected.baseline.remaining, 176);
-  assert.equal(projected.baseline.outstandingAmount, 176);
-  assert.equal(projected.baseline.totalAdjustments, 0);
-  assert.deepEqual(projected.baseline.finalizedAdjustments, []);
-  assert.deepEqual(projected.baseline.creditNotes, []);
-  assert.deepEqual(projected.baseline.refunds, []);
-  assert.equal(projected.baseline.isFullySettled, false);
-  assert.equal(projected.baseline.collectPaymentTargetInvoiceId, "final-1");
-  assert.equal(projected.overlay.pendingDelta, 44);
-  assert.equal(projected.overlay.previousTotal, 100);
-  assert.equal(projected.overlay.pendingTotal, 144);
-  assert.equal(projected.overlay.documentPlan, preview.documentPlan);
-  assert.equal(
-    projected.overlay.documentPlan?.kind,
-    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.FINAL_INVOICE_REBUILD
-  );
-  assert.equal(projected.overlay.paymentImpact, preview.paymentImpact);
-  assert.equal(projected.overlay.refundImpact, preview.refundImpact);
+  assert.equal(projected.stage, "active");
+  assert.equal(projected.paymentStatusEnum, "PARTIAL");
+  assert.equal(projected.isFullySettled, false);
+  assert.equal(projected.collectPaymentTargetInvoiceId, "final-1");
+  const settlement = projected.settlement;
+  assert.ok(settlement);
+  assert.equal(settlement.mode, "draft");
+  if (settlement.mode !== "draft") throw new Error("Expected draft settlement");
+  assert.equal(settlement.netCustomerTotal, 321);
+  assert.equal(settlement.cashPaid, 140);
+  assert.equal(settlement.remainingDue, 181);
+  assert.equal(settlement.availableCredit, undefined);
+  assert.equal(settlement.previousTotal, 100);
+  assert.equal(settlement.pendingDelta, 44);
+  assert.equal(settlement.afterCommitTotal, 144);
+  assert.equal(settlement.amountDueAfterCommit, 44);
 
   const unrelatedMutation = previewFixture({
     netDelta: 44,
@@ -598,10 +591,16 @@ test("financial preview passes through financial case and preview fields", () =>
     preview: unrelatedMutation,
     financialCase,
   });
-  assert.equal(unchanged.overlay.pendingDelta, 44);
-  assert.equal(unchanged.overlay.previousTotal, 100);
-  assert.equal(unchanged.overlay.pendingTotal, 144);
-  assert.equal(unchanged.baseline.remaining, 176);
+  const unchangedSettlement = unchanged.settlement;
+  assert.ok(unchangedSettlement);
+  assert.equal(unchangedSettlement.mode, "draft");
+  if (unchangedSettlement.mode !== "draft") {
+    throw new Error("Expected draft settlement");
+  }
+  assert.equal(unchangedSettlement.pendingDelta, 44);
+  assert.equal(unchangedSettlement.previousTotal, 100);
+  assert.equal(unchangedSettlement.afterCommitTotal, 144);
+  assert.equal(unchangedSettlement.remainingDue, 181);
 });
 
 test("financial preview targets open adjustments when the final invoice is settled", () => {
@@ -637,11 +636,10 @@ test("financial preview targets open adjustments when the final invoice is settl
     financialCase,
   });
 
-  assert.equal(projected.baseline.outstandingAmount, 42);
-  assert.equal(projected.baseline.isFullySettled, false);
-  assert.deepEqual(projected.baseline.finalizedAdjustments, [openAdjustment]);
+  assert.equal(projected.isFullySettled, false);
+  assert.equal(projected.settlement?.mode, "clean");
   assert.equal(
-    projected.baseline.collectPaymentTargetInvoiceId,
+    projected.collectPaymentTargetInvoiceId,
     "adjustment-open-1"
   );
 });
@@ -665,8 +663,8 @@ test("financial preview marks paid cases as fully settled", () => {
     }),
   });
 
-  assert.equal(projected.baseline.isFullySettled, true);
-  assert.equal(projected.baseline.collectPaymentTargetInvoiceId, null);
+  assert.equal(projected.isFullySettled, true);
+  assert.equal(projected.collectPaymentTargetInvoiceId, null);
 });
 
 test("financial preview supports booking-stage baseline without synthetic final totals", () => {
@@ -675,17 +673,11 @@ test("financial preview supports booking-stage baseline without synthetic final 
     financialCase: bookingFinancialCase(),
   });
 
-  assert.equal(projected.baseline.stage, "booking");
-  assert.equal(projected.baseline.customerTotal, null);
-  assert.equal(projected.baseline.finalInvoice, null);
-  assert.deepEqual(projected.baseline.finalizedAdjustments, []);
-  assert.deepEqual(projected.baseline.creditNotes, []);
-  assert.deepEqual(projected.baseline.refunds, []);
-  assert.equal(projected.baseline.outstandingAmount, null);
-  assert.equal(projected.baseline.totalAdjustments, null);
-  assert.equal(projected.baseline.isFullySettled, false);
-  assert.equal(projected.baseline.collectPaymentTargetInvoiceId, null);
-  assert.equal(projected.overlay.pendingDelta, null);
+  assert.equal(projected.stage, "booking");
+  assert.equal(projected.settlement, null);
+  assert.equal(projected.isFullySettled, false);
+  assert.equal(projected.paymentStatusEnum, null);
+  assert.equal(projected.collectPaymentTargetInvoiceId, null);
 });
 
 function currentCompositionFixture(
