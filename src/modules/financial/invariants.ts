@@ -842,7 +842,6 @@ registerInvariant({
         (application) => !isValidCreditNoteApplication(invoice, application)
       );
       if (
-        invoice.documentApplicationsAsSource.length > 0 &&
         invalidApplications.length === 0 &&
         appliedTotal.lessThanOrEqualTo(invoice.totalAmount)
       ) {
@@ -855,7 +854,7 @@ registerInvariant({
           entityType: "Invoice",
           entityId: invoice.id,
           expected:
-            ">=1 valid same-case credit application and total applications <= credit note total",
+            "valid same-case credit applications, if present, and total applications <= credit note total",
           actual: `${invoice.documentApplicationsAsSource.length} source applications, ${invalidApplications.length} invalid, applied ${appliedTotal.toFixed(3)} of ${invoice.totalAmount.toFixed(3)}`,
         },
       ];

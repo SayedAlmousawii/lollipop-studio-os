@@ -6,6 +6,7 @@ import { join } from "node:path";
 import Module from "node:module";
 import test, { after } from "node:test";
 import {
+  DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
   OrderEntityKind,
@@ -226,11 +227,8 @@ test("uses mapper output, not documentPlan.kind alone, for later emissions", asy
   ]);
 });
 
-test("pre-checks final credit capacity before any invoice write", async () => {
-  const {
-    emitOrderCommitFinancialDocuments,
-    OrderCommitCreditCapacityExhaustedError,
-  } = await loadExecutionService();
+test("does not pre-check final credit capacity for residual credits", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
     emission: {
@@ -246,20 +244,29 @@ test("pre-checks final credit capacity before any invoice write", async () => {
     creditCapacity: 5,
   });
 
-  await assert.rejects(
-    emitOrderCommitFinancialDocuments({
-      ...baseInput(client),
-      requiresApproval: true,
-      approvalActorUserId: "manager-user",
-      documentPlan: documentPlan(
-        ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
-      ),
-      dependencies,
-    }),
-    OrderCommitCreditCapacityExhaustedError
+  const result = await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.deepEqual(result.emissions, [
+    {
+      invoice: { id: "adjustment-invoice-1" },
+      role: ORDER_COMMIT_DOCUMENT_ROLE.ADJUSTMENT_INVOICE,
+    },
+    { invoice: { id: "credit-note-1" }, role: ORDER_COMMIT_DOCUMENT_ROLE.CREDIT_NOTE },
+  ]);
+  assert.equal(dependencies.createAdjustmentInvoiceWithClient.calls.length, 1);
+  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 1);
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    "UNAPPLIED"
   );
-  assert.equal(dependencies.createAdjustmentInvoiceWithClient.calls.length, 0);
-  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 0);
 });
 
 test("emits final credit notes and marks refund pending without payments", async () => {
@@ -295,11 +302,161 @@ test("emits final credit notes and marks refund pending without payments", async
     dependencies.createCreditNoteWithClient.calls[0]?.input.targetFinalInvoiceId,
     "final-invoice"
   );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    "UNAPPLIED"
+  );
+  assert.equal(dependencies.appendCreditApplication.calls.length, 0);
   assert.deepEqual(calls.orderUpdates, [
     {
       where: { id: "order-1" },
       data: { refundPending: true },
       select: { id: true },
+    },
+  ]);
+});
+
+test("settles residual credit against the same-commit adjustment invoice", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      adjustmentLines: [adjustmentLine("Package upgrade", 100)],
+      creditNoteFinalLines: [
+        {
+          reason: "REMOVED_EXTRA_PHOTO",
+          line: creditLine("Removed extra photos", 10),
+        },
+      ],
+    },
+    openReceivables: [
+      { invoiceId: "adjustment-invoice-1", invoiceSeq: 10, remainingAmount: 100 },
+    ],
+  });
+
+  const result = await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE
+    ),
+    dependencies,
+  });
+
+  assert.deepEqual(result.emissions, [
+    {
+      invoice: { id: "adjustment-invoice-1" },
+      role: ORDER_COMMIT_DOCUMENT_ROLE.ADJUSTMENT_INVOICE,
+    },
+    { invoice: { id: "credit-note-1" }, role: ORDER_COMMIT_DOCUMENT_ROLE.CREDIT_NOTE },
+  ]);
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    "UNAPPLIED"
+  );
+  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
+    {
+      creditNoteId: "credit-note-1",
+      targetInvoiceId: "adjustment-invoice-1",
+      amount: 10,
+      kind: DocumentApplicationKind.SETTLEMENT,
+      appliedByUserId: "manager-user",
+      notes: "OrderCommit residual credit settlement",
+    },
+  ]);
+});
+
+test("settles residual credit oldest first across open receivables", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      creditNoteFinalLines: [
+        {
+          reason: "REMOVED_ADDON",
+          line: creditLine("Removed add-on", 30),
+        },
+      ],
+    },
+    openReceivables: [
+      { invoiceId: "old-adjustment", invoiceSeq: 2, remainingAmount: 20 },
+      { invoiceId: "new-adjustment", invoiceSeq: 3, remainingAmount: 15 },
+    ],
+  });
+
+  await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
+    {
+      creditNoteId: "credit-note-1",
+      targetInvoiceId: "old-adjustment",
+      amount: 20,
+      kind: DocumentApplicationKind.SETTLEMENT,
+      appliedByUserId: "manager-user",
+      notes: "OrderCommit residual credit settlement",
+    },
+    {
+      creditNoteId: "credit-note-1",
+      targetInvoiceId: "new-adjustment",
+      amount: 10,
+      kind: DocumentApplicationKind.SETTLEMENT,
+      appliedByUserId: "manager-user",
+      notes: "OrderCommit residual credit settlement",
+    },
+  ]);
+});
+
+test("leaves residual credit unapplied when receivables are exhausted", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      creditNoteFinalLines: [
+        {
+          reason: "REMOVED_ADDON",
+          line: creditLine("Removed add-on", 30),
+        },
+      ],
+    },
+    openReceivables: [
+      { invoiceId: "only-adjustment", invoiceSeq: 2, remainingAmount: 12 },
+    ],
+  });
+
+  await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    "UNAPPLIED"
+  );
+  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
+    {
+      creditNoteId: "credit-note-1",
+      targetInvoiceId: "only-adjustment",
+      amount: 12,
+      kind: DocumentApplicationKind.SETTLEMENT,
+      appliedByUserId: "manager-user",
+      notes: "OrderCommit residual credit settlement",
     },
   ]);
 });
@@ -406,7 +563,76 @@ test("uses the first reversal reason when a parent ADJ groups mixed reasons", as
   );
 });
 
-test("uses the first final-residual reason when mixed reasons overflow to FINAL", async () => {
+test("keeps cause reversals line-targeted before residual settlement", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      adjustmentReversals: [
+        {
+          reason: "REMOVED_ADDON",
+          parentAdjustmentInvoiceId: "same-cause-adjustment",
+          targetInvoiceLineId: "same-cause-line",
+          causeOrderEntityKind: OrderEntityKind.ADDON,
+          causeOrderEntityId: "addon-1",
+          amount: 8,
+          description: "Removed: Add-on",
+        },
+      ],
+      creditNoteFinalLines: [
+        {
+          reason: "PACKAGE_TIER_DOWNGRADE",
+          line: creditLine("Package downgrade", 5),
+        },
+      ],
+    },
+    openReceivables: [
+      { invoiceId: "other-adjustment", invoiceSeq: 4, remainingAmount: 20 },
+    ],
+  });
+
+  await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 2);
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input
+      .targetAdjustmentInvoiceId,
+    "same-cause-adjustment"
+  );
+  assert.deepEqual(dependencies.createCreditNoteWithClient.calls[0]?.input.lines, [
+    {
+      lineType: InvoiceLineType.MANUAL_DISCOUNT,
+      description: "Removed: Add-on",
+      quantity: 1,
+      unitPrice: 8,
+      causeOrderEntityKind: OrderEntityKind.ADDON,
+      causeOrderEntityId: "addon-1",
+      targetInvoiceId: "same-cause-adjustment",
+      targetInvoiceLineId: "same-cause-line",
+    },
+  ]);
+  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
+    {
+      creditNoteId: "credit-note-2",
+      targetInvoiceId: "other-adjustment",
+      amount: 5,
+      kind: DocumentApplicationKind.SETTLEMENT,
+      appliedByUserId: "manager-user",
+      notes: "OrderCommit residual credit settlement",
+    },
+  ]);
+});
+
+test("uses the first residual reason when mixed reasons create a credit note", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -450,6 +676,10 @@ test("uses the first final-residual reason when mixed reasons overflow to FINAL"
   assert.equal(
     dependencies.createCreditNoteWithClient.calls[0]?.input.targetFinalInvoiceId,
     "final-invoice"
+  );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    "UNAPPLIED"
   );
 });
 
@@ -587,6 +817,92 @@ test("buildOpenAdjustmentLineMap returns canonical ordered open lines", async ()
   );
 });
 
+test("buildOpenReceivableInvoices returns ordered adjustment invoice remaining balances", async () => {
+  const { buildOpenReceivableInvoices } = await loadInvoiceService();
+  const calls: Array<{ model: string; args: unknown }> = [];
+  const invoiceTotals = new Map([
+    ["old-adjustment", new Prisma.Decimal(20)],
+    ["closed-adjustment", new Prisma.Decimal(10)],
+    ["late-adjustment", new Prisma.Decimal(25)],
+  ]);
+  const incomingPaid = new Map([
+    ["old-adjustment", new Prisma.Decimal(5)],
+    ["closed-adjustment", new Prisma.Decimal(10)],
+    ["late-adjustment", new Prisma.Decimal(0)],
+  ]);
+  const documentPaid = new Map([
+    ["old-adjustment", new Prisma.Decimal(3)],
+    ["closed-adjustment", new Prisma.Decimal(0)],
+    ["late-adjustment", new Prisma.Decimal(0)],
+  ]);
+  const client = {
+    invoice: {
+      findMany: async (args: unknown) => {
+        calls.push({ model: "invoice.findMany", args });
+        return [
+          {
+            id: "old-adjustment",
+            invoiceSeq: 1,
+            totalAmount: invoiceTotals.get("old-adjustment")!,
+          },
+          {
+            id: "closed-adjustment",
+            invoiceSeq: 2,
+            totalAmount: invoiceTotals.get("closed-adjustment")!,
+          },
+          {
+            id: "late-adjustment",
+            invoiceSeq: 3,
+            totalAmount: invoiceTotals.get("late-adjustment")!,
+          },
+        ];
+      },
+      findUnique: async (args: { where: { id: string } }) => ({
+        id: args.where.id,
+        invoiceType: "ADJUSTMENT",
+      }),
+    },
+    paymentAllocation: {
+      aggregate: async (args: { where: { invoiceId: string; payment: { direction: string } } }) => ({
+        _sum: {
+          amount:
+            args.where.payment.direction === "IN"
+              ? incomingPaid.get(args.where.invoiceId)
+              : new Prisma.Decimal(0),
+        },
+      }),
+    },
+    documentApplication: {
+      aggregate: async (args: { where: { targetInvoiceId: string } }) => ({
+        _sum: {
+          amountApplied: documentPaid.get(args.where.targetInvoiceId),
+        },
+      }),
+    },
+  } as unknown as Parameters<typeof buildOpenReceivableInvoices>[2];
+
+  const receivables = await buildOpenReceivableInvoices(
+    "financial-case-1",
+    "order-1",
+    client
+  );
+
+  assert.deepEqual(
+    receivables.map((invoice) => ({
+      invoiceId: invoice.invoiceId,
+      remainingAmount: invoice.remainingAmount.toFixed(3),
+    })),
+    [
+      { invoiceId: "old-adjustment", remainingAmount: "12.000" },
+      { invoiceId: "late-adjustment", remainingAmount: "25.000" },
+    ]
+  );
+  assert.match(
+    JSON.stringify(calls.find((call) => call.model === "invoice.findMany")?.args),
+    /financialCaseId.*financial-case-1.*orderId.*order-1.*ADJUSTMENT/
+  );
+});
+
 test("order commit execution source avoids out-of-scope integrations", () => {
   const source = readFileSync(
     join(
@@ -706,6 +1022,11 @@ function fakeEmissionClient(options?: { approvalRole?: UserRole }) {
 function fakeDependencies(options: {
   emission: OrderCommitFinancialEmission;
   creditCapacity?: number;
+  openReceivables?: Array<{
+    invoiceId: string;
+    invoiceSeq: number;
+    remainingAmount: number;
+  }>;
 }) {
   const createAdjustmentInvoiceWithClient = async (input: unknown) => {
     createAdjustmentInvoiceWithClient.calls.push({ input });
@@ -722,6 +1043,7 @@ function fakeDependencies(options: {
       targetFinalInvoiceId?: string;
       targetAdjustmentInvoiceId?: string;
       reason?: string;
+      applicationMode?: "AUTO_APPLY" | "UNAPPLIED";
       lines: unknown[];
     };
   }>;
@@ -731,6 +1053,30 @@ function fakeDependencies(options: {
     return new Map();
   };
   buildOpenAdjustmentLineMap.calls = [] as Array<Record<string, never>>;
+
+  const buildOpenReceivableInvoices = async () => {
+    buildOpenReceivableInvoices.calls.push({});
+    return (options.openReceivables ?? []).map((invoice) => ({
+      invoiceId: invoice.invoiceId,
+      invoiceSeq: invoice.invoiceSeq,
+      totalAmount: new Prisma.Decimal(invoice.remainingAmount),
+      effectivePaidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(invoice.remainingAmount),
+    }));
+  };
+  buildOpenReceivableInvoices.calls = [] as Array<Record<string, never>>;
+
+  const appendCreditApplication = async (input: unknown) => {
+    appendCreditApplication.calls.push({ input });
+    return { id: `application-${appendCreditApplication.calls.length}` };
+  };
+  appendCreditApplication.calls = [] as Array<{ input: {
+    creditNoteId: string;
+    targetInvoiceId: string;
+    amount: Prisma.Decimal.Value;
+    kind: DocumentApplicationKind;
+    targetInvoiceLineId?: string | null;
+  } }>;
 
   const createInvoiceForOrderWithClient = async () => {
     createInvoiceForOrderWithClient.calls.push({});
@@ -763,8 +1109,10 @@ function fakeDependencies(options: {
 
   return {
     buildOpenAdjustmentLineMap,
+    buildOpenReceivableInvoices,
     computeCreditNoteCapacityForFinal: async () =>
       new Prisma.Decimal(options.creditCapacity ?? 999),
+    appendCreditApplication,
     createAdjustmentInvoiceWithClient,
     createCreditNoteWithClient,
     createInvoiceForOrderWithClient,

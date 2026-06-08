@@ -22,7 +22,7 @@ test("document application kind migration classifies existing rows loudly", () =
   assert.match(migration, /RAISE EXCEPTION 'DocumentApplication kind backfill failed/);
 });
 
-test("F1 keeps settlement emission out of production source", () => {
+test("settlement production writes stay scoped to OrderCommit execution", () => {
   const moduleFiles = listFiles(path.join(ROOT, "src/modules")).filter((file) =>
     file.endsWith(".ts")
   );
@@ -33,10 +33,15 @@ test("F1 keeps settlement emission out of production source", () => {
       : [];
   });
 
-  assert.deepEqual(productionSettlementWrites, []);
+  assert.deepEqual(productionSettlementWrites, [
+    "src/modules/order-commits/order-commit-execution.service.ts",
+  ]);
 
   for (const file of moduleFiles.filter((item) =>
-    item.includes(`${path.sep}order-commits${path.sep}`)
+    item.includes(`${path.sep}order-commits${path.sep}`) &&
+    !item.endsWith(
+      `${path.sep}order-commits${path.sep}order-commit-execution.service.ts`
+    )
   )) {
     assert.doesNotMatch(
       readFileSync(file, "utf8"),

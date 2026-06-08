@@ -114,6 +114,20 @@ test("credit-note available balance is derived from append-only applications", a
           createSyntheticAdjustment(db, fixture, finalInvoice.id, "A", suffix, 15),
           createSyntheticAdjustment(db, fixture, finalInvoice.id, "B", suffix, 5),
         ]);
+        const unappliedCreditNote = await createSyntheticCreditNote(
+          db,
+          recordInvoiceLockSnapshot,
+          fixture,
+          finalInvoice.id,
+          `unapplied-${suffix}`,
+          7
+        );
+        assert.equal(
+          (await computeCreditNoteAvailable(unappliedCreditNote.id, db)).toFixed(3),
+          "7.000"
+        );
+        assert.deepEqual(await runAllInvariants(db), []);
+
         const partialCreditNote = await createSyntheticCreditNote(
           db,
           recordInvoiceLockSnapshot,
