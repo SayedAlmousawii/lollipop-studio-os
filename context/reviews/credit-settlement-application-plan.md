@@ -1,7 +1,7 @@
 # Credit Settlement Application — Plan & Investigation
 
-> Status: **PLANNING — nothing implemented.** Behavioral design is settled; some
-> architecture questions (reversibility, canonical projection) still open.
+> Status: **B1 removing-side settlement implemented.** B2 adding-side available-credit
+> consumption and B3 canonical settlement projection remain pending.
 > This is a **prerequisite for Phase 7** (the Sales redesign's financial summary
 > cannot be honest without it). Does **not** reopen the OrderCommit financial math.
 
@@ -153,7 +153,8 @@ the across-commit case (§2.6) work with the same mechanism.
    **not** a customer-wide store-credit wallet that travels across unrelated orders.
    (That would be a separate, larger design.)
 5. **Both directions.** Settlement runs on the removing side (credit cancels open
-   receivables) **and** the adding side (existing credit reduces new amount due).
+   receivables; **implemented in Spec 154 B1**) **and** the adding side (existing credit
+   reduces new amount due; **pending B2**).
 6. **Leftover sits available.** Credit with nothing to cancel against does **not**
    auto-refund. It sits as visible, flagged available credit (overpayment), and can
    be consumed by a future commit.
@@ -191,6 +192,15 @@ the across-commit case (§2.6) work with the same mechanism.
    - **Cost (engineering, not accounting):** changes credit-note lifecycle + the
      invariants that currently assert "fully applied at birth" (`invariants.ts`,
      `createCreditNoteWithClient`). No financial *math* changes.
+
+### 5.1 B1 implementation status
+
+Spec 154 B1 implemented the removing side: residual OrderCommit credits create a
+FINAL-parented credit note without a new `CREDIT_TO_FINAL` application, then append
+invoice-targeted `SETTLEMENT` applications to same-order open ADJUSTMENT receivables
+oldest-first. If no receivable is open, or credit exceeds receivables, the unapplied
+remainder stays available by the derived credit-note pool (`total − Σ applications`).
+B2 and B3 remain pending.
 
 ### Customer-facing effect
 

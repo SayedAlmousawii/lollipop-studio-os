@@ -82,6 +82,14 @@ export type AppendCreditApplicationInput = {
   notes?: string | null;
 };
 
+export type OpenReceivableInvoice = {
+  invoiceId: string;
+  invoiceSeq: number;
+  totalAmount: Prisma.Decimal;
+  effectivePaidAmount: Prisma.Decimal;
+  remainingAmount: Prisma.Decimal;
+};
+
 export interface OrderInvoiceSyncInput {
   orderId: string;
   previousAddOns: OrderAddOnLine[];
@@ -1744,6 +1752,51 @@ export async function buildOpenAdjustmentLineMap(
   return openLines;
 }
 
+export async function buildOpenReceivableInvoices(
+  financialCaseId: string,
+  orderId: string,
+  client: DbClient
+): Promise<OpenReceivableInvoice[]> {
+  const adjustmentInvoices = await client.invoice.findMany({
+    where: {
+      financialCaseId,
+      orderId,
+      invoiceType: InvoiceType.ADJUSTMENT,
+    },
+    select: {
+      id: true,
+      invoiceSeq: true,
+      totalAmount: true,
+    },
+    orderBy: [{ invoiceSeq: "asc" }, { id: "asc" }],
+  });
+
+  const receivables = await Promise.all(
+    adjustmentInvoices.map(async (invoice) => {
+      const effectivePaidAmount = await computeEffectivePaidFromAllocations(
+        invoice.id,
+        client
+      );
+      const remainingAmount = Prisma.Decimal.max(
+        invoice.totalAmount.minus(effectivePaidAmount),
+        0
+      );
+
+      return {
+        invoiceId: invoice.id,
+        invoiceSeq: invoice.invoiceSeq,
+        totalAmount: invoice.totalAmount,
+        effectivePaidAmount,
+        remainingAmount,
+      };
+    })
+  );
+
+  return receivables.filter((invoice) =>
+    invoice.remainingAmount.greaterThan(0)
+  );
+}
+
 function canonicalOpenAdjustmentLineKeys({
   line,
   orderPackages,
@@ -2655,7 +2708,22 @@ export async function createCreditNoteWithClient(
     }
   }
 
-  if (target.invoiceType === InvoiceType.FINAL) {
+  const applicationMode = input.applicationMode ?? "AUTO_APPLY";
+  if (
+    applicationMode === "UNAPPLIED" &&
+    (!input.targetFinalInvoiceId ||
+      Boolean(input.targetAdjustmentInvoiceId) ||
+      lineTargetedApplications.length > 0)
+  ) {
+    throw new Error(
+      "Unapplied credit notes must be final-parented residual credits"
+    );
+  }
+
+  if (
+    target.invoiceType === InvoiceType.FINAL &&
+    applicationMode === "AUTO_APPLY"
+  ) {
     const creditCapacity = await computeCreditNoteCapacityForFinal(target.id, client);
     if (totalAmount.greaterThan(creditCapacity)) {
       throw new Error(
@@ -2708,7 +2776,7 @@ export async function createCreditNoteWithClient(
         notes: `Credit note for reason: ${reason}`,
       })),
     });
-  } else {
+  } else if (applicationMode === "AUTO_APPLY") {
     await client.documentApplication.create({
       data: {
         sourceInvoiceId: creditNote.id,

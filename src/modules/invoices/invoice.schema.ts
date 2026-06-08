@@ -73,6 +73,7 @@ export type CreateCreditNoteInput = {
   reason: string;
   createdByUserId: string;
   notes?: string;
+  applicationMode?: "AUTO_APPLY" | "UNAPPLIED";
 };
 
 export const createAdjustmentInvoiceLineSchema = z
