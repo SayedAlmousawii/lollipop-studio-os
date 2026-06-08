@@ -1,4 +1,5 @@
 import {
+  DocumentApplicationKind,
   InvoiceStatus,
   InvoiceType,
   OrderEntityKind,
@@ -496,6 +497,7 @@ registerInvariant({
       },
       select: {
         id: true,
+        kind: true,
         targetInvoiceLineId: true,
         sourceInvoice: { select: { invoiceType: true } },
         targetInvoice: { select: { invoiceType: true } },
@@ -503,24 +505,41 @@ registerInvariant({
     });
 
     return applications
-      .filter(
-        (application) =>
-          !(
-            application.sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE &&
-            application.targetInvoice.invoiceType === InvoiceType.ADJUSTMENT &&
-            application.targetInvoiceLineId
-          )
-      )
+      .filter((application) => !isAllowedAdjustmentDocumentApplication(application))
       .map((application) => ({
         invariant: "adjustment-has-no-document-application",
         entityType: "DocumentApplication",
         entityId: application.id,
         expected:
-          "neither source nor target invoice is ADJUSTMENT except line-targeted CREDIT_NOTE reversals",
-        actual: `source ${application.sourceInvoice.invoiceType}, target ${application.targetInvoice.invoiceType}`,
+          "neither source nor target invoice is ADJUSTMENT except CREDIT_NOTE cause reversals or settlements",
+        actual: `source ${application.sourceInvoice.invoiceType}, target ${application.targetInvoice.invoiceType}, kind ${application.kind}`,
       }));
   },
 });
+
+function isAllowedAdjustmentDocumentApplication(application: {
+  kind: DocumentApplicationKind;
+  targetInvoiceLineId: string | null;
+  sourceInvoice: { invoiceType: InvoiceType };
+  targetInvoice: { invoiceType: InvoiceType };
+}): boolean {
+  if (
+    application.sourceInvoice.invoiceType !== InvoiceType.CREDIT_NOTE ||
+    application.targetInvoice.invoiceType !== InvoiceType.ADJUSTMENT
+  ) {
+    return false;
+  }
+
+  switch (application.kind) {
+    case DocumentApplicationKind.CAUSE_REVERSAL:
+      return Boolean(application.targetInvoiceLineId);
+    case DocumentApplicationKind.SETTLEMENT:
+      return !application.targetInvoiceLineId;
+    case DocumentApplicationKind.CREDIT_TO_FINAL:
+    case DocumentApplicationKind.DEPOSIT:
+      return false;
+  }
+}
 
 registerInvariant({
   name: "no-adjustment-without-classifier-source",
@@ -748,6 +767,47 @@ registerInvariant({
   },
 });
 
+function isValidCreditNoteApplication(
+  invoice: { financialCaseId: string },
+  application: {
+    kind: DocumentApplicationKind;
+    targetInvoiceId: string;
+    targetInvoiceLineId: string | null;
+    targetInvoice: { invoiceType: InvoiceType; financialCaseId: string };
+    targetInvoiceLine: { invoiceId: string } | null;
+  }
+): boolean {
+  if (application.targetInvoice.financialCaseId !== invoice.financialCaseId) {
+    return false;
+  }
+  if (
+    application.targetInvoiceLineId &&
+    application.targetInvoiceLine?.invoiceId !== application.targetInvoiceId
+  ) {
+    return false;
+  }
+
+  switch (application.kind) {
+    case DocumentApplicationKind.CAUSE_REVERSAL:
+      return (
+        application.targetInvoice.invoiceType === InvoiceType.ADJUSTMENT &&
+        Boolean(application.targetInvoiceLineId)
+      );
+    case DocumentApplicationKind.CREDIT_TO_FINAL:
+      return (
+        application.targetInvoice.invoiceType === InvoiceType.FINAL &&
+        !application.targetInvoiceLineId
+      );
+    case DocumentApplicationKind.SETTLEMENT:
+      return (
+        application.targetInvoice.invoiceType === InvoiceType.ADJUSTMENT &&
+        !application.targetInvoiceLineId
+      );
+    case DocumentApplicationKind.DEPOSIT:
+      return false;
+  }
+}
+
 registerInvariant({
   name: "credit-note-has-document-application",
   scope: "global",
@@ -756,25 +816,35 @@ registerInvariant({
       where: { invoiceType: InvoiceType.CREDIT_NOTE },
       select: {
         id: true,
-        parentInvoiceId: true,
+        totalAmount: true,
+        financialCaseId: true,
         documentApplicationsAsSource: {
-          select: { id: true, targetInvoiceId: true, targetInvoiceLineId: true },
+          select: {
+            id: true,
+            kind: true,
+            amountApplied: true,
+            targetInvoiceId: true,
+            targetInvoiceLineId: true,
+            targetInvoice: { select: { invoiceType: true, financialCaseId: true } },
+            targetInvoiceLine: { select: { invoiceId: true } },
+          },
         },
       },
     });
 
     return creditNotes.flatMap((invoice) => {
-      const matchingApplications = invoice.documentApplicationsAsSource.filter(
-        (application) => application.targetInvoiceId === invoice.parentInvoiceId
+      const appliedTotal = invoice.documentApplicationsAsSource.reduce(
+        (sum, application) => sum.plus(application.amountApplied),
+        new Prisma.Decimal(0)
       );
-      const lineTargetedApplications = invoice.documentApplicationsAsSource.filter(
-        (application) => application.targetInvoiceLineId
+
+      const invalidApplications = invoice.documentApplicationsAsSource.filter(
+        (application) => !isValidCreditNoteApplication(invoice, application)
       );
       if (
-        (invoice.documentApplicationsAsSource.length === 1 &&
-          matchingApplications.length === 1) ||
-        (lineTargetedApplications.length > 0 &&
-          lineTargetedApplications.length === invoice.documentApplicationsAsSource.length)
+        invoice.documentApplicationsAsSource.length > 0 &&
+        invalidApplications.length === 0 &&
+        appliedTotal.lessThanOrEqualTo(invoice.totalAmount)
       ) {
         return [];
       }
@@ -785,8 +855,45 @@ registerInvariant({
           entityType: "Invoice",
           entityId: invoice.id,
           expected:
-            "exactly 1 DocumentApplication to parent invoice or line-targeted applications only",
-          actual: `${invoice.documentApplicationsAsSource.length} source applications, ${matchingApplications.length} to parent, ${lineTargetedApplications.length} line-targeted`,
+            ">=1 valid same-case credit application and total applications <= credit note total",
+          actual: `${invoice.documentApplicationsAsSource.length} source applications, ${invalidApplications.length} invalid, applied ${appliedTotal.toFixed(3)} of ${invoice.totalAmount.toFixed(3)}`,
+        },
+      ];
+    });
+  },
+});
+
+registerInvariant({
+  name: "credit-note-pool-not-over-applied",
+  scope: "global",
+  run: async ({ tx }) => {
+    const creditNotes = await tx.invoice.findMany({
+      where: { invoiceType: InvoiceType.CREDIT_NOTE },
+      select: {
+        id: true,
+        totalAmount: true,
+        documentApplicationsAsSource: {
+          select: { amountApplied: true },
+        },
+      },
+    });
+
+    return creditNotes.flatMap((invoice) => {
+      const appliedTotal = invoice.documentApplicationsAsSource.reduce(
+        (sum, application) => sum.plus(application.amountApplied),
+        new Prisma.Decimal(0)
+      );
+      if (appliedTotal.lessThanOrEqualTo(invoice.totalAmount)) {
+        return [];
+      }
+
+      return [
+        {
+          invariant: "credit-note-pool-not-over-applied",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: `applications <= ${invoice.totalAmount.toFixed(3)}`,
+          actual: appliedTotal.toFixed(3),
         },
       ];
     });
@@ -1001,15 +1108,28 @@ registerInvariant({
         orderId: true,
         parentInvoiceId: true,
         documentApplicationsAsSource: {
-          select: { targetInvoiceId: true },
+          select: {
+            kind: true,
+            targetInvoiceId: true,
+            targetInvoiceLineId: true,
+            targetInvoice: { select: { invoiceType: true } },
+          },
         },
       },
     });
 
     const violations: InvariantViolation[] = [];
     for (const invoice of classifierCreditNotes) {
-      const hasFinalApplication = invoice.documentApplicationsAsSource.some(
-        (application) => application.targetInvoiceId === invoice.parentInvoiceId
+      const hasValidApplication = invoice.documentApplicationsAsSource.some(
+        (application) =>
+          (application.targetInvoiceId === invoice.parentInvoiceId &&
+            application.targetInvoice.invoiceType === InvoiceType.FINAL) ||
+          (application.targetInvoice.invoiceType === InvoiceType.ADJUSTMENT &&
+            application.kind === DocumentApplicationKind.CAUSE_REVERSAL &&
+            Boolean(application.targetInvoiceLineId)) ||
+          (application.targetInvoice.invoiceType === InvoiceType.ADJUSTMENT &&
+            application.kind === DocumentApplicationKind.SETTLEMENT &&
+            !application.targetInvoiceLineId)
       );
       const sourceActivity = invoice.orderId
         ? await tx.orderActivity.findFirst({
@@ -1025,7 +1145,7 @@ registerInvariant({
           })
         : null;
 
-      if (hasFinalApplication && sourceActivity) {
+      if (hasValidApplication && sourceActivity) {
         continue;
       }
 
@@ -1034,8 +1154,8 @@ registerInvariant({
         entityType: "Invoice",
         entityId: invoice.id,
         expected:
-          "classifier CREDIT_NOTE has DocumentApplication to FINAL and source activity",
-        actual: `application=${hasFinalApplication}, activity=${Boolean(
+          "classifier CREDIT_NOTE has valid application and source activity",
+        actual: `application=${hasValidApplication}, activity=${Boolean(
           sourceActivity
         )}, invoice=${invoice.invoiceNumber}`,
       });

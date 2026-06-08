@@ -98,6 +98,13 @@ enum InvoiceType {
   SALE
 }
 
+enum DocumentApplicationKind {
+  DEPOSIT
+  CAUSE_REVERSAL
+  CREDIT_TO_FINAL
+  SETTLEMENT
+}
+
 enum InvoiceLineType {
   PACKAGE_BASE
   BUNDLE_ADJUSTMENT
@@ -1034,6 +1041,7 @@ model DocumentApplication {
   sourceInvoiceId     String   @map("source_invoice_id")
   targetInvoiceId     String   @map("target_invoice_id")
   targetInvoiceLineId String?  @map("target_invoice_line_id")
+  kind                DocumentApplicationKind
   amountApplied       Decimal  @map("amount_applied") @db.Decimal(10, 3)
   appliedAt           DateTime @default(now()) @map("applied_at")
   appliedByUserId     String?  @map("applied_by_user_id")

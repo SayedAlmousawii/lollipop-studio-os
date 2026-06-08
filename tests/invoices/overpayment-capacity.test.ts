@@ -6,6 +6,7 @@ import process from "node:process";
 import test from "node:test";
 import {
   BookingStatus,
+  DocumentApplicationKind,
   InvoiceStatus,
   InvoiceType,
   PaymentDirection,
@@ -409,6 +410,7 @@ async function createSourceInvoice(
       data: {
         sourceInvoiceId: depositInvoice.id,
         targetInvoiceId: invoice.id,
+        kind: DocumentApplicationKind.DEPOSIT,
         amountApplied: depositApplied,
         appliedByUserId: fixture.managerId,
       },
@@ -440,6 +442,7 @@ async function createSourceInvoice(
       data: {
         sourceInvoiceId: creditNote.id,
         targetInvoiceId: invoice.id,
+        kind: DocumentApplicationKind.CREDIT_TO_FINAL,
         amountApplied: new Prisma.Decimal(options.creditNote),
         appliedByUserId: fixture.managerId,
       },

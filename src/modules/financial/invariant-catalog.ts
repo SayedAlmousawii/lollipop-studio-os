@@ -113,7 +113,7 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
   "adjustment-has-no-document-application": {
     id: "runtime-adjustment-has-no-document-application",
     phase: "Phase D",
-    description: "Adjustment invoices cannot receive document applications except line-targeted reversals.",
+    description: "Adjustment invoices cannot receive document applications except credit-note cause reversals or settlement applications.",
   },
   "no-adjustment-without-classifier-source": {
     id: "runtime-no-adjustment-without-classifier-source",
@@ -154,7 +154,13 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
     id: "runtime-credit-note-has-document-application",
     phase: "Phase F",
     scope: "invoice",
-    description: "Credit notes must have the expected document application.",
+    description: "Credit notes must have at least one valid same-case document application.",
+  },
+  "credit-note-pool-not-over-applied": {
+    id: "runtime-credit-note-pool-not-over-applied",
+    phase: "Spec 153 F1",
+    scope: "invoice",
+    description: "Credit-note applications cannot exceed the drawable credit-note total.",
   },
   "paid-adjustment-line-removal-must-have-reversal": {
     id: "runtime-paid-adjustment-line-removal-must-have-reversal",

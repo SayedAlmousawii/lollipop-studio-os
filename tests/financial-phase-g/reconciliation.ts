@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
+  DocumentApplicationKind,
   InvoiceStatus,
   InvoiceType,
   PaymentDirection,
@@ -199,6 +200,7 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
     data: {
       sourceInvoiceId: creditNote.id,
       targetInvoiceId: parentAdjustment.id,
+      kind: DocumentApplicationKind.SETTLEMENT,
       amountApplied: new Prisma.Decimal("1.000"),
       notes: "Phase G fixture: deliberately invalid credit-note target",
     },

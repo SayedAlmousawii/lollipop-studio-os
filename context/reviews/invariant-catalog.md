@@ -12,14 +12,15 @@
 | runtime-adjustment-same-financial-case-as-parent | adjustment-same-financial-case-as-parent | Phase D | invoice | Adjustment invoices must stay in the same financial case as their parent. |
 | runtime-adjustment-never-chains | adjustment-never-chains | Phase D | invoice | Adjustment invoices cannot chain to adjustment parents. |
 | INV-LOCK-SNAPSHOT | locked-invoice-frozen-fields-match-snapshot | Sprint 3 (80b) | invoice | Locked invoice frozen fields must match the latest lock snapshot. |
-| runtime-adjustment-has-no-document-application | adjustment-has-no-document-application | Phase D | global | Adjustment invoices cannot receive document applications except line-targeted reversals. |
+| runtime-adjustment-has-no-document-application | adjustment-has-no-document-application | Phase D | global | Adjustment invoices cannot receive document applications except credit-note cause reversals or settlement applications. |
 | runtime-no-adjustment-without-classifier-source | no-adjustment-without-classifier-source | Sprint 1 (75b) | invoice | Automatic adjustment invoices must have a classifier source activity. |
 | runtime-out-payment-targets-refund-invoice | out-payment-targets-refund-invoice | Phase F | invoice | Outbound payments must target refund invoices. |
 | runtime-refund-amount-not-over-source | refund-amount-not-over-source | Phase F | invoice | Refund totals cannot exceed the inbound amount on their source invoice. |
 | runtime-refund-trace-points-to-inbound-payment | refund-trace-points-to-inbound-payment | Phase F | global | Refund traces must point back to inbound payments. |
 | runtime-refund-source-is-final-or-adjustment | refund-source-is-final-or-adjustment | Phase F | invoice | Refund invoice parents must be final or adjustment invoices. |
 | runtime-credit-note-targets-final | credit-note-targets-final | Phase F | invoice | Credit notes must target final invoices or line-targeted adjustment reversals. |
-| runtime-credit-note-has-document-application | credit-note-has-document-application | Phase F | invoice | Credit notes must have the expected document application. |
+| runtime-credit-note-has-document-application | credit-note-has-document-application | Phase F | invoice | Credit notes must have at least one valid same-case document application. |
+| runtime-credit-note-pool-not-over-applied | credit-note-pool-not-over-applied | Spec 153 F1 | invoice | Credit-note applications cannot exceed the drawable credit-note total. |
 | runtime-paid-adjustment-line-removal-must-have-reversal | paid-adjustment-line-removal-must-have-reversal | Sprint 2 (79a) | order | Paid adjustment lines removed from an order must have a credit-note reversal. |
 | runtime-credit-note-amount-not-over-final | credit-note-amount-not-over-final | Phase F | invoice | Credit note totals cannot exceed the final invoice total. |
 | runtime-credit-note-is-locked-on-issuance | credit-note-is-locked-on-issuance | Phase F | invoice | Credit notes are closed and locked when issued. |

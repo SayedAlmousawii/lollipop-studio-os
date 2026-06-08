@@ -1,5 +1,6 @@
 import {
   BookingStatus,
+  DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
@@ -394,6 +395,7 @@ export async function seedPhaseAFinancialFixtures(
       id: `${FIXTURE_PREFIX}-deposit-final-application`,
       sourceInvoiceId: depositInvoice.id,
       targetInvoiceId: finalInvoice.id,
+      kind: DocumentApplicationKind.DEPOSIT,
       amountApplied: new Prisma.Decimal(20),
       appliedByUserId: manager.id,
       notes: "Phase A deposit application",
@@ -479,6 +481,7 @@ export async function seedPhaseAFinancialFixtures(
       id: `${FIXTURE_PREFIX}-credit-note-application`,
       sourceInvoiceId: creditNoteInvoice.id,
       targetInvoiceId: finalInvoice.id,
+      kind: DocumentApplicationKind.CREDIT_TO_FINAL,
       amountApplied: new Prisma.Decimal(10),
       appliedByUserId: manager.id,
       notes: "Phase A credit note application",
