@@ -1,5 +1,6 @@
 import {
   BookingStatus,
+  DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
@@ -1528,6 +1529,7 @@ export async function makeFinancialCaseSummaryOrderFixture(
       data: {
         sourceInvoiceId: depositInvoice.id,
         targetInvoiceId: finalInvoice.id,
+        kind: DocumentApplicationKind.DEPOSIT,
         amountApplied: depositPaidAmount,
       },
     });

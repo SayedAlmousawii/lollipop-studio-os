@@ -14,7 +14,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
 - **⏸ All roadmap/spec work paused (planning-only phase).** No active implementation until the financial-foundation plans below are finished. Sequencing: (1) financial plans → (2) POS redesign planning specs → (3) remaining Phase 7 from the unified roadmap.
-- **Financial-foundation plans (PLANNING — not implemented):** `context/reviews/credit-settlement-application-plan.md` (credit settlement-application; hard prerequisite for Phase 7's financial summary) and `context/reviews/financial-documents-register-presentation.md` (accountant-facing register presentation; presentation-only, no engine change).
+- **Financial-foundation plans:** Spec 153 F1 credit-note drawable-pool foundation is implemented; later settlement emission/projection units from `context/reviews/credit-settlement-application-plan.md` and the accountant-facing register presentation plan remain pending.
 - **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
@@ -30,6 +30,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Refund issuance uses canonical true overpayment capacity (`inbound allocations − CREDIT_NOTE-net owed − prior REFUND totals`) under a source invoice row lock.
 - INV-18 treats manual goodwill CREDIT_NOTE applications as outside order composition; classifier/order-composition credits remain in revenue-document comparison.
 - ADJUSTMENT cause linkage: line-targeted CREDIT_NOTE reversals apply to the originating ADJUSTMENT invoice line; legacy/manual ADJUSTMENT lines remain null-linked.
+- `DocumentApplication.kind` explicitly distinguishes `DEPOSIT`, `CAUSE_REVERSAL`, `CREDIT_TO_FINAL`, and forward-only `SETTLEMENT`; credit-note available balance is derived on demand from source applications, with no `remainingAmount` cache truth.
 - `src/modules/financial/invariant-catalog.ts` is the canonical owner-facing index for registered financial invariants; `npm run docs:generate` refreshes `context/reviews/invariant-catalog.md`.
 - Nightly reconciliation runs in a PostgreSQL `READ ONLY` transaction using `FINANCIAL_RECON_DATABASE_URL`; `RECONCILIATION_PING_URL` (Healthchecks.io) is the no-report monitor.
 
@@ -80,6 +81,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **153 F1** — Added `DocumentApplication.kind`, derive-only drawable credit-note pool helpers, settlement-ready runtime invariant allowances, and pool over-application guard.
 - **151** — Migrated financial/audit test scaffolding to OrderCommit; removed five legacy direct mutators + `assertDirectPOSMutationAllowed`; added delivered-order blocking to `commitOrderChanges`.
 - **150** — Removed dead inline reductive-edit approval island; commit-dialog (`OrderCommitReviewDialog`) is now the sole reduction-approval path.
 - **149 P6-6** — Dropped AW tables/enums and legacy `OrderCommit*` FK columns; removed final `finalizedAdjustmentWorkspaces` invariant exemption; completed Phase 6.

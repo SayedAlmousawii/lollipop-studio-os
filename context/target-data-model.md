@@ -46,4 +46,10 @@ Spec 124 Phase 4 Task 6 adds `commitOrderChanges` as the public commit execution
 
 `InvoiceLineItem` rows on `FINAL`, `ADJUSTMENT`, `CREDIT_NOTE`, and `REFUND` invoices are financial-document snapshots only. They preserve what was charged, credited, or refunded, but they are not a source for current operational composition. Locked composition projections read current `Order*` rows through the composition read layer.
 
+## Document Application Kind And Credit-Note Pool
+
+Spec 153 F1 adds `DocumentApplication.kind` as the explicit discriminator for credit movement shape: `DEPOSIT`, `CAUSE_REVERSAL`, `CREDIT_TO_FINAL`, and forward-only `SETTLEMENT`. Existing production paths continue to emit only deposit applications, line-targeted credit-note cause reversals, and credit-note-to-final applications; `SETTLEMENT` is foundation-only until the settlement emission unit.
+
+Credit notes are write-once financial documents after issuance: `totalAmount`, identity fields, and invoice rows remain locked, while available credit is derived on demand as `totalAmount - sum(DocumentApplication.amountApplied from the credit note)`. `Invoice.remainingAmount` remains stored for existing register compatibility, but it is not the source of truth for drawable credit-note availability and is not synchronized by the append-only draw helper.
+
 Spec 149 removes the retired post-lock workspace tables and the `OrderCommit*` legacy workspace back-reference columns. `OrderCommit` and `OrderCommitDraft` now carry no schema link to the retired workspace path.

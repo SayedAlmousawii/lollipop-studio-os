@@ -3,6 +3,7 @@ import "dotenv/config";
 import {
   AuditAction,
   AuditEntityType,
+  DocumentApplicationKind,
   InvoiceType,
   OrderActivityType,
   OrderEntityKind,
@@ -316,6 +317,7 @@ async function applyBackfill(
         where: { id: targetPairReversal.id },
         data: {
           amountApplied: reversalAmount,
+          kind: DocumentApplicationKind.CAUSE_REVERSAL,
           notes: REVERSAL_ANNOTATION,
           appliedByUserId: actorContext.actorUserId,
         },
@@ -367,6 +369,7 @@ async function applyBackfill(
         where: { id: nullTargetApplication.id },
         data: {
           amountApplied: goodwillAmount,
+          kind: DocumentApplicationKind.CREDIT_TO_FINAL,
           notes: CREDIT_NOTE_ANNOTATION,
           appliedByUserId: actorContext.actorUserId,
         },
@@ -404,6 +407,7 @@ async function applyBackfill(
           sourceInvoiceId: snapshot.creditNote.id,
           targetInvoiceId: snapshot.adjustment.id,
           targetInvoiceLineId: snapshot.adjustmentLine.id,
+          kind: DocumentApplicationKind.CAUSE_REVERSAL,
           amountApplied: reversalAmount,
           appliedByUserId: actorContext.actorUserId,
           notes: REVERSAL_ANNOTATION,

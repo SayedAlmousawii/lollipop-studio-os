@@ -1,6 +1,7 @@
 import {
   AuditAction,
   AuditEntityType,
+  DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
@@ -69,6 +70,17 @@ type SnapshotInvoiceLineItem = Omit<
   Prisma.InvoiceLineItemCreateManyInput,
   "invoiceId"
 >;
+
+export type AppendCreditApplicationInput = {
+  creditNoteId: string;
+  targetInvoiceId: string;
+  targetInvoiceLineId?: string | null;
+  amount: Prisma.Decimal.Value;
+  kind: Exclude<DocumentApplicationKind, typeof DocumentApplicationKind.DEPOSIT>;
+  appliedByUserId?: string | null;
+  appliedAt?: Date;
+  notes?: string | null;
+};
 
 export interface OrderInvoiceSyncInput {
   orderId: string;
@@ -1352,6 +1364,7 @@ export async function applyDepositToFinalIfPresent(
       data: {
         sourceInvoiceId: depositInvoice.id,
         targetInvoiceId: finalInvoiceId,
+        kind: DocumentApplicationKind.DEPOSIT,
         amountApplied: depositInvoice.paidAmount,
         notes: "Phase 1: deposit auto-application",
       },
@@ -2312,6 +2325,156 @@ export async function computeCreditNoteCapacityForFinal(
   return Prisma.Decimal.max(target.totalAmount.minus(creditedTotal), 0);
 }
 
+export async function computeCreditNoteAvailable(
+  creditNoteId: string,
+  client: DbClient = db
+): Promise<Prisma.Decimal> {
+  const creditNote = await client.invoice.findUnique({
+    where: { id: creditNoteId },
+    select: { id: true, invoiceType: true, totalAmount: true },
+  });
+  if (!creditNote) {
+    throw new Error("Credit note not found");
+  }
+  if (creditNote.invoiceType !== InvoiceType.CREDIT_NOTE) {
+    throw new Error("Available credit can only be derived for credit notes");
+  }
+
+  const applications = await client.documentApplication.aggregate({
+    _sum: { amountApplied: true },
+    where: { sourceInvoiceId: creditNoteId },
+  });
+  const appliedTotal = applications._sum.amountApplied ?? new Prisma.Decimal(0);
+
+  return creditNote.totalAmount.minus(appliedTotal);
+}
+
+export async function appendCreditApplication(
+  input: AppendCreditApplicationInput,
+  client?: DbClient
+): Promise<{ id: string }> {
+  if (client) {
+    return appendCreditApplicationWithClient(input, client);
+  }
+
+  return withRetry(
+    () =>
+      db.$transaction(
+        (transaction) => appendCreditApplicationWithClient(input, transaction),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+      ),
+    "Failed to append credit application"
+  );
+}
+
+async function appendCreditApplicationWithClient(
+  input: AppendCreditApplicationInput,
+  client: DbClient
+): Promise<{ id: string }> {
+  const amount = new Prisma.Decimal(input.amount);
+  if (amount.lessThanOrEqualTo(0)) {
+    throw new Error("Credit application amount must be greater than 0");
+  }
+
+  await lockInvoiceForUpdate(client, input.creditNoteId);
+
+  const [creditNote, targetInvoice] = await Promise.all([
+    client.invoice.findUnique({
+      where: { id: input.creditNoteId },
+      select: {
+        id: true,
+        invoiceType: true,
+        financialCaseId: true,
+        totalAmount: true,
+      },
+    }),
+    client.invoice.findUnique({
+      where: { id: input.targetInvoiceId },
+      select: {
+        id: true,
+        invoiceType: true,
+        financialCaseId: true,
+      },
+    }),
+  ]);
+
+  if (!creditNote || creditNote.invoiceType !== InvoiceType.CREDIT_NOTE) {
+    throw new Error("Source invoice must be a credit note");
+  }
+  if (!targetInvoice) {
+    throw new Error("Credit application target invoice was not found");
+  }
+  if (targetInvoice.financialCaseId !== creditNote.financialCaseId) {
+    throw new Error("Credit application target must belong to the same financial case");
+  }
+
+  const targetInvoiceLineId = input.targetInvoiceLineId ?? null;
+  if (targetInvoiceLineId) {
+    const targetLine = await client.invoiceLineItem.findUnique({
+      where: { id: targetInvoiceLineId },
+      select: { id: true, invoiceId: true },
+    });
+    if (!targetLine || targetLine.invoiceId !== targetInvoice.id) {
+      throw new Error("Credit application target line must belong to the target invoice");
+    }
+  }
+
+  if (
+    input.kind === DocumentApplicationKind.CAUSE_REVERSAL &&
+    (targetInvoice.invoiceType !== InvoiceType.ADJUSTMENT || !targetInvoiceLineId)
+  ) {
+    throw new Error("Cause-reversal credit applications must target an adjustment line");
+  }
+  if (
+    input.kind === DocumentApplicationKind.SETTLEMENT &&
+    (targetInvoice.invoiceType !== InvoiceType.ADJUSTMENT || targetInvoiceLineId)
+  ) {
+    throw new Error("Settlement credit applications must target an adjustment invoice");
+  }
+  if (
+    input.kind === DocumentApplicationKind.CREDIT_TO_FINAL &&
+    (targetInvoice.invoiceType !== InvoiceType.FINAL || targetInvoiceLineId)
+  ) {
+    throw new Error("Final credit applications must target a final invoice");
+  }
+
+  const existingApplications = await client.documentApplication.aggregate({
+    _sum: { amountApplied: true },
+    where: { sourceInvoiceId: creditNote.id },
+  });
+  const appliedTotal =
+    existingApplications._sum.amountApplied ?? new Prisma.Decimal(0);
+  const nextAppliedTotal = appliedTotal.plus(amount);
+  if (nextAppliedTotal.greaterThan(creditNote.totalAmount)) {
+    throw new Error("Credit application would overdraw the credit note");
+  }
+
+  const application = await client.documentApplication.create({
+    data: {
+      sourceInvoiceId: creditNote.id,
+      targetInvoiceId: targetInvoice.id,
+      targetInvoiceLineId,
+      kind: input.kind,
+      amountApplied: amount,
+      appliedAt: input.appliedAt ?? new Date(),
+      appliedByUserId: input.appliedByUserId ?? null,
+      notes: input.notes ?? null,
+    },
+    select: { id: true },
+  });
+
+  return application;
+}
+
+async function lockInvoiceForUpdate(
+  client: DbClient,
+  invoiceId: string
+): Promise<void> {
+  await client.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM "invoices" WHERE id = ${invoiceId} FOR UPDATE
+  `;
+}
+
 export async function createCreditNote(
   input: CreateCreditNoteInput,
   tx?: DbClient
@@ -2538,6 +2701,7 @@ export async function createCreditNoteWithClient(
         sourceInvoiceId: creditNote.id,
         targetInvoiceId: line.targetInvoiceId!,
         targetInvoiceLineId: line.targetInvoiceLineId!,
+        kind: DocumentApplicationKind.CAUSE_REVERSAL,
         amountApplied: new Prisma.Decimal(line.unitPrice).mul(line.quantity),
         appliedAt: now,
         appliedByUserId: input.createdByUserId,
@@ -2549,6 +2713,7 @@ export async function createCreditNoteWithClient(
       data: {
         sourceInvoiceId: creditNote.id,
         targetInvoiceId: target.id,
+        kind: DocumentApplicationKind.CREDIT_TO_FINAL,
         amountApplied: totalAmount,
         appliedAt: now,
         appliedByUserId: input.createdByUserId,
