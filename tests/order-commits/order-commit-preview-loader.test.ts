@@ -260,6 +260,45 @@ test("preview loader maps latest committed positive delta on locked FINAL to adj
   assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
 });
 
+test("preview loader maps available case credit into positive delta payment impact", async () => {
+  const client = fakePreviewClient({
+    commits: [
+      fakeCommit({
+        id: "commit-1",
+        sequence: 1,
+        snapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 180 })],
+        }),
+      }),
+    ],
+    drafts: [
+      fakeDraft({
+        id: "draft-1",
+        pendingSnapshotJson: snapshotFixture({
+          lines: [packageLine({ unitPrice: 205 })],
+        }),
+      }),
+    ],
+  });
+
+  const preview = await getOrderCommitPreview({
+    orderId: "order-1",
+    client: client.client,
+    financialSummaryLoader: fakeSummaryLoader(
+      activeSummary({
+        isFinalInvoiceLocked: true,
+        availableCaseCredit: 30,
+      })
+    ),
+  });
+
+  assert.equal(preview.netDelta, 25);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, false);
+  assert.equal(preview.paymentImpact.amountDue, 0);
+  assert.equal(preview.paymentImpact.creditAmount, 25);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 0);
+});
+
 test("preview loader maps booking-stage payment state as pre-final-invoice only", async () => {
   const client = fakePreviewClient({
     commits: [],
@@ -696,6 +735,7 @@ function activeSummary(input: {
   remaining?: number;
   creditNoteCapacity?: number;
   overpaymentCapacity?: number;
+  availableCaseCredit?: number;
 } = {}): FinancialCaseSummary {
   return {
     stage: "active",
@@ -725,6 +765,7 @@ function activeSummary(input: {
     finalTotal: 180,
     overpaymentCapacity: input.overpaymentCapacity ?? 0,
     creditNoteCapacity: input.creditNoteCapacity ?? 0,
+    availableCaseCredit: input.availableCaseCredit ?? 0,
     linkedDocuments: [],
     paymentStatusEnum: "PARTIAL",
   };

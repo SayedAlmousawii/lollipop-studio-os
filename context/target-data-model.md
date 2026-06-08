@@ -52,6 +52,8 @@ Spec 153 F1 adds `DocumentApplication.kind` as the explicit discriminator for cr
 
 Credit notes are write-once financial documents after issuance: `totalAmount`, identity fields, and invoice rows remain locked, while available credit is derived on demand as `totalAmount - sum(DocumentApplication.amountApplied from the credit note)`. `Invoice.remainingAmount` remains stored for existing register compatibility, but it is not the source of truth for drawable credit-note availability and is not synchronized by the append-only draw helper.
 
-OrderCommit residual credit notes preserve `parentInvoiceId = FINAL` as audit origin but do not create new `CREDIT_TO_FINAL` applications. Execution applies residual credit to open same-case/order ADJUSTMENT receivables oldest-first by appending `SETTLEMENT` applications; any remainder stays available on the credit note by derivation.
+`FinancialCaseSummary.availableCaseCredit` is the canonical case-level available-credit read field. It sums every same-`financialCaseId` `CREDIT_NOTE` pool using the derived credit-note availability helper, independent from `overpaymentCapacity` and `creditNoteCapacity`.
+
+OrderCommit residual credit notes preserve `parentInvoiceId = FINAL` as audit origin but do not create new `CREDIT_TO_FINAL` applications. Execution runs a shared end-of-commit available-credit sweep for locked document-emitting commits, applying same-case/order credit-note pools to open ADJUSTMENT receivables oldest-first by appending `SETTLEMENT` applications; any remainder stays available on the credit note by derivation.
 
 Spec 149 removes the retired post-lock workspace tables and the `OrderCommit*` legacy workspace back-reference columns. `OrderCommit` and `OrderCommitDraft` now carry no schema link to the retired workspace path.

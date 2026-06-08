@@ -59,6 +59,117 @@ test("approval preview maps later positive delta to adjustment invoice", () => {
   assert.equal(preview.paymentImpact.remainingAfterCommit, 35);
 });
 
+test("approval preview keeps full amount due when no credit is available", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      netDelta: 50,
+    }),
+    paymentState: paymentStateFixture({
+      currentRemainingAmount: 0,
+      availableCaseCredit: 0,
+    }),
+  });
+
+  assert.equal(preview.documentPlan.amount, 50);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, true);
+  assert.equal(
+    preview.paymentImpact.kind,
+    ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.PAYMENT_DUE
+  );
+  assert.equal(preview.paymentImpact.amountDue, 50);
+  assert.equal(preview.paymentImpact.creditAmount, 0);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 50);
+});
+
+test("approval preview applies partial available credit before cash", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      netDelta: 50,
+    }),
+    paymentState: paymentStateFixture({
+      currentRemainingAmount: 0,
+      availableCaseCredit: 30,
+    }),
+  });
+
+  assert.equal(preview.documentPlan.amount, 50);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, true);
+  assert.equal(preview.paymentImpact.amountDue, 20);
+  assert.equal(preview.paymentImpact.creditAmount, 30);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 20);
+});
+
+test("approval preview suppresses payment collection when credit fully covers add", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      netDelta: 50,
+    }),
+    paymentState: paymentStateFixture({
+      currentRemainingAmount: 0,
+      availableCaseCredit: 50,
+    }),
+  });
+
+  assert.equal(preview.documentPlan.amount, 50);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, false);
+  assert.equal(
+    preview.paymentImpact.kind,
+    ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.NONE
+  );
+  assert.equal(preview.paymentImpact.amountDue, 0);
+  assert.equal(preview.paymentImpact.creditAmount, 50);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 0);
+});
+
+test("approval preview leaves excess credit available after fully covered add", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      netDelta: 50,
+    }),
+    paymentState: paymentStateFixture({
+      currentRemainingAmount: 0,
+      availableCaseCredit: 80,
+    }),
+  });
+
+  assert.equal(preview.documentPlan.amount, 50);
+  assert.equal(preview.documentPlan.requiresPaymentCollection, false);
+  assert.equal(preview.paymentImpact.amountDue, 0);
+  assert.equal(preview.paymentImpact.creditAmount, 50);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 0);
+});
+
+test("approval preview reflects pre-existing receivable when credit exceeds new delta", () => {
+  const preview = buildOrderCommitApprovalAndDocumentPreview({
+    baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
+    finalInvoiceMode: "EMIT_ADJUSTMENT",
+    classification: classificationFixture({
+      commitKind: ORDER_COMMIT_PREVIEW_COMMIT_KIND.ADJUSTMENT_INVOICE,
+      netDelta: 50,
+    }),
+    paymentState: paymentStateFixture({
+      currentRemainingAmount: 20,
+      availableCaseCredit: 80,
+    }),
+  });
+
+  assert.equal(preview.paymentImpact.amountDue, 0);
+  assert.equal(preview.paymentImpact.creditAmount, 50);
+  assert.equal(preview.paymentImpact.remainingAfterCommit, 0);
+});
+
 test("approval preview maps unlocked final positive delta to final rebuild", () => {
   const preview = buildOrderCommitApprovalAndDocumentPreview({
     baselineSource: ORDER_COMMIT_PREVIEW_BASELINE_SOURCE.LATEST_ORDER_COMMIT,
@@ -262,12 +373,14 @@ function paymentStateFixture(input: {
   currentRemainingAmount: number;
   creditNoteCapacity?: number;
   overpaymentCapacity?: number;
+  availableCaseCredit?: number;
 }) {
   return {
     alreadyPaidAmount: input.alreadyPaidAmount ?? 0,
     currentRemainingAmount: input.currentRemainingAmount,
     creditNoteCapacity: input.creditNoteCapacity ?? 0,
     overpaymentCapacity: input.overpaymentCapacity ?? 0,
+    availableCaseCredit: input.availableCaseCredit ?? 0,
   };
 }
 

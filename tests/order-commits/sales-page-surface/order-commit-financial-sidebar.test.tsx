@@ -514,6 +514,7 @@ function activeFinancialCase(): Extract<FinancialCaseSummary, { stage: "active" 
     finalTotal: 300,
     overpaymentCapacity: 0,
     creditNoteCapacity: 0,
+    availableCaseCredit: 0,
     linkedDocuments: [],
     paymentStatusEnum: "PARTIAL",
   };

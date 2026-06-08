@@ -9,6 +9,7 @@ import {
   DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
+  InvoiceType,
   OrderEntityKind,
   Prisma,
   UserRole,
@@ -307,6 +308,12 @@ test("emits final credit notes and marks refund pending without payments", async
     "UNAPPLIED"
   );
   assert.equal(dependencies.appendCreditApplication.calls.length, 0);
+  assert.deepEqual(
+    dependencies.settleAvailableCreditAgainstOpenReceivables.calls.map(
+      (call) => call.input
+    ),
+    [expectedSweepInput("manager-user")]
+  );
   assert.deepEqual(calls.orderUpdates, [
     {
       where: { id: "order-1" },
@@ -316,7 +323,7 @@ test("emits final credit notes and marks refund pending without payments", async
   ]);
 });
 
-test("settles residual credit against the same-commit adjustment invoice", async () => {
+test("runs shared available-credit sweep after mixed adjustment emission", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -356,19 +363,15 @@ test("settles residual credit against the same-commit adjustment invoice", async
     dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
     "UNAPPLIED"
   );
-  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
-    {
-      creditNoteId: "credit-note-1",
-      targetInvoiceId: "adjustment-invoice-1",
-      amount: 10,
-      kind: DocumentApplicationKind.SETTLEMENT,
-      appliedByUserId: "manager-user",
-      notes: "OrderCommit residual credit settlement",
-    },
-  ]);
+  assert.deepEqual(
+    dependencies.settleAvailableCreditAgainstOpenReceivables.calls.map(
+      (call) => call.input
+    ),
+    [expectedSweepInput("manager-user")]
+  );
 });
 
-test("settles residual credit oldest first across open receivables", async () => {
+test("runs shared available-credit sweep after residual-only credit emission", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -397,67 +400,34 @@ test("settles residual credit oldest first across open receivables", async () =>
     dependencies,
   });
 
-  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
-    {
-      creditNoteId: "credit-note-1",
-      targetInvoiceId: "old-adjustment",
-      amount: 20,
-      kind: DocumentApplicationKind.SETTLEMENT,
-      appliedByUserId: "manager-user",
-      notes: "OrderCommit residual credit settlement",
-    },
-    {
-      creditNoteId: "credit-note-1",
-      targetInvoiceId: "new-adjustment",
-      amount: 10,
-      kind: DocumentApplicationKind.SETTLEMENT,
-      appliedByUserId: "manager-user",
-      notes: "OrderCommit residual credit settlement",
-    },
-  ]);
+  assert.deepEqual(
+    dependencies.settleAvailableCreditAgainstOpenReceivables.calls.map(
+      (call) => call.input
+    ),
+    [expectedSweepInput("manager-user")]
+  );
 });
 
-test("leaves residual credit unapplied when receivables are exhausted", async () => {
+test("runs shared available-credit sweep after pure positive adjustment emission", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
     emission: {
       ...emptyEmission(),
-      creditNoteFinalLines: [
-        {
-          reason: "REMOVED_ADDON",
-          line: creditLine("Removed add-on", 30),
-        },
-      ],
+      adjustmentLines: [adjustmentLine("Package upgrade", 50)],
     },
-    openReceivables: [
-      { invoiceId: "only-adjustment", invoiceSeq: 2, remainingAmount: 12 },
-    ],
   });
 
   await emitOrderCommitFinancialDocuments({
     ...baseInput(client),
-    requiresApproval: true,
-    approvalActorUserId: "manager-user",
     documentPlan: documentPlan(
-      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE
     ),
     dependencies,
   });
 
-  assert.equal(
-    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
-    "UNAPPLIED"
-  );
-  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
-    {
-      creditNoteId: "credit-note-1",
-      targetInvoiceId: "only-adjustment",
-      amount: 12,
-      kind: DocumentApplicationKind.SETTLEMENT,
-      appliedByUserId: "manager-user",
-      notes: "OrderCommit residual credit settlement",
-    },
+  assert.deepEqual(resultlessSweepCalls(dependencies), [
+    expectedSweepInput("manager-user"),
   ]);
 });
 
@@ -620,15 +590,8 @@ test("keeps cause reversals line-targeted before residual settlement", async () 
       targetInvoiceLineId: "same-cause-line",
     },
   ]);
-  assert.deepEqual(dependencies.appendCreditApplication.calls.map((call) => call.input), [
-    {
-      creditNoteId: "credit-note-2",
-      targetInvoiceId: "other-adjustment",
-      amount: 5,
-      kind: DocumentApplicationKind.SETTLEMENT,
-      appliedByUserId: "manager-user",
-      notes: "OrderCommit residual credit settlement",
-    },
+  assert.deepEqual(resultlessSweepCalls(dependencies), [
+    expectedSweepInput("manager-user"),
   ]);
 });
 
@@ -903,6 +866,82 @@ test("buildOpenReceivableInvoices returns ordered adjustment invoice remaining b
   );
 });
 
+test("computeAvailableCaseCredit sums every same-case credit note pool", async () => {
+  const { computeAvailableCaseCredit } = await loadInvoiceService();
+  const { client } = fakeAvailableCreditClient({
+    creditNotes: [
+      { id: "credit-parent-final", totalAmount: 50, appliedAmount: 20 },
+      { id: "credit-parent-adjustment", totalAmount: 15, appliedAmount: 5 },
+    ],
+    receivables: [],
+  });
+
+  const available = await computeAvailableCaseCredit(
+    { financialCaseId: "financial-case-1" },
+    client
+  );
+
+  assert.equal(available.toFixed(3), "40.000");
+});
+
+test("settleAvailableCreditAgainstOpenReceivables consumes pools and receivables oldest first", async () => {
+  const { settleAvailableCreditAgainstOpenReceivables } =
+    await loadInvoiceService();
+  const { client, applications } = fakeAvailableCreditClient({
+    creditNotes: [
+      { id: "old-credit", totalAmount: 40, appliedAmount: 0 },
+      { id: "new-credit", totalAmount: 30, appliedAmount: 0 },
+    ],
+    receivables: [
+      { id: "old-adjustment", invoiceSeq: 2, totalAmount: 25 },
+      { id: "new-adjustment", invoiceSeq: 3, totalAmount: 80 },
+    ],
+  });
+
+  await settleAvailableCreditAgainstOpenReceivables(
+    {
+      financialCaseId: "financial-case-1",
+      orderId: "order-1",
+      appliedByUserId: "manager-user",
+      notes: "test settlement",
+    },
+    client
+  );
+
+  assert.deepEqual(
+    applications.map((application) => ({
+      sourceInvoiceId: application.sourceInvoiceId,
+      targetInvoiceId: application.targetInvoiceId,
+      amountApplied: application.amountApplied.toFixed(3),
+      kind: application.kind,
+      notes: application.notes,
+    })),
+    [
+      {
+        sourceInvoiceId: "old-credit",
+        targetInvoiceId: "old-adjustment",
+        amountApplied: "25.000",
+        kind: DocumentApplicationKind.SETTLEMENT,
+        notes: "test settlement",
+      },
+      {
+        sourceInvoiceId: "old-credit",
+        targetInvoiceId: "new-adjustment",
+        amountApplied: "15.000",
+        kind: DocumentApplicationKind.SETTLEMENT,
+        notes: "test settlement",
+      },
+      {
+        sourceInvoiceId: "new-credit",
+        targetInvoiceId: "new-adjustment",
+        amountApplied: "30.000",
+        kind: DocumentApplicationKind.SETTLEMENT,
+        notes: "test settlement",
+      },
+    ]
+  );
+});
+
 test("order commit execution source avoids out-of-scope integrations", () => {
   const source = readFileSync(
     join(
@@ -951,6 +990,21 @@ function documentPlan(
       kind === ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.REFUND_NEEDED,
     reason: null,
   };
+}
+
+function expectedSweepInput(appliedByUserId: string) {
+  return {
+    financialCaseId: "financial-case-1",
+    orderId: "order-1",
+    appliedByUserId,
+    notes: "OrderCommit available credit settlement",
+  };
+}
+
+function resultlessSweepCalls(dependencies: ReturnType<typeof fakeDependencies>) {
+  return dependencies.settleAvailableCreditAgainstOpenReceivables.calls.map(
+    (call) => call.input
+  );
 }
 
 function emptyEmission(): OrderCommitFinancialEmission {
@@ -1078,6 +1132,18 @@ function fakeDependencies(options: {
     targetInvoiceLineId?: string | null;
   } }>;
 
+  const settleAvailableCreditAgainstOpenReceivables = async (input: unknown) => {
+    settleAvailableCreditAgainstOpenReceivables.calls.push({ input });
+  };
+  settleAvailableCreditAgainstOpenReceivables.calls = [] as Array<{
+    input: {
+      financialCaseId: string;
+      orderId: string;
+      appliedByUserId: string;
+      notes?: string | null;
+    };
+  }>;
+
   const createInvoiceForOrderWithClient = async () => {
     createInvoiceForOrderWithClient.calls.push({});
     return {
@@ -1113,12 +1179,155 @@ function fakeDependencies(options: {
     computeCreditNoteCapacityForFinal: async () =>
       new Prisma.Decimal(options.creditCapacity ?? 999),
     appendCreditApplication,
+    settleAvailableCreditAgainstOpenReceivables,
     createAdjustmentInvoiceWithClient,
     createCreditNoteWithClient,
     createInvoiceForOrderWithClient,
     rebuildUnlockedFinalInvoiceForOrderWithClient,
     mapOrderCommitDiffToFinancialLines,
   };
+}
+
+function fakeAvailableCreditClient(options: {
+  creditNotes: Array<{
+    id: string;
+    totalAmount: number;
+    appliedAmount: number;
+  }>;
+  receivables: Array<{
+    id: string;
+    invoiceSeq: number;
+    totalAmount: number;
+  }>;
+}) {
+  const applications: Array<{
+    sourceInvoiceId: string;
+    targetInvoiceId: string;
+    targetInvoiceLineId: string | null;
+    kind: DocumentApplicationKind;
+    amountApplied: Prisma.Decimal;
+    notes: string | null;
+  }> = options.creditNotes
+    .filter((creditNote) => creditNote.appliedAmount > 0)
+    .map((creditNote) => ({
+      sourceInvoiceId: creditNote.id,
+      targetInvoiceId: "already-settled",
+      targetInvoiceLineId: null,
+      kind: DocumentApplicationKind.SETTLEMENT,
+      amountApplied: new Prisma.Decimal(creditNote.appliedAmount),
+      notes: "existing",
+    }));
+  const invoiceRows = new Map<
+    string,
+    {
+      id: string;
+      invoiceSeq: number;
+      invoiceType: InvoiceType;
+      financialCaseId: string;
+      orderId: string;
+      totalAmount: Prisma.Decimal;
+    }
+  >();
+
+  for (const [index, creditNote] of options.creditNotes.entries()) {
+    invoiceRows.set(creditNote.id, {
+      id: creditNote.id,
+      invoiceSeq: index + 1,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      financialCaseId: "financial-case-1",
+      orderId: "order-1",
+      totalAmount: new Prisma.Decimal(creditNote.totalAmount),
+    });
+  }
+  for (const receivable of options.receivables) {
+    invoiceRows.set(receivable.id, {
+      id: receivable.id,
+      invoiceSeq: receivable.invoiceSeq,
+      invoiceType: InvoiceType.ADJUSTMENT,
+      financialCaseId: "financial-case-1",
+      orderId: "order-1",
+      totalAmount: new Prisma.Decimal(receivable.totalAmount),
+    });
+  }
+
+  const client = {
+    $queryRaw: async () => [],
+    invoice: {
+      findMany: async (args: {
+        where: {
+          financialCaseId: string;
+          orderId?: string;
+          invoiceType: InvoiceType;
+        };
+      }) =>
+        [...invoiceRows.values()]
+          .filter(
+            (invoice) =>
+              invoice.financialCaseId === args.where.financialCaseId &&
+              invoice.invoiceType === args.where.invoiceType &&
+              (!args.where.orderId || invoice.orderId === args.where.orderId)
+          )
+          .sort(
+            (left, right) =>
+              left.invoiceSeq - right.invoiceSeq ||
+              left.id.localeCompare(right.id)
+          ),
+      findUnique: async (args: { where: { id: string } }) => {
+        const invoice = invoiceRows.get(args.where.id);
+        if (!invoice) return null;
+        return invoice;
+      },
+    },
+    invoiceLineItem: {
+      findUnique: async () => null,
+    },
+    paymentAllocation: {
+      aggregate: async () => ({ _sum: { amount: new Prisma.Decimal(0) } }),
+    },
+    documentApplication: {
+      aggregate: async (args: {
+        where: { sourceInvoiceId?: string; targetInvoiceId?: string };
+      }) => {
+        const amountApplied = applications
+          .filter((application) => {
+            if (args.where.sourceInvoiceId) {
+              return application.sourceInvoiceId === args.where.sourceInvoiceId;
+            }
+            if (args.where.targetInvoiceId) {
+              return application.targetInvoiceId === args.where.targetInvoiceId;
+            }
+            return false;
+          })
+          .reduce(
+            (sum, application) => sum.plus(application.amountApplied),
+            new Prisma.Decimal(0)
+          );
+        return { _sum: { amountApplied } };
+      },
+      create: async (args: {
+        data: {
+          sourceInvoiceId: string;
+          targetInvoiceId: string;
+          targetInvoiceLineId?: string | null;
+          kind: DocumentApplicationKind;
+          amountApplied: Prisma.Decimal;
+          notes?: string | null;
+        };
+      }) => {
+        applications.push({
+          sourceInvoiceId: args.data.sourceInvoiceId,
+          targetInvoiceId: args.data.targetInvoiceId,
+          targetInvoiceLineId: args.data.targetInvoiceLineId ?? null,
+          kind: args.data.kind,
+          amountApplied: args.data.amountApplied,
+          notes: args.data.notes ?? null,
+        });
+        return { id: `application-${applications.length}` };
+      },
+    },
+  } as unknown as Prisma.TransactionClient;
+
+  return { client, applications };
 }
 
 function openLineRow(input: {

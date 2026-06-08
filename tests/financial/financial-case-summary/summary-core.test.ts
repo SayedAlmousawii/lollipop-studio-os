@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import Module from "node:module";
 import process from "node:process";
 import test, { after } from "node:test";
-import { InvoiceStatus } from "@prisma/client";
+import { InvoiceStatus, InvoiceType, Prisma } from "@prisma/client";
 import { withIsolatedBackendInvariantSchema } from "../../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -173,6 +173,42 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         assert.equal(summary?.stage, "active");
         assert.ok(summary.creditNotes.length > 0);
         assert.ok(summary.creditNoteCapacity < summary.finalInvoice.total);
+      });
+
+      await t.test("active summary exposes derived available case credit", async () => {
+        const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "AVAIL",
+        });
+        assert.ok(fixture.finalInvoiceId);
+        await db.invoice.create({
+          data: {
+            publicId: "INV-SUMMARY-AVAILABLE-CN",
+            invoiceNumber: "INV-SUMMARY-AVAILABLE-CN",
+            financialCaseId: fixture.financialCaseId,
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            jobId: fixture.jobId,
+            orderId: fixture.orderId,
+            bookingId: fixture.bookingId,
+            customerId: fixture.customerId,
+            parentInvoiceId: fixture.finalInvoiceId,
+            totalAmount: new Prisma.Decimal(12),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(0),
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            issuedAt: new Date("2026-06-01T00:00:00.000Z"),
+            closedAt: new Date("2026-06-01T00:00:00.000Z"),
+          },
+        });
+
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
+        });
+
+        assert.equal(summary?.stage, "active");
+        assert.equal(summary.availableCaseCredit, 12);
+        assert.equal(summary.overpaymentCapacity, 0);
+        assert.equal(summary.creditNoteCapacity, summary.finalInvoice.total);
       });
 
       await t.test("missing FinancialCase resolves to null", async () => {

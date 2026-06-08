@@ -137,6 +137,7 @@ async function loadOrderCommitPreviewFinancialState(input: {
         currentRemainingAmount: 0,
         creditNoteCapacity: 0,
         overpaymentCapacity: 0,
+        availableCaseCredit: 0,
       },
     };
   }
@@ -150,6 +151,7 @@ async function loadOrderCommitPreviewFinancialState(input: {
       currentRemainingAmount: summary.remaining,
       creditNoteCapacity: summary.creditNoteCapacity,
       overpaymentCapacity: summary.overpaymentCapacity,
+      availableCaseCredit: summary.availableCaseCredit,
     },
   };
 }
