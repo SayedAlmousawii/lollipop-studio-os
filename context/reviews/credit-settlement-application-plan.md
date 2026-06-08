@@ -236,16 +236,15 @@ that credit before cash, and locked document-emitting commits run one shared end
 available-credit sweep so pure additions and B1 residual credits settle through the same
 `SETTLEMENT` path.
 
-**Correction pending (Spec 157 · B2C):** B2 shipped consuming the *raw unapplied pool*
+**Implemented (Spec 157 · B2C):** B2 shipped consuming the *raw unapplied pool*
 (`availableCaseCredit`) as spendable credit in `positiveDeltaPreview`. Per locked decision
-#10 that is wrong — spendable credit must be **overpayment-backed**. B2C repoints the
+#10 that was wrong — spendable credit must be **overpayment-backed**. B2C repointed the
 adding-side preview onto the financial-owned customer-settlement figures (overpayment-based
 `availableCredit` + model-A `remainingDue`), so phantom removal-credit on an unpaid order no
 longer offsets a later addition. The shared sweep (document-level) is unchanged.
 
-**Order of remaining work:** 157 · B2C (adding-side basis correction + financial-owned
-customer-settlement core) **before** 156 · B3 (receipt-style customer summary contract +
-Sales repoint), because B3's draft `amountDueAfterCommit` consumes B2C's corrected preview.
+**Order of remaining work:** 156 · B3 (receipt-style customer summary contract + Sales
+repoint) is next, because its draft `amountDueAfterCommit` consumes B2C's corrected preview.
 
 ### Customer-facing effect
 

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import Module from "node:module";
 import process from "node:process";
 import test, { after } from "node:test";
-import { InvoiceStatus, InvoiceType, Prisma } from "@prisma/client";
+import { InvoiceLineType, InvoiceStatus, InvoiceType, Prisma } from "@prisma/client";
 import { withIsolatedBackendInvariantSchema } from "../../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -33,6 +33,7 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         { db },
         {
           getFinancialCaseSummary,
+          computeCustomerSettlement,
         },
         {
           makeAdjustedBookingFixture,
@@ -162,6 +163,16 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         assert.equal(summary.paymentStatusEnum, "OVERPAID");
         assert.equal(summary.overpaymentCapacity, 10);
         assert.equal(summary.effectivePaid, 110);
+
+        const settlement = await computeCustomerSettlement({
+          financialCaseId: fixture.financialCaseId,
+        });
+
+        assert.equal(settlement?.netCustomerTotal, 100);
+        assert.equal(settlement.cashPaid, 110);
+        assert.equal(settlement.remainingDue, 0);
+        assert.equal(settlement.availableCredit, 10);
+        assertSettlementIdentity(settlement);
       });
 
       await t.test("credit-noted summary exposes credit notes and capacity", async () => {
@@ -209,6 +220,139 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         assert.equal(summary.availableCaseCredit, 12);
         assert.equal(summary.overpaymentCapacity, 0);
         assert.equal(summary.creditNoteCapacity, summary.finalInvoice.total);
+
+        const settlement = await computeCustomerSettlement({
+          financialCaseId: fixture.financialCaseId,
+        });
+
+        assert.equal(settlement?.netCustomerTotal, 88);
+        assert.equal(settlement.cashPaid, 100);
+        assert.equal(settlement.remainingDue, 0);
+        assert.equal(settlement.availableCredit, 12);
+        assertSettlementIdentity(settlement);
+      });
+
+      await t.test("customer settlement does not treat unpaid raw credit as available", async () => {
+        const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "UNPAIDCN",
+          depositPaidAmount: 0,
+          finalTotal: 250,
+          finalPaymentAmount: 0,
+          finalRemainingAmount: 250,
+          finalStatus: InvoiceStatus.ISSUED,
+        });
+        assert.ok(fixture.finalInvoiceId);
+        await db.invoice.create({
+          data: {
+            publicId: "INV-SUMMARY-UNPAID-CN",
+            invoiceNumber: "INV-SUMMARY-UNPAID-CN",
+            financialCaseId: fixture.financialCaseId,
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            jobId: fixture.jobId,
+            orderId: fixture.orderId,
+            bookingId: fixture.bookingId,
+            customerId: fixture.customerId,
+            parentInvoiceId: fixture.finalInvoiceId,
+            totalAmount: new Prisma.Decimal(50),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(0),
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            issuedAt: new Date("2026-06-01T00:00:00.000Z"),
+            closedAt: new Date("2026-06-01T00:00:00.000Z"),
+          },
+        });
+
+        const settlement = await computeCustomerSettlement({
+          financialCaseId: fixture.financialCaseId,
+        });
+
+        assert.equal(settlement?.netCustomerTotal, 200);
+        assert.equal(settlement.cashPaid, 0);
+        assert.equal(settlement.remainingDue, 200);
+        assert.equal(settlement.availableCredit, 0);
+        assertSettlementIdentity(settlement);
+      });
+
+      await t.test("customer settlement reconciles B1-style add and removal documents", async () => {
+        const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "B1STYLE",
+          finalTotal: 160,
+          finalPaymentAmount: 140,
+          finalRemainingAmount: 0,
+        });
+        assert.ok(fixture.finalInvoiceId);
+        const adjustment = await db.invoice.create({
+          data: {
+            publicId: "INV-SUMMARY-B1STYLE-ADJ",
+            invoiceNumber: "INV-SUMMARY-B1STYLE-ADJ",
+            financialCaseId: fixture.financialCaseId,
+            invoiceType: InvoiceType.ADJUSTMENT,
+            jobId: fixture.jobId,
+            orderId: fixture.orderId,
+            bookingId: fixture.bookingId,
+            customerId: fixture.customerId,
+            parentInvoiceId: fixture.finalInvoiceId,
+            totalAmount: new Prisma.Decimal(100),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(100),
+            status: InvoiceStatus.ISSUED,
+            isLocked: true,
+            issuedAt: new Date("2026-06-02T00:00:00.000Z"),
+          },
+        });
+        await db.invoiceLineItem.create({
+          data: {
+            invoiceId: adjustment.id,
+            lineType: InvoiceLineType.ADD_ON,
+            description: "B1-style additive change",
+            quantity: 1,
+            unitPrice: new Prisma.Decimal(100),
+            lineTotal: new Prisma.Decimal(100),
+            sortOrder: 0,
+          },
+        });
+        const creditNote = await db.invoice.create({
+          data: {
+            publicId: "INV-SUMMARY-B1STYLE-CN",
+            invoiceNumber: "INV-SUMMARY-B1STYLE-CN",
+            financialCaseId: fixture.financialCaseId,
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            jobId: fixture.jobId,
+            orderId: fixture.orderId,
+            bookingId: fixture.bookingId,
+            customerId: fixture.customerId,
+            parentInvoiceId: fixture.finalInvoiceId,
+            totalAmount: new Prisma.Decimal(10),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(0),
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            issuedAt: new Date("2026-06-02T00:05:00.000Z"),
+            closedAt: new Date("2026-06-02T00:05:00.000Z"),
+          },
+        });
+        await db.invoiceLineItem.create({
+          data: {
+            invoiceId: creditNote.id,
+            lineType: InvoiceLineType.MANUAL_DISCOUNT,
+            description: "B1-style removal",
+            quantity: 1,
+            unitPrice: new Prisma.Decimal(10),
+            lineTotal: new Prisma.Decimal(10),
+            sortOrder: 0,
+          },
+        });
+
+        const settlement = await computeCustomerSettlement({
+          financialCaseId: fixture.financialCaseId,
+        });
+
+        assert.equal(settlement?.netCustomerTotal, 250);
+        assert.equal(settlement.cashPaid, 160);
+        assert.equal(settlement.remainingDue, 90);
+        assert.equal(settlement.availableCredit, 0);
+        assertSettlementIdentity(settlement);
       });
 
       await t.test("missing FinancialCase resolves to null", async () => {
@@ -248,3 +392,15 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
     }
   });
 });
+
+function assertSettlementIdentity(settlement: {
+  netCustomerTotal: number;
+  cashPaid: number;
+  remainingDue: number;
+  availableCredit: number;
+}) {
+  assert.equal(
+    Number((settlement.netCustomerTotal - settlement.cashPaid).toFixed(3)),
+    Number((settlement.remainingDue - settlement.availableCredit).toFixed(3))
+  );
+}

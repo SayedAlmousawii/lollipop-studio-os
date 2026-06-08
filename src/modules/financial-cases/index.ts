@@ -1,4 +1,13 @@
 export { getFinancialCaseSummary } from "./financial-case-summary.service";
+export {
+  computeCustomerSettlement,
+} from "./customer-settlement.service";
+export {
+  deriveCustomerSettlementFromActiveSummary,
+  deriveCustomerSettlementFromFinancialCaseSummary,
+  getNetCustomerTotal,
+  type CustomerSettlementSummary,
+} from "./customer-settlement.calculation";
 export { FINANCIAL_CASE_PAYMENT_STATUS_LABELS } from "./financial-case-summary.constants";
 export { getOrdersTableFinancialProjections } from "./orders-table-projections.service";
 export type {

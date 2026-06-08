@@ -10,6 +10,9 @@ import {
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { withRetry } from "@/lib/retry";
+import {
+  deriveCustomerSettlementFromFinancialCaseSummary,
+} from "@/modules/financial-cases/customer-settlement.calculation";
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
 import { ORDER_EDIT_MODE_MESSAGES } from "@/modules/orders/policies/edit-mode-policy";
 import {
@@ -553,16 +556,17 @@ function paymentStateFromFinancialCaseSummary(
       currentRemainingAmount: 0,
       creditNoteCapacity: 0,
       overpaymentCapacity: 0,
-      availableCaseCredit: 0,
+      availableCredit: 0,
     };
   }
+  const settlement = deriveCustomerSettlementFromFinancialCaseSummary(summary);
 
   return {
     alreadyPaidAmount: summary.effectivePaid,
-    currentRemainingAmount: summary.remaining,
+    currentRemainingAmount: settlement.remainingDue,
     creditNoteCapacity: summary.creditNoteCapacity,
     overpaymentCapacity: summary.overpaymentCapacity,
-    availableCaseCredit: summary.availableCaseCredit,
+    availableCredit: settlement.availableCredit,
   };
 }
 

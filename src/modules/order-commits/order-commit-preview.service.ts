@@ -1,5 +1,8 @@
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
 import {
+  deriveCustomerSettlementFromFinancialCaseSummary,
+} from "@/modules/financial-cases/customer-settlement.calculation";
+import {
   ORDER_COMMIT_PREVIEW_BASELINE_SOURCE,
 } from "./order-commit-preview.constants";
 import {
@@ -137,10 +140,11 @@ async function loadOrderCommitPreviewFinancialState(input: {
         currentRemainingAmount: 0,
         creditNoteCapacity: 0,
         overpaymentCapacity: 0,
-        availableCaseCredit: 0,
+        availableCredit: 0,
       },
     };
   }
+  const settlement = deriveCustomerSettlementFromFinancialCaseSummary(summary);
 
   return {
     finalInvoiceMode: summary.finalInvoice.isLocked
@@ -148,10 +152,10 @@ async function loadOrderCommitPreviewFinancialState(input: {
       : "REBUILD_UNLOCKED",
     paymentState: {
       alreadyPaidAmount: summary.effectivePaid,
-      currentRemainingAmount: summary.remaining,
+      currentRemainingAmount: settlement.remainingDue,
       creditNoteCapacity: summary.creditNoteCapacity,
       overpaymentCapacity: summary.overpaymentCapacity,
-      availableCaseCredit: summary.availableCaseCredit,
+      availableCredit: settlement.availableCredit,
     },
   };
 }
