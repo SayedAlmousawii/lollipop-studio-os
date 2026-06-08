@@ -340,19 +340,18 @@ export function OrderCommitReviewDialogBody({
 
 export function getOrderCommitReviewTotals(
   preview: SalesPagePreviewState,
-  financialPreview: SalesPageFinancialPreview
+  _financialPreview: SalesPageFinancialPreview
 ): {
   previousTotal: number;
   pendingDelta: number;
   pendingTotal: number;
 } {
+  void _financialPreview;
+
   return {
-    previousTotal:
-      financialPreview.overlay.previousTotal ?? preview.totals.baselineTotal,
-    pendingDelta:
-      financialPreview.overlay.pendingDelta ?? preview.totals.netDelta,
-    pendingTotal:
-      financialPreview.overlay.pendingTotal ?? preview.totals.pendingTotal,
+    previousTotal: preview.totals.baselineTotal,
+    pendingDelta: preview.totals.netDelta,
+    pendingTotal: preview.totals.pendingTotal,
   };
 }
 

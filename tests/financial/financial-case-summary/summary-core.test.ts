@@ -34,6 +34,7 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         {
           getFinancialCaseSummary,
           computeCustomerSettlement,
+          toCustomerSettlementSummary,
         },
         {
           makeAdjustedBookingFixture,
@@ -232,6 +233,51 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         assertSettlementIdentity(settlement);
       });
 
+      await t.test("customer settlement projection splits in-credit receipt line", async () => {
+        const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "RCRD01",
+          depositPaidAmount: 0,
+          finalTotal: 200,
+          finalPaymentAmount: 200,
+          finalRemainingAmount: 0,
+        });
+        assert.ok(fixture.finalInvoiceId);
+        await db.invoice.create({
+          data: {
+            publicId: "INV-SUMMARY-RECEIPT-CREDIT-CN",
+            invoiceNumber: "INV-SUMMARY-RECEIPT-CREDIT-CN",
+            financialCaseId: fixture.financialCaseId,
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            jobId: fixture.jobId,
+            orderId: fixture.orderId,
+            bookingId: fixture.bookingId,
+            customerId: fixture.customerId,
+            parentInvoiceId: fixture.finalInvoiceId,
+            totalAmount: new Prisma.Decimal(50),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(0),
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            issuedAt: new Date("2026-06-01T00:00:00.000Z"),
+            closedAt: new Date("2026-06-01T00:00:00.000Z"),
+          },
+        });
+
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
+        });
+        assert.equal(summary?.stage, "active");
+
+        const projection = toCustomerSettlementSummary(summary);
+        assert.ok(projection);
+        assert.equal(projection.mode, "clean");
+        assert.equal(projection.netCustomerTotal, 150);
+        assert.equal(projection.cashPaid, 200);
+        assert.equal(projection.remainingDue, 0);
+        assert.equal(projection.availableCredit, 50);
+        assert.equal(projection.refundable, 50);
+      });
+
       await t.test("customer settlement does not treat unpaid raw credit as available", async () => {
         const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
           suffix: "UNPAIDCN",
@@ -272,6 +318,16 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         assert.equal(settlement.remainingDue, 200);
         assert.equal(settlement.availableCredit, 0);
         assertSettlementIdentity(settlement);
+
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
+        });
+        assert.equal(summary?.stage, "active");
+        const projection = toCustomerSettlementSummary(summary);
+        assert.ok(projection);
+        assert.equal(projection.mode, "clean");
+        assert.equal(projection.remainingDue, 200);
+        assert.equal(projection.availableCredit, undefined);
       });
 
       await t.test("customer settlement reconciles B1-style add and removal documents", async () => {
@@ -353,6 +409,66 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         assert.equal(settlement.remainingDue, 90);
         assert.equal(settlement.availableCredit, 0);
         assertSettlementIdentity(settlement);
+
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
+        });
+        assert.equal(summary?.stage, "active");
+        const projection = toCustomerSettlementSummary(summary);
+        assert.ok(projection);
+        assert.equal(projection.mode, "clean");
+        assert.equal(projection.netCustomerTotal, 250);
+        assert.equal(projection.cashPaid, 160);
+        assert.equal(projection.remainingDue, 90);
+        assert.equal(projection.availableCredit, undefined);
+      });
+
+      await t.test("customer settlement projection uses corrected draft amount due", async () => {
+        const fixture = await makeFinancialCaseSummaryOrderFixture(db, {
+          suffix: "RDRF01",
+          depositPaidAmount: 0,
+          finalTotal: 200,
+          finalPaymentAmount: 200,
+          finalRemainingAmount: 0,
+        });
+        assert.ok(fixture.finalInvoiceId);
+        await db.invoice.create({
+          data: {
+            publicId: "INV-SUMMARY-RECEIPT-DRAFT-CN",
+            invoiceNumber: "INV-SUMMARY-RECEIPT-DRAFT-CN",
+            financialCaseId: fixture.financialCaseId,
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            jobId: fixture.jobId,
+            orderId: fixture.orderId,
+            bookingId: fixture.bookingId,
+            customerId: fixture.customerId,
+            parentInvoiceId: fixture.finalInvoiceId,
+            totalAmount: new Prisma.Decimal(50),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(0),
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            issuedAt: new Date("2026-06-01T00:00:00.000Z"),
+            closedAt: new Date("2026-06-01T00:00:00.000Z"),
+          },
+        });
+        const summary = await getFinancialCaseSummary({
+          financialCaseId: fixture.financialCaseId,
+        });
+        assert.equal(summary?.stage, "active");
+
+        const projection = toCustomerSettlementSummary(summary, {
+          previousTotal: 150,
+          pendingDelta: 30,
+          afterCommitTotal: 180,
+          amountDueAfterCommit: 0,
+        });
+        assert.equal(projection?.mode, "draft");
+        if (projection?.mode !== "draft") {
+          throw new Error("Expected draft projection");
+        }
+        assert.equal(projection.availableCredit, 50);
+        assert.equal(projection.amountDueAfterCommit, 0);
       });
 
       await t.test("missing FinancialCase resolves to null", async () => {

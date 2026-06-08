@@ -1,9 +1,10 @@
 # Credit Settlement Application — Plan & Investigation
 
 > Status: **B1 removing-side settlement implemented. B2 adding-side available-credit
-> consumption implemented.** B3 canonical settlement projection remains pending.
-> This is a **prerequisite for Phase 7** (the Sales redesign's financial summary
-> cannot be honest without it). Does **not** reopen the OrderCommit financial math.
+> consumption implemented. B2C overpayment-backed correction implemented. B3 canonical
+> settlement projection implemented.** The settlement arc is complete; Phase 7's Sales
+> financial summary may now build on the canonical customer settlement summary. Does
+> **not** reopen the OrderCommit financial math.
 
 ---
 
@@ -243,8 +244,14 @@ adding-side preview onto the financial-owned customer-settlement figures (overpa
 `availableCredit` + model-A `remainingDue`), so phantom removal-credit on an unpaid order no
 longer offsets a later addition. The shared sweep (document-level) is unchanged.
 
-**Order of remaining work:** 156 · B3 (receipt-style customer summary contract + Sales
-repoint) is next, because its draft `amountDueAfterCommit` consumes B2C's corrected preview.
+**Implemented (Spec 156 · B3):** the financial module now exposes the receipt-style
+customer settlement projection over B2C's customer-settlement core. Sales renders the
+clean/draft contract verbatim (`netCustomerTotal`, `cashPaid`, `remainingDue`, optional
+overpayment-backed `availableCredit`/`refundable`, and draft `amountDueAfterCommit`) and no
+longer assembles customer-facing settlement from document/accounting fields.
+
+**Settlement arc status:** complete. The remaining financial-plan work is the separate
+accountant-facing document/register presentation, not the Sales receipt summary.
 
 ### Customer-facing effect
 

@@ -672,39 +672,25 @@ function stagedRowsFixture(): SalesPageStagedChangesRow[] {
   ];
 }
 
-function financialPreviewFixture(
-  overlay: Partial<SalesPageFinancialPreview["overlay"]> = {}
-): SalesPageFinancialPreview {
+function financialPreviewFixture(_input: unknown = {}): SalesPageFinancialPreview {
+  void _input;
+
   return {
-    baseline: {
-      stage: "active",
+    stage: "active",
+    financialCaseId: "case-1",
+    settlement: {
+      mode: "draft",
       financialCaseId: "case-1",
-      depositInvoice: null,
-      finalInvoice: null,
-      finalizedAdjustments: [],
-      creditNotes: [],
-      refunds: [],
-      customerTotal: 100,
-      finalTotal: 100,
-      depositApplied: 0,
-      paidSoFar: 100,
-      effectivePaid: 100,
-      remaining: 0,
-      totalAdjustments: 0,
-      outstandingAmount: 0,
-      isFullySettled: true,
-      paymentStatusEnum: null,
-      collectPaymentTargetInvoiceId: null,
+      netCustomerTotal: 100,
+      cashPaid: 100,
+      remainingDue: 0,
+      previousTotal: 100,
+      pendingDelta: -15,
+      afterCommitTotal: 85,
+      amountDueAfterCommit: 0,
     },
-    overlay: {
-      previousTotal: overlay.previousTotal ?? 100,
-      pendingDelta: overlay.pendingDelta ?? -15,
-      pendingTotal: overlay.pendingTotal ?? 85,
-      requiresApproval: overlay.requiresApproval ?? false,
-      approvalReasons: overlay.approvalReasons ?? [],
-      documentPlan: overlay.documentPlan ?? null,
-      paymentImpact: overlay.paymentImpact ?? null,
-      refundImpact: overlay.refundImpact ?? null,
-    },
+    isFullySettled: true,
+    paymentStatusEnum: null,
+    collectPaymentTargetInvoiceId: null,
   };
 }

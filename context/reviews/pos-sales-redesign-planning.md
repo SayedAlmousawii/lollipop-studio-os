@@ -25,6 +25,10 @@ Lean toward our **current** design; borrow selectively from the mockup. **No tab
 - **Right:** two **read-only glance cards** — a live **Order summary ("customer receipt")** and a **simplified Financial summary**.
 - **Shell:** fixed, with only the panel(s) scrolling (no whole-page scroll).
 
+**Financial summary data source:** Spec 156 B3 is implemented. The right-column financial
+card should consume the financial-owned `CustomerSettlementSummary` receipt projection
+instead of reassembling totals from `FinancialCaseSummary` document/accounting fields.
+
 **Emerging interaction pattern:** *every row is a collapsible row* — some expand to reveal info/actions, some don't. Becoming the app-wide standard; specifics TBD as we build.
 
 ## Mockup → adopt inventory (UI/layout only)

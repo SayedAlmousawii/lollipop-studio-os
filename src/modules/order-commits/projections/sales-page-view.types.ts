@@ -1,5 +1,6 @@
 import type { UserRole } from "@prisma/client";
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
+import type { CustomerSettlementSummaryProjection } from "@/modules/financial-cases/projections";
 import type { DraftPOSCompositionProjection } from "@/modules/orders/composition/projections/to-draft-pos-composition";
 import type { OrderSelectionStatus, OrderStatus } from "@prisma/client";
 import type { OrderCommitPreview } from "../order-commit-preview.types";
@@ -69,41 +70,14 @@ export type SalesPageStagedChangesRow = {
 };
 
 export type SalesPageFinancialPreview = {
-  baseline: {
-    stage: FinancialCaseSummary["stage"];
-    financialCaseId: string;
-    depositInvoice: FinancialCaseSummary["depositInvoice"];
-    finalInvoice: Extract<FinancialCaseSummary, { stage: "active" }>["finalInvoice"] | null;
-    finalizedAdjustments: Extract<
-      FinancialCaseSummary,
-      { stage: "active" }
-    >["finalizedAdjustments"];
-    creditNotes: Extract<FinancialCaseSummary, { stage: "active" }>["creditNotes"];
-    refunds: Extract<FinancialCaseSummary, { stage: "active" }>["refunds"];
-    customerTotal: number | null;
-    finalTotal: number | null;
-    depositApplied: number | null;
-    paidSoFar: number | null;
-    effectivePaid: number | null;
-    remaining: number | null;
-    totalAdjustments: number | null;
-    outstandingAmount: number | null;
-    isFullySettled: boolean;
-    paymentStatusEnum:
-      | Extract<FinancialCaseSummary, { stage: "active" }>["paymentStatusEnum"]
-      | null;
-    collectPaymentTargetInvoiceId: string | null;
-  };
-  overlay: {
-    previousTotal: number | null;
-    pendingDelta: number | null;
-    pendingTotal: number | null;
-    requiresApproval: boolean | null;
-    approvalReasons: OrderCommitPreview["approvalReasons"] | null;
-    documentPlan: OrderCommitPreview["documentPlan"] | null;
-    paymentImpact: OrderCommitPreview["paymentImpact"] | null;
-    refundImpact: OrderCommitPreview["refundImpact"] | null;
-  };
+  stage: FinancialCaseSummary["stage"];
+  financialCaseId: string;
+  settlement: CustomerSettlementSummaryProjection | null;
+  isFullySettled: boolean;
+  paymentStatusEnum:
+    | Extract<FinancialCaseSummary, { stage: "active" }>["paymentStatusEnum"]
+    | null;
+  collectPaymentTargetInvoiceId: string | null;
 };
 
 export type SalesPagePermissionFlags = {

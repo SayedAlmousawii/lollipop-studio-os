@@ -1,4 +1,5 @@
 import type { FinancialCaseSummary } from "@/modules/financial-cases/financial-case-summary.types";
+import { toCustomerSettlementSummary } from "@/modules/financial-cases/projections";
 import type { OrderCommitPreview } from "../order-commit-preview.types";
 import type { SalesPageFinancialPreview } from "./sales-page-view.types";
 
@@ -13,64 +14,30 @@ export function toSalesPageFinancialPreview({
   preview,
   financialCase,
 }: ToSalesPageFinancialPreviewInput): SalesPageFinancialPreview {
-  const baseline =
-    financialCase.stage === "active"
-      ? {
-          stage: financialCase.stage,
-          financialCaseId: financialCase.financialCaseId,
-          depositInvoice: financialCase.depositInvoice,
-          finalInvoice: financialCase.finalInvoice,
-          finalizedAdjustments: financialCase.finalizedAdjustments,
-          creditNotes: financialCase.creditNotes,
-          refunds: financialCase.refunds,
-          customerTotal: financialCase.customerTotal,
-          finalTotal: financialCase.finalTotal,
-          depositApplied: financialCase.depositApplied,
-          paidSoFar: financialCase.paidSoFar,
-          effectivePaid: financialCase.effectivePaid,
-          remaining: financialCase.remaining,
-          totalAdjustments: financialCase.totalAdjustments,
-          outstandingAmount: financialCase.remaining,
-          isFullySettled:
-            financialCase.paymentStatusEnum === "PAID" &&
-            financialCase.remaining <= SETTLEMENT_EPSILON,
-          paymentStatusEnum: financialCase.paymentStatusEnum,
-          collectPaymentTargetInvoiceId:
-            findNextUnsettledChargeInvoiceId(financialCase),
-        }
-      : {
-          stage: financialCase.stage,
-          financialCaseId: financialCase.financialCaseId,
-          depositInvoice: financialCase.depositInvoice,
-          finalInvoice: null,
-          finalizedAdjustments: [],
-          creditNotes: [],
-          refunds: [],
-          customerTotal: null,
-          finalTotal: null,
-          depositApplied: null,
-          paidSoFar: null,
-          effectivePaid: null,
-          remaining: null,
-          totalAdjustments: null,
-          outstandingAmount: null,
-          isFullySettled: false,
-          paymentStatusEnum: null,
-          collectPaymentTargetInvoiceId: null,
-        };
-
   return {
-    baseline,
-    overlay: {
-      previousTotal: preview?.totals.baselineTotal ?? null,
-      pendingDelta: preview?.totals.netDelta ?? null,
-      pendingTotal: preview?.totals.pendingTotal ?? null,
-      requiresApproval: preview?.requiresApproval ?? null,
-      approvalReasons: preview?.approvalReasons ?? null,
-      documentPlan: preview?.documentPlan ?? null,
-      paymentImpact: preview?.paymentImpact ?? null,
-      refundImpact: preview?.refundImpact ?? null,
-    },
+    stage: financialCase.stage,
+    financialCaseId: financialCase.financialCaseId,
+    settlement: toCustomerSettlementSummary(
+      financialCase,
+      preview
+        ? {
+            previousTotal: preview.totals.baselineTotal,
+            pendingDelta: preview.totals.netDelta,
+            afterCommitTotal: preview.totals.pendingTotal,
+            amountDueAfterCommit: preview.paymentImpact.amountDue,
+          }
+        : null
+    ),
+    isFullySettled:
+      financialCase.stage === "active" &&
+      financialCase.paymentStatusEnum === "PAID" &&
+      financialCase.remaining <= SETTLEMENT_EPSILON,
+    paymentStatusEnum:
+      financialCase.stage === "active" ? financialCase.paymentStatusEnum : null,
+    collectPaymentTargetInvoiceId:
+      financialCase.stage === "active"
+        ? findNextUnsettledChargeInvoiceId(financialCase)
+        : null,
   };
 }
 

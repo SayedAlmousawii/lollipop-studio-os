@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import Module from "node:module";
+import { join } from "node:path";
 import test from "node:test";
 import { InvoiceStatus, InvoiceType, OrderSelectionStatus, OrderStatus } from "@prisma/client";
 import { createElement, type ComponentType } from "react";
@@ -43,7 +45,7 @@ let paymentDialogPropsCapture:
     }>
   | undefined;
 
-test("OrderCommitFinancialSidebar renders baseline and overlay from financial preview", async () => {
+test("OrderCommitFinancialSidebar renders canonical receipt and draft fields", async () => {
   const OrderCommitFinancialSidebar = await loadOrderCommitFinancialSidebar();
   const workspace = workspaceFixture();
   const financialPreview = financialPreviewFixture();
@@ -58,57 +60,38 @@ test("OrderCommitFinancialSidebar renders baseline and overlay from financial pr
   );
 
   assert.match(markup, /Financial Preview/);
-  assert.match(markup, /Baseline/);
-  assert.match(markup, /Customer total/);
+  assert.match(markup, /Receipt/);
+  assert.match(markup, /Order total \(net\)/);
   assert.match(markup, /321.000 KD/);
-  assert.match(markup, /Deposit applied/);
-  assert.match(markup, /50.000 KD/);
-  assert.match(markup, /Paid so far/);
-  assert.match(markup, /125.000 KD/);
-  assert.match(markup, /Effective paid/);
+  assert.match(markup, /Cash paid/);
   assert.match(markup, /140.000 KD/);
-  assert.match(markup, /Remaining/);
-  assert.match(markup, /176.000 KD/);
+  assert.match(markup, /Remaining due/);
+  assert.match(markup, /181.000 KD/);
   assert.match(markup, /Previous total/);
   assert.match(markup, /100.000 KD/);
   assert.match(markup, /Pending delta/);
-  assert.match(markup, /\+44.000 KD/);
+  assert.match(markup, /44.000 KD/);
   assert.match(markup, /After commit/);
   assert.match(markup, /144.000 KD/);
+  assert.match(markup, /Amount due after commit/);
+  assert.doesNotMatch(markup, /Customer total/);
+  assert.doesNotMatch(markup, /Paid so far/);
+  assert.doesNotMatch(markup, /Effective paid/);
+  assert.doesNotMatch(markup, /Document plan/);
 });
 
-test("OrderCommitFinancialSidebar renders document payment refund and approval impact", async () => {
+test("OrderCommitFinancialSidebar renders in-credit split as a positive receipt line", async () => {
   const OrderCommitFinancialSidebar = await loadOrderCommitFinancialSidebar();
   const workspace = workspaceFixture();
   const financialPreview = financialPreviewFixture({
-    overlay: {
-      requiresApproval: true,
-      approvalReasons: [
-        {
-          code: "manager_approval",
-          message: "Manager approval is required.",
-        },
-      ],
-      documentPlan: {
-        kind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE,
-        amount: 25,
-        requiresPaymentCollection: false,
-        requiresRefundReview: true,
-        reason: "Credit note required.",
-      },
-      paymentImpact: {
-        kind: ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.CREDIT_AVAILABLE,
-        amountDue: 0,
-        creditAmount: 25,
-        alreadyPaidAmount: 125,
-        remainingAfterCommit: -25,
-      },
-      refundImpact: {
-        refundRequired: true,
-        refundableAmount: 10,
-        creditNoteAmount: 25,
-        reason: "Refund review required.",
-      },
+    settlement: {
+      mode: "clean",
+      financialCaseId: "financial-case-1",
+      netCustomerTotal: 150,
+      cashPaid: 200,
+      remainingDue: 0,
+      availableCredit: 50,
+      refundable: 50,
     },
   });
 
@@ -122,32 +105,23 @@ test("OrderCommitFinancialSidebar renders document payment refund and approval i
     })
   );
 
-  assert.match(markup, /Approval required/);
-  assert.match(markup, /Manager approval is required/);
-  assert.match(markup, /Document plan/);
-  assert.match(markup, /Credit Note/);
-  assert.match(markup, /Credit note required/);
-  assert.match(markup, /Payment impact/);
-  assert.match(markup, /Credit Available/);
-  assert.match(markup, /Already paid/);
-  assert.match(markup, /Refund impact/);
-  assert.match(markup, /Review needed/);
-  assert.match(markup, /Refund review required/);
+  assert.match(markup, /Remaining due/);
+  assert.match(markup, /0.000 KD/);
+  assert.match(markup, /Available credit \/ refundable/);
+  assert.match(markup, /50.000 KD/);
+  assert.doesNotMatch(markup, /-50.000 KD/);
 });
 
-test("OrderCommitFinancialSidebar keeps no-preview state baseline-only", async () => {
+test("OrderCommitFinancialSidebar keeps clean state receipt-only", async () => {
   const OrderCommitFinancialSidebar = await loadOrderCommitFinancialSidebar();
   const workspace = workspaceFixture();
   const financialPreview = financialPreviewFixture({
-    overlay: {
-      previousTotal: null,
-      pendingDelta: null,
-      pendingTotal: null,
-      requiresApproval: null,
-      approvalReasons: null,
-      documentPlan: null,
-      paymentImpact: null,
-      refundImpact: null,
+    settlement: {
+      mode: "clean",
+      financialCaseId: "financial-case-1",
+      netCustomerTotal: 321,
+      cashPaid: 140,
+      remainingDue: 181,
     },
   });
 
@@ -161,8 +135,7 @@ test("OrderCommitFinancialSidebar keeps no-preview state baseline-only", async (
     })
   );
 
-  assert.match(markup, /Customer total/);
-  assert.match(markup, /No staged preview yet/);
+  assert.match(markup, /Order total \(net\)/);
   assert.doesNotMatch(markup, /Previous total/);
   assert.doesNotMatch(markup, /Document plan/);
   assert.doesNotMatch(markup, /Payment impact/);
@@ -181,13 +154,8 @@ test("OrderCommitFinancialSidebar preserves single-target invoice affordance beh
     invoice: null,
   });
   const fullySettledPreview = financialPreviewFixture({
-    baseline: {
-      ...financialPreviewFixture().baseline,
-      remaining: 0,
-      outstandingAmount: 0,
-      isFullySettled: true,
-      collectPaymentTargetInvoiceId: null,
-    },
+    isFullySettled: true,
+    collectPaymentTargetInvoiceId: null,
   });
 
   const payableMarkup = renderToStaticMarkup(
@@ -223,7 +191,7 @@ test("OrderCommitFinancialSidebar preserves single-target invoice affordance beh
   assert.match(noInvoiceMarkup, /Create Invoice/);
 });
 
-test("OrderCommitFinancialSidebar renders case documents and targets open adjustments", async () => {
+test("OrderCommitFinancialSidebar targets open adjustments without rendering accounting documents", async () => {
   const paymentDialogProps: Array<{
     targets?: Array<{ invoiceId: string }>;
     defaultTargetInvoiceId?: string;
@@ -243,57 +211,8 @@ test("OrderCommitFinancialSidebar renders case documents and targets open adjust
     adjustmentInvoices: [adjustmentInvoice],
   });
   const financialPreview = financialPreviewFixture({
-    baseline: {
-      ...financialPreviewFixture().baseline,
-      finalInvoice: {
-        id: "final-1",
-        invoiceNumber: "INV-1",
-        invoiceType: InvoiceType.FINAL,
-        total: 300,
-        remaining: 0,
-        status: InvoiceStatus.CLOSED,
-        isLocked: true,
-        depositPaidAmount: 50,
-      },
-      finalizedAdjustments: [
-        {
-          id: "adjustment-1",
-          invoiceNumber: "ADJ-1",
-          invoiceType: InvoiceType.ADJUSTMENT,
-          total: 42,
-          remaining: 42,
-          status: InvoiceStatus.ISSUED,
-          isLocked: true,
-        },
-      ],
-      creditNotes: [
-        {
-          id: "credit-1",
-          invoiceNumber: "CN-1",
-          invoiceType: InvoiceType.CREDIT_NOTE,
-          total: -8,
-          remaining: 0,
-          status: InvoiceStatus.CLOSED,
-          isLocked: true,
-        },
-      ],
-      refunds: [
-        {
-          id: "refund-1",
-          invoiceNumber: "REF-1",
-          invoiceType: InvoiceType.REFUND,
-          total: -3,
-          remaining: 0,
-          status: InvoiceStatus.CLOSED,
-          isLocked: true,
-        },
-      ],
-      remaining: 42,
-      outstandingAmount: 42,
-      totalAdjustments: 42,
-      isFullySettled: false,
-      collectPaymentTargetInvoiceId: "adjustment-1",
-    },
+    isFullySettled: false,
+    collectPaymentTargetInvoiceId: "adjustment-1",
   });
 
   const markup = renderToStaticMarkup(
@@ -308,12 +227,12 @@ test("OrderCommitFinancialSidebar renders case documents and targets open adjust
 
   assert.match(markup, /Partial/);
   assert.match(markup, /Reference #INV-1/);
-  assert.match(markup, /Adjustments/);
-  assert.match(markup, /ADJ-1/);
-  assert.match(markup, /Credit notes/);
-  assert.match(markup, /CN-1/);
-  assert.match(markup, /Refunds/);
-  assert.match(markup, /REF-1/);
+  assert.doesNotMatch(markup, /Adjustments/);
+  assert.doesNotMatch(markup, /ADJ-1/);
+  assert.doesNotMatch(markup, /Credit notes/);
+  assert.doesNotMatch(markup, /CN-1/);
+  assert.doesNotMatch(markup, /Refunds/);
+  assert.doesNotMatch(markup, /REF-1/);
   assert.doesNotMatch(markup, /Fully Paid/);
   assert.equal(paymentDialogProps[0]?.defaultTargetInvoiceId, "adjustment-1");
   assert.deepEqual(
@@ -321,6 +240,23 @@ test("OrderCommitFinancialSidebar renders case documents and targets open adjust
     ["adjustment-1"]
   );
   paymentDialogPropsCapture = undefined;
+});
+
+test("OrderCommitFinancialSidebar source stays receipt-only and service-free", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/components/orders/order-commit-financial-sidebar.tsx"),
+    "utf8"
+  );
+
+  assert.doesNotMatch(source, /@\/lib\/db/);
+  assert.doesNotMatch(source, /formatSignedMoney/);
+  assert.doesNotMatch(source, /customerTotal/);
+  assert.doesNotMatch(source, /paidSoFar/);
+  assert.doesNotMatch(source, /effectivePaid/);
+  assert.doesNotMatch(source, /outstandingAmount/);
+  assert.doesNotMatch(source, /totalAdjustments/);
+  assert.doesNotMatch(source, /remainingAfterCommit/);
+  assert.doesNotMatch(source, /documentPlan|paymentImpact|refundImpact/);
 });
 
 async function loadOrderCommitFinancialSidebar(): Promise<OrderCommitFinancialSidebarComponent> {
@@ -370,70 +306,25 @@ function financialPreviewFixture(
   input: Partial<SalesPageFinancialPreview> = {}
 ): SalesPageFinancialPreview {
   return {
-    baseline: input.baseline ?? {
-      stage: "active",
+    stage: input.stage ?? "active",
+    financialCaseId: input.financialCaseId ?? "financial-case-1",
+    settlement: input.settlement ?? {
+      mode: "draft",
       financialCaseId: "financial-case-1",
-      depositInvoice: {
-        id: "deposit-1",
-        invoiceNumber: "DEP-1",
-        total: 50,
-        status: InvoiceStatus.PAID,
-        isLocked: true,
-        paidAmount: 50,
-      },
-      finalInvoice: {
-        id: "final-1",
-        invoiceNumber: "INV-1",
-        invoiceType: InvoiceType.FINAL,
-        total: 300,
-        remaining: 176,
-        status: InvoiceStatus.ISSUED,
-        isLocked: false,
-        depositPaidAmount: 50,
-      },
-      customerTotal: 321,
-      finalTotal: 300,
-      depositApplied: 50,
-      paidSoFar: 125,
-      effectivePaid: 140,
-      remaining: 176,
-      finalizedAdjustments: [],
-      creditNotes: [],
-      refunds: [],
-      totalAdjustments: 0,
-      outstandingAmount: 176,
-      isFullySettled: false,
-      paymentStatusEnum: "PARTIAL",
-      collectPaymentTargetInvoiceId: "final-1",
-    },
-    overlay: {
+      netCustomerTotal: 321,
+      cashPaid: 140,
+      remainingDue: 181,
       previousTotal: 100,
       pendingDelta: 44,
-      pendingTotal: 144,
-      requiresApproval: false,
-      approvalReasons: [],
-      documentPlan: {
-        kind: ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.ADJUSTMENT_INVOICE,
-        amount: 44,
-        requiresPaymentCollection: true,
-        requiresRefundReview: false,
-        reason: null,
-      },
-      paymentImpact: {
-        kind: ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND.PAYMENT_DUE,
-        amountDue: 44,
-        creditAmount: 0,
-        alreadyPaidAmount: 125,
-        remainingAfterCommit: 44,
-      },
-      refundImpact: {
-        refundRequired: false,
-        refundableAmount: 0,
-        creditNoteAmount: 0,
-        reason: null,
-      },
-      ...input.overlay,
+      afterCommitTotal: 144,
+      amountDueAfterCommit: 44,
     },
+    isFullySettled: input.isFullySettled ?? false,
+    paymentStatusEnum: input.paymentStatusEnum ?? "PARTIAL",
+    collectPaymentTargetInvoiceId:
+      input.collectPaymentTargetInvoiceId === undefined
+        ? "final-1"
+        : input.collectPaymentTargetInvoiceId,
   };
 }
 

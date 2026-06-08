@@ -248,14 +248,14 @@ test("staged changes panel stays display-only", () => {
 });
 
 test("OrderCommit financial sidebar stays display-only", () => {
-  assert.match(orderCommitFinancialSidebarSource, /financialPreview\.baseline/);
-  assert.match(orderCommitFinancialSidebarSource, /financialPreview\.overlay/);
+  assert.match(orderCommitFinancialSidebarSource, /financialPreview\.settlement/);
   assert.match(orderCommitFinancialSidebarSource, /Previous total/);
   assert.match(orderCommitFinancialSidebarSource, /Pending delta/);
   assert.match(orderCommitFinancialSidebarSource, /After commit/);
-  assert.match(orderCommitFinancialSidebarSource, /Document plan/);
-  assert.match(orderCommitFinancialSidebarSource, /Payment impact/);
-  assert.match(orderCommitFinancialSidebarSource, /Refund impact/);
+  assert.match(orderCommitFinancialSidebarSource, /Amount due after commit/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /Document plan/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /Payment impact/);
+  assert.doesNotMatch(orderCommitFinancialSidebarSource, /Refund impact/);
   assert.doesNotMatch(orderCommitFinancialSidebarSource, /@\/lib\/db/);
   assert.doesNotMatch(orderCommitFinancialSidebarSource, /commitOrderChanges/);
   assert.doesNotMatch(orderCommitFinancialSidebarSource, /AdjustmentWorkspace/);
@@ -270,7 +270,6 @@ test("OrderCommit financial sidebar stays display-only", () => {
 test("OrderCommit review dialog receives display DTOs without line-diff arithmetic", () => {
   assert.match(orderCommitReviewDialogSource, /draft\.version/);
   assert.match(orderCommitReviewDialogSource, /stagedChanges\.map/);
-  assert.match(orderCommitReviewDialogSource, /financialPreview\.overlay\.previousTotal/);
   assert.match(orderCommitReviewDialogSource, /preview\.totals\.baselineTotal/);
   assert.doesNotMatch(orderCommitReviewDialogSource, /@\/lib\/db/);
   assert.doesNotMatch(orderCommitReviewDialogSource, /commitOrderChanges/);
