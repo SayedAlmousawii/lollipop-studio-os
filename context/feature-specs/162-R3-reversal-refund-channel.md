@@ -59,13 +59,21 @@ overpayment mechanism (where REFUND children reduce `computeOverpaymentCapacity`
 - **REFUND invoice parents to the credit note** (`parentInvoiceId = creditNote.id`) for the
   reversal channel. The OUT payment closes the REFUND invoice exactly as today.
 - **`computeCreditNoteAvailable` is extended to also subtract REFUND children** parented to the
-  credit note:
+  credit note (an **aggregate** `_sum` over `parentInvoiceId = CN`, so *N* partial refunds are
+  natively summed — no first/final-refund special case):
   `available = totalAmount − Σ source applications − Σ (REFUND children).totalAmount`.
   This single change makes the drawable pool the *single source of truth* for "value not yet
   spent as settlement or refund," so the sweep automatically excludes refunded value — no
   double-spend.
 - **Capacity for a credit-note-sourced refund = `computeCreditNoteAvailable(CN)`** (post-sweep),
   not `computeOverpaymentCapacity`.
+- **Atomicity (multiple partial refunds / concurrency guard).** The credit-note refund path must
+  **lock the credit-note row (`FOR UPDATE`) and recompute `computeCreditNoteAvailable` inside the
+  same transaction** before applying the cap — mirroring `appendCreditApplicationWithClient`'s
+  lock when the sweep draws the pool (invoice.service ~l.2687). The model supports any number of
+  partial refunds interleaved with settlements over time; the identity
+  `total = Σsettlements + Σrefunds + drawable` is order-independent, but the cap must be evaluated
+  against committed state so two concurrent draws cannot both pass a stale check.
 - `refundOfPaymentId = null` (locked decision #2) — the value is sourced from the credit-note
   balance, not a specific prior IN payment.
 
@@ -112,9 +120,12 @@ netting REFUND children reuses the proven overpayment mechanics and touches less
 - **Invariant updates:**
   - `refund-source-is-final-or-adjustment` → also allow a **CREDIT_NOTE** parent when its
     `creditOrigin ∈ {REVERSAL, REMOVAL}`.
-  - `refund-amount-not-over-source` → for a CREDIT_NOTE source, compare the refund total against
-    the credit note's total (drawable conservation: Σ settlements + Σ refunds ≤ total), instead of
-    inbound payment allocations (which are zero on a credit note). Keep the FINAL/ADJ branch as-is.
+  - `refund-amount-not-over-source` → for a CREDIT_NOTE source, assert the **conservation
+    identity directly**: `computeCreditNoteAvailable(CN) ≥ 0`, i.e.
+    `Σ settlements + Σ refunds ≤ total`. (This is stronger than "refund total ≤ CN total," which
+    ignores settlements — the example showed the weaker form would let settlements + refunds
+    exceed the total.) Inbound payment allocations are zero on a credit note, so that branch does
+    not apply. Keep the FINAL/ADJ branch as-is.
   - `refund-trace-points-to-inbound-payment` → **unchanged** (it only checks non-null
     `refundOfPaymentId`; the null-linked reversal refund passes as written — verify with a test).
   - Regenerate the invariant catalog; check `reconciliation-invariants.ts` for any refund-source
@@ -172,6 +183,12 @@ netting REFUND children reuses the proven overpayment mechanics and touches less
 - **Paid reversal with a partial open receivable:** the sweep settles the receivable, and only the
   post-sweep remainder is refunded from the credit note — no double-spend (the refunded balance is
   not re-drawn by a subsequent sweep, proving the `computeCreditNoteAvailable` change).
+- **Multiple partial refunds interleaved with settlements:** a single credit note can take several
+  partial refunds over time, interleaved with settlements, and the conservation identity
+  `total = Σsettlements + Σrefunds + drawable` holds at every step; each draw is capped at the live
+  drawable (a draw exceeding it is rejected), and `computeCreditNoteAvailable(CN) ≥ 0` always.
+- **Concurrency:** two refunds racing on the same credit note cannot over-draw — the second
+  serializes behind the first's `FOR UPDATE` lock and is capped against committed state.
 - **No `CAUSE_REVERSAL` is emitted** by any path (assert zero new `CAUSE_REVERSAL` applications
   across the reversal tests) — the precondition for R4.
 - **Genuine cash overpayment** still refunds via `computeOverpaymentCapacity` on the FINAL/ADJ,
