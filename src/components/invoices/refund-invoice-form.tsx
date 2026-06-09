@@ -20,12 +20,18 @@ type RefundInvoiceFormProps = {
   action: RefundFormAction;
   overpaymentCapacity: string;
   sourcePayments: SourcePayment[];
+  capacityLabel?: string;
+  hideOriginalPayment?: boolean;
+  submitLabel?: string;
 };
 
 export function RefundInvoiceForm({
   action,
   overpaymentCapacity,
   sourcePayments,
+  capacityLabel = "overpayment capacity",
+  hideOriginalPayment = false,
+  submitLabel = "Issue Refund",
 }: RefundInvoiceFormProps) {
   const capacityValue = formatMoneyInputValue(overpaymentCapacity);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +40,7 @@ export function RefundInvoiceForm({
     const amount = Number(amountInput.value);
     const capacity = Number(capacityValue);
     if (Number.isFinite(amount) && amount > capacity) {
-      const message = `Cannot refund more than ${capacityValue} KD (overpayment capacity).`;
+      const message = `Cannot refund more than ${capacityValue} KD (${capacityLabel}).`;
       amountInput.setCustomValidity(message);
       setError(message);
       return message;
@@ -84,22 +90,24 @@ export function RefundInvoiceForm({
         <Label htmlFor="refund-reason">Reason</Label>
         <Textarea id="refund-reason" name="reason" required />
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="refund-of-payment">Original Payment</Label>
-        <select
-          id="refund-of-payment"
-          name="refundOfPaymentId"
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          defaultValue={sourcePayments.length === 1 ? sourcePayments[0].id : ""}
-        >
-          <option value="">Unattributed</option>
-          {sourcePayments.map((payment) => (
-            <option key={payment.id} value={payment.id}>
-              {payment.publicId} · {payment.amount} · {payment.method}
-            </option>
-          ))}
-        </select>
-      </div>
+      {hideOriginalPayment ? null : (
+        <div className="space-y-2">
+          <Label htmlFor="refund-of-payment">Original Payment</Label>
+          <select
+            id="refund-of-payment"
+            name="refundOfPaymentId"
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-text-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            defaultValue={sourcePayments.length === 1 ? sourcePayments[0].id : ""}
+          >
+            <option value="">Unattributed</option>
+            {sourcePayments.map((payment) => (
+              <option key={payment.id} value={payment.id}>
+                {payment.publicId} · {payment.amount} · {payment.method}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="space-y-2">
         <Label htmlFor="refund-method">Payment Method</Label>
         <select
@@ -119,7 +127,7 @@ export function RefundInvoiceForm({
         <Input id="refund-reference" name="reference" />
       </div>
       <Button type="submit" className="w-full">
-        Issue Refund
+        {submitLabel}
       </Button>
     </form>
   );

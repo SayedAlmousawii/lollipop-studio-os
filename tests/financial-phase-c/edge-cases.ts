@@ -875,7 +875,17 @@ async function runEc41InvoiceNumberPrefixes(
   fixtures: PhaseCFixtures
 ): Promise<void> {
   const workflow = await buildLockedFinalInvoiceWorkflowFixture(db, fixtures, "ec41");
-  await createAddOnAdjustmentInvoice(db, fixtures, workflow, fixtures.addOnProductId);
+  const adjustment = await createAddOnAdjustmentInvoice(
+    db,
+    fixtures,
+    workflow,
+    fixtures.addOnProductId
+  );
+  await recordPayment(
+    adjustment.id,
+    { amount: 50, method: PaymentMethod.CASH, paymentType: PaymentType.ADJUSTMENT },
+    fixtures.adminActor
+  );
   const finalPayment = await firstPayment(db, workflow.finalInvoiceId, PaymentType.FINAL);
   const creditNote = await createCreditNote({
     targetFinalInvoiceId: workflow.finalInvoiceId,

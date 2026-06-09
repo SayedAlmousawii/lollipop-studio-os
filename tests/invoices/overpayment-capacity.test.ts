@@ -6,7 +6,9 @@ import process from "node:process";
 import test from "node:test";
 import {
   BookingStatus,
+  CreditOrigin,
   DocumentApplicationKind,
+  InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
   PaymentDirection,
@@ -243,6 +245,195 @@ test("invoice overpayment capacity bounds refunds to true overpayment", async (t
           assert.equal(capacity.toFixed(3), "5.000");
         });
 
+        await t.test("worked case 4 refunds paid reversal credit from the CN", async () => {
+          const scenario = await createSpec164CreditNoteScenario(db, invoices, fixture, "spec164-a", {
+            finalTotal: "160",
+            finalCash: "160",
+            adjustmentTotal: "100",
+            adjustmentCash: "100",
+            creditNoteTotal: "100",
+          });
+
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "100.000"
+          );
+          assert.notEqual(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "260.000"
+          );
+          assert.equal(
+            (await invoices.computeCreditNoteAvailable(scenario.creditNoteId, db)).toFixed(3),
+            "100.000"
+          );
+          const detail = await invoices.getInvoiceById(scenario.creditNoteId);
+          assert.equal(detail?.creditNoteRefundable, "100.000 KD");
+          assert.equal(
+            refundUtils.shouldShowRefundForm(detail?.creditNoteRefundable ?? null),
+            true
+          );
+
+          const result = await refunds.issueRefundWithPayment({
+            sourceInvoiceId: scenario.creditNoteId,
+            amount: new Prisma.Decimal(100),
+            reason: "Spec 164 worked case 4",
+            createdByUserId: fixture.managerId,
+            method: PaymentMethod.CASH,
+          });
+          const refundInvoice = await db.invoice.findUniqueOrThrow({
+            where: { id: result.refundInvoiceId },
+            select: { parentInvoiceId: true, invoiceType: true },
+          });
+          const refundPayment = await db.payment.findUniqueOrThrow({
+            where: { id: result.refundPaymentId },
+            select: { direction: true, refundOfPaymentId: true },
+          });
+
+          assert.equal(refundInvoice.invoiceType, InvoiceType.REFUND);
+          assert.equal(refundInvoice.parentInvoiceId, scenario.creditNoteId);
+          assert.equal(refundPayment.direction, PaymentDirection.OUT);
+          assert.equal(refundPayment.refundOfPaymentId, null);
+          assert.equal(
+            (await invoices.computeCreditNoteAvailable(scenario.creditNoteId, db)).toFixed(3),
+            "0.000"
+          );
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "0.000"
+          );
+        });
+
+        await t.test("unpaid-origin reversal has drawable credit but no cash refund", async () => {
+          const scenario = await createSpec164CreditNoteScenario(db, invoices, fixture, "spec164-b", {
+            finalTotal: "160",
+            finalCash: "160",
+            adjustmentTotal: "100",
+            adjustmentCash: "0",
+            creditNoteTotal: "100",
+          });
+
+          assert.equal(
+            (await invoices.computeCreditNoteAvailable(scenario.creditNoteId, db)).toFixed(3),
+            "100.000"
+          );
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "0.000"
+          );
+          const detail = await invoices.getInvoiceById(scenario.creditNoteId);
+          assert.equal(detail?.creditNoteRefundable, "0.000 KD");
+          assert.equal(
+            refundUtils.shouldShowRefundForm(detail?.creditNoteRefundable ?? null),
+            false
+          );
+        });
+
+        await t.test("partial settlement leaves only cash-backed CN remainder refundable", async () => {
+          const scenario = await createSpec164CreditNoteScenario(db, invoices, fixture, "spec164-c", {
+            finalTotal: "160",
+            finalCash: "160",
+            adjustmentTotal: "100",
+            adjustmentCash: "20",
+            creditNoteTotal: "100",
+            creditSettlementToAdjustment: "60",
+          });
+
+          assert.equal(
+            (await invoices.computeCreditNoteAvailable(scenario.creditNoteId, db)).toFixed(3),
+            "40.000"
+          );
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "20.000"
+          );
+          const detail = await invoices.getInvoiceById(scenario.creditNoteId);
+          assert.equal(detail?.creditNoteRefundable, "20.000 KD");
+          await assert.rejects(
+            () =>
+              refunds.issueRefundWithPayment({
+                sourceInvoiceId: scenario.creditNoteId,
+                amount: new Prisma.Decimal("20.001"),
+                reason: "Spec 164 over capped partial CN refund",
+                createdByUserId: fixture.managerId,
+                method: PaymentMethod.CASH,
+              }),
+            /credit note refundable balance 20\.000 KD/
+          );
+        });
+
+        await t.test("credit settlement does not masquerade as refundable cash", async () => {
+          const scenario = await createSpec164CreditNoteScenario(db, invoices, fixture, "spec164-d", {
+            finalTotal: "160",
+            finalCash: "160",
+            adjustmentTotal: "100",
+            adjustmentCash: "0",
+            creditNoteTotal: "200",
+            creditSettlementToAdjustment: "100",
+            priorCashRefund: "40",
+          });
+
+          assert.equal(
+            (await invoices.computeCreditNoteAvailable(scenario.creditNoteId, db)).toFixed(3),
+            "100.000"
+          );
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "60.000"
+          );
+          const detail = await invoices.getInvoiceById(scenario.creditNoteId);
+          assert.equal(detail?.creditNoteRefundable, "60.000 KD");
+        });
+
+        await t.test("genuine overpayment and CN refunds share the case cash ceiling", async () => {
+          const scenario = await createCrossChannelRefundScenario(
+            db,
+            invoices,
+            fixture,
+            "spec164-e"
+          );
+
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "50.000"
+          );
+
+          await refunds.issueRefundWithPayment({
+            sourceInvoiceId: scenario.finalInvoiceId,
+            amount: new Prisma.Decimal(20),
+            reason: "Spec 164 genuine overpayment refund",
+            createdByUserId: fixture.managerId,
+            method: PaymentMethod.CASH,
+          });
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "30.000"
+          );
+
+          await refunds.issueRefundWithPayment({
+            sourceInvoiceId: scenario.creditNoteId,
+            amount: new Prisma.Decimal(30),
+            reason: "Spec 164 credit note refund",
+            createdByUserId: fixture.managerId,
+            method: PaymentMethod.KNET,
+          });
+          assert.equal(
+            (await invoices.caseNetCashOverpayment(scenario.financialCaseId, db)).toFixed(3),
+            "0.000"
+          );
+
+          await assert.rejects(
+            () =>
+              refunds.issueRefundWithPayment({
+                sourceInvoiceId: scenario.finalInvoiceId,
+                amount: new Prisma.Decimal("0.001"),
+                reason: "Spec 164 exhausted cross-channel refund",
+                createdByUserId: fixture.managerId,
+                method: PaymentMethod.CASH,
+              }),
+            /exceeds overpayment capacity 0\.000 KD/
+          );
+        });
+
         await db.$disconnect();
       } finally {
         if (previousDatabaseUrl === undefined) {
@@ -470,6 +661,340 @@ async function createSourceInvoice(
   }
 
   return invoice;
+}
+
+async function createSpec164CreditNoteScenario(
+  db: PrismaClient,
+  invoices: typeof import("@/modules/invoices/invoice.service"),
+  fixture: Awaited<ReturnType<typeof seedOverpaymentFixture>>,
+  suffix: string,
+  options: {
+    finalTotal: string;
+    finalCash: string;
+    adjustmentTotal: string;
+    adjustmentCash: string;
+    creditNoteTotal: string;
+    creditSettlementToAdjustment?: string;
+    priorCashRefund?: string;
+  }
+) {
+  const { customer, booking, financialCase } = await createSpec164CaseShell(
+    db,
+    fixture,
+    suffix
+  );
+  const finalTotal = new Prisma.Decimal(options.finalTotal);
+  const finalCash = new Prisma.Decimal(options.finalCash);
+  const adjustmentTotal = new Prisma.Decimal(options.adjustmentTotal);
+  const adjustmentCash = new Prisma.Decimal(options.adjustmentCash);
+
+  const finalInvoice = await db.invoice.create({
+    data: {
+      publicId: `INV-SPEC164-FINAL-${suffix}`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.FINAL,
+      bookingId: booking.id,
+      customerId: customer.id,
+      invoiceNumber: `INV-SPEC164-FINAL-${suffix}`,
+      totalAmount: finalTotal,
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: Prisma.Decimal.max(finalTotal.minus(finalCash), 0),
+      status: finalCash.gte(finalTotal) ? InvoiceStatus.CLOSED : InvoiceStatus.PARTIAL,
+      isLocked: true,
+      issuedAt: new Date(),
+      closedAt: finalCash.gte(finalTotal) ? new Date() : null,
+    },
+  });
+  await createInboundPayment(
+    db,
+    financialCase.id,
+    finalInvoice.id,
+    `${suffix}-final`,
+    options.finalCash
+  );
+
+  const adjustment = await db.invoice.create({
+    data: {
+      publicId: `INV-SPEC164-ADJ-${suffix}`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.ADJUSTMENT,
+      bookingId: booking.id,
+      customerId: customer.id,
+      parentInvoiceId: finalInvoice.id,
+      invoiceNumber: `INV-SPEC164-ADJ-${suffix}`,
+      totalAmount: adjustmentTotal,
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: Prisma.Decimal.max(adjustmentTotal.minus(adjustmentCash), 0),
+      status: adjustmentCash.gte(adjustmentTotal)
+        ? InvoiceStatus.CLOSED
+        : adjustmentCash.gt(0)
+          ? InvoiceStatus.PARTIAL
+          : InvoiceStatus.ISSUED,
+      isLocked: adjustmentCash.gte(adjustmentTotal),
+      issuedAt: new Date(),
+      closedAt: adjustmentCash.gte(adjustmentTotal) ? new Date() : null,
+    },
+  });
+  const adjustmentLine = await db.invoiceLineItem.create({
+    data: {
+      invoiceId: adjustment.id,
+      lineType: InvoiceLineType.ADD_ON,
+      description: `Spec 164 adjustment ${suffix}`,
+      quantity: 1,
+      unitPrice: adjustmentTotal,
+      lineTotal: adjustmentTotal,
+      sortOrder: 0,
+    },
+  });
+  if (adjustmentCash.gt(0)) {
+    await createInboundPayment(
+      db,
+      financialCase.id,
+      adjustment.id,
+      `${suffix}-adjustment`,
+      options.adjustmentCash,
+      PaymentType.ADJUSTMENT
+    );
+  }
+
+  const creditNote = await db.invoice.create({
+    data: {
+      publicId: `CN-SPEC164-${suffix}`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      bookingId: booking.id,
+      customerId: customer.id,
+      parentInvoiceId: adjustment.id,
+      invoiceNumber: `CN-SPEC164-${suffix}`,
+      totalAmount: new Prisma.Decimal(options.creditNoteTotal),
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      creditOrigin: CreditOrigin.REVERSAL,
+      reversesInvoiceLineId: adjustmentLine.id,
+      issuedAt: new Date(),
+      closedAt: new Date(),
+      lineItems: {
+        create: [
+          {
+            lineType: InvoiceLineType.MANUAL_DISCOUNT,
+            description: `Spec 164 reversal ${suffix}`,
+            quantity: 1,
+            unitPrice: new Prisma.Decimal(options.creditNoteTotal),
+            lineTotal: new Prisma.Decimal(options.creditNoteTotal),
+            sortOrder: 0,
+          },
+        ],
+      },
+    },
+  });
+
+  if (options.creditSettlementToAdjustment) {
+    await invoices.appendCreditApplication(
+      {
+        creditNoteId: creditNote.id,
+        targetInvoiceId: adjustment.id,
+        kind: DocumentApplicationKind.SETTLEMENT,
+        amount: new Prisma.Decimal(options.creditSettlementToAdjustment),
+        appliedByUserId: fixture.managerId,
+      },
+      db
+    );
+  }
+
+  if (options.priorCashRefund) {
+    await createOutboundRefundPayment(
+      db,
+      financialCase.id,
+      finalInvoice.id,
+      booking.id,
+      customer.id,
+      suffix,
+      options.priorCashRefund
+    );
+  }
+
+  return {
+    financialCaseId: financialCase.id,
+    finalInvoiceId: finalInvoice.id,
+    adjustmentId: adjustment.id,
+    creditNoteId: creditNote.id,
+  };
+}
+
+async function createCrossChannelRefundScenario(
+  db: PrismaClient,
+  invoices: typeof import("@/modules/invoices/invoice.service"),
+  fixture: Awaited<ReturnType<typeof seedOverpaymentFixture>>,
+  suffix: string
+) {
+  const { customer, booking, financialCase } = await createSpec164CaseShell(
+    db,
+    fixture,
+    suffix
+  );
+  const finalInvoice = await db.invoice.create({
+    data: {
+      publicId: `INV-SPEC164-FINAL-${suffix}`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.FINAL,
+      bookingId: booking.id,
+      customerId: customer.id,
+      invoiceNumber: `INV-SPEC164-FINAL-${suffix}`,
+      totalAmount: new Prisma.Decimal(250),
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      issuedAt: new Date(),
+      closedAt: new Date(),
+    },
+  });
+  await createInboundPayment(
+    db,
+    financialCase.id,
+    finalInvoice.id,
+    `${suffix}-final`,
+    "250"
+  );
+
+  const goodwillCreditNote = await db.invoice.create({
+    data: {
+      publicId: `CN-SPEC164-GOODWILL-${suffix}`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      bookingId: booking.id,
+      customerId: customer.id,
+      parentInvoiceId: finalInvoice.id,
+      invoiceNumber: `CN-SPEC164-GOODWILL-${suffix}`,
+      totalAmount: new Prisma.Decimal(20),
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      creditOrigin: CreditOrigin.GOODWILL,
+      issuedAt: new Date(),
+      closedAt: new Date(),
+    },
+  });
+  await invoices.appendCreditApplication(
+    {
+      creditNoteId: goodwillCreditNote.id,
+      targetInvoiceId: finalInvoice.id,
+      kind: DocumentApplicationKind.SETTLEMENT,
+      amount: new Prisma.Decimal(20),
+      appliedByUserId: fixture.managerId,
+    },
+    db
+  );
+
+  const removalCreditNote = await db.invoice.create({
+    data: {
+      publicId: `CN-SPEC164-REMOVAL-${suffix}`,
+      financialCaseId: financialCase.id,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      bookingId: booking.id,
+      customerId: customer.id,
+      parentInvoiceId: finalInvoice.id,
+      invoiceNumber: `CN-SPEC164-REMOVAL-${suffix}`,
+      totalAmount: new Prisma.Decimal(30),
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      creditOrigin: CreditOrigin.REMOVAL,
+      issuedAt: new Date(),
+      closedAt: new Date(),
+    },
+  });
+
+  return {
+    financialCaseId: financialCase.id,
+    finalInvoiceId: finalInvoice.id,
+    creditNoteId: removalCreditNote.id,
+  };
+}
+
+async function createSpec164CaseShell(
+  db: PrismaClient,
+  fixture: Awaited<ReturnType<typeof seedOverpaymentFixture>>,
+  suffix: string
+) {
+  const customer = await db.customer.create({
+    data: {
+      id: `spec164-customer-${suffix}`,
+      name: `Spec 164 Customer ${suffix}`,
+      phone: `+965-spec164-${suffix}`,
+    },
+  });
+  const booking = await db.booking.create({
+    data: {
+      id: `spec164-booking-${suffix}`,
+      customerId: customer.id,
+      departmentId: fixture.departmentId,
+      sessionDate: new Date("2026-05-16T09:00:00.000Z"),
+      sessionTime: "12:00",
+      status: BookingStatus.CONFIRMED,
+    },
+  });
+  const financialCase = await db.financialCase.create({
+    data: {
+      id: `spec164-case-${suffix}`,
+      bookingId: booking.id,
+      customerId: customer.id,
+    },
+  });
+
+  return { customer, booking, financialCase };
+}
+
+async function createOutboundRefundPayment(
+  db: PrismaClient,
+  financialCaseId: string,
+  sourceInvoiceId: string,
+  bookingId: string,
+  customerId: string,
+  suffix: string,
+  amount: string
+): Promise<void> {
+  const refundInvoice = await db.invoice.create({
+    data: {
+      publicId: `REF-SPEC164-${suffix}`,
+      financialCaseId,
+      invoiceType: InvoiceType.REFUND,
+      bookingId,
+      customerId,
+      parentInvoiceId: sourceInvoiceId,
+      invoiceNumber: `REF-SPEC164-${suffix}`,
+      totalAmount: new Prisma.Decimal(amount),
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      issuedAt: new Date(),
+      closedAt: new Date(),
+    },
+  });
+  const payment = await db.payment.create({
+    data: {
+      publicId: `PAY-SPEC164-OUT-${suffix}`,
+      financialCaseId,
+      invoiceId: refundInvoice.id,
+      amount: new Prisma.Decimal(amount),
+      direction: PaymentDirection.OUT,
+      method: PaymentMethod.CASH,
+      paymentType: PaymentType.REFUND,
+    },
+  });
+
+  await db.paymentAllocation.create({
+    data: {
+      paymentId: payment.id,
+      invoiceId: refundInvoice.id,
+      amount: new Prisma.Decimal(amount),
+    },
+  });
 }
 
 async function createInboundPayment(

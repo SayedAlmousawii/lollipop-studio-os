@@ -12,7 +12,6 @@ import {
   InvoiceStatus,
   InvoiceType,
   OrderStatus,
-  PaymentDirection,
   PaymentMethod,
   Prisma,
   type Invoice,
@@ -392,37 +391,24 @@ test("credit-note available balance is derived from append-only applications", a
           "2.000"
         );
 
-        const refundResult = await issueRefundWithPayment(
-          {
-            sourceInvoiceId: drawableReversalCreditNote.id,
-            amount: new Prisma.Decimal("1.250"),
-            reason: "Spec 162 direct credit-note refund",
-            createdByUserId: manager.id,
-            method: PaymentMethod.CASH,
-          },
-          db
+        await assert.rejects(
+          () =>
+            issueRefundWithPayment(
+              {
+                sourceInvoiceId: drawableReversalCreditNote.id,
+                amount: new Prisma.Decimal("1.250"),
+                reason: "Spec 164 unpaid-origin credit-note refund",
+                createdByUserId: manager.id,
+                method: PaymentMethod.CASH,
+              },
+              db
+            ),
+          /credit note refundable balance 0\.000 KD/
         );
         assert.equal(
           (await computeCreditNoteAvailable(drawableReversalCreditNote.id, db)).toFixed(3),
-          "0.750"
+          "2.000"
         );
-        const refundInvoice = await db.invoice.findUniqueOrThrow({
-          where: { id: refundResult.refundInvoiceId },
-          select: {
-            invoiceType: true,
-            parentInvoiceId: true,
-            totalAmount: true,
-          },
-        });
-        assert.equal(refundInvoice.invoiceType, InvoiceType.REFUND);
-        assert.equal(refundInvoice.parentInvoiceId, drawableReversalCreditNote.id);
-        assert.equal(refundInvoice.totalAmount.toFixed(3), "1.250");
-        const refundPayment = await db.payment.findUniqueOrThrow({
-          where: { id: refundResult.refundPaymentId },
-          select: { direction: true, refundOfPaymentId: true },
-        });
-        assert.equal(refundPayment.direction, PaymentDirection.OUT);
-        assert.equal(refundPayment.refundOfPaymentId, null);
 
         await assert.rejects(
           () =>
@@ -436,7 +422,7 @@ test("credit-note available balance is derived from append-only applications", a
               },
               db
             ),
-          /credit note drawable balance/
+          /credit note refundable balance 0\.000 KD/
         );
 
         const interleavedCreditNote = await db.invoice.create({
@@ -485,19 +471,9 @@ test("credit-note available balance is derived from append-only applications", a
           },
           db
         );
-        await issueRefundWithPayment(
-          {
-            sourceInvoiceId: interleavedCreditNote.id,
-            amount: new Prisma.Decimal(3),
-            reason: "Spec 162 partial credit-note refund",
-            createdByUserId: manager.id,
-            method: PaymentMethod.CASH,
-          },
-          db
-        );
         assert.equal(
           (await computeCreditNoteAvailable(interleavedCreditNote.id, db)).toFixed(3),
-          "3.000"
+          "6.000"
         );
         const laterAdjustment = await createSyntheticAdjustment(
           db,
@@ -539,13 +515,13 @@ test("credit-note available balance is derived from append-only applications", a
         );
         assert.equal(
           (await computeCreditNoteAvailable(interleavedCreditNote.id, db)).toFixed(3),
-          "0.000"
+          "1.000"
         );
         const laterAdjustmentAfterSweep = await db.invoice.findUniqueOrThrow({
           where: { id: laterAdjustment.id },
           select: { remainingAmount: true },
         });
-        assert.equal(laterAdjustmentAfterSweep.remainingAmount.toFixed(3), "2.000");
+        assert.equal(laterAdjustmentAfterSweep.remainingAmount.toFixed(3), "0.000");
 
         await assert.rejects(
           () =>
