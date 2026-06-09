@@ -597,6 +597,7 @@ export async function syncOrderInvoiceForFinancialEdit(
           reason: creditReason,
           notes: `Auto-CREDIT_NOTE from order edit on ${new Date().toISOString()}`,
           createdByUserId: input.managerApprovedReductionByUserId!,
+          creditOrigin: CreditOrigin.REMOVAL,
         },
         client
       );

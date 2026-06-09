@@ -116,11 +116,6 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
     scope: "invoice",
     description: "Locked invoice frozen fields must match the latest lock snapshot.",
   },
-  "adjustment-has-no-document-application": {
-    id: "runtime-adjustment-has-no-document-application",
-    phase: "Phase D",
-    description: "Adjustment invoices cannot receive document applications except credit-note cause reversals or settlement applications.",
-  },
   "no-adjustment-without-classifier-source": {
     id: "runtime-no-adjustment-without-classifier-source",
     phase: "Sprint 1 (75b)",
@@ -150,17 +145,17 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
     scope: "invoice",
     description: "Refund invoice parents must be final or adjustment invoices.",
   },
-  "credit-note-targets-final": {
-    id: "runtime-credit-note-targets-final",
-    phase: "Phase F",
+  "valid-credit-origin": {
+    id: "runtime-valid-credit-origin",
+    phase: "Spec 160 R1",
     scope: "invoice",
-    description: "Credit notes must target final invoices or line-targeted adjustment reversals.",
+    description: "Credit notes must carry valid origin metadata, and reversal credits must reference a same-case invoice line.",
   },
-  "credit-note-has-document-application": {
-    id: "runtime-credit-note-has-document-application",
-    phase: "Phase F",
+  "credit-applications-conserve": {
+    id: "runtime-credit-applications-conserve",
+    phase: "Spec 160 R1",
     scope: "invoice",
-    description: "Credit notes must have at least one valid same-case document application.",
+    description: "Credit-note applications must stay same-case and cannot exceed the source credit-note total.",
   },
   "credit-note-pool-not-over-applied": {
     id: "runtime-credit-note-pool-not-over-applied",
@@ -192,11 +187,11 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
     scope: "invoice",
     description: "Fully paid final invoices must be closed and locked.",
   },
-  "classifier-reductions-have-matching-credit-note": {
-    id: "runtime-classifier-reductions-have-matching-credit-note",
-    phase: "Sprint 1 (75c)",
+  "classifier-reductions-have-origin": {
+    id: "runtime-classifier-reductions-have-origin",
+    phase: "Spec 160 R1",
     scope: "order",
-    description: "Classifier reductions must have matching credit notes and source activity.",
+    description: "Classifier reduction credit notes must carry reversal/removal origin and source activity.",
   },
 };
 

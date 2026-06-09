@@ -1,5 +1,6 @@
 import {
   BookingStatus,
+  CreditOrigin,
   DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
@@ -461,6 +462,7 @@ export async function seedPhaseAFinancialFixtures(
       remainingAmount: new Prisma.Decimal(0),
       status: InvoiceStatus.CLOSED,
       isLocked: true,
+      creditOrigin: CreditOrigin.GOODWILL,
       notes: "Phase A credit note",
       closedAt: new Date("2026-05-22T09:20:00.000Z"),
       lineItems: {
