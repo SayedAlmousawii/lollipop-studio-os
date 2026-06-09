@@ -156,7 +156,7 @@ export function InvoicesTable({ register }: InvoicesTableProps) {
             {invoices.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={13} className="h-24 text-center text-sm text-text-secondary">
-                  No financial documents yet.
+                  No financial documents match these filters.
                 </TableCell>
               </TableRow>
             ) : null}

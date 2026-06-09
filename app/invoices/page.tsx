@@ -1,14 +1,11 @@
 import { PageContainer } from "@/components/layout/page-container";
 import { InvoicesFilters } from "@/components/invoices/invoices-filters";
 import { InvoicesTable } from "@/components/invoices/invoices-table";
-import { getInvoices } from "@/modules/invoices/invoice.service";
+import { getInvoices, parseInvoiceFilters } from "@/modules/invoices/invoice.service";
 
 export default async function InvoicesPage(props: PageProps<"/invoices">) {
-  const searchParams = await props.searchParams;
-  const search = Array.isArray(searchParams.search)
-    ? searchParams.search[0]
-    : searchParams.search;
-  const register = await getInvoices({ search });
+  const filters = parseInvoiceFilters(await props.searchParams);
+  const register = await getInvoices(filters);
 
   return (
     <PageContainer>
@@ -22,7 +19,7 @@ export default async function InvoicesPage(props: PageProps<"/invoices">) {
           </p>
         </div>
 
-        <InvoicesFilters />
+        <InvoicesFilters currentFilters={filters} />
 
         <InvoicesTable register={register} />
       </div>

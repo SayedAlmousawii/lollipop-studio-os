@@ -38,7 +38,7 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
     try {
       const [
         { db },
-        { getInvoiceById, getInvoices },
+        { getInvoiceById, getInvoices, parseInvoiceFilters },
         { getFinancialCaseSummary, toInvoiceListRow },
         { makeFinancialCaseSummaryOrderFixture },
       ] = await Promise.all([
@@ -77,6 +77,7 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
           creditOrigin: CreditOrigin.GOODWILL,
           issuedAt: new Date("2026-05-15T10:00:00.000Z"),
           closedAt: new Date("2026-05-15T10:00:00.000Z"),
+          createdAt: new Date("2026-05-15T23:30:00.000Z"),
         },
       });
       await db.invoiceLineItem.create({
@@ -108,6 +109,7 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
           status: InvoiceStatus.PARTIAL,
           isLocked: false,
           issuedAt: new Date("2026-05-15T10:05:00.000Z"),
+          createdAt: new Date("2026-05-15T00:05:00.000Z"),
         },
       });
       await db.documentApplication.create({
@@ -167,6 +169,83 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
       assert.ok(projectedCreditNote);
       assert.equal(projectedCreditNote.paidAmount, 60);
       assert.equal(projectedCreditNote.remainingAmount, 40);
+
+      const adjustmentOnly = await getInvoices({
+        types: [InvoiceType.ADJUSTMENT],
+      });
+      assert.deepEqual(
+        adjustmentOnly.rows.map((row) => row.invoiceNumber),
+        ["ADJ-165"]
+      );
+      assert.equal(adjustmentOnly.subtotals.invoicedGross, "100.000 KD");
+      assert.equal(adjustmentOnly.subtotals.creditsIssued, "0.000 KD");
+      assert.equal(adjustmentOnly.subtotals.invoicedNet, "100.000 KD");
+      assert.equal(adjustmentOnly.subtotals.receivable, "40.000 KD");
+
+      const createdOnDay = await getInvoices({
+        createdFrom: "2026-05-15",
+        createdTo: "2026-05-15",
+      });
+      assert.deepEqual(
+        createdOnDay.rows.map((row) => row.invoiceNumber),
+        ["CN-165", "ADJ-165"]
+      );
+      assert.equal(createdOnDay.subtotals.invoicedGross, "100.000 KD");
+      assert.equal(createdOnDay.subtotals.creditsIssued, "(100.000 KD)");
+      assert.equal(createdOnDay.subtotals.invoicedNet, "0.000 KD");
+      assert.equal(createdOnDay.subtotals.receivable, "40.000 KD");
+
+      const outstandingOnly = await getInvoices({ outstandingOnly: true });
+      assert.deepEqual(
+        outstandingOnly.rows.map((row) => row.invoiceNumber),
+        ["ADJ-165"]
+      );
+      assert.equal(outstandingOnly.subtotals.receivable, "40.000 KD");
+
+      const searchAndType = await getInvoices({
+        search: "ADJ-165",
+        types: [InvoiceType.ADJUSTMENT],
+      });
+      assert.deepEqual(
+        searchAndType.rows.map((row) => row.invoiceNumber),
+        ["ADJ-165"]
+      );
+
+      const searchMismatch = await getInvoices({
+        search: "CN-165",
+        types: [InvoiceType.ADJUSTMENT],
+      });
+      assert.deepEqual(searchMismatch.rows, []);
+      assert.equal(searchMismatch.subtotals.invoicedGross, "0.000 KD");
+      assert.equal(searchMismatch.subtotals.creditsIssued, "0.000 KD");
+      assert.equal(searchMismatch.subtotals.invoicedNet, "0.000 KD");
+      assert.equal(searchMismatch.subtotals.receivable, "0.000 KD");
+
+      const parsedFilters = parseInvoiceFilters({
+        search: " ADJ-165 ",
+        type: ["NOPE", "SALE", "ADJUSTMENT", "ADJUSTMENT"],
+        from: "not-a-date",
+        to: "2026-05-15",
+        outstandingOnly: "true",
+      });
+      assert.deepEqual(parsedFilters, {
+        search: "ADJ-165",
+        types: [InvoiceType.ADJUSTMENT],
+        createdFrom: undefined,
+        createdTo: "2026-05-15",
+        outstandingOnly: true,
+        page: undefined,
+        pageSize: undefined,
+      });
+
+      const noMatches = await getInvoices({ types: [InvoiceType.REFUND] });
+      assert.deepEqual(noMatches.rows, []);
+      assert.equal(noMatches.subtotals.invoicedGross, "0.000 KD");
+      assert.equal(noMatches.subtotals.creditsIssued, "0.000 KD");
+      assert.equal(noMatches.subtotals.invoicedNet, "0.000 KD");
+      assert.equal(noMatches.subtotals.depositsPrepaid, "0.000 KD");
+      assert.equal(noMatches.subtotals.cashReceived, "0.000 KD");
+      assert.equal(noMatches.subtotals.receivable, "0.000 KD");
     } finally {
       if (previousDatabaseUrl === undefined) {
         delete process.env.DATABASE_URL;

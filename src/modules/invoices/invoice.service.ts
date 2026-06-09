@@ -59,6 +59,7 @@ import type {
 } from "./invoice.schema";
 import type {
   InvoiceDetail,
+  InvoiceFilters,
   InvoiceLineItem,
   InvoiceRegisterSubtotals,
   InvoiceRegisterView,
@@ -90,6 +91,14 @@ type InvoiceRegisterContext = {
     }>
   >;
 };
+
+const INVOICE_TYPE_FILTERS = new Set<InvoiceType>([
+  InvoiceType.DEPOSIT,
+  InvoiceType.FINAL,
+  InvoiceType.ADJUSTMENT,
+  InvoiceType.CREDIT_NOTE,
+  InvoiceType.REFUND,
+]);
 type SnapshotInvoiceLineItem = Omit<
   Prisma.InvoiceLineItemCreateManyInput,
   "invoiceId"
@@ -852,18 +861,56 @@ function buildOrderInvoiceSyncSummary({
   };
 }
 
+export function parseInvoiceFilters(filters: {
+  page?: string | string[];
+  pageSize?: string | string[];
+  search?: string | string[];
+  type?: string | string[];
+  from?: string | string[];
+  to?: string | string[];
+  outstandingOnly?: string | string[];
+}): InvoiceFilters {
+  const search = singleValue(filters.search)?.trim();
+  const types = arrayValues(filters.type)
+    .map((value) => value.trim())
+    .filter((value): value is InvoiceType =>
+      INVOICE_TYPE_FILTERS.has(value as InvoiceType)
+    );
+  const createdFrom = parseDateInput(singleValue(filters.from));
+  const createdTo = parseDateInput(singleValue(filters.to));
+  const outstandingOnly = singleValue(filters.outstandingOnly);
+  const page = parsePositiveInteger(singleValue(filters.page));
+  const pageSize = parsePositiveInteger(singleValue(filters.pageSize));
+
+  return {
+    page,
+    pageSize,
+    search: search ? search : undefined,
+    types: types.length > 0 ? [...new Set(types)] : undefined,
+    createdFrom,
+    createdTo,
+    outstandingOnly: outstandingOnly === "true" ? true : undefined,
+  };
+}
+
 export async function getInvoices({
   page = 1,
   pageSize = 50,
   search,
-}: {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-} = {}): Promise<InvoiceRegisterView> {
+  types,
+  createdFrom,
+  createdTo,
+  outstandingOnly,
+}: InvoiceFilters = {}): Promise<InvoiceRegisterView> {
   const safePage = Math.max(1, page);
   const safePageSize = Math.min(Math.max(1, pageSize), 100);
-  const where = buildInvoiceWhere(search);
+  const where = buildInvoiceWhere({
+    search,
+    types,
+    createdFrom,
+    createdTo,
+    outstandingOnly,
+  });
   const [rows, subtotalRows] = await withRetry(
     () =>
       Promise.all([
@@ -3803,17 +3850,25 @@ async function applyAdjustmentReversalsWithClient({
   return creditNotes;
 }
 
-function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput | undefined {
+function buildInvoiceWhere({
+  search,
+  types,
+  createdFrom,
+  createdTo,
+  outstandingOnly,
+}: InvoiceFilters): Prisma.InvoiceWhereInput | undefined {
+  const clauses: Prisma.InvoiceWhereInput[] = [];
   const trimmed = search?.trim();
-  if (!trimmed) return undefined;
-  const normalizedPhone = normalizePhoneSearch(trimmed);
-  const identifierFilter = {
-    startsWith: trimmed,
-    mode: Prisma.QueryMode.insensitive,
-  };
 
-  return {
-    OR: [
+  if (trimmed) {
+    const normalizedPhone = normalizePhoneSearch(trimmed);
+    const identifierFilter = {
+      startsWith: trimmed,
+      mode: Prisma.QueryMode.insensitive,
+    };
+
+    clauses.push({
+      OR: [
       { jobNumber: identifierFilter },
       { invoiceNumber: identifierFilter },
       ...(normalizedPhone
@@ -3830,8 +3885,31 @@ function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput
             },
           ]
         : []),
-    ],
-  };
+      ],
+    });
+  }
+
+  if (types?.length) {
+    clauses.push({ invoiceType: { in: types } });
+  }
+
+  const createdAt: Prisma.DateTimeFilter = {};
+  const from = parseDateStart(createdFrom);
+  const to = parseDateEnd(createdTo);
+  if (from) createdAt.gte = from;
+  if (to) createdAt.lte = to;
+  if (from || to) {
+    clauses.push({ createdAt });
+  }
+
+  if (outstandingOnly) {
+    clauses.push({
+      invoiceType: { in: [InvoiceType.FINAL, InvoiceType.ADJUSTMENT] },
+      remainingAmount: { gt: 0 },
+    });
+  }
+
+  return clauses.length > 0 ? { AND: clauses } : undefined;
 }
 
 function normalizePhoneSearch(value: string | undefined): string | undefined {
@@ -3846,6 +3924,76 @@ function normalizePhoneSearch(value: string | undefined): string | undefined {
 
   const normalized = trimmed.replace(/[\s\-().]/g, "");
   return normalized && normalized !== "+" ? normalized : undefined;
+}
+
+function singleValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function arrayValues(value: string | string[] | undefined): string[] {
+  if (value === undefined) {
+    return [];
+  }
+  return Array.isArray(value) ? value : [value];
+}
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parseDateInput(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const [yearText, monthText, dayText] = trimmed.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return undefined;
+  }
+
+  return trimmed;
+}
+
+function parseDateStart(value: string | undefined): Date | undefined {
+  const parsed = parseDateParts(value);
+  if (!parsed) return undefined;
+
+  return new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day, 0, 0, 0, 0));
+}
+
+function parseDateEnd(value: string | undefined): Date | undefined {
+  const parsed = parseDateParts(value);
+  if (!parsed) return undefined;
+
+  return new Date(
+    Date.UTC(parsed.year, parsed.month - 1, parsed.day, 23, 59, 59, 999)
+  );
+}
+
+function parseDateParts(
+  value: string | undefined
+): { year: number; month: number; day: number } | undefined {
+  const parsed = parseDateInput(value);
+  if (!parsed) return undefined;
+
+  const [year, month, day] = parsed.split("-").map(Number);
+  return { year, month, day };
 }
 
 export async function generateInvoiceNumber(
