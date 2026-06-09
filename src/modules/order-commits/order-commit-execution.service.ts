@@ -958,32 +958,71 @@ export async function emitOrderCommitFinancialDocuments(
   for (const reversals of groupAdjustmentReversals(
     emission.adjustmentReversals
   ).values()) {
-    const firstReversal = reversals[0];
-    if (!firstReversal) continue;
-    const creditNote = await dependencies.createCreditNoteWithClient(
-      {
-        targetAdjustmentInvoiceId: firstReversal.parentAdjustmentInvoiceId,
-        lines: reversals.map((reversal) => ({
-          lineType: InvoiceLineType.MANUAL_DISCOUNT,
-          description: reversal.description,
-          quantity: 1,
-          unitPrice: reversal.amount,
-          causeOrderEntityKind: reversal.causeOrderEntityKind,
-          causeOrderEntityId: reversal.causeOrderEntityId,
-          targetInvoiceId: reversal.parentAdjustmentInvoiceId,
-          targetInvoiceLineId: reversal.targetInvoiceLineId,
-        })),
-        reason: creditReasonForReversals(reversals),
-        createdByUserId:
-          input.approvalActorUserId ?? input.actorContext.actorUserId,
-        notes: "OrderCommit adjustment reversal credit note emission",
-      },
-      input.client
+    const drawableReversals = reversals.filter(
+      (reversal) => !reversal.requiresRefund
     );
-    emissions.push({
-      invoice: creditNote,
-      role: ORDER_COMMIT_DOCUMENT_ROLE.CREDIT_NOTE,
-    });
+    const refundableReversals = reversals.filter(
+      (reversal) => reversal.requiresRefund
+    );
+
+    const firstDrawableReversal = drawableReversals[0];
+    if (firstDrawableReversal) {
+      const creditNote = await dependencies.createCreditNoteWithClient(
+        {
+          targetAdjustmentInvoiceId:
+            firstDrawableReversal.parentAdjustmentInvoiceId,
+          lines: drawableReversals.map((reversal) => ({
+            lineType: InvoiceLineType.MANUAL_DISCOUNT,
+            description: reversal.description,
+            quantity: 1,
+            unitPrice: reversal.amount,
+            causeOrderEntityKind: reversal.causeOrderEntityKind,
+            causeOrderEntityId: reversal.causeOrderEntityId,
+          })),
+          reason: creditReasonForReversals(drawableReversals),
+          createdByUserId:
+            input.approvalActorUserId ?? input.actorContext.actorUserId,
+          notes: "OrderCommit drawable adjustment reversal credit note emission",
+          applicationMode: "UNAPPLIED",
+          creditOrigin: CreditOrigin.REVERSAL,
+          reversesInvoiceLineId: firstDrawableReversal.targetInvoiceLineId,
+        },
+        input.client
+      );
+      emissions.push({
+        invoice: creditNote,
+        role: ORDER_COMMIT_DOCUMENT_ROLE.CREDIT_NOTE,
+      });
+    }
+
+    const firstRefundableReversal = refundableReversals[0];
+    if (firstRefundableReversal) {
+      const creditNote = await dependencies.createCreditNoteWithClient(
+        {
+          targetAdjustmentInvoiceId:
+            firstRefundableReversal.parentAdjustmentInvoiceId,
+          lines: refundableReversals.map((reversal) => ({
+            lineType: InvoiceLineType.MANUAL_DISCOUNT,
+            description: reversal.description,
+            quantity: 1,
+            unitPrice: reversal.amount,
+            causeOrderEntityKind: reversal.causeOrderEntityKind,
+            causeOrderEntityId: reversal.causeOrderEntityId,
+            targetInvoiceId: reversal.parentAdjustmentInvoiceId,
+            targetInvoiceLineId: reversal.targetInvoiceLineId,
+          })),
+          reason: creditReasonForReversals(refundableReversals),
+          createdByUserId:
+            input.approvalActorUserId ?? input.actorContext.actorUserId,
+          notes: "OrderCommit adjustment reversal credit note emission",
+        },
+        input.client
+      );
+      emissions.push({
+        invoice: creditNote,
+        role: ORDER_COMMIT_DOCUMENT_ROLE.CREDIT_NOTE,
+      });
+    }
   }
 
   if (emission.creditNoteFinalLines.length > 0) {

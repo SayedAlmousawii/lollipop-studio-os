@@ -53,6 +53,15 @@ export async function runPhaseGFinancialReconciliation(
     "HIGH",
     corruptFixture.badCreditApplicationId
   );
+  assert.equal(
+    riskReport.violations.some((violation) =>
+      violation.affectedEntityIds.includes(
+        corruptFixture.validAdjustmentSettlementApplicationId
+      )
+    ),
+    false,
+    "invoice-level SETTLEMENT to ADJUSTMENT should be allowed"
+  );
   assertViolation(
     riskReport,
     "INV-PREFIX",
@@ -93,6 +102,7 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
   parentAdjustmentInvoiceId: string;
   chainedAdjustmentInvoiceId: string;
   badCreditApplicationId: string;
+  validAdjustmentSettlementApplicationId: string;
   badPrefixAdjustmentInvoiceId: string;
 }> {
   const sourceInvoice = await db.invoice.findFirst({
@@ -186,8 +196,8 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
       bookingId: sourceInvoice.bookingId,
       customerId: sourceInvoice.customerId,
       invoiceNumber: `CN-RECON-${suffix}`,
-      totalAmount: new Prisma.Decimal("1.000"),
-      paidAmount: new Prisma.Decimal("1.000"),
+      totalAmount: new Prisma.Decimal("2.000"),
+      paidAmount: new Prisma.Decimal("2.000"),
       remainingAmount: new Prisma.Decimal("0.000"),
       status: InvoiceStatus.CLOSED,
       parentInvoiceId: sourceInvoice.id,
@@ -196,11 +206,22 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
     select: { id: true },
   });
 
-  const badCreditApplication = await db.documentApplication.create({
+  const validAdjustmentSettlementApplication = await db.documentApplication.create({
     data: {
       sourceInvoiceId: creditNote.id,
       targetInvoiceId: parentAdjustment.id,
       kind: DocumentApplicationKind.SETTLEMENT,
+      amountApplied: new Prisma.Decimal("1.000"),
+      notes: "Phase G fixture: valid adjustment settlement",
+    },
+    select: { id: true },
+  });
+
+  const badCreditApplication = await db.documentApplication.create({
+    data: {
+      sourceInvoiceId: creditNote.id,
+      targetInvoiceId: chainedAdjustmentInvoiceId,
+      kind: DocumentApplicationKind.CREDIT_TO_FINAL,
       amountApplied: new Prisma.Decimal("1.000"),
       notes: "Phase G fixture: deliberately invalid credit-note target",
     },
@@ -212,6 +233,8 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
     parentAdjustmentInvoiceId: parentAdjustment.id,
     chainedAdjustmentInvoiceId,
     badCreditApplicationId: badCreditApplication.id,
+    validAdjustmentSettlementApplicationId:
+      validAdjustmentSettlementApplication.id,
     badPrefixAdjustmentInvoiceId: badPrefixAdjustment.id,
   };
 }

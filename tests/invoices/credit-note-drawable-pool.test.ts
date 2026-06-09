@@ -353,6 +353,79 @@ test("credit-note available balance is derived from append-only applications", a
         assert.equal(storedRemovalCreditNote.reversesInvoiceLineId, null);
         assert.equal(storedRemovalCreditNote.documentApplicationsAsSource.length, 0);
 
+        const drawableReversalCreditNote = await createCreditNote(
+          {
+            targetAdjustmentInvoiceId: firstBulkTarget.id,
+            reason: "Spec 161 drawable reversal credit",
+            createdByUserId: manager.id,
+            lines: [
+              {
+                description: "Drawable reversal",
+                quantity: 1,
+                unitPrice: new Prisma.Decimal(2),
+              },
+            ],
+            applicationMode: "UNAPPLIED",
+            creditOrigin: CreditOrigin.REVERSAL,
+            reversesInvoiceLineId: firstBulkLine.id,
+          },
+          db
+        );
+        const storedDrawableReversal = await db.invoice.findUniqueOrThrow({
+          where: { id: drawableReversalCreditNote.id },
+          select: {
+            creditOrigin: true,
+            reversesInvoiceLineId: true,
+            documentApplicationsAsSource: true,
+          },
+        });
+        assert.equal(storedDrawableReversal.creditOrigin, CreditOrigin.REVERSAL);
+        assert.equal(storedDrawableReversal.reversesInvoiceLineId, firstBulkLine.id);
+        assert.equal(storedDrawableReversal.documentApplicationsAsSource.length, 0);
+
+        await assert.rejects(
+          () =>
+            createCreditNote(
+              {
+                targetAdjustmentInvoiceId: firstBulkTarget.id,
+                reason: "Invalid drawable reversal without provenance",
+                createdByUserId: manager.id,
+                lines: [
+                  {
+                    description: "Missing provenance",
+                    quantity: 1,
+                    unitPrice: new Prisma.Decimal(2),
+                  },
+                ],
+                applicationMode: "UNAPPLIED",
+                creditOrigin: CreditOrigin.REVERSAL,
+              },
+              db
+            ),
+          /Adjustment credit notes require line-targeted applications/
+        );
+        await assert.rejects(
+          () =>
+            createCreditNote(
+              {
+                targetAdjustmentInvoiceId: firstBulkTarget.id,
+                reason: "Invalid unapplied adjustment goodwill",
+                createdByUserId: manager.id,
+                lines: [
+                  {
+                    description: "Invalid goodwill",
+                    quantity: 1,
+                    unitPrice: new Prisma.Decimal(2),
+                  },
+                ],
+                applicationMode: "UNAPPLIED",
+                creditOrigin: CreditOrigin.GOODWILL,
+              },
+              db
+            ),
+          /Adjustment credit notes require line-targeted applications/
+        );
+
         const refreshedBulkTargets = await db.invoice.findMany({
           where: { id: { in: [firstBulkTarget.id, secondBulkTarget.id] } },
           select: { id: true, remainingAmount: true, status: true, isLocked: true },
@@ -399,42 +472,6 @@ test("credit-note available balance is derived from append-only applications", a
             ),
           /overdraw/
         );
-
-        const invalidCreditNote = await createSyntheticCreditNote(
-          db,
-          recordInvoiceLockSnapshot,
-          fixtureWithManager,
-          finalInvoice.id,
-          `invalid-${suffix}`,
-          5
-        );
-        const invalidApplication = await db.documentApplication.create({
-          data: {
-            sourceInvoiceId: invalidCreditNote.id,
-            targetInvoiceId: firstAdjustment.id,
-            kind: DocumentApplicationKind.CREDIT_TO_FINAL,
-            amountApplied: new Prisma.Decimal(5),
-            appliedByUserId: manager.id,
-          },
-          select: { id: true },
-        });
-        const invalidShapeViolations = await runAllInvariants(db);
-        assert.ok(
-          invalidShapeViolations.some(
-            (violation) =>
-              violation.invariant === "adjustment-has-no-document-application" &&
-              violation.entityType === "DocumentApplication" &&
-              violation.entityId === invalidApplication.id
-          )
-        );
-
-        await db.documentApplication.deleteMany({
-          where: { sourceInvoiceId: invalidCreditNote.id },
-        });
-        await db.invoiceLockSnapshot.deleteMany({
-          where: { invoiceId: invalidCreditNote.id },
-        });
-        await db.invoice.delete({ where: { id: invalidCreditNote.id } });
 
         const overdrawnCreditNote = await createSyntheticCreditNote(
           db,
@@ -565,6 +602,7 @@ async function createSyntheticCreditNote(
       remainingAmount: new Prisma.Decimal(0),
       status: InvoiceStatus.CLOSED,
       isLocked: true,
+      creditOrigin: CreditOrigin.GOODWILL,
       issuedAt: new Date(),
       closedAt: new Date(),
     },
