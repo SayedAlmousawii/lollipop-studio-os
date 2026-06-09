@@ -2753,22 +2753,12 @@ async function appendCreditApplicationWithClient(
   }
 
   if (
-    input.kind === DocumentApplicationKind.CAUSE_REVERSAL &&
-    (targetInvoice.invoiceType !== InvoiceType.ADJUSTMENT || !targetInvoiceLineId)
-  ) {
-    throw new Error("Cause-reversal credit applications must target an adjustment line");
-  }
-  if (
     input.kind === DocumentApplicationKind.SETTLEMENT &&
-    (targetInvoice.invoiceType !== InvoiceType.ADJUSTMENT || targetInvoiceLineId)
+    (targetInvoiceLineId ||
+      (targetInvoice.invoiceType !== InvoiceType.ADJUSTMENT &&
+        targetInvoice.invoiceType !== InvoiceType.FINAL))
   ) {
-    throw new Error("Settlement credit applications must target an adjustment invoice");
-  }
-  if (
-    input.kind === DocumentApplicationKind.CREDIT_TO_FINAL &&
-    (targetInvoice.invoiceType !== InvoiceType.FINAL || targetInvoiceLineId)
-  ) {
-    throw new Error("Final credit applications must target a final invoice");
+    throw new Error("Settlement credit applications must target a final or adjustment invoice");
   }
 
   const existingApplications = await client.documentApplication.aggregate({
@@ -3033,6 +3023,9 @@ export async function createCreditNoteWithClient(
     (line) => line.targetInvoiceId && line.targetInvoiceLineId
   );
   const applicationMode = input.applicationMode ?? "AUTO_APPLY";
+  if (lineTargetedApplications.length > 0) {
+    throw new Error("Line-targeted credit note applications are retired");
+  }
   const isDrawableReversalCreditNote =
     target.invoiceType === InvoiceType.ADJUSTMENT &&
     applicationMode === "UNAPPLIED" &&
@@ -3040,57 +3033,12 @@ export async function createCreditNoteWithClient(
     Boolean(input.reversesInvoiceLineId) &&
     lineTargetedApplications.length === 0;
   if (
-    lineTargetedApplications.length > 0 &&
-    lineTargetedApplications.length !== input.lines.length
-  ) {
-    throw new Error("Credit note line targets must be provided for every line");
-  }
-  if (
     target.invoiceType === InvoiceType.ADJUSTMENT &&
     lineTargetedApplications.length !== input.lines.length &&
     !isDrawableReversalCreditNote
   ) {
     throw new Error("Adjustment credit notes require line-targeted applications");
   }
-  if (lineTargetedApplications.length > 0) {
-    const targetLineIds = lineTargetedApplications.map(
-      (line) => line.targetInvoiceLineId!
-    );
-    const targetLines = await client.invoiceLineItem.findMany({
-      where: { id: { in: targetLineIds } },
-      select: {
-        id: true,
-        invoiceId: true,
-        invoice: {
-          select: {
-            invoiceType: true,
-            financialCaseId: true,
-            orderId: true,
-          },
-        },
-      },
-    });
-    const targetLineById = new Map(targetLines.map((line) => [line.id, line]));
-    for (const line of lineTargetedApplications) {
-      const targetLine = targetLineById.get(line.targetInvoiceLineId!);
-      if (!targetLine) {
-        throw new Error("Credit note target line was not found");
-      }
-      if (targetLine.invoiceId !== line.targetInvoiceId) {
-        throw new Error("Credit note target line does not belong to target invoice");
-      }
-      if (targetLine.invoice.invoiceType !== InvoiceType.ADJUSTMENT) {
-        throw new Error("Line-targeted credit notes can only target adjustment lines");
-      }
-      if (
-        targetLine.invoice.financialCaseId !== target.financialCaseId ||
-        targetLine.invoice.orderId !== target.orderId
-      ) {
-        throw new Error("Credit note line target must belong to the same order");
-      }
-    }
-  }
-
   if (input.reversesInvoiceLineId) {
     if (input.creditOrigin && input.creditOrigin !== CreditOrigin.REVERSAL) {
       throw new Error("Only reversal credit notes can reference a reversed line");
@@ -3202,25 +3150,12 @@ export async function createCreditNoteWithClient(
 
   await recordInvoiceLockSnapshot(client, creditNote, input.createdByUserId);
 
-  if (lineTargetedApplications.length > 0) {
-    await client.documentApplication.createMany({
-      data: lineTargetedApplications.map((line) => ({
-        sourceInvoiceId: creditNote.id,
-        targetInvoiceId: line.targetInvoiceId!,
-        targetInvoiceLineId: line.targetInvoiceLineId!,
-        kind: DocumentApplicationKind.CAUSE_REVERSAL,
-        amountApplied: new Prisma.Decimal(line.unitPrice).mul(line.quantity),
-        appliedAt: now,
-        appliedByUserId: input.createdByUserId,
-        notes: `Credit note for reason: ${reason}`,
-      })),
-    });
-  } else if (applicationMode === "AUTO_APPLY") {
+  if (applicationMode === "AUTO_APPLY") {
     await client.documentApplication.create({
       data: {
         sourceInvoiceId: creditNote.id,
         targetInvoiceId: target.id,
-        kind: DocumentApplicationKind.CREDIT_TO_FINAL,
+        kind: DocumentApplicationKind.SETTLEMENT,
         amountApplied: totalAmount,
         appliedAt: now,
         appliedByUserId: input.createdByUserId,

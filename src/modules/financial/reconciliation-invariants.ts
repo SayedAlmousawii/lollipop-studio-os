@@ -78,8 +78,8 @@ export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefiniti
     name: "credit-note-application-target",
     severity: "HIGH",
     affectedEntityType: "DocumentApplication",
-    description: "CREDIT_NOTE document applications must target FINAL invoices, ADJUSTMENT lines, or invoice-level settlements",
-    expected: "target invoice type FINAL, line-targeted ADJUSTMENT, or invoice-level SETTLEMENT to FINAL/ADJUSTMENT",
+    description: "CREDIT_NOTE document applications must be invoice-level settlements to FINAL or ADJUSTMENT invoices",
+    expected: "invoice-level SETTLEMENT to FINAL/ADJUSTMENT",
     queryContext: "document_applications joined to source and target invoices",
     run: (tx) =>
       tx.$queryRaw<ReconciliationQueryRow[]>`
@@ -92,16 +92,9 @@ export const RECONCILIATION_INVARIANTS: readonly ReconciliationInvariantDefiniti
         JOIN "invoices" target ON target.id = da.target_invoice_id
         WHERE source."invoiceType" = 'CREDIT_NOTE'
           AND NOT (
-            target."invoiceType" = 'FINAL'
-            OR (
-              target."invoiceType" = 'ADJUSTMENT'
-              AND da.target_invoice_line_id IS NOT NULL
-            )
-            OR (
-              da.kind = 'SETTLEMENT'
-              AND da.target_invoice_line_id IS NULL
-              AND target."invoiceType" IN ('ADJUSTMENT', 'FINAL')
-            )
+            da.kind = 'SETTLEMENT'
+            AND da.target_invoice_line_id IS NULL
+            AND target."invoiceType" IN ('ADJUSTMENT', 'FINAL')
           )
       `,
   },

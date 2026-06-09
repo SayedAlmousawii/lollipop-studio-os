@@ -380,7 +380,7 @@ async function assertDirectUnpaidReversalSweepsSeparateReceivable(
     where: {
       targetInvoiceId: secondAdjustment.id,
       targetInvoiceLineId: secondAdjustment.lineItems[0].id,
-      kind: DocumentApplicationKind.CAUSE_REVERSAL,
+      sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
     },
   });
   assert.equal(manufacturedOverpaymentApplications, 0);
@@ -505,13 +505,13 @@ async function assertSharedInvoiceMultiLineReversalProvenance(ctx: TestContext) 
     ]
   );
 
-  const causeReversalCount = await ctx.db.documentApplication.count({
+  const lineTargetedCreditCount = await ctx.db.documentApplication.count({
     where: {
-      kind: DocumentApplicationKind.CAUSE_REVERSAL,
       sourceInvoice: { orderId: workflow.orderId },
+      targetInvoiceLineId: { not: null },
     },
   });
-  assert.equal(causeReversalCount, 0);
+  assert.equal(lineTargetedCreditCount, 0);
   const refundInvoiceCount = await ctx.db.invoice.count({
     where: { orderId: workflow.orderId, invoiceType: InvoiceType.REFUND },
   });
@@ -668,11 +668,10 @@ async function assertAdjustmentReversal(
   assert.equal(
     creditNote.documentApplicationsAsSource.some(
       (application) =>
-        application.kind === DocumentApplicationKind.CAUSE_REVERSAL ||
         application.targetInvoiceLineId === input.adjustmentLineId
     ),
     false,
-    "adjustment reversal must not create a line-targeted CAUSE_REVERSAL application"
+    "adjustment reversal must not create a line-targeted credit application"
   );
 
   const refundInvoiceCount = await db.invoice.count({

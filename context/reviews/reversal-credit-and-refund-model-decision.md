@@ -205,7 +205,7 @@ sweep, derived-truth (`computeEffectivePaidFromAllocations`), drawable pool
 | **R1** | Invariant rework | Collapse the 4 taxonomy invariants → `valid-credit-origin` + `credit-applications-conserve`; regenerate catalog. **Implemented in Spec 160; R2 emission is now unblocked.** | Behavior no-op |
 | **R2** | Emission change (core) | Stop consuming **unpaid reversal** credit as `CAUSE_REVERSAL`; issue with origin + provenance; route value through the sweep. **Implemented in Spec 161; the unpaid-line stranding bug dies here.** | Behavioral |
 | **R3** | Refund channel | Paid reversals now carry drawable REVERSAL credit instead of auto-refunding; dormant credit-note-balance refund service branch exists for `origin ∈ {REVERSAL, REMOVAL}`; `computeOverpaymentCapacity` remains the true cash-overpayment channel. **Implemented in Spec 162; no production trigger or auto-refund.** | Behavioral |
-| **R4** | Taxonomy retirement | Retire `CAUSE_REVERSAL` / `CREDIT_TO_FINAL` enum kinds once nothing depends on them. | Cleanup |
+| **R4** | Taxonomy retirement | Retired `CAUSE_REVERSAL` / `CREDIT_TO_FINAL`; `DocumentApplicationKind = { DEPOSIT, SETTLEMENT }`. **Implemented in Spec 163; provenance lives on credit-note origin metadata.** | Cleanup |
 
 R1 lands **before** R2 (new emission would fail old invariants) — the same F1-before-B1
 ordering already run once.
@@ -218,14 +218,14 @@ ordering already run once.
 2. **Refund-003 = goodwill-style (null link).** Reversal-origin refunds draw from the
    credit-note balance, not a specific prior payment, so `refundOfPaymentId` is **null**
    (decision 003 already permits this for goodwill). The credit — not a payment — is the source.
-3. **Collapse scope = reversal first, FINAL credit later.** Collapse `CAUSE_REVERSAL` (the bug
-   path) in R2; keep `CREDIT_TO_FINAL` working as-is and retire it in **R4**. De-risks by landing
-   the correctness fix before the FINAL-target cleanup. **Consequence:** `SETTLEMENT` must be
-   allowed onto `FINAL` as well as `ADJUSTMENT` (the sweep stays ADJUSTMENT-only; removal credit
-   on a FINAL applies as a direct settlement at issuance, not via the sweep).
+3. **Collapse scope = complete.** R2 removed new reversal consumption; R4 retired the remaining
+   application-kind taxonomy. **Consequence:** `SETTLEMENT` is allowed onto `FINAL` as well as
+   `ADJUSTMENT` (the sweep stays ADJUSTMENT-only; removal credit on a FINAL applies as a direct
+   settlement at issuance, not via the sweep).
 
 ### Concentrated risk
 R3 keeps Refund-003 goodwill-style null traceability for credit-note-sourced refunds, but the
 refund branch is dormant: no edit or OrderCommit path creates a REFUND invoice or OUT payment
 automatically. Paid and unpaid reversals now share the drawable REVERSAL credit channel on both
-OrderCommit and direct reductive-edit emission paths; R4 is unblocked for taxonomy cleanup.
+OrderCommit and direct reductive-edit emission paths; R4 completed the application-kind taxonomy
+cleanup.

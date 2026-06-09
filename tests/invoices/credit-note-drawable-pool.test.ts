@@ -88,7 +88,7 @@ test("credit-note available balance is derived from append-only applications", a
         assert.equal(normalCreditNote.remainingAmount.toFixed(3), "0.000");
         assert.equal(
           normalCreditNote.documentApplicationsAsSource[0]?.kind,
-          DocumentApplicationKind.CREDIT_TO_FINAL
+          DocumentApplicationKind.SETTLEMENT
         );
         assert.equal(normalCreditNote.creditOrigin, CreditOrigin.GOODWILL);
         assert.equal(normalCreditNote.reversesInvoiceLineId, null);
@@ -230,7 +230,7 @@ test("credit-note available balance is derived from append-only applications", a
           {
             creditNoteId: partialCreditNote.id,
             targetInvoiceId: finalInvoice.id,
-            kind: DocumentApplicationKind.CREDIT_TO_FINAL,
+            kind: DocumentApplicationKind.SETTLEMENT,
             amount: new Prisma.Decimal(10),
             appliedByUserId: manager.id,
           },
@@ -300,67 +300,33 @@ test("credit-note available balance is derived from append-only applications", a
           createSyntheticAdjustmentLine(db, firstBulkTarget.id, "Bulk target A", 6),
           createSyntheticAdjustmentLine(db, secondBulkTarget.id, "Bulk target B", 4),
         ]);
-        const bulkCreditNote = await createCreditNote(
-          {
-            targetAdjustmentInvoiceId: firstBulkTarget.id,
-            reason: "Spec 158 bulk target refresh",
-            createdByUserId: manager.id,
-            lines: [
+        await assert.rejects(
+          () =>
+            createCreditNote(
               {
-                description: "Bulk target A reversal",
-                quantity: 1,
-                unitPrice: new Prisma.Decimal(6),
-                targetInvoiceId: firstBulkTarget.id,
-                targetInvoiceLineId: firstBulkLine.id,
+                targetAdjustmentInvoiceId: firstBulkTarget.id,
+                reason: "Spec 163 retired line-targeted credit",
+                createdByUserId: manager.id,
+                lines: [
+                  {
+                    description: "Bulk target A reversal",
+                    quantity: 1,
+                    unitPrice: new Prisma.Decimal(6),
+                    targetInvoiceId: firstBulkTarget.id,
+                    targetInvoiceLineId: firstBulkLine.id,
+                  },
+                  {
+                    description: "Bulk target B reversal",
+                    quantity: 1,
+                    unitPrice: new Prisma.Decimal(4),
+                    targetInvoiceId: secondBulkTarget.id,
+                    targetInvoiceLineId: secondBulkLine.id,
+                  },
+                ],
               },
-              {
-                description: "Bulk target B reversal",
-                quantity: 1,
-                unitPrice: new Prisma.Decimal(4),
-                targetInvoiceId: secondBulkTarget.id,
-                targetInvoiceLineId: secondBulkLine.id,
-              },
-            ],
-          },
-          db
-        );
-        assert.equal(
-          (await computeCreditNoteAvailable(bulkCreditNote.id, db)).toFixed(3),
-          "0.000"
-        );
-        const reversalCreditNote = await db.invoice.findUniqueOrThrow({
-          where: { id: bulkCreditNote.id },
-          select: {
-            creditOrigin: true,
-            reversesInvoiceLineId: true,
-            documentApplicationsAsSource: {
-              select: {
-                kind: true,
-                targetInvoiceLineId: true,
-              },
-              orderBy: { targetInvoiceLineId: "asc" },
-            },
-          },
-        });
-        assert.equal(reversalCreditNote.creditOrigin, CreditOrigin.REVERSAL);
-        assert.equal(reversalCreditNote.reversesInvoiceLineId, firstBulkLine.id);
-        assert.deepEqual(
-          reversalCreditNote.documentApplicationsAsSource.map((application) => ({
-            kind: application.kind,
-            targetInvoiceLineId: application.targetInvoiceLineId,
-          })),
-          [
-            {
-              kind: DocumentApplicationKind.CAUSE_REVERSAL,
-              targetInvoiceLineId: firstBulkLine.id,
-            },
-            {
-              kind: DocumentApplicationKind.CAUSE_REVERSAL,
-              targetInvoiceLineId: secondBulkLine.id,
-            },
-          ].sort((left, right) =>
-            left.targetInvoiceLineId.localeCompare(right.targetInvoiceLineId)
-          )
+              db
+            ),
+          /Line-targeted credit note applications are retired/
         );
 
         const removalCreditNote = await createCreditNote(
@@ -637,14 +603,14 @@ test("credit-note available balance is derived from append-only applications", a
           })),
           [
             {
-              remainingAmount: "0.000",
-              status: InvoiceStatus.CLOSED,
-              isLocked: true,
+              remainingAmount: "6.000",
+              status: InvoiceStatus.ISSUED,
+              isLocked: false,
             },
             {
-              remainingAmount: "0.000",
-              status: InvoiceStatus.CLOSED,
-              isLocked: true,
+              remainingAmount: "4.000",
+              status: InvoiceStatus.ISSUED,
+              isLocked: false,
             },
           ]
         );
@@ -684,7 +650,7 @@ test("credit-note available balance is derived from append-only applications", a
             {
               sourceInvoiceId: overdrawnCreditNote.id,
               targetInvoiceId: finalInvoice.id,
-              kind: DocumentApplicationKind.CREDIT_TO_FINAL,
+              kind: DocumentApplicationKind.SETTLEMENT,
               amountApplied: new Prisma.Decimal(6),
               appliedByUserId: manager.id,
             },

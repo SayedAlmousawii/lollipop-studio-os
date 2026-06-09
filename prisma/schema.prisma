@@ -106,8 +106,6 @@ enum CreditOrigin {
 
 enum DocumentApplicationKind {
   DEPOSIT
-  CAUSE_REVERSAL
-  CREDIT_TO_FINAL
   SETTLEMENT
 }
 
