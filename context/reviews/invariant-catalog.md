@@ -15,9 +15,9 @@
 | INV-LOCK-SNAPSHOT | locked-invoice-frozen-fields-match-snapshot | Sprint 3 (80b) | invoice | Locked invoice frozen fields must match the latest lock snapshot. |
 | runtime-no-adjustment-without-classifier-source | no-adjustment-without-classifier-source | Sprint 1 (75b) | invoice | Automatic adjustment invoices must have a classifier source activity. |
 | runtime-out-payment-targets-refund-invoice | out-payment-targets-refund-invoice | Phase F | invoice | Outbound payments must target refund invoices. |
-| runtime-refund-amount-not-over-source | refund-amount-not-over-source | Phase F | invoice | Refund totals cannot exceed the inbound amount on their source invoice. |
+| runtime-refund-amount-not-over-source | refund-amount-not-over-source | Spec 162 R3 | invoice | Refund totals cannot exceed inbound amount for charge invoices or drawable balance for refundable credit notes. |
 | runtime-refund-trace-points-to-inbound-payment | refund-trace-points-to-inbound-payment | Phase F | global | Refund traces must point back to inbound payments. |
-| runtime-refund-source-is-final-or-adjustment | refund-source-is-final-or-adjustment | Phase F | invoice | Refund invoice parents must be final or adjustment invoices. |
+| runtime-refund-source-is-final-or-adjustment | refund-source-is-final-or-adjustment | Spec 162 R3 | invoice | Refund invoice parents must be final, adjustment, or refundable reversal/removal credit-note invoices. |
 | runtime-valid-credit-origin | valid-credit-origin | Spec 160 R1 | invoice | Credit notes must carry valid origin metadata, and reversal credits must reference a same-case invoice line. |
 | runtime-credit-applications-conserve | credit-applications-conserve | Spec 160 R1 | invoice | Credit-note applications must stay same-case and cannot exceed the source credit-note total. |
 | runtime-credit-note-pool-not-over-applied | credit-note-pool-not-over-applied | Spec 153 F1 | invoice | Credit-note applications cannot exceed the drawable credit-note total. |

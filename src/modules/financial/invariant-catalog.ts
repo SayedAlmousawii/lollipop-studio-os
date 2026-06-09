@@ -130,9 +130,9 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
   },
   "refund-amount-not-over-source": {
     id: "runtime-refund-amount-not-over-source",
-    phase: "Phase F",
+    phase: "Spec 162 R3",
     scope: "invoice",
-    description: "Refund totals cannot exceed the inbound amount on their source invoice.",
+    description: "Refund totals cannot exceed inbound amount for charge invoices or drawable balance for refundable credit notes.",
   },
   "refund-trace-points-to-inbound-payment": {
     id: "runtime-refund-trace-points-to-inbound-payment",
@@ -141,9 +141,9 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
   },
   "refund-source-is-final-or-adjustment": {
     id: "runtime-refund-source-is-final-or-adjustment",
-    phase: "Phase F",
+    phase: "Spec 162 R3",
     scope: "invoice",
-    description: "Refund invoice parents must be final or adjustment invoices.",
+    description: "Refund invoice parents must be final, adjustment, or refundable reversal/removal credit-note invoices.",
   },
   "valid-credit-origin": {
     id: "runtime-valid-credit-origin",

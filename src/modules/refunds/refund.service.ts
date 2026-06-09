@@ -1,6 +1,7 @@
 import {
   AuditAction,
   AuditEntityType,
+  CreditOrigin,
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
@@ -22,6 +23,7 @@ import {
   recordInvoiceLockSnapshot,
 } from "@/modules/invoices/invoice-lock.service";
 import {
+  computeCreditNoteAvailable,
   computeOverpaymentCapacity,
   generateInvoiceNumber,
   recalculateInvoiceStatus,
@@ -71,6 +73,12 @@ async function issueRefundWithPaymentWithClient(
     input.createdByUserId
   );
   const refundInvoice = await createRefundInvoice(input, client);
+  const sourceInvoice = await client.invoice.findUnique({
+    where: { id: input.sourceInvoiceId },
+    select: { invoiceType: true },
+  });
+  const isCreditNoteSourcedRefund =
+    sourceInvoice?.invoiceType === InvoiceType.CREDIT_NOTE;
   const payment = await createPaymentWithAllocation(
     {
       invoiceId: refundInvoice.id,
@@ -79,7 +87,9 @@ async function issueRefundWithPaymentWithClient(
       method: input.method,
       paymentType: PaymentType.REFUND,
       direction: "OUT",
-      refundOfPaymentId: input.refundOfPaymentId,
+      refundOfPaymentId: isCreditNoteSourcedRefund
+        ? undefined
+        : input.refundOfPaymentId,
       paidAt: input.paidAt ?? new Date(),
       reference: input.reference,
       notes: input.reason,
@@ -119,7 +129,9 @@ async function issueRefundWithPaymentWithClient(
         refundPaymentId: payment.id,
         amount: new Prisma.Decimal(input.amount).toFixed(3),
         method: input.method,
-        refundOfPaymentId: input.refundOfPaymentId ?? null,
+        refundOfPaymentId: isCreditNoteSourcedRefund
+          ? null
+          : input.refundOfPaymentId ?? null,
       },
     });
   }
@@ -166,6 +178,7 @@ async function createRefundInvoice(
       financialCaseId: true,
       invoiceType: true,
       invoiceNumber: true,
+      creditOrigin: true,
       orderId: true,
       bookingId: true,
       customerId: true,
@@ -175,20 +188,27 @@ async function createRefundInvoice(
     },
   });
   if (!source) throw new Error("Source invoice not found");
-  if (
-    source.invoiceType !== InvoiceType.FINAL &&
-    source.invoiceType !== InvoiceType.ADJUSTMENT
-  ) {
+  const isOverpaymentRefundSource =
+    source.invoiceType === InvoiceType.FINAL ||
+    source.invoiceType === InvoiceType.ADJUSTMENT;
+  const isCreditNoteRefundSource =
+    source.invoiceType === InvoiceType.CREDIT_NOTE;
+  if (!isOverpaymentRefundSource && !isCreditNoteRefundSource) {
     throw new Error("Refunds can only be issued for final or adjustment invoices");
   }
   if (!source.isLocked) {
     throw new Error("Refunds can only be issued for locked invoices");
   }
 
-  const capacity = await computeOverpaymentCapacity(source.id, client);
+  const capacity = isCreditNoteRefundSource
+    ? await computeCreditNoteRefundCapacity(source, client)
+    : await computeOverpaymentCapacity(source.id, client);
   if (amount.greaterThan(capacity)) {
+    const capacityLabel = isCreditNoteRefundSource
+      ? "credit note drawable balance"
+      : "overpayment capacity";
     throw new Error(
-      `Refund amount ${amount.toFixed(3)} KD exceeds overpayment capacity ${capacity.toFixed(3)} KD`
+      `Refund amount ${amount.toFixed(3)} KD exceeds ${capacityLabel} ${capacity.toFixed(3)} KD`
     );
   }
 
@@ -263,6 +283,25 @@ async function createRefundInvoice(
   await assertFinancialCaseInvariants(source.financialCaseId, client);
 
   return invoice;
+}
+
+async function computeCreditNoteRefundCapacity(
+  source: {
+    id: string;
+    creditOrigin: CreditOrigin | null;
+  },
+  client: DbClient
+): Promise<Prisma.Decimal> {
+  if (
+    source.creditOrigin !== CreditOrigin.REVERSAL &&
+    source.creditOrigin !== CreditOrigin.REMOVAL
+  ) {
+    throw new Error(
+      "Credit-note refunds can only be issued for reversal or removal credit notes"
+    );
+  }
+
+  return computeCreditNoteAvailable(source.id, client);
 }
 
 async function closeRefundInvoiceIfSettled(

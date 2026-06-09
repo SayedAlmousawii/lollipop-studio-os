@@ -669,9 +669,14 @@ registerInvariant({
       where: { adjustments: { some: { invoiceType: InvoiceType.REFUND } } },
       select: {
         id: true,
+        invoiceType: true,
+        totalAmount: true,
         paymentAllocations: {
           where: { payment: { direction: PaymentDirection.IN } },
           select: { amount: true },
+        },
+        documentApplicationsAsSource: {
+          select: { amountApplied: true },
         },
         adjustments: {
           where: { invoiceType: InvoiceType.REFUND },
@@ -682,27 +687,52 @@ registerInvariant({
 
     const violations: InvariantViolation[] = [];
     for (const sourceInvoice of sourceInvoices) {
-      const inboundTotal = sourceInvoice.paymentAllocations.reduce(
-        (sum, allocation) => sum.plus(allocation.amount),
-        new Prisma.Decimal(0)
-      );
       const refundTotal = sourceInvoice.adjustments.reduce(
         (sum, refundInvoice) => sum.plus(refundInvoice.totalAmount),
         new Prisma.Decimal(0)
       );
 
-      if (refundTotal.lessThanOrEqualTo(inboundTotal)) {
-        continue;
-      }
+      if (sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE) {
+        const appliedTotal = sourceInvoice.documentApplicationsAsSource.reduce(
+          (sum, application) => sum.plus(application.amountApplied),
+          new Prisma.Decimal(0)
+        );
+        const drawable = sourceInvoice.totalAmount
+          .minus(appliedTotal)
+          .minus(refundTotal);
 
-      for (const refundInvoice of sourceInvoice.adjustments) {
-        violations.push({
-          invariant: "refund-amount-not-over-source",
-          entityType: "Invoice",
-          entityId: refundInvoice.id,
-          expected: `source refund total <= ${inboundTotal.toFixed(3)}`,
-          actual: refundTotal.toFixed(3),
-        });
+        if (drawable.greaterThanOrEqualTo(0)) {
+          continue;
+        }
+
+        for (const refundInvoice of sourceInvoice.adjustments) {
+          violations.push({
+            invariant: "refund-amount-not-over-source",
+            entityType: "Invoice",
+            entityId: refundInvoice.id,
+            expected: "credit-note settlements plus refunds <= credit-note total",
+            actual: drawable.toFixed(3),
+          });
+        }
+      } else {
+        const inboundTotal = sourceInvoice.paymentAllocations.reduce(
+          (sum, allocation) => sum.plus(allocation.amount),
+          new Prisma.Decimal(0)
+        );
+
+        if (refundTotal.lessThanOrEqualTo(inboundTotal)) {
+          continue;
+        }
+
+        for (const refundInvoice of sourceInvoice.adjustments) {
+          violations.push({
+            invariant: "refund-amount-not-over-source",
+            entityType: "Invoice",
+            entityId: refundInvoice.id,
+            expected: `source refund total <= ${inboundTotal.toFixed(3)}`,
+            actual: refundTotal.toFixed(3),
+          });
+        }
       }
     }
 
@@ -747,21 +777,34 @@ registerInvariant({
       where: { invoiceType: InvoiceType.REFUND },
       select: {
         id: true,
-        parentInvoice: { select: { id: true, invoiceType: true } },
+        parentInvoice: {
+          select: { id: true, invoiceType: true, creditOrigin: true },
+        },
       },
     });
 
     return refundInvoices
       .filter(
-        (invoice) =>
-          invoice.parentInvoice?.invoiceType !== InvoiceType.FINAL &&
-          invoice.parentInvoice?.invoiceType !== InvoiceType.ADJUSTMENT
+        (invoice) => {
+          if (
+            invoice.parentInvoice?.invoiceType === InvoiceType.FINAL ||
+            invoice.parentInvoice?.invoiceType === InvoiceType.ADJUSTMENT
+          ) {
+            return false;
+          }
+          return !(
+            invoice.parentInvoice?.invoiceType === InvoiceType.CREDIT_NOTE &&
+            (invoice.parentInvoice.creditOrigin === CreditOrigin.REVERSAL ||
+              invoice.parentInvoice.creditOrigin === CreditOrigin.REMOVAL)
+          );
+        }
       )
       .map((invoice) => ({
         invariant: "refund-source-is-final-or-adjustment",
         entityType: "Invoice",
         entityId: invoice.id,
-        expected: "parentInvoiceId set to FINAL or ADJUSTMENT invoice",
+        expected:
+          "parentInvoiceId set to FINAL, ADJUSTMENT, or refundable CREDIT_NOTE invoice",
         actual: invoice.parentInvoice
           ? `parent ${invoice.parentInvoice.id} is ${invoice.parentInvoice.invoiceType}`
           : "no parent invoice",
@@ -942,6 +985,13 @@ registerInvariant({
           where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
           select: { amountApplied: true },
         },
+        reversedByCreditNotes: {
+          where: {
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            creditOrigin: CreditOrigin.REVERSAL,
+          },
+          select: { totalAmount: true },
+        },
         invoice: {
           select: {
             orderId: true,
@@ -971,6 +1021,11 @@ registerInvariant({
       const reversedAmount = line.documentApplications.reduce(
         (sum, application) => sum.plus(application.amountApplied),
         new Prisma.Decimal(0)
+      ).plus(
+        line.reversedByCreditNotes.reduce(
+          (sum, creditNote) => sum.plus(creditNote.totalAmount),
+          new Prisma.Decimal(0)
+        )
       );
       if (reversedAmount.greaterThanOrEqualTo(line.lineTotal)) continue;
 
@@ -978,7 +1033,7 @@ registerInvariant({
         invariant: "paid-adjustment-line-removal-must-have-reversal",
         entityType: "InvoiceLineItem",
         entityId: line.id,
-        expected: `CREDIT_NOTE DocumentApplication targeting line for ${line.lineTotal.toFixed(3)}`,
+        expected: `REVERSAL credit note provenance for ${line.lineTotal.toFixed(3)}`,
         actual: `${reversedAmount.toFixed(3)} reversed for adjustment ${line.invoiceId}`,
       });
     }

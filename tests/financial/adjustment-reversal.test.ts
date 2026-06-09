@@ -8,6 +8,7 @@ import {
   CreditOrigin,
   DocumentApplicationKind,
   InvoiceType,
+  PaymentDirection,
   PaymentMethod,
   PaymentType,
   Prisma,
@@ -422,16 +423,9 @@ async function assertSameCauseReversalConsumesAllOpenLines(ctx: TestContext) {
     creditNotes.reduce((sum, creditNote) => sum + creditNote.lineItems.length, 0),
     2
   );
-  const targetLineIds = new Set(
-    creditNotes.flatMap((creditNote) =>
-      creditNote.documentApplicationsAsSource.map(
-        (application) => application.targetInvoiceLineId
-      )
-    )
-  );
   assert.deepEqual(
-    targetLineIds,
-    new Set([firstAdjustment.lineItems[0].id, secondAdjustment.lineItems[0].id])
+    creditNotes.flatMap((creditNote) => creditNote.documentApplicationsAsSource),
+    []
   );
   assert.equal(await finalCreditApplicationCount(ctx.db, workflow.finalInvoiceId), 0);
 }
@@ -546,58 +540,48 @@ async function assertAdjustmentReversal(
     expectRefund: boolean;
   }
 ) {
-  if (!input.expectRefund) {
-    const creditNote = await db.invoice.findFirstOrThrow({
-      where: {
-        orderId: input.orderId,
-        invoiceType: InvoiceType.CREDIT_NOTE,
-        parentInvoiceId: input.adjustmentInvoiceId,
-        creditOrigin: CreditOrigin.REVERSAL,
-        reversesInvoiceLineId: input.adjustmentLineId,
-      },
-      include: {
-        lineItems: true,
-        documentApplicationsAsSource: true,
-      },
-    });
-    assert.equal(creditNote.totalAmount.toFixed(3), input.amount);
-    assert.equal(creditNote.lineItems.length >= 1, true);
-    assert.equal(
-      creditNote.documentApplicationsAsSource.some(
-        (application) =>
-          application.kind === DocumentApplicationKind.CAUSE_REVERSAL ||
-          application.targetInvoiceLineId === input.adjustmentLineId
-      ),
-      false,
-      "unpaid reversal must not create a line-targeted CAUSE_REVERSAL application"
-    );
-
-    const order = await db.order.findUniqueOrThrow({
-      where: { id: input.orderId },
-      select: { refundPending: true },
-    });
-    assert.equal(order.refundPending, false);
-    return;
-  }
-
-  const application = await db.documentApplication.findFirstOrThrow({
+  const creditNote = await db.invoice.findFirstOrThrow({
     where: {
-      targetInvoiceId: input.adjustmentInvoiceId,
-      targetInvoiceLineId: input.adjustmentLineId,
-      kind: DocumentApplicationKind.CAUSE_REVERSAL,
-      sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
+      orderId: input.orderId,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      parentInvoiceId: input.adjustmentInvoiceId,
+      creditOrigin: CreditOrigin.REVERSAL,
+      reversesInvoiceLineId: input.adjustmentLineId,
     },
-    include: { sourceInvoice: { include: { lineItems: true } } },
+    include: {
+      lineItems: true,
+      documentApplicationsAsSource: true,
+    },
   });
-  assert.equal(application.amountApplied.toFixed(3), input.amount);
-  assert.equal(application.sourceInvoice.parentInvoiceId, input.adjustmentInvoiceId);
-  assert.equal(application.sourceInvoice.lineItems.length >= 1, true);
+  assert.equal(creditNote.totalAmount.toFixed(3), input.amount);
+  assert.equal(creditNote.lineItems.length >= 1, true);
+  assert.equal(
+    creditNote.documentApplicationsAsSource.some(
+      (application) =>
+        application.kind === DocumentApplicationKind.CAUSE_REVERSAL ||
+        application.targetInvoiceLineId === input.adjustmentLineId
+    ),
+    false,
+    "adjustment reversal must not create a line-targeted CAUSE_REVERSAL application"
+  );
+
+  const refundInvoiceCount = await db.invoice.count({
+    where: { orderId: input.orderId, invoiceType: InvoiceType.REFUND },
+  });
+  assert.equal(refundInvoiceCount, 0);
+  const outPaymentCount = await db.payment.count({
+    where: {
+      direction: PaymentDirection.OUT,
+      invoice: { orderId: input.orderId },
+    },
+  });
+  assert.equal(outPaymentCount, 0);
 
   const order = await db.order.findUniqueOrThrow({
     where: { id: input.orderId },
     select: { refundPending: true },
   });
-  assert.equal(order.refundPending, input.expectRefund);
+  assert.equal(order.refundPending, false);
 }
 
 async function assertFinalUnchanged(

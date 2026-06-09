@@ -275,7 +275,7 @@ test("does not pre-check final credit capacity for residual credits", async () =
   );
 });
 
-test("emits final credit notes and marks refund pending without payments", async () => {
+test("emits final credit notes without refund side effects", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client, calls } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -319,13 +319,7 @@ test("emits final credit notes and marks refund pending without payments", async
     ),
     [expectedSweepInput("manager-user")]
   );
-  assert.deepEqual(calls.orderUpdates, [
-    {
-      where: { id: "order-1" },
-      data: { refundPending: true },
-      select: { id: true },
-    },
-  ]);
+  assert.deepEqual(calls.orderUpdates, []);
 });
 
 test("runs shared available-credit sweep after mixed adjustment emission", async () => {
@@ -503,7 +497,7 @@ test("emits unpaid adjustment reversals as drawable credit notes", async () => {
   ]);
 });
 
-test("keeps paid adjustment reversals line-targeted for immediate refund", async () => {
+test("emits paid adjustment reversals as drawable credit", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -536,7 +530,15 @@ test("keeps paid adjustment reversals line-targeted for immediate refund", async
 
   assert.equal(
     dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
-    undefined
+    "UNAPPLIED"
+  );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.creditOrigin,
+    CreditOrigin.REVERSAL
+  );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.reversesInvoiceLineId,
+    "adjustment-line-1"
   );
   assert.deepEqual(dependencies.createCreditNoteWithClient.calls[0]?.input.lines, [
     {
@@ -546,13 +548,11 @@ test("keeps paid adjustment reversals line-targeted for immediate refund", async
       unitPrice: 8,
       causeOrderEntityKind: OrderEntityKind.ADDON,
       causeOrderEntityId: "addon-1",
-      targetInvoiceId: "adjustment-parent",
-      targetInvoiceLineId: "adjustment-line-1",
     },
   ]);
 });
 
-test("splits mixed paid and unpaid adjustment reversals into separate notes", async () => {
+test("groups mixed paid and unpaid adjustment reversals into one drawable note", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -593,7 +593,7 @@ test("splits mixed paid and unpaid adjustment reversals into separate notes", as
     dependencies,
   });
 
-  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 2);
+  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 1);
   assert.equal(
     dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
     "UNAPPLIED"
@@ -607,12 +607,6 @@ test("splits mixed paid and unpaid adjustment reversals into separate notes", as
       causeOrderEntityKind: OrderEntityKind.ADDON,
       causeOrderEntityId: "addon-1",
     },
-  ]);
-  assert.equal(
-    dependencies.createCreditNoteWithClient.calls[1]?.input.applicationMode,
-    undefined
-  );
-  assert.deepEqual(dependencies.createCreditNoteWithClient.calls[1]?.input.lines, [
     {
       lineType: InvoiceLineType.MANUAL_DISCOUNT,
       description: "Removed: Paid Add-on",
@@ -620,8 +614,6 @@ test("splits mixed paid and unpaid adjustment reversals into separate notes", as
       unitPrice: 5,
       causeOrderEntityKind: OrderEntityKind.ADDON,
       causeOrderEntityId: "addon-2",
-      targetInvoiceId: "adjustment-parent",
-      targetInvoiceLineId: "paid-line",
     },
   ]);
 });
@@ -674,7 +666,7 @@ test("uses the first reversal reason when a parent ADJ groups mixed reasons", as
   );
 });
 
-test("keeps cause reversals line-targeted before residual settlement", async () => {
+test("keeps reversal credit drawable before residual settlement", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -728,8 +720,6 @@ test("keeps cause reversals line-targeted before residual settlement", async () 
       unitPrice: 8,
       causeOrderEntityKind: OrderEntityKind.ADDON,
       causeOrderEntityId: "addon-1",
-      targetInvoiceId: "same-cause-adjustment",
-      targetInvoiceLineId: "same-cause-line",
     },
   ]);
   assert.deepEqual(resultlessSweepCalls(dependencies), [
@@ -1541,6 +1531,23 @@ function fakeAvailableCreditClient(options: {
         const invoice = invoiceRows.get(args.where.id);
         if (!invoice) return null;
         return { ...invoice, payments: [] };
+      },
+      aggregate: async (args: {
+        where: { parentInvoiceId?: string; invoiceType?: InvoiceType };
+      }) => {
+        const totalAmount = [...invoiceRows.values()]
+          .filter(
+            (invoice) =>
+              (!args.where.parentInvoiceId ||
+                invoice.parentInvoiceId === args.where.parentInvoiceId) &&
+              (!args.where.invoiceType ||
+                invoice.invoiceType === args.where.invoiceType)
+          )
+          .reduce(
+            (sum, invoice) => sum.plus(invoice.totalAmount),
+            new Prisma.Decimal(0)
+          );
+        return { _sum: { totalAmount } };
       },
       update: async (args: {
         where: { id: string };

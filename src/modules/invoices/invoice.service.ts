@@ -11,7 +11,6 @@ import {
   OrderActivityType,
   OrderStatus,
   PaymentDirection,
-  PaymentMethod,
   Prisma,
   UserRole,
   type Invoice,
@@ -2560,13 +2559,24 @@ export async function computeCreditNoteAvailable(
     throw new Error("Available credit can only be derived for credit notes");
   }
 
-  const applications = await client.documentApplication.aggregate({
-    _sum: { amountApplied: true },
-    where: { sourceInvoiceId: creditNoteId },
-  });
+  const [applications, refundChildren] = await Promise.all([
+    client.documentApplication.aggregate({
+      _sum: { amountApplied: true },
+      where: { sourceInvoiceId: creditNoteId },
+    }),
+    client.invoice.aggregate({
+      _sum: { totalAmount: true },
+      where: {
+        parentInvoiceId: creditNoteId,
+        invoiceType: InvoiceType.REFUND,
+      },
+    }),
+  ]);
   const appliedTotal = applications._sum.amountApplied ?? new Prisma.Decimal(0);
+  const refundedTotal =
+    refundChildren._sum.totalAmount ?? new Prisma.Decimal(0);
 
-  return creditNote.totalAmount.minus(appliedTotal);
+  return creditNote.totalAmount.minus(appliedTotal).minus(refundedTotal);
 }
 
 export async function computeAvailableCaseCredit(
@@ -3376,20 +3386,25 @@ async function applyAdjustmentReversalsWithClient({
   const firstReversal = reversalInputs[0];
   if (!firstReversal) return [];
   const now = new Date();
-  const paidReversalInputs = reversalInputs.filter(
-    ({ reversal }) => reversal.requiresRefund
-  );
-  const drawableReversalInputs = reversalInputs.filter(
-    ({ reversal }) => !reversal.requiresRefund
-  );
   const creditNotes: Invoice[] = [];
-  let drawableCreditNote: Invoice | null = null;
-  if (drawableReversalInputs.length > 0) {
-    const firstDrawableReversal = drawableReversalInputs[0]!;
-    drawableCreditNote = await createCreditNote(
+  const creditNoteByAdjustmentInvoiceId = new Map<string, Invoice>();
+  const reversalsByAdjustmentInvoiceId = new Map<string, typeof reversalInputs>();
+  for (const reversalInput of reversalInputs) {
+    const adjustmentInvoiceId = reversalInput.causingLine.invoice.id;
+    const existing = reversalsByAdjustmentInvoiceId.get(adjustmentInvoiceId);
+    if (existing) {
+      existing.push(reversalInput);
+    } else {
+      reversalsByAdjustmentInvoiceId.set(adjustmentInvoiceId, [reversalInput]);
+    }
+  }
+
+  for (const groupedReversals of reversalsByAdjustmentInvoiceId.values()) {
+    const firstGroupedReversal = groupedReversals[0]!;
+    const creditNote = await createCreditNote(
       {
-        targetAdjustmentInvoiceId: firstDrawableReversal.causingLine.invoice.id,
-        lines: drawableReversalInputs.map(({ reversal, causingLine }) => ({
+        targetAdjustmentInvoiceId: firstGroupedReversal.causingLine.invoice.id,
+        lines: groupedReversals.map(({ reversal, causingLine }) => ({
           lineType: causingLine.lineType,
           description: `Reversal: ${reversal.lineSnapshot.name}`,
           quantity: 1,
@@ -3404,74 +3419,19 @@ async function applyAdjustmentReversalsWithClient({
         createdByUserId,
         applicationMode: "UNAPPLIED",
         creditOrigin: CreditOrigin.REVERSAL,
-        reversesInvoiceLineId: firstDrawableReversal.causingLine.id,
+        reversesInvoiceLineId: firstGroupedReversal.causingLine.id,
       },
       client
     );
-    creditNotes.push(drawableCreditNote);
-  }
-
-  let paidCreditNote: Invoice | null = null;
-  if (paidReversalInputs.length > 0) {
-    const firstPaidReversal = paidReversalInputs[0]!;
-    paidCreditNote = await createCreditNote(
-      {
-        targetAdjustmentInvoiceId: firstPaidReversal.causingLine.invoice.id,
-        lines: paidReversalInputs.map(({ reversal, causingLine }) => ({
-          lineType: causingLine.lineType,
-          description: `Reversal: ${reversal.lineSnapshot.name}`,
-          quantity: 1,
-          unitPrice: reversal.amount,
-          causeOrderEntityKind:
-            causingLine.causeOrderEntityKind ?? reversal.causeOrderEntityKind,
-          causeOrderEntityId:
-            causingLine.causeOrderEntityId ?? reversal.causeOrderEntityId,
-          targetInvoiceId: causingLine.invoice.id,
-          targetInvoiceLineId: causingLine.id,
-        })),
-        reason,
-        notes: `Auto-CREDIT_NOTE adjustment reversal from order edit on ${now.toISOString()}`,
-        createdByUserId,
-      },
-      client
+    creditNotes.push(creditNote);
+    creditNoteByAdjustmentInvoiceId.set(
+      firstGroupedReversal.causingLine.invoice.id,
+      creditNote
     );
-    creditNotes.push(paidCreditNote);
   }
 
   for (const { reversal, causingLine } of reversalInputs) {
-    if (reversal.requiresRefund) {
-      const sourcePayment = await client.payment.findFirst({
-        where: {
-          invoiceId: causingLine.invoice.id,
-          financialCaseId: causingLine.invoice.financialCaseId,
-          direction: PaymentDirection.IN,
-          allocations: { some: { invoiceId: causingLine.invoice.id } },
-        },
-        select: { id: true, method: true },
-        orderBy: { paidAt: "asc" },
-      });
-      if (!sourcePayment) {
-        throw new Error("Paid adjustment reversal could not find a source payment");
-      }
-
-      const { issueRefundWithPayment } = await import(
-        "@/modules/refunds/refund.service"
-      );
-      await issueRefundWithPayment(
-        {
-          sourceInvoiceId: causingLine.invoice.id,
-          amount: reversal.amount,
-          reason: `Adjustment reversal: ${reversal.lineSnapshot.name}`,
-          createdByUserId,
-          method: sourcePayment.method ?? PaymentMethod.CASH,
-          refundOfPaymentId: sourcePayment.id,
-          notes: `Auto-REFUND from adjustment reversal on ${now.toISOString()}`,
-        },
-        client
-      );
-    }
-
-    const creditNote = reversal.requiresRefund ? paidCreditNote : drawableCreditNote;
+    const creditNote = creditNoteByAdjustmentInvoiceId.get(causingLine.invoice.id);
     if (!creditNote) {
       throw new Error("Adjustment reversal credit note was not issued");
     }
