@@ -28,7 +28,7 @@
 | runtime-classifier-reductions-have-origin | classifier-reductions-have-origin | Spec 160 R1 | order | Classifier reduction credit notes must carry reversal/removal origin and source activity. |
 | INV-01 | payment-allocation-count | Phase G | global | Every Payment must have exactly one PaymentAllocation |
 | INV-08 | adjustment-parent-not-adjustment | Phase G | invoice | ADJUSTMENT invoices must not chain to ADJUSTMENT parents |
-| INV-09 | credit-note-application-target | Phase G | global | CREDIT_NOTE document applications must target FINAL invoices, ADJUSTMENT lines, or invoice-level settlements |
+| INV-09 | credit-note-application-target | Phase G | global | CREDIT_NOTE document applications must be invoice-level settlements to FINAL or ADJUSTMENT invoices |
 | INV-11 | refund-payment-direction | Phase G | global | REFUND invoice payments must use OUT direction |
 | INV-15 | deposit-invoice-closed-locked | Phase G | invoice | DEPOSIT invoices must be closed and locked |
 | INV-16 | payment-allocation-references-exist | Phase G | global | PaymentAllocation rows must reference existing payments and invoices |

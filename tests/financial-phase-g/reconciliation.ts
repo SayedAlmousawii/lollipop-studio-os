@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import {
   DocumentApplicationKind,
+  InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
   PaymentDirection,
@@ -154,8 +155,18 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
       status: InvoiceStatus.DRAFT,
       parentInvoiceId: sourceInvoice.id,
       notes: "Phase G fixture: parent adjustment",
+      lineItems: {
+        create: {
+          lineType: InvoiceLineType.MANUAL_SURCHARGE,
+          description: "Phase G fixture adjustment line",
+          quantity: 1,
+          unitPrice: new Prisma.Decimal("1.000"),
+          lineTotal: new Prisma.Decimal("1.000"),
+          sortOrder: 0,
+        },
+      },
     },
-    select: { id: true },
+    select: { id: true, lineItems: { select: { id: true } } },
   });
 
   const badPrefixAdjustment = await db.invoice.create({
@@ -221,7 +232,8 @@ async function seedReconciliationRiskFixture(db: PrismaClient): Promise<{
     data: {
       sourceInvoiceId: creditNote.id,
       targetInvoiceId: chainedAdjustmentInvoiceId,
-      kind: DocumentApplicationKind.CREDIT_TO_FINAL,
+      targetInvoiceLineId: parentAdjustment.lineItems[0]!.id,
+      kind: DocumentApplicationKind.SETTLEMENT,
       amountApplied: new Prisma.Decimal("1.000"),
       notes: "Phase G fixture: deliberately invalid credit-note target",
     },

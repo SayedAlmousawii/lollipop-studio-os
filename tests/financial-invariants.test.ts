@@ -216,7 +216,6 @@ test("financial invariants all pass against seeded fixtures", async () => {
             where: {
               targetInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
               targetInvoiceLineId: adjustmentLine.id,
-              kind: DocumentApplicationKind.CAUSE_REVERSAL,
               sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
             },
           }),
@@ -508,38 +507,25 @@ test("financial invariants all pass against seeded fixtures", async () => {
           where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
           select: { id: true, kind: true },
         });
-        assert.equal(
-          cleanCreditApplications.some(
-            (application) =>
-              application.kind === DocumentApplicationKind.CAUSE_REVERSAL
-          ),
-          false,
-          "Spec 162 must not emit new CAUSE_REVERSAL applications"
-        );
         assert.ok(
-          cleanCreditApplications.some(
-            (application) =>
-              application.kind === DocumentApplicationKind.CREDIT_TO_FINAL
+          cleanCreditApplications.every(
+            (application) => application.kind === DocumentApplicationKind.SETTLEMENT
           ),
-          "R1 invariants should pass today's CREDIT_TO_FINAL emission"
+          "Spec 163 should collapse credit-note applications to SETTLEMENT"
         );
 
-        const creditToFinalApplication =
+        const settlementApplication =
           creditNoteInvoice.documentApplicationsAsSource[0];
-        assert.ok(creditToFinalApplication);
+        assert.ok(settlementApplication);
         await db.documentApplication.update({
-          where: { id: creditToFinalApplication.id },
+          where: { id: settlementApplication.id },
           data: { kind: DocumentApplicationKind.SETTLEMENT },
         });
         assert.deepEqual(
           await runAllInvariants(db),
           [],
-          "R1 invariants should pass future-shaped SETTLEMENT credit routing"
+          "R1 invariants should pass SETTLEMENT credit routing"
         );
-        await db.documentApplication.update({
-          where: { id: creditToFinalApplication.id },
-          data: { kind: DocumentApplicationKind.CREDIT_TO_FINAL },
-        });
 
         await db.invoice.update({
           where: { id: creditNotedFixture.creditNoteInvoiceId },
@@ -572,7 +558,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
         });
 
         await db.documentApplication.update({
-          where: { id: creditToFinalApplication.id },
+          where: { id: settlementApplication.id },
           data: { amountApplied: new Prisma.Decimal(25) },
         });
         const overAppliedCreditViolations = await runAllInvariants(db);
@@ -582,7 +568,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
           )
         );
         await db.documentApplication.update({
-          where: { id: creditToFinalApplication.id },
+          where: { id: settlementApplication.id },
           data: { amountApplied: new Prisma.Decimal(20) },
         });
         assert.deepEqual(await runAllInvariants(db), []);

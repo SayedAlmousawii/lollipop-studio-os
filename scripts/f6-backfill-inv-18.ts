@@ -317,7 +317,8 @@ async function applyBackfill(
         where: { id: targetPairReversal.id },
         data: {
           amountApplied: reversalAmount,
-          kind: DocumentApplicationKind.CAUSE_REVERSAL,
+          targetInvoiceLineId: null,
+          kind: DocumentApplicationKind.SETTLEMENT,
           notes: REVERSAL_ANNOTATION,
           appliedByUserId: actorContext.actorUserId,
         },
@@ -336,7 +337,7 @@ async function applyBackfill(
         after: {
           documentApplicationId: targetPairReversal.id,
           targetInvoiceId: snapshot.adjustment.id,
-          targetInvoiceLineId: snapshot.adjustmentLine.id,
+          targetInvoiceLineId: null,
           amountApplied: reversalAmount.toFixed(3),
           notes: REVERSAL_ANNOTATION,
         },
@@ -369,7 +370,7 @@ async function applyBackfill(
         where: { id: nullTargetApplication.id },
         data: {
           amountApplied: goodwillAmount,
-          kind: DocumentApplicationKind.CREDIT_TO_FINAL,
+          kind: DocumentApplicationKind.SETTLEMENT,
           notes: CREDIT_NOTE_ANNOTATION,
           appliedByUserId: actorContext.actorUserId,
         },
@@ -406,8 +407,8 @@ async function applyBackfill(
         data: {
           sourceInvoiceId: snapshot.creditNote.id,
           targetInvoiceId: snapshot.adjustment.id,
-          targetInvoiceLineId: snapshot.adjustmentLine.id,
-          kind: DocumentApplicationKind.CAUSE_REVERSAL,
+          targetInvoiceLineId: null,
+          kind: DocumentApplicationKind.SETTLEMENT,
           amountApplied: reversalAmount,
           appliedByUserId: actorContext.actorUserId,
           notes: REVERSAL_ANNOTATION,

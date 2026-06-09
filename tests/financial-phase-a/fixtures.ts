@@ -483,7 +483,7 @@ export async function seedPhaseAFinancialFixtures(
       id: `${FIXTURE_PREFIX}-credit-note-application`,
       sourceInvoiceId: creditNoteInvoice.id,
       targetInvoiceId: finalInvoice.id,
-      kind: DocumentApplicationKind.CREDIT_TO_FINAL,
+      kind: DocumentApplicationKind.SETTLEMENT,
       amountApplied: new Prisma.Decimal(10),
       appliedByUserId: manager.id,
       notes: "Phase A credit note application",

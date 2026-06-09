@@ -442,7 +442,7 @@ async function createSourceInvoice(
       data: {
         sourceInvoiceId: creditNote.id,
         targetInvoiceId: invoice.id,
-        kind: DocumentApplicationKind.CREDIT_TO_FINAL,
+        kind: DocumentApplicationKind.SETTLEMENT,
         amountApplied: new Prisma.Decimal(options.creditNote),
         appliedByUserId: fixture.managerId,
       },

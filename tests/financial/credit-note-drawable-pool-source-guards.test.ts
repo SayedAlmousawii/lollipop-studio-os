@@ -4,25 +4,47 @@ import path from "node:path";
 import test from "node:test";
 
 const ROOT = process.cwd();
+const RETIRED_KIND_PATTERN = new RegExp(
+  `${["CAUSE", "REVERSAL"].join("_")}|${["CREDIT", "TO", "FINAL"].join("_")}`
+);
 
-test("document application kind migration classifies existing rows loudly", () => {
+test("document application kind retirement migration recreates the collapsed enum", () => {
   const migration = readFileSync(
     path.join(
       ROOT,
-      "prisma/migrations/20260608010000_document_application_kind/migration.sql"
+      "prisma/migrations/20260609020000_document_application_kind_retirement/migration.sql"
     ),
     "utf8"
   );
 
+  assert.match(migration, /ALTER TYPE "DocumentApplicationKind" RENAME TO "DocumentApplicationKind_old"/);
   assert.match(migration, /CREATE TYPE "DocumentApplicationKind"/);
-  assert.match(migration, /source\."invoiceType" = 'DEPOSIT'/);
-  assert.match(migration, /'CAUSE_REVERSAL'/);
-  assert.match(migration, /'CREDIT_TO_FINAL'/);
-  assert.match(migration, /application\."kind" IS NULL/);
-  assert.match(migration, /RAISE EXCEPTION 'DocumentApplication kind backfill failed/);
+  assert.match(migration, /'DEPOSIT'/);
+  assert.match(migration, /'SETTLEMENT'/);
+  assert.doesNotMatch(migration, RETIRED_KIND_PATTERN);
+  assert.match(migration, /DROP TYPE "DocumentApplicationKind_old"/);
 });
 
-test("settlement production writes stay scoped to OrderCommit execution", () => {
+test("retired document application kinds are absent from active runtime sources and tests", () => {
+  const activeFiles = [
+    ...listFiles(path.join(ROOT, "src")),
+    ...listFiles(path.join(ROOT, "app")),
+    ...listFiles(path.join(ROOT, "scripts")),
+    ...listFiles(path.join(ROOT, "tests")),
+    path.join(ROOT, "prisma/schema.prisma"),
+  ].filter((file) => /\.(ts|tsx|sql|prisma)$/.test(file));
+
+  const retiredReferences = activeFiles.flatMap((file) => {
+    const source = readFileSync(file, "utf8");
+    return RETIRED_KIND_PATTERN.test(source)
+      ? [path.relative(ROOT, file)]
+      : [];
+  });
+
+  assert.deepEqual(retiredReferences, []);
+});
+
+test("settlement production writes stay scoped to invoice service", () => {
   const moduleFiles = listFiles(path.join(ROOT, "src/modules")).filter((file) =>
     file.endsWith(".ts")
   );
@@ -34,7 +56,7 @@ test("settlement production writes stay scoped to OrderCommit execution", () => 
   });
 
   assert.deepEqual(productionSettlementWrites, [
-    "src/modules/order-commits/order-commit-execution.service.ts",
+    "src/modules/invoices/invoice.service.ts",
   ]);
 
   for (const file of moduleFiles.filter((item) =>
