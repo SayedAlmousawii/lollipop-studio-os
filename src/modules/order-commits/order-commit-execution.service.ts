@@ -1,6 +1,7 @@
 import {
   AuditAction,
   AuditEntityType,
+  CreditOrigin,
   InvoiceLineType,
   OrderActivityType,
   OrderStatus,
@@ -995,6 +996,7 @@ export async function emitOrderCommitFinancialDocuments(
           input.approvalActorUserId ?? input.actorContext.actorUserId,
         notes: "OrderCommit final credit note emission",
         applicationMode: "UNAPPLIED",
+        creditOrigin: CreditOrigin.REMOVAL,
       },
       input.client
     );
