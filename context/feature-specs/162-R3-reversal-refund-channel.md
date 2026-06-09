@@ -1,199 +1,190 @@
-# 162 · R3 — Reversal Refund Channel (credit-note-balance refund, no manufactured overpayment)
+# 162 · R3 — Reversal Refund Channel (drawable credit carried until staff refund; no auto-refund)
 
 > Plan label **R3** (reversal-credit model phase); repo number **162** is provisional.
 > Fourth spec of the phase in
 > `context/reviews/reversal-credit-and-refund-model-decision.md` (model **C′ + Option 1**, §3/§5).
-> **Behavioral.** Depends on **R0 (159)**, **R1 (160)**, **R2 (161)** merged.
-> After R3, **no path emits `CAUSE_REVERSAL`** — which is what unblocks R4 (enum retirement).
+> **Behavioral, backend/service/invariant-only.** Depends on **R0 (159)**, **R1 (160)**,
+> **R2 (161)** merged. After R3, **no path emits `CAUSE_REVERSAL`** — which unblocks R4.
 
 ## Goal
 
-Finish the C′ model: make **all** adjustment-reversal value drawable settlement-capable credit
-(dropping R2's paid/unpaid split and the last `CAUSE_REVERSAL` emission), and refund the
-customer's owed cash **from the credit note's unapplied balance** instead of from a manufactured
-invoice overpayment. Open receivables still settle **first** (the existing sweep); only what
-remains drawable on a *paid-origin* reversal note becomes refundable. Genuine cash overpayment
-(pay 120 on a 100 invoice) keeps the existing `computeOverpaymentCapacity` path, untouched.
+Make **all** adjustment-reversal value drawable settlement-capable credit (the paid path joins the
+unpaid path from R2), stop the last `CAUSE_REVERSAL` emission, and remove the manufactured-overpayment
+refund entirely. Reversal value is **carried as drawable credit indefinitely** — it settles open
+receivables now and in the future via the existing sweep — and is **refunded only when staff
+explicitly decide**, drawing from the credit note's drawable balance. R3 builds the *capability and
+the conservation guarantees*; it issues **no** REFUND invoices or OUT payments automatically.
 
-This removes the last place reversal value inflates an invoice's effective-paid, so the register
-reconciles in the paid case exactly as it now does in the unpaid case (R2).
+## Why no auto-refund (the correcting principle)
 
-## What R2 left for R3 (the starting point)
+An automatic post-sweep refund of "leftover" re-introduces stranding. Worked case 2:
 
-R2 split adjustment reversals by `requiresRefund` (= `adjustmentLine.isPaid`):
-- **Unpaid** → drawable `REVERSAL` credit note, swept as `SETTLEMENT`. Done.
-- **Paid** → **still** a line-targeted `CAUSE_REVERSAL` note (manufactures overpayment on the
-  ADJ) **+** an immediate `computeOverpaymentCapacity` refund from that ADJ. This is the legacy
-  path R3 replaces.
+```
+downgrade → 100 drawable credit
+60 settles the open ADJ
+40 carried as drawable credit
+later a +40 charge appears → the 40 settles it → no stranding, no refund
+```
+
+If R3 auto-refunded the 40 right after the sweep, the later +40 charge would have nothing to draw
+and would strand (or force the customer to pay again) — the exact failure that killed variant C,
+relocated. The system cannot know at downgrade time whether a future charge is coming, so leftover
+value **must carry** as drawable credit. A refund is a deliberate staff decision (worked case 4 =
+"nothing more is coming, refund the carried balance"), **not** an automatic step on commit/edit.
+
+## What R2 left, and what R3 changes
+
+R2 split adjustment reversals by `requiresRefund` (= `adjustmentLine.isPaid`): unpaid → drawable
+`REVERSAL` note (swept); **paid → still a line-targeted `CAUSE_REVERSAL` note that manufactures
+overpayment + an immediate inline refund** (direct path) or a `refundPending` flag (OrderCommit).
+R3 removes that paid-path special case entirely: paid reversals become drawable `REVERSAL` notes
+too, no `CAUSE_REVERSAL`, and **no automatic refund** on either path.
 
 ## Read First
 
-- `context/reviews/reversal-credit-and-refund-model-decision.md` — §3 (two-channel table; refund
-  source = the credit note's unapplied balance), §5 worked cases **2 and 4**, §7 (R3 row;
-  locked decision #2: goodwill-style **null** `refundOfPaymentId` for credit-note-sourced refunds).
-- `src/modules/refunds/refund.service.ts` — `issueRefundWithPaymentWithClient` / `createRefundInvoice`:
-  source must be FINAL/ADJ + locked (l.178–186); capacity = `computeOverpaymentCapacity` (l.188);
-  REFUND `parentInvoiceId = source.id` (l.206); OUT payment closes the REFUND invoice.
+- `context/reviews/reversal-credit-and-refund-model-decision.md` — §3 (refund source = the credit
+  note's unapplied balance), §5 worked cases **2 and 4**, §7 (R3 row; locked decision #2:
+  goodwill-style **null** `refundOfPaymentId` for credit-note-sourced refunds).
 - `src/modules/invoices/invoice.service.ts`:
+  - `applyAdjustmentReversalsWithClient` (l.3376+) — R2's paid/unpaid split + the inline paid refund
+    (`issueRefundWithPayment`, ~l.3358) that R3 **removes**.
+  - `computeCreditNoteAvailable` (l.2534) — `total − Σ source applications`; **does NOT net REFUND
+    children today** (R3 change).
   - `computeOverpaymentCapacity` (l.2494) — `max(effectivePaid − total − Σ REFUND children, 0)`;
-    note **REFUND children reduce capacity purely via `parentInvoiceId`**, not via any application.
-  - `computeCreditNoteAvailable` (l.2534) — `total − Σ source applications`; **does NOT currently
-    net REFUND children** (the key change below).
-  - `applyAdjustmentReversalsWithClient` (l.3376+) — R2's paid/unpaid partition + the paid refund.
-  - `settleAvailableCreditAgainstOpenReceivablesWithClient` (l.2606) — the sweep (unchanged).
-- `src/modules/order-commits/order-commit-execution.service.ts` — R2's reversal split (~l.958) +
-  post-emission sweep (~l.1020).
+    REFUND children reduce capacity via `parentInvoiceId`, not via any application. **Untouched.**
+  - `appendCreditApplicationWithClient` (~l.2687) — the `FOR UPDATE` lock pattern to mirror.
+- `src/modules/order-commits/order-commit-execution.service.ts` — R2's reversal split (~l.958),
+  post-emission sweep (~l.1020), `refundPending` flag (~l.1054).
+- `src/modules/refunds/refund.service.ts` — `createRefundInvoice` / `issueRefundWithPaymentWithClient`:
+  source must be FINAL/ADJ + locked (l.178–186); capacity = `computeOverpaymentCapacity` (l.188);
+  REFUND `parentInvoiceId = source.id` (l.206). R3 adds a CREDIT_NOTE source branch.
 - `src/modules/financial/invariants.ts` — `refund-source-is-final-or-adjustment` (l.743),
-  `refund-amount-not-over-source` (l.665), `refund-trace-points-to-inbound-payment` (l.714),
-  `out-payment-targets-refund-invoice` (l.641).
-- Decision records `003-refund-traceability.md` (nullable `refundOfPaymentId`) and
-  `002-direction-out-requires-refund-invoice.md`.
+  `refund-amount-not-over-source` (l.665), `refund-trace-points-to-inbound-payment` (l.714).
 
-## The mechanism (recommended — flag for review)
+## The refund mechanism (built now, triggered later)
 
-The refund must (a) cap the refund at the credit note's drawable balance and (b) reduce that
-balance so the **sweep cannot re-draw refunded value**. The cleanest shape mirrors the existing
-overpayment mechanism (where REFUND children reduce `computeOverpaymentCapacity` via
-`parentInvoiceId`):
+The credit-note refund branch is implemented and unit-tested in R3 but has **no production caller**
+yet — neither auto-issued nor UI-exposed. The staff trigger (and the cash-refund-eligibility policy,
+see Out of Scope) lands in a follow-up. The mechanism, when invoked:
 
-- **REFUND invoice parents to the credit note** (`parentInvoiceId = creditNote.id`) for the
-  reversal channel. The OUT payment closes the REFUND invoice exactly as today.
-- **`computeCreditNoteAvailable` is extended to also subtract REFUND children** parented to the
-  credit note (an **aggregate** `_sum` over `parentInvoiceId = CN`, so *N* partial refunds are
-  natively summed — no first/final-refund special case):
+- **REFUND invoice parents to the credit note** (`parentInvoiceId = creditNote.id`); the OUT payment
+  closes it exactly as the FINAL/ADJ path does. The CN→REFUND link is `parentInvoiceId` only — **not**
+  a document application — so the REFUND invoice is settled solely by its OUT payment (no double count).
+- **`computeCreditNoteAvailable` is extended** to also subtract REFUND children parented to the CN,
+  as an aggregate `_sum` over `parentInvoiceId = CN`:
   `available = totalAmount − Σ source applications − Σ (REFUND children).totalAmount`.
-  This single change makes the drawable pool the *single source of truth* for "value not yet
-  spent as settlement or refund," so the sweep automatically excludes refunded value — no
-  double-spend.
-- **Capacity for a credit-note-sourced refund = `computeCreditNoteAvailable(CN)`** (post-sweep),
-  not `computeOverpaymentCapacity`.
-- **Atomicity (multiple partial refunds / concurrency guard).** The credit-note refund path must
-  **lock the credit-note row (`FOR UPDATE`) and recompute `computeCreditNoteAvailable` inside the
-  same transaction** before applying the cap — mirroring `appendCreditApplicationWithClient`'s
-  lock when the sweep draws the pool (invoice.service ~l.2687). The model supports any number of
-  partial refunds interleaved with settlements over time; the identity
-  `total = Σsettlements + Σrefunds + drawable` is order-independent, but the cap must be evaluated
-  against committed state so two concurrent draws cannot both pass a stale check.
-- `refundOfPaymentId = null` (locked decision #2) — the value is sourced from the credit-note
-  balance, not a specific prior IN payment.
-
-Rejected alternative (consume CN balance via a `SETTLEMENT` application onto the REFUND invoice):
-double-counts the REFUND invoice's effective-paid (OUT payment **and** document application both
-fund the same total) and forces an INV-09 carve-out for REFUND targets. Parenting to the CN +
-netting REFUND children reuses the proven overpayment mechanics and touches less.
+  This makes the drawable pool the single source of truth for "value not yet spent as settlement or
+  refund," so the sweep can never re-draw refunded value (no double-spend), and N partial refunds are
+  natively summed.
+- **Cap = `computeCreditNoteAvailable(CN)`**, recomputed under a **`FOR UPDATE` lock on the credit-note
+  row inside the transaction**, so multiple partial refunds / concurrent draws cannot over-draw against
+  stale state. Conservation `total = Σsettlements + Σrefunds + drawable` holds for any interleaving.
+- `refundOfPaymentId = null` (locked decision #2).
 
 ## Rules
 
-- **All adjustment-reversal value is drawable.** Both emission paths stop the `requiresRefund`
-  split and stop emitting `CAUSE_REVERSAL`; every reversal becomes a drawable `REVERSAL` note
-  (origin + `reversesInvoiceLineId` from R0). `isPaid` is retained only to drive the **refund
-  decision**, not the emission shape.
-- **Settle before refund.** The sweep runs first (already does, both paths). Only the credit
-  note's **post-sweep** drawable balance is refundable.
-- **Refund only paid-origin value.** A reversal of a **paid** line refunds its remaining drawable
-  balance from the credit note. A reversal of an **unpaid** line is never auto-refunded — its
-  leftover stays drawable for future receivables (worked case 2).
-- **Reversal value never manufactures invoice overpayment** — the property R2 established for the
-  unpaid path now holds for the paid path too.
-- **Genuine cash overpayment is untouched** — `computeOverpaymentCapacity` and the FINAL/ADJ
-  refund path keep working for "customer paid more than the invoice."
+- **All adjustment-reversal value is drawable.** Both paths emit drawable `REVERSAL` notes (origin +
+  `reversesInvoiceLineId` from R0); **no `CAUSE_REVERSAL`** is emitted anywhere after R3.
+- **No automatic refund.** Neither the direct edit path nor OrderCommit creates a REFUND invoice or
+  an OUT payment. The direct path's existing inline `issueRefundWithPayment` call is **removed**.
+- **Leftover carries indefinitely.** After the sweep settles open receivables, the remaining drawable
+  balance stays on the credit note, available to settle future receivables (preserve case 2).
+- **Reversal value never manufactures invoice overpayment** — now true on the paid path too.
+- **Genuine cash overpayment is untouched** — `computeOverpaymentCapacity` and the FINAL/ADJ refund
+  path keep working for "customer paid more than the invoice."
+- **`requiresRefund` / `isPaid` no longer drives emission or refund** in R3. Leave the signal in place
+  (the follow-up trigger uses it for cash-refund eligibility); do not key any R3 behavior on it.
 
 ## Scope
 
-### In Scope
+### In Scope (backend / service / invariant only)
 
-- **Unify reversal emission.** In `applyAdjustmentReversalsWithClient` and the OrderCommit reversal
-  emission, drop the paid/unpaid partition: emit a single drawable `REVERSAL` credit note per
-  parent adjustment invoice (no `CAUSE_REVERSAL`, no line-targeted application). Carry the paid
-  amount forward for the refund step.
-- **Extend `computeCreditNoteAvailable`** to subtract REFUND children parented to the credit note
-  (see mechanism). This is the one change to a previously-frozen function; it is additive
-  (subtracts a term that is zero for every credit note today).
-- **Add a credit-note-balance refund path** in `refund.service.ts`:
-  - Allow a **CREDIT_NOTE** source whose `creditOrigin ∈ {REVERSAL, REMOVAL}` (locked + same case).
-  - Cap the refund at `computeCreditNoteAvailable(CN)` (post-sweep).
-  - Parent the REFUND invoice to the CN; OUT payment as today; `refundOfPaymentId = null`.
-  - Keep the existing FINAL/ADJ overpayment refund path as a separate branch, unchanged.
-- **Drive the refund** after the sweep: for each paid-origin reversal credit note, if drawable
-  balance remains, issue the credit-note-balance refund for that remainder (capped at the paid
-  amount). Run on both the direct edit path and OrderCommit, after the post-emission sweep.
+- **Unify reversal emission** in `applyAdjustmentReversalsWithClient` and the OrderCommit reversal
+  emission: emit a drawable `REVERSAL` credit note per parent adjustment invoice (origin REVERSAL +
+  `reversesInvoiceLineId`, unapplied, no line-targeted application). Remove the paid-branch
+  `CAUSE_REVERSAL` emission **and** the direct path's inline refund. Leave the sweep call in place
+  on both paths (settles receivables; leftover carries).
+- **Extend `computeCreditNoteAvailable`** to net REFUND children parented to the CN (additive term;
+  equals today's value when no REFUND child exists).
+- **Add a CREDIT_NOTE refund-source branch** to `refund.service.ts` (dormant — tests only in R3):
+  allow a locked, same-case `CREDIT_NOTE` source whose `creditOrigin ∈ {REVERSAL, REMOVAL}`; lock the
+  CN row `FOR UPDATE` and recompute drawable in-txn; cap at `computeCreditNoteAvailable(CN)`; parent
+  the REFUND invoice to the CN; `refundOfPaymentId = null`. Keep the FINAL/ADJ overpayment branch and
+  its error messages unchanged.
 - **Invariant updates:**
-  - `refund-source-is-final-or-adjustment` → also allow a **CREDIT_NOTE** parent when its
+  - `refund-source-is-final-or-adjustment` → also allow a CREDIT_NOTE parent whose
     `creditOrigin ∈ {REVERSAL, REMOVAL}`.
-  - `refund-amount-not-over-source` → for a CREDIT_NOTE source, assert the **conservation
-    identity directly**: `computeCreditNoteAvailable(CN) ≥ 0`, i.e.
-    `Σ settlements + Σ refunds ≤ total`. (This is stronger than "refund total ≤ CN total," which
-    ignores settlements — the example showed the weaker form would let settlements + refunds
-    exceed the total.) Inbound payment allocations are zero on a credit note, so that branch does
-    not apply. Keep the FINAL/ADJ branch as-is.
-  - `refund-trace-points-to-inbound-payment` → **unchanged** (it only checks non-null
-    `refundOfPaymentId`; the null-linked reversal refund passes as written — verify with a test).
-  - Regenerate the invariant catalog; check `reconciliation-invariants.ts` for any refund-source
-    reconciliation rule that also needs the CREDIT_NOTE allowance.
+  - `refund-amount-not-over-source` → for a CREDIT_NOTE source, assert the conservation identity
+    **`computeCreditNoteAvailable(CN) ≥ 0`** (`Σsettlements + Σrefunds ≤ total`), not the weaker
+    "refund ≤ CN total." Keep the FINAL/ADJ inbound-payment branch as-is.
+  - `refund-trace-points-to-inbound-payment` → **unchanged** (only checks non-null
+    `refundOfPaymentId`; the null-linked CN refund passes — add a test proving it).
+  - Regenerate the catalog; check `reconciliation-invariants.ts` for any refund-source rule that
+    rejects a CN-parented REFUND and adjust only if needed.
 
 ### Out of Scope
 
-- **Retiring the `CAUSE_REVERSAL` / `CREDIT_TO_FINAL` enum values** (**R4**). R3 stops *emitting*
-  `CAUSE_REVERSAL`; the enum value and any historical handling are removed in R4.
-- **`CREDIT_TO_FINAL` / FINAL removal credit** behavior (**R4**).
+- **The refund trigger** — neither auto-issue nor UI. Exposing "refund from credit note" to staff
+  (surfacing the CN as a refundable source with its drawable balance and the cash-refund-eligibility
+  cap) is a **follow-up spec**. Include here only the *tiny* read-layer glue strictly required for a
+  test, if any — otherwise none.
+- **Cash-refund eligibility (paid-origin cap).** A credit note's drawable balance is fungible for
+  *settlement*, but only value the customer actually **paid** should be refundable as **cash**
+  (unpaid-origin reversal credit is settlement-only — refunding it hands back money never received).
+  R3 does not expose a refund trigger, so this is not yet reachable; the follow-up that adds the
+  trigger **must** enforce it (derive paid-origin from the reversed line(s)' paid state, or a marker
+  it introduces). Documented here so it is not lost.
+- **Retiring `CAUSE_REVERSAL` / `CREDIT_TO_FINAL` enum values** (**R4**) — R3 only stops emitting
+  `CAUSE_REVERSAL`.
 - **Genuine cash overpayment** behavior — unchanged.
-- Any read-layer / receipt / register change.
 
 ## Implementation Direction
 
-1. Extend `computeCreditNoteAvailable` to net REFUND children (additive term). Add focused unit
-   coverage that it equals today's value when no REFUND child exists.
-2. Collapse the reversal emission in both paths to a single drawable `REVERSAL` note; delete the
-   `CAUSE_REVERSAL` emission branch and the immediate `computeOverpaymentCapacity` refund for
-   paid reversals. Thread the paid amount to the refund step.
-3. Add the credit-note source branch to `createRefundInvoice` / `issueRefundWithPaymentWithClient`
-   (source CREDIT_NOTE + origin gate + drawable-balance cap + CN parent + null trace).
-4. After the post-emission sweep, issue the credit-note-balance refund for paid-origin leftover on
-   both paths.
-5. Update the two invariants + catalog; confirm reconciliation rules.
-6. Do **not** touch `computeOverpaymentCapacity`, the sweep body, the deposit/payment paths, or
-   the genuine-overpayment refund branch.
+1. Extend `computeCreditNoteAvailable` to net REFUND children; unit-test equality with today when no
+   REFUND child exists.
+2. In both emission paths, emit drawable `REVERSAL` notes for all reversals; delete the
+   `CAUSE_REVERSAL` branch and the direct-path inline `issueRefundWithPayment`. Keep the sweep calls.
+3. Add the dormant CREDIT_NOTE refund branch to `refund.service.ts` (lock + recompute + cap + CN
+   parent + null trace).
+4. Update the two invariants + catalog; confirm reconciliation rules.
+5. Do **not** touch `computeOverpaymentCapacity`, the sweep body, the deposit/payment paths, or the
+   genuine-overpayment refund branch. Do **not** add an auto-refund call anywhere.
 
 ## Observability Checklist
 
 ### Rollback Plan
-- Code-only revert (no schema change): restore R2's paid/unpaid partition + `CAUSE_REVERSAL`
-  emission + overpayment refund, revert `computeCreditNoteAvailable` and the two invariants.
+- Code-only revert (no schema change): restore R2's paid/unpaid split + `CAUSE_REVERSAL` emission +
+  the inline refund; revert `computeCreditNoteAvailable` and the two invariants.
 - Non-recoverable data: none (forward-only dev data, locked decision #1).
 
 ### Customer-Visible Surface
-- A fully-paid order that is later downgraded with nothing re-added now shows the refund sourced
-  from the reversal credit note, with **no** phantom overpayment on the original invoice. Same
-  cash to the customer, origin-correct channel (worked case 4).
+- None in R3. A paid downgrade now leaves carried drawable credit instead of an automatic refund; the
+  staff-facing refund-from-credit-note action arrives with the follow-up.
 
 ## Post-Implementation
-- Update the decision doc §7: mark R3 done — both reversal channels now origin-correct;
-  `CAUSE_REVERSAL` no longer emitted anywhere; **R4 (enum retirement) unblocked.**
-- Update `context/progress-tracker.md`: paid-reversal refund now drawn from credit-note balance;
-  reversal value never manufactures overpayment; only R4 cleanup remains.
+- Update the decision doc §7: R3 done — all reversal value carried as drawable credit; `CAUSE_REVERSAL`
+  no longer emitted; **R4 unblocked**. Note the deferred refund-trigger + paid-origin-eligibility follow-up.
+- Update `context/progress-tracker.md`: paid reversals now carry drawable credit (no auto-refund, no
+  manufactured overpayment); credit-note refund capability exists but is not yet triggered.
 
 ## Acceptance Criteria
 
-- **Worked case 4:** order paid in full, then a downgrade with nothing re-added → a `REVERSAL`
-  credit note holds the value, the sweep finds no open receivable, and the leftover is refunded
-  from the credit note (REFUND parented to the CN, `refundOfPaymentId = null`). **No** manufactured
-  overpayment on the original invoice; the case nets to zero owed/zero overpaid.
-- **Worked case 2:** downgrade settles an open receivable first; the remainder stays **drawable**
-  (no refund) and a later upgrade settles from it. (Unpaid-origin leftover is never auto-refunded.)
-- **Paid reversal with a partial open receivable:** the sweep settles the receivable, and only the
-  post-sweep remainder is refunded from the credit note — no double-spend (the refunded balance is
-  not re-drawn by a subsequent sweep, proving the `computeCreditNoteAvailable` change).
-- **Multiple partial refunds interleaved with settlements:** a single credit note can take several
-  partial refunds over time, interleaved with settlements, and the conservation identity
-  `total = Σsettlements + Σrefunds + drawable` holds at every step; each draw is capped at the live
-  drawable (a draw exceeding it is rejected), and `computeCreditNoteAvailable(CN) ≥ 0` always.
-- **Concurrency:** two refunds racing on the same credit note cannot over-draw — the second
-  serializes behind the first's `FOR UPDATE` lock and is capped against committed state.
-- **No `CAUSE_REVERSAL` is emitted** by any path (assert zero new `CAUSE_REVERSAL` applications
-  across the reversal tests) — the precondition for R4.
-- **Genuine cash overpayment** still refunds via `computeOverpaymentCapacity` on the FINAL/ADJ,
-  unchanged.
+- **No auto-refund:** committing an edit / OrderCommit that reverses a **paid** adjustment line creates
+  a drawable `REVERSAL` credit note and **no** REFUND invoice and **no** OUT payment. The direct path's
+  inline refund is gone.
+- **No `CAUSE_REVERSAL`** is emitted by any path (assert zero new `CAUSE_REVERSAL` applications across
+  the reversal tests) — the precondition for R4.
+- **Carry + future settlement (case 2):** a downgrade settles the open receivable, the remainder stays
+  drawable, and a later charge settles from it — no stranding, no refund.
+- **`computeCreditNoteAvailable`** equals today's value with no REFUND child, and subtracts REFUND
+  children when present (unit-tested).
+- **Refund capability (service-level test, not a production trigger):** calling the CREDIT_NOTE refund
+  branch directly draws from drawable balance, parents the REFUND to the CN, sets `refundOfPaymentId =
+  null`, and — across multiple partial refunds interleaved with settlements — upholds
+  `total = Σsettlements + Σrefunds + drawable` at each step, rejects an over-cap draw, and a later sweep
+  does **not** re-draw the refunded balance.
 - **Invariants:** `refund-source-is-final-or-adjustment` (loosened), `refund-amount-not-over-source`
-  (CN branch), `refund-trace-points-to-inbound-payment` (unchanged, passes on null trace), the R1
-  credit invariants, and the full financial + OrderCommit + reconciliation suite are green.
+  (CN `drawable ≥ 0` branch), `refund-trace-points-to-inbound-payment` (unchanged, passes on null
+  trace), the R1 credit invariants, and the full financial + OrderCommit + reconciliation suite green.
+- **Genuine cash overpayment** still refunds via `computeOverpaymentCapacity` on the FINAL/ADJ, unchanged.
 - `npm run build` and `npm run lint` pass.
