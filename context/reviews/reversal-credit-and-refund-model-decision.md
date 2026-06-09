@@ -118,10 +118,10 @@ CreditNote.reversesInvoiceLineId = <line>     // REVERSAL only — provenance
 
 | Today (enforces immediate line-targeted consumption) | After (C′ + Option 1) |
 |---|---|
-| `credit-note-targets-final` — CN parent FINAL, or parent ADJUSTMENT **with** a line-targeted `CAUSE_REVERSAL`. | **valid-credit-origin** — every CN has a valid `origin`; if `REVERSAL`, `reversesInvoiceLineId` is set and points at a real line. (No application-shape requirement.) |
-| `isValidCreditNoteApplication` (in `credit-note-has-document-application`) — per-kind target/line rules (`CAUSE_REVERSAL` ⇒ ADJUSTMENT+line; `SETTLEMENT` ⇒ ADJUSTMENT+no-line; `CREDIT_TO_FINAL` ⇒ FINAL+no-line). | **credit-applications-conserve** — a CN's applications (now all `SETTLEMENT`) sum to ≤ its total; unapplied remainder = drawable/refundable balance. |
-| `adjustment-has-no-document-application` — only `CAUSE_REVERSAL`(line) / `SETTLEMENT`(no-line) may touch an ADJUSTMENT. | Folded into **credit-applications-conserve** — a CN may settle any open ADJUSTMENT receivable regardless of which line it reverses. |
-| `classifier-reductions-have-matching-credit-note` — auto-reduction CN must have a line-targeted reversal **or** a settlement. | **classifier-reductions-have-origin** — auto-reduction CN carries `origin = REVERSAL/REMOVAL` + matching activity; application is ordinary settlement. |
+| `credit-note-targets-final` — CN parent FINAL, or parent ADJUSTMENT **with** a line-targeted `CAUSE_REVERSAL`. | **valid-credit-origin** — every CN has a valid `origin`; if `REVERSAL`, `reversesInvoiceLineId` is set and points at a real line. (No application-shape requirement.) **Implemented in Spec 160 R1.** |
+| `isValidCreditNoteApplication` (in `credit-note-has-document-application`) — per-kind target/line rules (`CAUSE_REVERSAL` ⇒ ADJUSTMENT+line; `SETTLEMENT` ⇒ ADJUSTMENT+no-line; `CREDIT_TO_FINAL` ⇒ FINAL+no-line). | **credit-applications-conserve** — a CN's applications sum to ≤ its total; unapplied remainder = drawable/refundable balance. No application-kind or line-targeting assertion. **Implemented in Spec 160 R1.** |
+| `adjustment-has-no-document-application` — only `CAUSE_REVERSAL`(line) / `SETTLEMENT`(no-line) may touch an ADJUSTMENT. | Folded into **credit-applications-conserve** — a CN may settle any open ADJUSTMENT receivable regardless of which line it reverses. **Implemented in Spec 160 R1.** |
+| `classifier-reductions-have-matching-credit-note` — auto-reduction CN must have a line-targeted reversal **or** a settlement. | **classifier-reductions-have-origin** — auto-reduction CN carries `origin = REVERSAL/REMOVAL` + matching activity; application is ordinary settlement. **Implemented in Spec 160 R1.** |
 
 Retained unchanged: B4's `charge-invoice-remaining-matches-derived` (stored vs derived cache),
 `computeEffectivePaidFromAllocations` (derived truth), `computeCreditNoteAvailable` (drawable
@@ -202,7 +202,7 @@ sweep, derived-truth (`computeEffectivePaidFromAllocations`), drawable pool
 | # | Spec | What it does | No-op? |
 |---|---|---|---|
 | **R0** | Foundation / schema | Add `CreditNote.origin` + `reversesInvoiceLineId`; classify origins. **Implemented in Spec 159.** | Behavior no-op |
-| **R1** | Invariant rework | Collapse the 4 taxonomy invariants → `valid-credit-origin` + `credit-applications-conserve`; regenerate catalog (allows the new shape before anything emits it). | Behavior no-op |
+| **R1** | Invariant rework | Collapse the 4 taxonomy invariants → `valid-credit-origin` + `credit-applications-conserve`; regenerate catalog. **Implemented in Spec 160; R2 emission is now unblocked.** | Behavior no-op |
 | **R2** | Emission change (core) | Stop consuming **reversal** credit as `CAUSE_REVERSAL`; issue with origin + provenance; route value through the sweep. **Bug dies here.** | Behavioral |
 | **R3** | Refund channel | Credit-note-balance refund for `origin ∈ {REVERSAL, REMOVAL}`; keep `computeOverpaymentCapacity` for true cash overpayment. | Behavioral |
 | **R4** | Taxonomy retirement | Retire `CAUSE_REVERSAL` / `CREDIT_TO_FINAL` enum kinds once nothing depends on them. | Cleanup |

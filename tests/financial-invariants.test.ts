@@ -31,7 +31,15 @@ test("financial invariants all pass against seeded fixtures", async () => {
 
     try {
       const [
-        { InvoiceStatus, InvoiceType, PaymentMethod, PaymentType, Prisma },
+        {
+          CreditOrigin,
+          DocumentApplicationKind,
+          InvoiceStatus,
+          InvoiceType,
+          PaymentMethod,
+          PaymentType,
+          Prisma,
+        },
         { db },
         {
           makeAutoAdjustedBookingFixture,
@@ -494,6 +502,88 @@ test("financial invariants all pass against seeded fixtures", async () => {
 
         const violations = await runAllInvariants(db);
         assert.deepEqual(violations, []);
+
+        const cleanCreditApplications = await db.documentApplication.findMany({
+          where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
+          select: { id: true, kind: true },
+        });
+        assert.ok(
+          cleanCreditApplications.some(
+            (application) =>
+              application.kind === DocumentApplicationKind.CAUSE_REVERSAL
+          ),
+          "R1 invariants should pass today's CAUSE_REVERSAL emission"
+        );
+        assert.ok(
+          cleanCreditApplications.some(
+            (application) =>
+              application.kind === DocumentApplicationKind.CREDIT_TO_FINAL
+          ),
+          "R1 invariants should pass today's CREDIT_TO_FINAL emission"
+        );
+
+        const creditToFinalApplication =
+          creditNoteInvoice.documentApplicationsAsSource[0];
+        assert.ok(creditToFinalApplication);
+        await db.documentApplication.update({
+          where: { id: creditToFinalApplication.id },
+          data: { kind: DocumentApplicationKind.SETTLEMENT },
+        });
+        assert.deepEqual(
+          await runAllInvariants(db),
+          [],
+          "R1 invariants should pass future-shaped SETTLEMENT credit routing"
+        );
+        await db.documentApplication.update({
+          where: { id: creditToFinalApplication.id },
+          data: { kind: DocumentApplicationKind.CREDIT_TO_FINAL },
+        });
+
+        await db.invoice.update({
+          where: { id: creditNotedFixture.creditNoteInvoiceId },
+          data: { creditOrigin: null },
+        });
+        const nullOriginViolations = await runAllInvariants(db);
+        assert.ok(
+          nullOriginViolations.some(
+            (violation) => violation.invariant === "valid-credit-origin"
+          )
+        );
+        await db.invoice.update({
+          where: { id: creditNotedFixture.creditNoteInvoiceId },
+          data: { creditOrigin: CreditOrigin.GOODWILL },
+        });
+
+        await db.invoice.update({
+          where: { id: adjustmentCreditNote.id },
+          data: { reversesInvoiceLineId: null },
+        });
+        const invalidReversalOriginViolations = await runAllInvariants(db);
+        assert.ok(
+          invalidReversalOriginViolations.some(
+            (violation) => violation.invariant === "valid-credit-origin"
+          )
+        );
+        await db.invoice.update({
+          where: { id: adjustmentCreditNote.id },
+          data: { reversesInvoiceLineId: adjustmentLine.id },
+        });
+
+        await db.documentApplication.update({
+          where: { id: creditToFinalApplication.id },
+          data: { amountApplied: new Prisma.Decimal(25) },
+        });
+        const overAppliedCreditViolations = await runAllInvariants(db);
+        assert.ok(
+          overAppliedCreditViolations.some(
+            (violation) => violation.invariant === "credit-applications-conserve"
+          )
+        );
+        await db.documentApplication.update({
+          where: { id: creditToFinalApplication.id },
+          data: { amountApplied: new Prisma.Decimal(20) },
+        });
+        assert.deepEqual(await runAllInvariants(db), []);
 
         await db.documentApplication.deleteMany({
           where: { targetInvoiceId: finalInvoice.id },
