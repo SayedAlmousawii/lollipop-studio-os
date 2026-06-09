@@ -13,7 +13,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **OrderCommit arc complete (Specs 120–151):** `commitOrderChanges` is the sole production financial-emission path; all Sales order edits (locked and unlocked) flow through OrderCommit staging → preview → commit.
 - **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
-- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, 160 R1, 161 R2, 162 R3, and 163 R4 are implemented; the settlement arc is complete, paid and unpaid reversal credit carries as drawable REVERSAL credit, and the application-kind taxonomy is collapsed.
+- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, 160 R1, 161 R2, 162 R3, 163 R4, and 164 are implemented; the settlement arc is complete, paid and unpaid reversal credit carries as drawable REVERSAL credit, the application-kind taxonomy is collapsed, and staff can refund eligible reversal/removal credit notes under the case cash ceiling.
 - **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
@@ -26,7 +26,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `InvoiceLockSnapshot` baselines exist for every locked invoice; a PostgreSQL trigger rejects frozen-field mutation of locked invoices.
 - DB triggers also reject `PaymentAllocation` over-collection and ADJUSTMENT-parented-to-ADJUSTMENT chains.
 - Payment settlement acquires an invoice row lock before balance reads; fully paid FINAL invoices auto-close to `CLOSED + isLocked=true` inside the settlement transaction.
-- Refund issuance uses canonical true overpayment capacity (`inbound allocations − CREDIT_NOTE-net owed − prior REFUND totals`) under a source invoice row lock for FINAL/ADJUSTMENT sources; a dormant service-only CREDIT_NOTE branch can draw locked REVERSAL/REMOVAL drawable balance with a null payment trace and no production trigger.
+- Refund issuance uses canonical true overpayment capacity under a source invoice row lock for FINAL/ADJUSTMENT sources, capped by case net cash overpayment; locked REVERSAL/REMOVAL credit notes can be refunded manually from drawable balance under the same case cash ceiling with a null payment trace.
 - INV-18 treats manual goodwill CREDIT_NOTE applications as outside order composition; classifier/order-composition credits remain in revenue-document comparison.
 - ADJUSTMENT cause linkage lives on CREDIT_NOTE `reversesInvoiceLineId`; document applications no longer line-target the originating ADJUSTMENT invoice line.
 - `DocumentApplication.kind` is collapsed to `DEPOSIT` and `SETTLEMENT`; OrderCommit document emission now runs a shared end-of-commit sweep that settles available same-case/order credit-note pools against open ADJUSTMENT receivables via invoice-targeted `SETTLEMENT` rows before any leftover remains as derived credit-note availability.
@@ -87,6 +87,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **164** — Activated staff-initiated REVERSAL/REMOVAL credit-note refunds, added the case net cash overpayment ceiling, exposed `creditNoteRefundable` on invoice detail, and capped cross-channel refund issuance.
 - **163 R4** — Retired CAUSE_REVERSAL and CREDIT_TO_FINAL from DocumentApplicationKind, relabeled FINAL credit applications as invoice-level SETTLEMENT, removed line-targeted credit application handling, and regenerated INV-09/catalog expectations.
 - **162 R3** — Unified paid and unpaid reversal emission onto drawable REVERSAL credit notes, stopped automatic reversal refunds and new CAUSE_REVERSAL emissions in direct/OrderCommit paths, added a dormant CREDIT_NOTE refund service branch with null traceability, and regenerated refund-source invariants.
 - **161 R2** — Routed unpaid adjustment reversal value into drawable REVERSAL credit notes, swept direct and OrderCommit emission paths after reversal emission, loosened INV-09 for invoice-level SETTLEMENT, and left paid reversal refunds on the legacy channel pending R3.

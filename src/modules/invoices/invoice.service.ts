@@ -42,6 +42,7 @@ import {
   type ReductionEvent,
 } from "@/modules/orders/order.delta";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
+import { deriveLockedFinancialSidebarSummary } from "@/modules/orders/order-settlement";
 import { getExtraPhotoUnitPriceWithClient } from "@/modules/pricing/pricing.service";
 import {
   priceSelections,
@@ -924,11 +925,24 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     row.isLocked &&
     (row.invoiceType === InvoiceType.FINAL ||
       row.invoiceType === InvoiceType.ADJUSTMENT)
-      ? await computeOverpaymentCapacity(row.id, db)
+      ? Prisma.Decimal.min(
+          await computeOverpaymentCapacity(row.id, db),
+          await caseNetCashOverpayment(row.financialCaseId, db)
+        )
       : null;
   const creditNoteCapacity =
     row.isLocked && row.invoiceType === InvoiceType.FINAL
       ? await computeCreditNoteCapacityForFinal(row.id, db)
+      : null;
+  const creditNoteRefundable =
+    row.isLocked &&
+    row.invoiceType === InvoiceType.CREDIT_NOTE &&
+    (row.creditOrigin === CreditOrigin.REVERSAL ||
+      row.creditOrigin === CreditOrigin.REMOVAL)
+      ? Prisma.Decimal.min(
+          await computeCreditNoteAvailable(row.id, db),
+          await caseNetCashOverpayment(row.financialCaseId, db)
+        )
       : null;
   const effectivePaidAmount = await computeEffectivePaidFromAllocations(row.id, db);
   const overpaidAmount = Prisma.Decimal.max(
@@ -955,6 +969,9 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
       ? formatMoney(overpaymentCapacity)
       : null,
     creditNoteCapacity: creditNoteCapacity ? formatMoney(creditNoteCapacity) : null,
+    creditNoteRefundable: creditNoteRefundable
+      ? formatMoney(creditNoteRefundable)
+      : null,
     isOverpaid: overpaidAmount.greaterThan(0),
     overpaidAmount: overpaidAmount.greaterThan(0) ? formatMoney(overpaidAmount) : null,
     lineItemsAreComputed,
@@ -2517,6 +2534,94 @@ export async function computeOverpaymentCapacity(
     effectivePaid.minus(source.totalAmount).minus(refunded),
     0
   );
+}
+
+export async function caseNetCashOverpayment(
+  financialCaseId: string,
+  client: DbClient = db
+): Promise<Prisma.Decimal> {
+  const [incomingPayments, outgoingPayments, financialCase] = await Promise.all([
+    client.payment.aggregate({
+      _sum: { amount: true },
+      where: {
+        financialCaseId,
+        direction: PaymentDirection.IN,
+      },
+    }),
+    client.payment.aggregate({
+      _sum: { amount: true },
+      where: {
+        financialCaseId,
+        direction: PaymentDirection.OUT,
+      },
+    }),
+    client.financialCase.findUnique({
+      where: { id: financialCaseId },
+      select: {
+        invoices: {
+          select: {
+            invoiceType: true,
+            totalAmount: true,
+            remainingAmount: true,
+            paidAmount: true,
+            status: true,
+            orderId: true,
+          },
+          orderBy: [{ invoiceSeq: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+        },
+      },
+    }),
+  ]);
+
+  if (!financialCase) {
+    throw new Error("Financial case not found");
+  }
+
+  const netCash = (
+    incomingPayments._sum.amount ?? new Prisma.Decimal(0)
+  ).minus(outgoingPayments._sum.amount ?? new Prisma.Decimal(0));
+  const finalInvoice = financialCase.invoices.find(
+    (invoice) => invoice.invoiceType === InvoiceType.FINAL
+  );
+
+  if (!finalInvoice) {
+    return Prisma.Decimal.max(netCash, 0);
+  }
+
+  const depositInvoice = financialCase.invoices
+    .filter((invoice) => invoice.invoiceType === InvoiceType.DEPOSIT)
+    .at(-1);
+  const finalizedAdjustments = financialCase.invoices.filter(
+    (invoice) =>
+      invoice.invoiceType === InvoiceType.ADJUSTMENT &&
+      invoice.status !== InvoiceStatus.DRAFT
+  );
+  const creditNoteTotal = financialCase.invoices
+    .filter((invoice) => invoice.invoiceType === InvoiceType.CREDIT_NOTE)
+    .reduce(
+      (sum, invoice) => sum.plus(invoice.totalAmount),
+      new Prisma.Decimal(0)
+    );
+  const grossCustomerTotal = new Prisma.Decimal(
+    deriveLockedFinancialSidebarSummary({
+      finalInvoice: {
+        totalAmount: finalInvoice.totalAmount,
+        remainingAmount: finalInvoice.remainingAmount,
+        depositPaidAmount: depositInvoice?.paidAmount ?? new Prisma.Decimal(0),
+      },
+      finalizedAdjustments: finalizedAdjustments.map((invoice) => ({
+        totalAmount: invoice.totalAmount,
+        remainingAmount: invoice.remainingAmount,
+      })),
+      orderId: finalInvoice.orderId ?? undefined,
+    }).customerTotal
+  );
+  const customerTotal = Prisma.Decimal.max(
+    grossCustomerTotal.minus(creditNoteTotal),
+    0
+  );
+
+  return Prisma.Decimal.max(netCash.minus(customerTotal), 0);
 }
 
 export async function computeCreditNoteCapacityForFinal(

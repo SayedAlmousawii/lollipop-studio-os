@@ -57,10 +57,22 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
     invoice.isLocked &&
     (invoice.invoiceType === "FINAL" || invoice.invoiceType === "ADJUSTMENT") &&
     shouldShowRefundForm(invoice.overpaymentCapacity);
+  const canRefundCreditNote =
+    canIssueRefund &&
+    invoice.isLocked &&
+    invoice.invoiceType === "CREDIT_NOTE" &&
+    shouldShowRefundForm(invoice.creditNoteRefundable);
   const sourcePayments = invoice.payments.filter(
     (payment) => payment.direction === "IN"
   );
-  const hasRefundCapacity = shouldShowRefundForm(invoice.overpaymentCapacity);
+  const hasInvoiceRefundCapacity = shouldShowRefundForm(invoice.overpaymentCapacity);
+  const hasCreditNoteRefundCapacity = shouldShowRefundForm(
+    invoice.creditNoteRefundable
+  );
+  const hasRefundCapacity =
+    hasInvoiceRefundCapacity || hasCreditNoteRefundCapacity;
+  const refundableAmount =
+    invoice.overpaymentCapacity ?? invoice.creditNoteRefundable ?? "0.000 KD";
 
   return (
     <PageContainer>
@@ -92,7 +104,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
             label={hasRefundCapacity ? "Refundable" : "Locked"}
             value={
               hasRefundCapacity
-                ? invoice.overpaymentCapacity ?? "0.000 KD"
+                ? refundableAmount
                 : invoice.isLocked
                   ? "Yes"
                   : "No"
@@ -103,8 +115,8 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
         {hasRefundCapacity ? (
           <Card>
             <CardContent className="pt-6 text-sm text-text-secondary">
-              Refund capacity available: {invoice.overpaymentCapacity}. Issue a
-              refund when the outbound money movement is ready to record.
+              Refund capacity available: {refundableAmount}. Issue a refund
+              when the outbound money movement is ready to record.
             </CardContent>
           </Card>
         ) : null}
@@ -176,6 +188,28 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
                     action={issueRefund}
                     overpaymentCapacity={invoice.overpaymentCapacity ?? "0.000 KD"}
                     sourcePayments={sourcePayments}
+                  />
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {canRefundCreditNote ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    Refund This Credit Note
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RefundInvoiceForm
+                    action={issueRefund}
+                    overpaymentCapacity={
+                      invoice.creditNoteRefundable ?? "0.000 KD"
+                    }
+                    sourcePayments={[]}
+                    capacityLabel="credit-note refundable balance"
+                    hideOriginalPayment
+                    submitLabel="Issue Credit-Note Refund"
                   />
                 </CardContent>
               </Card>

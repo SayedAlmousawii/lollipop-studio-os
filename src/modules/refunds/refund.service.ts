@@ -23,6 +23,7 @@ import {
   recordInvoiceLockSnapshot,
 } from "@/modules/invoices/invoice-lock.service";
 import {
+  caseNetCashOverpayment,
   computeCreditNoteAvailable,
   computeOverpaymentCapacity,
   generateInvoiceNumber,
@@ -202,10 +203,13 @@ async function createRefundInvoice(
 
   const capacity = isCreditNoteRefundSource
     ? await computeCreditNoteRefundCapacity(source, client)
-    : await computeOverpaymentCapacity(source.id, client);
+    : Prisma.Decimal.min(
+        await computeOverpaymentCapacity(source.id, client),
+        await caseNetCashOverpayment(source.financialCaseId, client)
+      );
   if (amount.greaterThan(capacity)) {
     const capacityLabel = isCreditNoteRefundSource
-      ? "credit note drawable balance"
+      ? "credit note refundable balance"
       : "overpayment capacity";
     throw new Error(
       `Refund amount ${amount.toFixed(3)} KD exceeds ${capacityLabel} ${capacity.toFixed(3)} KD`
@@ -288,6 +292,7 @@ async function createRefundInvoice(
 async function computeCreditNoteRefundCapacity(
   source: {
     id: string;
+    financialCaseId: string;
     creditOrigin: CreditOrigin | null;
   },
   client: DbClient
@@ -301,7 +306,10 @@ async function computeCreditNoteRefundCapacity(
     );
   }
 
-  return computeCreditNoteAvailable(source.id, client);
+  return Prisma.Decimal.min(
+    await computeCreditNoteAvailable(source.id, client),
+    await caseNetCashOverpayment(source.financialCaseId, client)
+  );
 }
 
 async function closeRefundInvoiceIfSettled(
