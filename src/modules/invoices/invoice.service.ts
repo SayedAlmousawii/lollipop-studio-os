@@ -101,6 +101,13 @@ export type SettleAvailableCreditAgainstOpenReceivablesInput = {
   notes?: string | null;
 };
 
+export type CloseInvoiceIfSettledResult = {
+  invoiceType: InvoiceType;
+  invoiceNumber: string;
+  orderId: string | null;
+  justClosed: boolean;
+} | null;
+
 export interface OrderInvoiceSyncInput {
   orderId: string;
   previousAddOns: OrderAddOnLine[];
@@ -996,6 +1003,12 @@ export async function issueInvoiceWithClient(
     throw new Error("Invoice is locked or not found");
   }
 
+  await recalculateInvoiceStatus(id, client);
+  const issuedInvoice = await client.invoice.findUnique({
+    where: { id },
+    select: { status: true },
+  });
+
   if (invoice.orderId) {
     await recordOrderActivity(client, {
       orderId: invoice.orderId,
@@ -1006,7 +1019,7 @@ export async function issueInvoiceWithClient(
       metadata: {
         invoiceId: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
-        status: InvoiceStatus.ISSUED,
+        status: issuedInvoice?.status ?? InvoiceStatus.ISSUED,
       },
     });
   }
@@ -1186,6 +1199,120 @@ export async function recalculateInvoiceStatus(id: string, client: DbClient = db
     where: { id },
     data: { paidAmount: directPaidAmount, remainingAmount, status },
   });
+}
+
+export async function closeInvoiceIfSettledWithClient(
+  client: DbClient,
+  invoiceId: string,
+  actorContext: ActorContext
+): Promise<CloseInvoiceIfSettledResult> {
+  const invoice = await client.invoice.findUnique({
+    where: { id: invoiceId },
+    select: {
+      ...invoiceLockSnapshotSelect,
+      id: true,
+      invoiceType: true,
+      invoiceNumber: true,
+      orderId: true,
+      isLocked: true,
+      status: true,
+      remainingAmount: true,
+      issuedAt: true,
+      closedAt: true,
+      financialCaseId: true,
+      bookingId: true,
+    },
+  });
+  if (!invoice) return null;
+  const shouldAutoCloseDraftFinal =
+    invoice.invoiceType === InvoiceType.FINAL &&
+    invoice.status === InvoiceStatus.DRAFT;
+  if (
+    invoice.isLocked ||
+    invoice.status === InvoiceStatus.CLOSED ||
+    (invoice.status === InvoiceStatus.DRAFT && !shouldAutoCloseDraftFinal) ||
+    invoice.remainingAmount.greaterThan(0)
+  ) {
+    return {
+      invoiceType: invoice.invoiceType,
+      invoiceNumber: invoice.invoiceNumber,
+      orderId: invoice.orderId,
+      justClosed: false,
+    };
+  }
+
+  if (!actorContext.actorUserId.trim()) {
+    throw new Error("actorUserId is required to close a settled invoice");
+  }
+
+  if (invoice.orderId) {
+    await snapshotInvoiceLineItemsWithClient(client, invoice.id, invoice.orderId);
+  }
+
+  const settledAt = new Date();
+  const updateResult = shouldAutoCloseDraftFinal
+    ? await client.invoice.updateMany({
+        where: {
+          id: invoice.id,
+          invoiceType: InvoiceType.FINAL,
+          isLocked: false,
+          status: InvoiceStatus.DRAFT,
+          remainingAmount: new Prisma.Decimal(0),
+        },
+        data: {
+          status: InvoiceStatus.CLOSED,
+          isLocked: true,
+          issuedAt: invoice.issuedAt ?? settledAt,
+          closedAt: settledAt,
+        },
+      })
+    : await client.invoice.updateMany({
+        where: {
+          id: invoice.id,
+          isLocked: false,
+          status: { notIn: [InvoiceStatus.CLOSED, InvoiceStatus.DRAFT] },
+          remainingAmount: new Prisma.Decimal(0),
+        },
+        data: {
+          status: InvoiceStatus.CLOSED,
+          isLocked: true,
+          closedAt: settledAt,
+        },
+      });
+
+  const justClosed = updateResult.count > 0;
+  if (justClosed) {
+    await recordInvoiceLockSnapshot(client, invoice, actorContext.actorUserId);
+
+    await recordAuditLog(client, actorContext, {
+      entityType: AuditEntityType.INVOICE,
+      entityId: invoice.id,
+      action: AuditAction.INVOICE_LOCKED,
+      before: {
+        isLocked: invoice.isLocked,
+        status: invoice.status,
+        closedAt: invoice.closedAt?.toISOString() ?? null,
+      },
+      after: {
+        isLocked: true,
+        status: InvoiceStatus.CLOSED,
+        closedAt: settledAt.toISOString(),
+      },
+      context: {
+        financialCaseId: invoice.financialCaseId,
+        orderId: invoice.orderId ?? null,
+        bookingId: invoice.bookingId ?? null,
+        invoiceType: invoice.invoiceType,
+      },
+    });
+  }
+
+  return {
+    invoiceType: invoice.invoiceType,
+    invoiceNumber: invoice.invoiceNumber,
+    orderId: invoice.orderId,
+    justClosed,
+  };
 }
 
 async function createSyncedOrderInvoice(
@@ -1393,6 +1520,8 @@ export async function applyDepositToFinalIfPresent(
       throw error;
     }
   }
+
+  await recalculateInvoiceStatus(finalInvoiceId, client);
 }
 
 function mapOrderAddOnRows(
@@ -2543,6 +2672,7 @@ async function appendCreditApplicationWithClient(
   }
 
   await lockInvoiceForUpdate(client, input.creditNoteId);
+  await lockInvoiceForUpdate(client, input.targetInvoiceId);
 
   const [creditNote, targetInvoice] = await Promise.all([
     client.invoice.findUnique({
@@ -2629,6 +2759,13 @@ async function appendCreditApplicationWithClient(
     select: { id: true },
   });
 
+  await refreshDocumentApplicationTargetInvoices({
+    client,
+    targetInvoiceIds: [targetInvoice.id],
+    actorUserId: input.appliedByUserId ?? null,
+    recordSettlementActivity: true,
+  });
+
   return application;
 }
 
@@ -2639,6 +2776,94 @@ async function lockInvoiceForUpdate(
   await client.$queryRaw<Array<{ id: string }>>`
     SELECT id FROM "invoices" WHERE id = ${invoiceId} FOR UPDATE
   `;
+}
+
+async function refreshDocumentApplicationTargetInvoices({
+  client,
+  targetInvoiceIds,
+  actorContext,
+  actorUserId,
+  recordSettlementActivity,
+}: {
+  client: DbClient;
+  targetInvoiceIds: Iterable<string>;
+  actorContext?: ActorContext | null;
+  actorUserId?: string | null;
+  recordSettlementActivity: boolean;
+}): Promise<CloseInvoiceIfSettledResult[]> {
+  const results: CloseInvoiceIfSettledResult[] = [];
+  let resolvedActorContext = actorContext ?? null;
+  if (!resolvedActorContext && actorUserId?.trim()) {
+    resolvedActorContext = await resolveActorContext(client, actorUserId);
+  }
+
+  for (const targetInvoiceId of new Set(targetInvoiceIds)) {
+    await lockInvoiceForUpdate(client, targetInvoiceId);
+    await recalculateInvoiceStatus(targetInvoiceId, client);
+    const closeResult = await closeInvoiceIfSettledWithClient(
+      client,
+      targetInvoiceId,
+      resolvedActorContext ?? emptyInvoiceLockActorContext()
+    );
+
+    if (closeResult?.justClosed && recordSettlementActivity) {
+      await recordCreditSettlementActivity(client, closeResult, resolvedActorContext);
+    }
+
+    results.push(closeResult);
+  }
+
+  return results;
+}
+
+function emptyInvoiceLockActorContext(): ActorContext {
+  return {
+    actorUserId: "",
+    actorRole: UserRole.ADMIN,
+  };
+}
+
+async function resolveActorContext(
+  client: DbClient,
+  actorUserId: string
+): Promise<ActorContext> {
+  const actor = await client.user.findUnique({
+    where: { id: actorUserId },
+    select: { id: true, role: true },
+  });
+  if (!actor) {
+    throw new Error("Document application actor was not found");
+  }
+
+  return { actorUserId: actor.id, actorRole: actor.role };
+}
+
+async function recordCreditSettlementActivity(
+  client: DbClient,
+  closeResult: NonNullable<CloseInvoiceIfSettledResult>,
+  actorContext: ActorContext | null
+): Promise<void> {
+  if (!closeResult.justClosed || !closeResult.orderId) return;
+
+  await recordOrderActivity(client, {
+    orderId: closeResult.orderId,
+    userId: actorContext?.actorUserId ?? null,
+    type: OrderActivityType.INVOICE_ADJUSTED,
+    title:
+      closeResult.invoiceType === InvoiceType.ADJUSTMENT
+        ? "Adjustment settled"
+        : "Invoice settled",
+    description:
+      closeResult.invoiceType === InvoiceType.ADJUSTMENT
+        ? `Adjustment ${closeResult.invoiceNumber} settled and closed.`
+        : `Invoice ${closeResult.invoiceNumber} settled and closed.`,
+    metadata: {
+      invoiceNumber: closeResult.invoiceNumber,
+      invoiceType: closeResult.invoiceType,
+      status: InvoiceStatus.CLOSED,
+      locked: true,
+    },
+  });
 }
 
 export async function createCreditNote(
@@ -2927,14 +3152,23 @@ export async function createCreditNoteWithClient(
     },
   });
 
-  const targetInvoiceIdsToRecalculate = new Set([
-    target.id,
-    ...lineTargetedApplications
-      .map((line) => line.targetInvoiceId)
-      .filter((id): id is string => Boolean(id)),
-  ]);
-  for (const targetInvoiceIdToRecalculate of targetInvoiceIdsToRecalculate) {
-    await recalculateInvoiceStatus(targetInvoiceIdToRecalculate, client);
+  const targetInvoiceIdsToRefresh = new Set<string>();
+  if (lineTargetedApplications.length > 0) {
+    for (const line of lineTargetedApplications) {
+      if (line.targetInvoiceId) {
+        targetInvoiceIdsToRefresh.add(line.targetInvoiceId);
+      }
+    }
+  } else if (applicationMode === "AUTO_APPLY") {
+    targetInvoiceIdsToRefresh.add(target.id);
+  }
+  if (targetInvoiceIdsToRefresh.size > 0) {
+    await refreshDocumentApplicationTargetInvoices({
+      client,
+      targetInvoiceIds: targetInvoiceIdsToRefresh,
+      actorContext: auditActorContext,
+      recordSettlementActivity: true,
+    });
   }
   const effectivePaidAmount = await computeEffectivePaidFromAllocations(
     target.id,

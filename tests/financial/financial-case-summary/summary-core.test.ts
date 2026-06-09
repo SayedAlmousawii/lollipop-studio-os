@@ -4,7 +4,13 @@ import assert from "node:assert/strict";
 import Module from "node:module";
 import process from "node:process";
 import test, { after } from "node:test";
-import { InvoiceLineType, InvoiceStatus, InvoiceType, Prisma } from "@prisma/client";
+import {
+  DocumentApplicationKind,
+  InvoiceLineType,
+  InvoiceStatus,
+  InvoiceType,
+  Prisma,
+} from "@prisma/client";
 import { withIsolatedBackendInvariantSchema } from "../../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -42,10 +48,12 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
           makeMixedEditBookingFixture,
           makeRefundedBookingFixture,
         },
+        { appendCreditApplication },
       ] = await Promise.all([
         import("@/lib/db"),
         import("@/modules/financial-cases"),
         import("../../fixtures/financial"),
+        import("@/modules/invoices/invoice.service"),
       ]);
 
       await t.test("confirmed booking without a Job returns booking stage", async () => {
@@ -399,6 +407,16 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
             sortOrder: 0,
           },
         });
+        await appendCreditApplication(
+          {
+            creditNoteId: creditNote.id,
+            targetInvoiceId: adjustment.id,
+            amount: new Prisma.Decimal(10),
+            kind: DocumentApplicationKind.SETTLEMENT,
+            notes: "Spec 158 original B4 cache-sync scenario",
+          },
+          db
+        );
 
         const settlement = await computeCustomerSettlement({
           financialCaseId: fixture.financialCaseId,
@@ -421,6 +439,13 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
         assert.equal(projection.cashPaid, 160);
         assert.equal(projection.remainingDue, 90);
         assert.equal(projection.availableCredit, undefined);
+
+        const refreshedAdjustment = await db.invoice.findUniqueOrThrow({
+          where: { id: adjustment.id },
+          select: { remainingAmount: true, status: true },
+        });
+        assert.equal(refreshedAdjustment.remainingAmount.toFixed(3), "90.000");
+        assert.equal(refreshedAdjustment.status, InvoiceStatus.PARTIAL);
       });
 
       await t.test("customer settlement projection uses corrected draft amount due", async () => {

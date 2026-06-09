@@ -7,6 +7,7 @@ import process from "node:process";
 import test from "node:test";
 import {
   DocumentApplicationKind,
+  InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
   Prisma,
@@ -40,6 +41,7 @@ test("credit-note available balance is derived from append-only applications", a
           appendCreditApplication,
           applyDepositToFinalIfPresent,
           computeCreditNoteAvailable,
+          createCreditNote,
         },
         { runAllInvariants },
         { recordInvoiceLockSnapshot },
@@ -89,6 +91,16 @@ test("credit-note available balance is derived from append-only applications", a
         );
 
         const fixture = await makeCashDepositBookingFixture(db);
+        const manager = await db.user.upsert({
+          where: { email: "credit-note-pool-manager@example.com" },
+          update: { name: "Credit Note Pool Manager", role: "MANAGER" },
+          create: {
+            name: "Credit Note Pool Manager",
+            email: "credit-note-pool-manager@example.com",
+            role: "MANAGER",
+          },
+        });
+        const fixtureWithManager = { ...fixture, managerId: manager.id };
         const suffix = randomUUID().slice(0, 8);
         const finalInvoice = await db.invoice.create({
           data: {
@@ -109,15 +121,47 @@ test("credit-note available balance is derived from append-only applications", a
           finalInvoice.id,
           db
         );
+        const depositRecalculatedFinal = await db.invoice.findUniqueOrThrow({
+          where: { id: finalInvoice.id },
+          select: { remainingAmount: true, status: true },
+        });
+        assert.equal(
+          depositRecalculatedFinal.remainingAmount.toFixed(3),
+          "80.000"
+        );
+        assert.equal(depositRecalculatedFinal.status, InvoiceStatus.PARTIAL);
+        await db.invoice.update({
+          where: { id: finalInvoice.id },
+          data: {
+            remainingAmount: new Prisma.Decimal(100),
+            status: InvoiceStatus.ISSUED,
+          },
+        });
+        const staleCacheViolations = await runAllInvariants(db);
+        assert.ok(
+          staleCacheViolations.some(
+            (violation) =>
+              violation.invariant ===
+              "charge-invoice-remaining-matches-derived" &&
+              violation.entityId === finalInvoice.id
+          )
+        );
+        await db.invoice.update({
+          where: { id: finalInvoice.id },
+          data: {
+            remainingAmount: new Prisma.Decimal(80),
+            status: InvoiceStatus.PARTIAL,
+          },
+        });
 
         const [firstAdjustment, secondAdjustment] = await Promise.all([
-          createSyntheticAdjustment(db, fixture, finalInvoice.id, "A", suffix, 15),
+          createSyntheticAdjustment(db, fixture, finalInvoice.id, "A", suffix, 20),
           createSyntheticAdjustment(db, fixture, finalInvoice.id, "B", suffix, 5),
         ]);
         const unappliedCreditNote = await createSyntheticCreditNote(
           db,
           recordInvoiceLockSnapshot,
-          fixture,
+          fixtureWithManager,
           finalInvoice.id,
           `unapplied-${suffix}`,
           7
@@ -131,20 +175,21 @@ test("credit-note available balance is derived from append-only applications", a
         const partialCreditNote = await createSyntheticCreditNote(
           db,
           recordInvoiceLockSnapshot,
-          fixture,
+          fixtureWithManager,
           finalInvoice.id,
           suffix,
           30
         );
-        await db.documentApplication.create({
-          data: {
-            sourceInvoiceId: partialCreditNote.id,
+        await appendCreditApplication(
+          {
+            creditNoteId: partialCreditNote.id,
             targetInvoiceId: finalInvoice.id,
             kind: DocumentApplicationKind.CREDIT_TO_FINAL,
-            amountApplied: new Prisma.Decimal(10),
-            appliedByUserId: fixture.managerId,
+            amount: new Prisma.Decimal(10),
+            appliedByUserId: manager.id,
           },
-        });
+          db
+        );
 
         assert.equal(
           (await computeCreditNoteAvailable(partialCreditNote.id, db)).toFixed(3),
@@ -158,7 +203,7 @@ test("credit-note available balance is derived from append-only applications", a
             targetInvoiceId: firstAdjustment.id,
             amount: new Prisma.Decimal(15),
             kind: DocumentApplicationKind.SETTLEMENT,
-            appliedByUserId: fixture.managerId,
+            appliedByUserId: manager.id,
             notes: "Spec 153 synthetic settlement draw",
           },
           db
@@ -167,6 +212,16 @@ test("credit-note available balance is derived from append-only applications", a
           (await computeCreditNoteAvailable(partialCreditNote.id, db)).toFixed(3),
           "5.000"
         );
+        const partiallySettledAdjustment = await db.invoice.findUniqueOrThrow({
+          where: { id: firstAdjustment.id },
+          select: { remainingAmount: true, status: true, isLocked: true },
+        });
+        assert.equal(
+          partiallySettledAdjustment.remainingAmount.toFixed(3),
+          "5.000"
+        );
+        assert.equal(partiallySettledAdjustment.status, InvoiceStatus.PARTIAL);
+        assert.equal(partiallySettledAdjustment.isLocked, false);
 
         await appendCreditApplication(
           {
@@ -174,7 +229,7 @@ test("credit-note available balance is derived from append-only applications", a
             targetInvoiceId: secondAdjustment.id,
             amount: new Prisma.Decimal(5),
             kind: DocumentApplicationKind.SETTLEMENT,
-            appliedByUserId: fixture.managerId,
+            appliedByUserId: manager.id,
             notes: "Spec 153 synthetic settlement draw",
           },
           db
@@ -182,6 +237,74 @@ test("credit-note available balance is derived from append-only applications", a
         assert.equal(
           (await computeCreditNoteAvailable(partialCreditNote.id, db)).toFixed(3),
           "0.000"
+        );
+        const fullySettledAdjustment = await db.invoice.findUniqueOrThrow({
+          where: { id: secondAdjustment.id },
+          select: { remainingAmount: true, status: true, isLocked: true },
+        });
+        assert.equal(fullySettledAdjustment.remainingAmount.toFixed(3), "0.000");
+        assert.equal(fullySettledAdjustment.status, InvoiceStatus.CLOSED);
+        assert.equal(fullySettledAdjustment.isLocked, true);
+
+        const [firstBulkTarget, secondBulkTarget] = await Promise.all([
+          createSyntheticAdjustment(db, fixture, finalInvoice.id, "BULK-A", suffix, 6),
+          createSyntheticAdjustment(db, fixture, finalInvoice.id, "BULK-B", suffix, 4),
+        ]);
+        const [firstBulkLine, secondBulkLine] = await Promise.all([
+          createSyntheticAdjustmentLine(db, firstBulkTarget.id, "Bulk target A", 6),
+          createSyntheticAdjustmentLine(db, secondBulkTarget.id, "Bulk target B", 4),
+        ]);
+        const bulkCreditNote = await createCreditNote(
+          {
+            targetAdjustmentInvoiceId: firstBulkTarget.id,
+            reason: "Spec 158 bulk target refresh",
+            createdByUserId: manager.id,
+            lines: [
+              {
+                description: "Bulk target A reversal",
+                quantity: 1,
+                unitPrice: new Prisma.Decimal(6),
+                targetInvoiceId: firstBulkTarget.id,
+                targetInvoiceLineId: firstBulkLine.id,
+              },
+              {
+                description: "Bulk target B reversal",
+                quantity: 1,
+                unitPrice: new Prisma.Decimal(4),
+                targetInvoiceId: secondBulkTarget.id,
+                targetInvoiceLineId: secondBulkLine.id,
+              },
+            ],
+          },
+          db
+        );
+        assert.equal(
+          (await computeCreditNoteAvailable(bulkCreditNote.id, db)).toFixed(3),
+          "0.000"
+        );
+        const refreshedBulkTargets = await db.invoice.findMany({
+          where: { id: { in: [firstBulkTarget.id, secondBulkTarget.id] } },
+          select: { id: true, remainingAmount: true, status: true, isLocked: true },
+          orderBy: { invoiceNumber: "asc" },
+        });
+        assert.deepEqual(
+          refreshedBulkTargets.map((invoice) => ({
+            remainingAmount: invoice.remainingAmount.toFixed(3),
+            status: invoice.status,
+            isLocked: invoice.isLocked,
+          })),
+          [
+            {
+              remainingAmount: "0.000",
+              status: InvoiceStatus.CLOSED,
+              isLocked: true,
+            },
+            {
+              remainingAmount: "0.000",
+              status: InvoiceStatus.CLOSED,
+              isLocked: true,
+            },
+          ]
         );
 
         const unchangedCreditNote = await db.invoice.findUniqueOrThrow({
@@ -209,7 +332,7 @@ test("credit-note available balance is derived from append-only applications", a
         const invalidCreditNote = await createSyntheticCreditNote(
           db,
           recordInvoiceLockSnapshot,
-          fixture,
+          fixtureWithManager,
           finalInvoice.id,
           `invalid-${suffix}`,
           5
@@ -220,7 +343,7 @@ test("credit-note available balance is derived from append-only applications", a
             targetInvoiceId: firstAdjustment.id,
             kind: DocumentApplicationKind.CREDIT_TO_FINAL,
             amountApplied: new Prisma.Decimal(5),
-            appliedByUserId: fixture.managerId,
+            appliedByUserId: manager.id,
           },
           select: { id: true },
         });
@@ -245,7 +368,7 @@ test("credit-note available balance is derived from append-only applications", a
         const overdrawnCreditNote = await createSyntheticCreditNote(
           db,
           recordInvoiceLockSnapshot,
-          fixture,
+          fixtureWithManager,
           finalInvoice.id,
           `overdrawn-${suffix}`,
           10
@@ -257,14 +380,14 @@ test("credit-note available balance is derived from append-only applications", a
               targetInvoiceId: finalInvoice.id,
               kind: DocumentApplicationKind.CREDIT_TO_FINAL,
               amountApplied: new Prisma.Decimal(6),
-              appliedByUserId: fixture.managerId,
+              appliedByUserId: manager.id,
             },
             {
               sourceInvoiceId: overdrawnCreditNote.id,
               targetInvoiceId: secondAdjustment.id,
               kind: DocumentApplicationKind.SETTLEMENT,
               amountApplied: new Prisma.Decimal(5),
-              appliedByUserId: fixture.managerId,
+              appliedByUserId: manager.id,
             },
           ],
         });
@@ -315,6 +438,25 @@ async function createSyntheticAdjustment(
       totalAmount: new Prisma.Decimal(amount),
       remainingAmount: new Prisma.Decimal(amount),
       status: InvoiceStatus.ISSUED,
+    },
+  });
+}
+
+async function createSyntheticAdjustmentLine(
+  db: PrismaClient,
+  invoiceId: string,
+  description: string,
+  amount: number
+) {
+  return db.invoiceLineItem.create({
+    data: {
+      invoiceId,
+      lineType: InvoiceLineType.ADD_ON,
+      description,
+      quantity: 1,
+      unitPrice: new Prisma.Decimal(amount),
+      lineTotal: new Prisma.Decimal(amount),
+      sortOrder: 0,
     },
   });
 }

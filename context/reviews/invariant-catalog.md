@@ -5,6 +5,7 @@
 | runtime-payment-has-exactly-one-allocation | payment-has-exactly-one-allocation | Phase C | global | Every payment has exactly one allocation. |
 | runtime-allocation-sum-equals-payment-amount | allocation-sum-equals-payment-amount | Phase C | global | Payment allocation totals equal the payment amount. |
 | runtime-financial-case-net-balance-non-negative | financial-case-net-balance-non-negative | Phase C | global | Financial case net balance cannot go below zero. |
+| runtime-charge-invoice-remaining-matches-derived | charge-invoice-remaining-matches-derived | Spec 158 B4 | invoice | Final and adjustment invoice remaining/status caches must match derived effective-paid. |
 | runtime-document-application-not-over-source | document-application-not-over-source | Phase C | global | Document applications cannot exceed their source capacity. |
 | runtime-deposit-final-pair-has-document-application | deposit-final-pair-has-document-application | Phase C | global | Each paid deposit and final invoice pair has one document application. |
 | runtime-no-payment-without-allocation | no-payment-without-allocation | Phase C | global | No payment may exist without an allocation. |

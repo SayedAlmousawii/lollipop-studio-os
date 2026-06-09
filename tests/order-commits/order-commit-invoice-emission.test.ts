@@ -1316,8 +1316,19 @@ function fakeAvailableCreditClient(options: {
       invoiceSeq: number;
       invoiceType: InvoiceType;
       financialCaseId: string;
-      orderId: string;
+      orderId: string | null;
       totalAmount: Prisma.Decimal;
+      paidAmount: Prisma.Decimal;
+      remainingAmount: Prisma.Decimal;
+      status: InvoiceStatus;
+      isLocked: boolean;
+      invoiceNumber: string;
+      publicId: string;
+      parentInvoiceId: string | null;
+      jobId: string | null;
+      bookingId: string | null;
+      issuedAt: Date | null;
+      closedAt: Date | null;
     }
   >();
 
@@ -1329,6 +1340,17 @@ function fakeAvailableCreditClient(options: {
       financialCaseId: "financial-case-1",
       orderId: "order-1",
       totalAmount: new Prisma.Decimal(creditNote.totalAmount),
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(0),
+      status: InvoiceStatus.CLOSED,
+      isLocked: true,
+      invoiceNumber: `CN-${creditNote.id}`,
+      publicId: `CN-${creditNote.id}`,
+      parentInvoiceId: null,
+      jobId: null,
+      bookingId: null,
+      issuedAt: new Date("2026-06-01T00:00:00.000Z"),
+      closedAt: new Date("2026-06-01T00:00:00.000Z"),
     });
   }
   for (const receivable of options.receivables) {
@@ -1339,6 +1361,17 @@ function fakeAvailableCreditClient(options: {
       financialCaseId: "financial-case-1",
       orderId: "order-1",
       totalAmount: new Prisma.Decimal(receivable.totalAmount),
+      paidAmount: new Prisma.Decimal(0),
+      remainingAmount: new Prisma.Decimal(receivable.totalAmount),
+      status: InvoiceStatus.ISSUED,
+      isLocked: false,
+      invoiceNumber: `ADJ-${receivable.id}`,
+      publicId: `ADJ-${receivable.id}`,
+      parentInvoiceId: "final-invoice",
+      jobId: null,
+      bookingId: null,
+      issuedAt: new Date("2026-06-01T00:00:00.000Z"),
+      closedAt: null,
     });
   }
 
@@ -1367,11 +1400,57 @@ function fakeAvailableCreditClient(options: {
       findUnique: async (args: { where: { id: string } }) => {
         const invoice = invoiceRows.get(args.where.id);
         if (!invoice) return null;
+        return { ...invoice, payments: [] };
+      },
+      update: async (args: {
+        where: { id: string };
+        data: {
+          paidAmount?: Prisma.Decimal;
+          remainingAmount?: Prisma.Decimal;
+          status?: InvoiceStatus;
+        };
+      }) => {
+        const invoice = invoiceRows.get(args.where.id);
+        if (!invoice) throw new Error("Invoice not found");
+        Object.assign(invoice, args.data);
         return invoice;
+      },
+      updateMany: async (args: {
+        where: { id: string };
+        data: {
+          status?: InvoiceStatus;
+          isLocked?: boolean;
+          issuedAt?: Date;
+          closedAt?: Date;
+        };
+      }) => {
+        const invoice = invoiceRows.get(args.where.id);
+        if (!invoice || invoice.isLocked) return { count: 0 };
+        if (
+          "status" in args.where &&
+          invoice.status === (args.where as { status?: InvoiceStatus }).status
+        ) {
+          return { count: 0 };
+        }
+        Object.assign(invoice, args.data);
+        return { count: 1 };
       },
     },
     invoiceLineItem: {
+      count: async () => 1,
       findUnique: async () => null,
+    },
+    user: {
+      findUnique: async () => ({ id: "manager-user", role: UserRole.MANAGER }),
+    },
+    invoiceLockSnapshot: {
+      create: async () => ({}),
+    },
+    auditLog: {
+      create: async () => ({}),
+    },
+    orderActivity: {
+      create: async () => ({}),
     },
     paymentAllocation: {
       aggregate: async () => ({ _sum: { amount: new Prisma.Decimal(0) } }),
