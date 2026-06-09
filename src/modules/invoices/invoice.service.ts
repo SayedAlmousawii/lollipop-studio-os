@@ -60,6 +60,8 @@ import type {
 import type {
   InvoiceDetail,
   InvoiceLineItem,
+  InvoiceRegisterSubtotals,
+  InvoiceRegisterView,
   InvoiceListItem,
   InvoiceStatusLabel,
 } from "./invoice.types";
@@ -67,6 +69,27 @@ import type {
 type DbClient = typeof db | Prisma.TransactionClient;
 type InvoiceNumberData = { invoiceSeq: number; invoiceNumber: string };
 type OrderAddOnLine = { productId?: string; name: string; price: number };
+type InvoiceRegisterSourceRow = Invoice & {
+  customer: { phone: string };
+  order: { jobNumber: string | null } | null;
+  booking: { publicId: string | null; jobNumber: string | null } | null;
+};
+type InvoiceRegisterContext = {
+  incomingCashByInvoiceId: Map<string, Prisma.Decimal>;
+  outgoingCashByInvoiceId: Map<string, Prisma.Decimal>;
+  creditAppliedByTargetInvoiceId: Map<string, Prisma.Decimal>;
+  creditAvailableByCreditNoteId: Map<string, Prisma.Decimal>;
+  applicationLinksByInvoiceId: Map<string, string[]>;
+  applicationBreakdownByTargetInvoiceId: Map<
+    string,
+    Array<{
+      label: string;
+      documentNumber: string;
+      amount: Prisma.Decimal;
+      signed: Prisma.Decimal;
+    }>
+  >;
+};
 type SnapshotInvoiceLineItem = Omit<
   Prisma.InvoiceLineItemCreateManyInput,
   "invoiceId"
@@ -837,46 +860,258 @@ export async function getInvoices({
   page?: number;
   pageSize?: number;
   search?: string;
-} = {}): Promise<InvoiceListItem[]> {
+} = {}): Promise<InvoiceRegisterView> {
   const safePage = Math.max(1, page);
   const safePageSize = Math.min(Math.max(1, pageSize), 100);
-  const rows = await withRetry(
+  const where = buildInvoiceWhere(search);
+  const [rows, subtotalRows] = await withRetry(
     () =>
-      db.invoice.findMany({
-        where: buildInvoiceWhere(search),
-        skip: (safePage - 1) * safePageSize,
-        take: safePageSize,
-        include: {
-          customer: { select: { phone: true } },
-          order: { select: { jobNumber: true } },
-          booking: { select: { publicId: true, jobNumber: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      }),
+      Promise.all([
+        db.invoice.findMany({
+          where,
+          skip: (safePage - 1) * safePageSize,
+          take: safePageSize,
+          include: {
+            customer: { select: { phone: true } },
+            order: { select: { jobNumber: true } },
+            booking: { select: { publicId: true, jobNumber: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        }),
+        db.invoice.findMany({
+          where,
+          include: {
+            customer: { select: { phone: true } },
+            order: { select: { jobNumber: true } },
+            booking: { select: { publicId: true, jobNumber: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]),
     "Failed to fetch invoices"
   );
+  const context = await buildInvoiceRegisterContext([
+    ...new Set([...rows, ...subtotalRows].map((row) => row.id)),
+  ]);
 
-  return rows.map((row) => {
-    const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+  return {
+    rows: rows.map((row) => mapInvoiceRegisterRow(row, context)),
+    subtotals: buildInvoiceRegisterSubtotals(subtotalRows, context),
+  };
+}
 
+async function buildInvoiceRegisterContext(
+  invoiceIds: string[],
+  client: DbClient = db
+): Promise<InvoiceRegisterContext> {
+  if (invoiceIds.length === 0) {
     return {
-      id: row.id,
-      jobNumber: displayJobNumber ?? "Pending",
-      invoiceNumber: row.invoiceNumber,
-      invoiceType: row.invoiceType,
-      customerPhone: formatCustomerPhone(row.customer.phone),
-      orderId: row.orderId,
-      bookingId: row.bookingId,
-      referenceLabel: formatInvoiceReference(row.booking?.publicId),
-      totalAmount: formatMoney(row.totalAmount),
-      paidAmount: formatMoney(row.paidAmount),
-      settledAmount: formatMoney(computeDisplaySettledAmount(row)),
-      remainingAmount: formatMoney(row.remainingAmount),
-      status: mapInvoiceStatus(row.status),
-      isLocked: row.isLocked,
-      createdAt: formatDate(row.createdAt),
+      incomingCashByInvoiceId: new Map(),
+      outgoingCashByInvoiceId: new Map(),
+      creditAppliedByTargetInvoiceId: new Map(),
+      creditAvailableByCreditNoteId: new Map(),
+      applicationLinksByInvoiceId: new Map(),
+      applicationBreakdownByTargetInvoiceId: new Map(),
     };
-  });
+  }
+
+  const [paymentAllocations, documentApplications, creditNotes] = await Promise.all([
+    client.paymentAllocation.findMany({
+      where: { invoiceId: { in: invoiceIds } },
+      select: {
+        invoiceId: true,
+        amount: true,
+        payment: { select: { direction: true } },
+      },
+    }),
+    client.documentApplication.findMany({
+      where: {
+        OR: [
+          { sourceInvoiceId: { in: invoiceIds } },
+          { targetInvoiceId: { in: invoiceIds } },
+        ],
+      },
+      select: {
+        sourceInvoiceId: true,
+        targetInvoiceId: true,
+        kind: true,
+        amountApplied: true,
+        sourceInvoice: { select: { invoiceNumber: true, invoiceType: true } },
+        targetInvoice: { select: { invoiceNumber: true, invoiceType: true } },
+      },
+      orderBy: [{ appliedAt: "asc" }, { id: "asc" }],
+    }),
+    client.invoice.findMany({
+      where: {
+        id: { in: invoiceIds },
+        invoiceType: InvoiceType.CREDIT_NOTE,
+      },
+      select: { id: true, totalAmount: true },
+    }),
+  ]);
+
+  const incomingCashByInvoiceId = new Map<string, Prisma.Decimal>();
+  const outgoingCashByInvoiceId = new Map<string, Prisma.Decimal>();
+  for (const allocation of paymentAllocations) {
+    const target =
+      allocation.payment.direction === PaymentDirection.IN
+        ? incomingCashByInvoiceId
+        : outgoingCashByInvoiceId;
+    addDecimalToMap(target, allocation.invoiceId, allocation.amount);
+  }
+
+  const creditAppliedByTargetInvoiceId = new Map<string, Prisma.Decimal>();
+  const applicationLinksByInvoiceId = new Map<string, string[]>();
+  const applicationBreakdownByTargetInvoiceId = new Map<
+    string,
+    Array<{
+      label: string;
+      documentNumber: string;
+      amount: Prisma.Decimal;
+      signed: Prisma.Decimal;
+    }>
+  >();
+
+  for (const application of documentApplications) {
+    addDecimalToMap(
+      creditAppliedByTargetInvoiceId,
+      application.targetInvoiceId,
+      application.amountApplied
+    );
+    pushMapValue(
+      applicationLinksByInvoiceId,
+      application.targetInvoiceId,
+      `·${application.sourceInvoice.invoiceNumber}`
+    );
+    pushMapValue(
+      applicationLinksByInvoiceId,
+      application.sourceInvoiceId,
+      `→${application.targetInvoice.invoiceNumber}`
+    );
+    pushMapValue(applicationBreakdownByTargetInvoiceId, application.targetInvoiceId, {
+      label: documentApplicationBreakdownLabel(application),
+      documentNumber: application.sourceInvoice.invoiceNumber,
+      amount: application.amountApplied,
+      signed: application.amountApplied.negated(),
+    });
+  }
+
+  const creditAvailableByCreditNoteId = await computeCreditNoteAvailableById(
+    creditNotes.map((creditNote) => creditNote.id),
+    client
+  );
+
+  return {
+    incomingCashByInvoiceId,
+    outgoingCashByInvoiceId,
+    creditAppliedByTargetInvoiceId,
+    creditAvailableByCreditNoteId,
+    applicationLinksByInvoiceId,
+    applicationBreakdownByTargetInvoiceId,
+  };
+}
+
+function mapInvoiceRegisterRow(
+  row: InvoiceRegisterSourceRow,
+  context: InvoiceRegisterContext
+): InvoiceListItem {
+  const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
+  const paidCash = context.incomingCashByInvoiceId.get(row.id) ?? new Prisma.Decimal(0);
+  const creditApplied =
+    context.creditAppliedByTargetInvoiceId.get(row.id) ?? new Prisma.Decimal(0);
+  const creditAvailable =
+    row.invoiceType === InvoiceType.CREDIT_NOTE
+      ? context.creditAvailableByCreditNoteId.get(row.id) ?? new Prisma.Decimal(0)
+      : null;
+  const isNegativeDocument =
+    row.invoiceType === InvoiceType.CREDIT_NOTE ||
+    row.invoiceType === InvoiceType.REFUND;
+  const signedAmount = isNegativeDocument ? row.totalAmount.negated() : row.totalAmount;
+  const outstanding =
+    row.invoiceType === InvoiceType.CREDIT_NOTE
+      ? (creditAvailable ?? new Prisma.Decimal(0))
+      : row.remainingAmount;
+
+  return {
+    id: row.id,
+    jobNumber: displayJobNumber ?? "Pending",
+    invoiceNumber: row.invoiceNumber,
+    invoiceType: row.invoiceType,
+    documentTypeLabel: documentTypeLabel(row.invoiceType),
+    documentClass: documentClass(row.invoiceType),
+    customerPhone: formatCustomerPhone(row.customer.phone),
+    orderId: row.orderId,
+    bookingId: row.bookingId,
+    referenceLabel: formatInvoiceReference(row.booking?.publicId),
+    totalAmount: formatMoney(row.totalAmount),
+    signedAmount: formatRegisterMoney(signedAmount),
+    signedAmountTone: isNegativeDocument ? "danger" : "neutral",
+    paidAmount: formatMoney(row.paidAmount),
+    paidCash: formatOptionalMoney(paidCash),
+    settledAmount: formatMoney(computeDisplaySettledAmount(row)),
+    creditApplied: formatOptionalMoney(creditApplied),
+    remainingAmount: formatMoney(row.remainingAmount),
+    outstanding:
+      row.invoiceType === InvoiceType.CREDIT_NOTE && outstanding.equals(0)
+        ? "—"
+        : formatMoney(outstanding),
+    outstandingLabel:
+      row.invoiceType === InvoiceType.CREDIT_NOTE
+        ? "Available credit"
+        : "Outstanding",
+    outstandingTone:
+      row.invoiceType === InvoiceType.CREDIT_NOTE
+        ? "neutral"
+        : outstanding.greaterThan(0)
+          ? "danger"
+          : "muted",
+    status: mapInvoiceStatus(row.status),
+    accountantStatus: mapInvoiceAccountantStatus(row, creditAvailable),
+    isLocked: row.isLocked,
+    applicationLinks: context.applicationLinksByInvoiceId.get(row.id) ?? [],
+    createdAt: formatDate(row.createdAt),
+  };
+}
+
+function buildInvoiceRegisterSubtotals(
+  rows: InvoiceRegisterSourceRow[],
+  context: InvoiceRegisterContext
+): InvoiceRegisterSubtotals {
+  let invoicedGross = new Prisma.Decimal(0);
+  let creditsIssued = new Prisma.Decimal(0);
+  let depositsPrepaid = new Prisma.Decimal(0);
+  let cashReceived = new Prisma.Decimal(0);
+  let receivable = new Prisma.Decimal(0);
+
+  for (const row of rows) {
+    if (
+      row.invoiceType === InvoiceType.FINAL ||
+      row.invoiceType === InvoiceType.ADJUSTMENT
+    ) {
+      invoicedGross = invoicedGross.plus(row.totalAmount);
+      receivable = receivable.plus(row.remainingAmount);
+    }
+    if (row.invoiceType === InvoiceType.CREDIT_NOTE) {
+      creditsIssued = creditsIssued.plus(row.totalAmount);
+    }
+    if (row.invoiceType === InvoiceType.DEPOSIT) {
+      depositsPrepaid = depositsPrepaid.plus(row.totalAmount);
+    }
+    const incoming =
+      context.incomingCashByInvoiceId.get(row.id) ?? new Prisma.Decimal(0);
+    const outgoing =
+      context.outgoingCashByInvoiceId.get(row.id) ?? new Prisma.Decimal(0);
+    cashReceived = cashReceived.plus(incoming).minus(outgoing);
+  }
+
+  return {
+    invoicedGross: formatMoney(invoicedGross),
+    creditsIssued: formatRegisterMoney(creditsIssued.negated()),
+    invoicedNet: formatMoney(invoicedGross.minus(creditsIssued)),
+    depositsPrepaid: formatMoney(depositsPrepaid),
+    cashReceived: formatMoney(cashReceived),
+    receivable: formatMoney(receivable),
+  };
 }
 
 export async function getInvoiceById(id: string): Promise<InvoiceDetail | null> {
@@ -907,7 +1142,6 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
 
   if (!row) return null;
 
-  const displayJobNumber = resolveInvoiceDisplayJobNumber(row);
   const lineItemsAreComputed =
     !row.isLocked &&
     row.lineItems.length === 0 &&
@@ -916,6 +1150,13 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
   const computedLineItems =
     lineItemsAreComputed && row.orderId
       ? await buildInvoiceLineItems(db, row.orderId, row.id)
+      : null;
+  const detailContext = await buildInvoiceRegisterContext([row.id]);
+  const registerRow = mapInvoiceRegisterRow(row, detailContext);
+  const creditNoteAvailable =
+    row.invoiceType === InvoiceType.CREDIT_NOTE
+      ? detailContext.creditAvailableByCreditNoteId.get(row.id) ??
+        new Prisma.Decimal(0)
       : null;
   const depositInvoice =
     row.invoiceType === InvoiceType.FINAL && row.financialCaseId
@@ -940,7 +1181,7 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     (row.creditOrigin === CreditOrigin.REVERSAL ||
       row.creditOrigin === CreditOrigin.REMOVAL)
       ? Prisma.Decimal.min(
-          await computeCreditNoteAvailable(row.id, db),
+          creditNoteAvailable ?? new Prisma.Decimal(0),
           await caseNetCashOverpayment(row.financialCaseId, db)
         )
       : null;
@@ -951,20 +1192,25 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
   );
 
   return {
-    id: row.id,
-    jobNumber: displayJobNumber ?? "Pending",
-    invoiceNumber: row.invoiceNumber,
-    invoiceType: row.invoiceType,
-    customerPhone: formatCustomerPhone(row.customer.phone),
-    orderId: row.orderId,
-    bookingId: row.bookingId,
-    referenceLabel: formatInvoiceReference(row.booking?.publicId),
-    totalAmount: formatMoney(row.totalAmount),
-    paidAmount: formatMoney(row.paidAmount),
-    settledAmount: formatMoney(computeDisplaySettledAmount(row)),
-    remainingAmount: formatMoney(row.remainingAmount),
+    ...registerRow,
     depositInvoiceNumber: depositInvoice?.invoiceNumber ?? null,
     depositPaidAmount: depositInvoice ? formatMoney(depositInvoice.paidAmount) : null,
+    creditNoteHeadline:
+      creditNoteAvailable !== null
+        ? {
+            totalCredit: formatMoney(row.totalAmount),
+            appliedCredit: formatMoney(row.totalAmount.minus(creditNoteAvailable)),
+            availableCredit: formatMoney(creditNoteAvailable),
+          }
+        : null,
+    applicationBreakdown: (
+      detailContext.applicationBreakdownByTargetInvoiceId.get(row.id) ?? []
+    ).map((entry) => ({
+      label: entry.label,
+      documentNumber: entry.documentNumber,
+      amount: formatMoney(entry.amount),
+      signed: formatRegisterMoney(entry.signed),
+    })),
     overpaymentCapacity: overpaymentCapacity
       ? formatMoney(overpaymentCapacity)
       : null,
@@ -975,9 +1221,6 @@ export async function getInvoiceWithLineItems(id: string): Promise<InvoiceDetail
     isOverpaid: overpaidAmount.greaterThan(0),
     overpaidAmount: overpaidAmount.greaterThan(0) ? formatMoney(overpaidAmount) : null,
     lineItemsAreComputed,
-    status: mapInvoiceStatus(row.status),
-    isLocked: row.isLocked,
-    createdAt: formatDate(row.createdAt),
     notes: row.notes ?? "—",
     parentInvoiceId: row.parentInvoice?.id ?? null,
     parentInvoiceNumber: row.parentInvoice?.invoiceNumber ?? null,
@@ -2684,6 +2927,65 @@ export async function computeCreditNoteAvailable(
   return creditNote.totalAmount.minus(appliedTotal).minus(refundedTotal);
 }
 
+export async function computeCreditNoteAvailableById(
+  creditNoteIds: string[],
+  client: DbClient = db
+): Promise<Map<string, Prisma.Decimal>> {
+  if (creditNoteIds.length === 0) return new Map();
+
+  const [creditNotes, applications, refundChildren] = await Promise.all([
+    client.invoice.findMany({
+      where: {
+        id: { in: creditNoteIds },
+        invoiceType: InvoiceType.CREDIT_NOTE,
+      },
+      select: { id: true, totalAmount: true },
+    }),
+    client.documentApplication.groupBy({
+      by: ["sourceInvoiceId"],
+      where: { sourceInvoiceId: { in: creditNoteIds } },
+      _sum: { amountApplied: true },
+    }),
+    client.invoice.groupBy({
+      by: ["parentInvoiceId"],
+      where: {
+        parentInvoiceId: { in: creditNoteIds },
+        invoiceType: InvoiceType.REFUND,
+      },
+      _sum: { totalAmount: true },
+    }),
+  ]);
+
+  const appliedByCreditNoteId = new Map<string, Prisma.Decimal>();
+  for (const application of applications) {
+    appliedByCreditNoteId.set(
+      application.sourceInvoiceId,
+      application._sum.amountApplied ?? new Prisma.Decimal(0)
+    );
+  }
+
+  const refundedByCreditNoteId = new Map<string, Prisma.Decimal>();
+  for (const refundChild of refundChildren) {
+    if (!refundChild.parentInvoiceId) continue;
+    refundedByCreditNoteId.set(
+      refundChild.parentInvoiceId,
+      refundChild._sum.totalAmount ?? new Prisma.Decimal(0)
+    );
+  }
+
+  const availableByCreditNoteId = new Map<string, Prisma.Decimal>();
+  for (const creditNote of creditNotes) {
+    availableByCreditNoteId.set(
+      creditNote.id,
+      creditNote.totalAmount
+        .minus(appliedByCreditNoteId.get(creditNote.id) ?? new Prisma.Decimal(0))
+        .minus(refundedByCreditNoteId.get(creditNote.id) ?? new Prisma.Decimal(0))
+    );
+  }
+
+  return availableByCreditNoteId;
+}
+
 export async function computeAvailableCaseCredit(
   input: ComputeAvailableCaseCreditInput,
   client: DbClient = db
@@ -3579,6 +3881,94 @@ function getInvoiceNumberPrefix(invoiceType: InvoiceType): string {
     case InvoiceType.SALE:
       return "SALE";
   }
+}
+
+function addDecimalToMap(
+  map: Map<string, Prisma.Decimal>,
+  key: string,
+  amount: Prisma.Decimal
+): void {
+  map.set(key, (map.get(key) ?? new Prisma.Decimal(0)).plus(amount));
+}
+
+function pushMapValue<T>(map: Map<string, T[]>, key: string, value: T): void {
+  const values = map.get(key) ?? [];
+  values.push(value);
+  map.set(key, values);
+}
+
+function documentTypeLabel(invoiceType: InvoiceType): string {
+  switch (invoiceType) {
+    case InvoiceType.DEPOSIT:
+      return "Deposit";
+    case InvoiceType.FINAL:
+      return "Final";
+    case InvoiceType.ADJUSTMENT:
+      return "Adjustment";
+    case InvoiceType.CREDIT_NOTE:
+      return "Credit note";
+    case InvoiceType.REFUND:
+      return "Refund";
+    case InvoiceType.SALE:
+      return "Sale";
+  }
+}
+
+function documentClass(invoiceType: InvoiceType): "charge" | "credit" | "cash" {
+  if (invoiceType === InvoiceType.CREDIT_NOTE) return "credit";
+  if (invoiceType === InvoiceType.REFUND) return "cash";
+  return "charge";
+}
+
+function mapInvoiceAccountantStatus(
+  invoice: {
+    invoiceType: InvoiceType;
+    status: InvoiceStatus;
+    totalAmount: Prisma.Decimal;
+  },
+  creditNoteAvailable: Prisma.Decimal | null
+): InvoiceListItem["accountantStatus"] {
+  if (invoice.invoiceType === InvoiceType.CREDIT_NOTE) {
+    const available = creditNoteAvailable ?? new Prisma.Decimal(0);
+    if (available.equals(0)) return "Fully used";
+    if (available.equals(invoice.totalAmount)) return "Available";
+    return "Partially used";
+  }
+
+  switch (invoice.status) {
+    case InvoiceStatus.DRAFT:
+      return "Draft";
+    case InvoiceStatus.ISSUED:
+    case InvoiceStatus.PARTIAL:
+      return "Issued";
+    case InvoiceStatus.PAID:
+    case InvoiceStatus.CLOSED:
+      return "Paid";
+  }
+}
+
+function documentApplicationBreakdownLabel(application: {
+  kind: DocumentApplicationKind;
+  sourceInvoice: { invoiceType: InvoiceType };
+}): string {
+  if (application.kind === DocumentApplicationKind.DEPOSIT) {
+    return "Deposit credited";
+  }
+  if (application.sourceInvoice.invoiceType === InvoiceType.CREDIT_NOTE) {
+    return "Settlement credit applied";
+  }
+  return `${formatEnum(application.kind)} applied`;
+}
+
+function formatOptionalMoney(amount: Prisma.Decimal): string {
+  return amount.equals(0) ? "—" : formatMoney(amount);
+}
+
+function formatRegisterMoney(amount: Prisma.Decimal): string {
+  if (amount.lessThan(0)) {
+    return `(${formatMoney(amount.negated())})`;
+  }
+  return formatMoney(amount);
 }
 
 function mapInvoiceStatus(status: InvoiceStatus): InvoiceStatusLabel {

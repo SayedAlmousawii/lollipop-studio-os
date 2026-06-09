@@ -96,21 +96,29 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
           <InvoiceStatusBadge status={invoice.status} />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-4">
-          <Metric label="Total" value={invoice.totalAmount} />
-          <Metric label="Settled" value={invoice.settledAmount} />
-          <Metric label="Remaining" value={invoice.remainingAmount} />
-          <Metric
-            label={hasRefundCapacity ? "Refundable" : "Locked"}
-            value={
-              hasRefundCapacity
-                ? refundableAmount
-                : invoice.isLocked
-                  ? "Yes"
-                  : "No"
-            }
-          />
-        </div>
+        {invoice.creditNoteHeadline ? (
+          <div className="grid gap-4 md:grid-cols-3">
+            <Metric label="Total credit" value={invoice.creditNoteHeadline.totalCredit} />
+            <Metric label="Applied credit" value={invoice.creditNoteHeadline.appliedCredit} />
+            <Metric label="Available credit" value={invoice.creditNoteHeadline.availableCredit} />
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-4">
+            <Metric label="Total" value={invoice.totalAmount} />
+            <Metric label="Settled" value={invoice.settledAmount} />
+            <Metric label="Remaining" value={invoice.remainingAmount} />
+            <Metric
+              label={hasRefundCapacity ? "Refundable" : "Locked"}
+              value={
+                hasRefundCapacity
+                  ? refundableAmount
+                  : invoice.isLocked
+                    ? "Yes"
+                    : "No"
+              }
+            />
+          </div>
+        )}
 
         {hasRefundCapacity ? (
           <Card>
@@ -137,7 +145,7 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_380px] xl:items-start">
           <div className="space-y-6">
-            {invoice.invoiceType === "FINAL" ? (
+            {invoice.invoiceType === "FINAL" || invoice.invoiceType === "ADJUSTMENT" ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Financial Breakdown</CardTitle>
@@ -145,12 +153,13 @@ export default async function InvoiceDetailPage(props: InvoiceDetailPageProps) {
                 <CardContent className="space-y-2 text-sm">
                   <MoneyRow label="Invoice total" value={invoice.totalAmount} />
                   <MoneyRow label="Direct payments" value={invoice.paidAmount} />
-                  {invoice.depositPaidAmount ? (
+                  {invoice.applicationBreakdown.map((entry) => (
                     <MoneyRow
-                      label={`Deposit credited${invoice.depositInvoiceNumber ? ` (${invoice.depositInvoiceNumber})` : ""}`}
-                      value={`-${invoice.depositPaidAmount}`}
+                      key={`${entry.label}-${entry.documentNumber}-${entry.amount}`}
+                      label={`${entry.label} (${entry.documentNumber})`}
+                      value={entry.signed}
                     />
-                  ) : null}
+                  ))}
                   <div className="border-t border-border pt-2">
                     <MoneyRow
                       label="Remaining balance"

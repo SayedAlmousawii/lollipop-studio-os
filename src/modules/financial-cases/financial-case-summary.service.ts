@@ -5,6 +5,7 @@ import {
 } from "@/modules/invoices/invoice.calculation";
 import {
   computeAvailableCaseCredit,
+  computeCreditNoteAvailableById,
   computeCreditNoteCapacityForFinal,
   computeOverpaymentCapacity,
 } from "@/modules/invoices/invoice.service";
@@ -312,15 +313,33 @@ async function getLinkedFinancialDocumentsForOrderWithClient(
     orderBy: [{ issuedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
   });
 
-  return invoices.map((invoice) => ({
-    invoiceId: invoice.id,
-    invoiceNumber: invoice.invoiceNumber,
-    invoiceType: invoice.invoiceType as LinkedFinancialDocument["invoiceType"],
-    invoiceStatus: invoice.status,
-    invoiceTotal: invoice.totalAmount.toNumber(),
-    paidAmount: deriveSettlementPaidAmount(invoice).toNumber(),
-    remainingAmount: invoice.remainingAmount.toNumber(),
-    issuedAt: invoice.issuedAt,
-    createdAt: invoice.createdAt,
-  }));
+  const creditAvailableById = await computeCreditNoteAvailableById(
+    invoices
+      .filter((invoice) => invoice.invoiceType === InvoiceType.CREDIT_NOTE)
+      .map((invoice) => invoice.id),
+    client
+  );
+
+  return invoices.map((invoice) => {
+    const creditAvailable =
+      invoice.invoiceType === InvoiceType.CREDIT_NOTE
+        ? creditAvailableById.get(invoice.id) ?? new Prisma.Decimal(0)
+        : null;
+
+    return {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceType: invoice.invoiceType as LinkedFinancialDocument["invoiceType"],
+      invoiceStatus: invoice.status,
+      invoiceTotal: invoice.totalAmount.toNumber(),
+      paidAmount: creditAvailable
+        ? invoice.totalAmount.minus(creditAvailable).toNumber()
+        : deriveSettlementPaidAmount(invoice).toNumber(),
+      remainingAmount: creditAvailable
+        ? creditAvailable.toNumber()
+        : invoice.remainingAmount.toNumber(),
+      issuedAt: invoice.issuedAt,
+      createdAt: invoice.createdAt,
+    };
+  });
 }
