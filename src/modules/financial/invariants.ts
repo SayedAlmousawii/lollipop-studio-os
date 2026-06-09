@@ -985,13 +985,6 @@ registerInvariant({
           where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
           select: { amountApplied: true },
         },
-        reversedByCreditNotes: {
-          where: {
-            invoiceType: InvoiceType.CREDIT_NOTE,
-            creditOrigin: CreditOrigin.REVERSAL,
-          },
-          select: { totalAmount: true },
-        },
         invoice: {
           select: {
             orderId: true,
@@ -999,6 +992,45 @@ registerInvariant({
         },
       },
     });
+    const reversalCreditLines = await tx.invoiceLineItem.findMany({
+      where: {
+        causeOrderEntityKind: { not: null },
+        causeOrderEntityId: { not: null },
+        invoice: {
+          invoiceType: InvoiceType.CREDIT_NOTE,
+          creditOrigin: CreditOrigin.REVERSAL,
+          orderId: { not: null },
+        },
+      },
+      select: {
+        lineTotal: true,
+        causeOrderEntityKind: true,
+        causeOrderEntityId: true,
+        invoice: {
+          select: {
+            orderId: true,
+          },
+        },
+      },
+    });
+    const reversalCreditByOrderAndCause = new Map<string, Prisma.Decimal>();
+    for (const line of reversalCreditLines) {
+      if (
+        !line.invoice.orderId ||
+        !line.causeOrderEntityKind ||
+        !line.causeOrderEntityId
+      ) {
+        continue;
+      }
+      const key = orderCauseKey({
+        orderId: line.invoice.orderId,
+        kind: line.causeOrderEntityKind,
+        id: line.causeOrderEntityId,
+      });
+      const current =
+        reversalCreditByOrderAndCause.get(key) ?? new Prisma.Decimal(0);
+      reversalCreditByOrderAndCause.set(key, current.plus(line.lineTotal));
+    }
 
     const violations: InvariantViolation[] = [];
     for (const line of adjustmentLines) {
@@ -1022,10 +1054,13 @@ registerInvariant({
         (sum, application) => sum.plus(application.amountApplied),
         new Prisma.Decimal(0)
       ).plus(
-        line.reversedByCreditNotes.reduce(
-          (sum, creditNote) => sum.plus(creditNote.totalAmount),
-          new Prisma.Decimal(0)
-        )
+        reversalCreditByOrderAndCause.get(
+          orderCauseKey({
+            orderId: line.invoice.orderId,
+            kind: line.causeOrderEntityKind,
+            id: line.causeOrderEntityId,
+          })
+        ) ?? new Prisma.Decimal(0)
       );
       if (reversedAmount.greaterThanOrEqualTo(line.lineTotal)) continue;
 
@@ -1041,6 +1076,14 @@ registerInvariant({
     return violations;
   },
 });
+
+function orderCauseKey(input: {
+  orderId: string;
+  kind: OrderEntityKind;
+  id: string;
+}): string {
+  return `${input.orderId}:${input.kind}:${input.id}`;
+}
 
 async function adjustmentCauseStillExists({
   tx,

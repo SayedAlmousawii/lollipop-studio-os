@@ -275,7 +275,7 @@ test("does not pre-check final credit capacity for residual credits", async () =
   );
 });
 
-test("emits final credit notes without refund side effects", async () => {
+test("emits final credit notes without refund payment side effects", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client, calls } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -319,7 +319,13 @@ test("emits final credit notes without refund side effects", async () => {
     ),
     [expectedSweepInput("manager-user")]
   );
-  assert.deepEqual(calls.orderUpdates, []);
+  assert.deepEqual(calls.orderUpdates, [
+    {
+      where: { id: "order-1" },
+      data: { refundPending: true },
+      select: { id: true },
+    },
+  ]);
 });
 
 test("runs shared available-credit sweep after mixed adjustment emission", async () => {

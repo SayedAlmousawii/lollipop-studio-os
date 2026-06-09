@@ -113,7 +113,7 @@ test("locked OrderCommit emits expected financial documents", async (t) => {
       assertOutcome(outcome, {
         expectedEffect: "-10.000",
         expectedReduction: "10.000",
-        expectedRefundPending: false,
+        expectedRefundPending: true,
       });
       assert.deepEqual(documentTypes(outcome), [InvoiceType.CREDIT_NOTE]);
       assert.deepEqual(documentRoles(outcome), ["CREDIT_NOTE"]);

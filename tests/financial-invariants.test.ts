@@ -245,7 +245,7 @@ test("financial invariants all pass against seeded fixtures", async () => {
           where: { id: autoAdjustmentOrderId },
           select: { refundPending: true },
         });
-        assert.equal(autoAdjustedOrder.refundPending, false);
+        assert.equal(autoAdjustedOrder.refundPending, true);
         assert.equal(
           await db.invoice.count({
             where: {

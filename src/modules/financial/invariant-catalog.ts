@@ -165,9 +165,9 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
   },
   "paid-adjustment-line-removal-must-have-reversal": {
     id: "runtime-paid-adjustment-line-removal-must-have-reversal",
-    phase: "Sprint 2 (79a)",
+    phase: "Spec 162 R3",
     scope: "order",
-    description: "Paid adjustment lines removed from an order must have a credit-note reversal.",
+    description: "Paid adjustment lines removed from an order must have cause-matched CREDIT_NOTE reversal value.",
   },
   "credit-note-amount-not-over-final": {
     id: "runtime-credit-note-amount-not-over-final",

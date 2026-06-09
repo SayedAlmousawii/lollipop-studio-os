@@ -1009,6 +1009,17 @@ export async function emitOrderCommitFinancialDocuments(
     });
   }
 
+  if (
+    input.documentPlan.kind ===
+    ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.REFUND_NEEDED
+  ) {
+    await input.client.order.update({
+      where: { id: input.orderId },
+      data: { refundPending: true },
+      select: { id: true },
+    });
+  }
+
   await dependencies.settleAvailableCreditAgainstOpenReceivables(
     {
       financialCaseId: input.financialCaseId,
