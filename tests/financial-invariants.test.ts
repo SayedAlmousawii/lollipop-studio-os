@@ -216,10 +216,11 @@ test("financial invariants all pass against seeded fixtures", async () => {
             where: {
               targetInvoiceId: autoAdjustedFixture.adjustmentInvoiceId,
               targetInvoiceLineId: adjustmentLine.id,
+              kind: DocumentApplicationKind.CAUSE_REVERSAL,
               sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
             },
           }),
-          1
+          0
         );
         const adjustmentCreditNote = await db.invoice.findFirstOrThrow({
           where: {
@@ -507,12 +508,13 @@ test("financial invariants all pass against seeded fixtures", async () => {
           where: { sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE } },
           select: { id: true, kind: true },
         });
-        assert.ok(
+        assert.equal(
           cleanCreditApplications.some(
             (application) =>
               application.kind === DocumentApplicationKind.CAUSE_REVERSAL
           ),
-          "R1 invariants should pass today's CAUSE_REVERSAL emission"
+          false,
+          "Spec 162 must not emit new CAUSE_REVERSAL applications"
         );
         assert.ok(
           cleanCreditApplications.some(

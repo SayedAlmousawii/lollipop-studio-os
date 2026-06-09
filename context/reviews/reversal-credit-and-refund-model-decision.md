@@ -204,7 +204,7 @@ sweep, derived-truth (`computeEffectivePaidFromAllocations`), drawable pool
 | **R0** | Foundation / schema | Add `CreditNote.origin` + `reversesInvoiceLineId`; classify origins. **Implemented in Spec 159.** | Behavior no-op |
 | **R1** | Invariant rework | Collapse the 4 taxonomy invariants → `valid-credit-origin` + `credit-applications-conserve`; regenerate catalog. **Implemented in Spec 160; R2 emission is now unblocked.** | Behavior no-op |
 | **R2** | Emission change (core) | Stop consuming **unpaid reversal** credit as `CAUSE_REVERSAL`; issue with origin + provenance; route value through the sweep. **Implemented in Spec 161; the unpaid-line stranding bug dies here.** | Behavioral |
-| **R3** | Refund channel | Credit-note-balance refund for `origin ∈ {REVERSAL, REMOVAL}`; keep `computeOverpaymentCapacity` for true cash overpayment. | Behavioral |
+| **R3** | Refund channel | Paid reversals now carry drawable REVERSAL credit instead of auto-refunding; dormant credit-note-balance refund service branch exists for `origin ∈ {REVERSAL, REMOVAL}`; `computeOverpaymentCapacity` remains the true cash-overpayment channel. **Implemented in Spec 162; no production trigger or auto-refund.** | Behavioral |
 | **R4** | Taxonomy retirement | Retire `CAUSE_REVERSAL` / `CREDIT_TO_FINAL` enum kinds once nothing depends on them. | Cleanup |
 
 R1 lands **before** R2 (new emission would fail old invariants) — the same F1-before-B1
@@ -225,5 +225,7 @@ ordering already run once.
    on a FINAL applies as a direct settlement at issuance, not via the sweep).
 
 ### Concentrated risk
-Refund-003 re-anchoring (R3). R2's sweep-ordering guarantee is now implemented for drawable
-unpaid reversal credit on both OrderCommit and direct reductive-edit emission paths.
+R3 keeps Refund-003 goodwill-style null traceability for credit-note-sourced refunds, but the
+refund branch is dormant: no edit or OrderCommit path creates a REFUND invoice or OUT payment
+automatically. Paid and unpaid reversals now share the drawable REVERSAL credit channel on both
+OrderCommit and direct reductive-edit emission paths; R4 is unblocked for taxonomy cleanup.

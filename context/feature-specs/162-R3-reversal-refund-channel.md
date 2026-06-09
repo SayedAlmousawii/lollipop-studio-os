@@ -119,6 +119,16 @@ see Out of Scope) lands in a follow-up. The mechanism, when invoked:
     "refund ≤ CN total." Keep the FINAL/ADJ inbound-payment branch as-is.
   - `refund-trace-points-to-inbound-payment` → **unchanged** (only checks non-null
     `refundOfPaymentId`; the null-linked CN refund passes — add a test proving it).
+  - **`paid-adjustment-line-removal-must-have-reversal` → match provenance by line-item cause,
+    not the single CN-level FK.** R3 stops emitting line-targeted `CAUSE_REVERSAL`, so this
+    invariant must read reversal provenance from the drawable note instead. Emission stays **one
+    drawable `REVERSAL` note per parent adjustment invoice**, listing every reversal as a line item
+    (each line item already carries `causeOrderEntityKind/Id` copied from the reversed line). For a
+    removed paid line with cause `(K, I)`, sum the line items on REVERSAL-origin credit notes in the
+    same order whose cause matches `(K, I)` and assert `≥ lineTotal`. Do **not** rely on the
+    CN-level `reversesInvoiceLineId` (a single anchor that only covers one line of a multi-line
+    note — using it fails the 2nd+ removed line on a shared invoice). `reversesInvoiceLineId` stays
+    as a representative anchor for `valid-credit-origin` only.
   - Regenerate the catalog; check `reconciliation-invariants.ts` for any refund-source rule that
     rejects a CN-parented REFUND and adjust only if needed.
 
@@ -176,6 +186,10 @@ see Out of Scope) lands in a follow-up. The mechanism, when invoked:
   the reversal tests) — the precondition for R4.
 - **Carry + future settlement (case 2):** a downgrade settles the open receivable, the remainder stays
   drawable, and a later charge settles from it — no stranding, no refund.
+- **Multi-line removal on one invoice:** removing **two** cause-attributed paid lines from the **same**
+  ADJ invoice in one edit emits one drawable `REVERSAL` note with both as line items, and
+  `paid-adjustment-line-removal-must-have-reversal` passes for **both** lines (provenance matched by
+  cause, not the single CN-level anchor).
 - **`computeCreditNoteAvailable`** equals today's value with no REFUND child, and subtracts REFUND
   children when present (unit-tested).
 - **Refund capability (service-level test, not a production trigger):** calling the CREDIT_NOTE refund

@@ -97,7 +97,7 @@ test("locked OrderCommit emits expected financial documents", async (t) => {
       assert.deepEqual(documentRoles(outcome), ["CREDIT_NOTE"]);
     });
 
-    await t.test("credit-capacity exhaustion sets refundPending", async () => {
+    await t.test("credit-capacity exhaustion carries drawable credit", async () => {
       const outcome = await runOrderCommitPhotoPath(ctx, "131-refund-oc", {
         startingCounts: {
           selectedPhotoCount: 12,

@@ -8,6 +8,8 @@ import {
   CreditOrigin,
   DocumentApplicationKind,
   InvoiceType,
+  OrderEntityKind,
+  PaymentDirection,
   PaymentMethod,
   PaymentType,
   Prisma,
@@ -271,6 +273,7 @@ test("adjustment reversal regressions A-E", async () => {
     assert.equal(secondApplications, 0, "removing addon1 must not reverse addon2");
 
     await assertSameCauseReversalConsumesAllOpenLines(ctx);
+    await assertSharedInvoiceMultiLineReversalProvenance(ctx);
     }
   });
 });
@@ -422,18 +425,119 @@ async function assertSameCauseReversalConsumesAllOpenLines(ctx: TestContext) {
     creditNotes.reduce((sum, creditNote) => sum + creditNote.lineItems.length, 0),
     2
   );
-  const targetLineIds = new Set(
-    creditNotes.flatMap((creditNote) =>
-      creditNote.documentApplicationsAsSource.map(
-        (application) => application.targetInvoiceLineId
-      )
-    )
-  );
   assert.deepEqual(
-    targetLineIds,
-    new Set([firstAdjustment.lineItems[0].id, secondAdjustment.lineItems[0].id])
+    creditNotes.flatMap((creditNote) => creditNote.documentApplicationsAsSource),
+    []
   );
   assert.equal(await finalCreditApplicationCount(ctx.db, workflow.finalInvoiceId), 0);
+}
+
+async function assertSharedInvoiceMultiLineReversalProvenance(ctx: TestContext) {
+  const { runAllInvariants } = await import("@/modules/financial/invariants");
+  const workflow = await ctx.buildLockedWorkflow("shared-invoice-multi-line");
+  const firstProduct = await createAddOnProduct(
+    ctx.db,
+    "shared-invoice-first",
+    "Shared invoice first add-on",
+    30
+  );
+  const secondProduct = await createAddOnProduct(
+    ctx.db,
+    "shared-invoice-second",
+    "Shared invoice second add-on",
+    20
+  );
+
+  await commitOrderEditForTest(ctx.db, {
+    orderId: workflow.orderId,
+    changes: [
+      addOrderAddOnChange(firstProduct.id),
+      addOrderAddOnChange(secondProduct.id),
+    ],
+    actorContext: ctx.fixtures.adminActor,
+  });
+  const adjustment = await firstAdjustmentWithLine(ctx.db, workflow.orderId);
+  assert.equal(adjustment.lineItems.length, 2);
+  await payInvoice(ctx, adjustment.id, adjustment.totalAmount);
+
+  const [firstAddOn, secondAddOn] = await Promise.all([
+    firstOrderAddOn(ctx.db, workflow.orderId, firstProduct.id),
+    firstOrderAddOn(ctx.db, workflow.orderId, secondProduct.id),
+  ]);
+  await commitOrderEditForTest(ctx.db, {
+    orderId: workflow.orderId,
+    changes: [
+      removeOrderAddOnChange(firstAddOn.id),
+      removeOrderAddOnChange(secondAddOn.id),
+    ],
+    actorContext: ctx.fixtures.managerActor,
+    approvalActorUserId: ctx.fixtures.managerId,
+  });
+
+  const reversalCreditNotes = await ctx.db.invoice.findMany({
+    where: {
+      orderId: workflow.orderId,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      parentInvoiceId: adjustment.id,
+      creditOrigin: CreditOrigin.REVERSAL,
+    },
+    include: { lineItems: { orderBy: { sortOrder: "asc" } } },
+  });
+  assert.equal(reversalCreditNotes.length, 1);
+  assert.equal(reversalCreditNotes[0]?.lineItems.length, 2);
+  assert.deepEqual(
+    reversalCreditNotes[0]?.lineItems.map((line) => ({
+      causeOrderEntityKind: line.causeOrderEntityKind,
+      causeOrderEntityId: line.causeOrderEntityId,
+      lineTotal: line.lineTotal.toFixed(3),
+    })),
+    [
+      {
+        causeOrderEntityKind: OrderEntityKind.ADDON,
+        causeOrderEntityId: firstAddOn.id,
+        lineTotal: "30.000",
+      },
+      {
+        causeOrderEntityKind: OrderEntityKind.ADDON,
+        causeOrderEntityId: secondAddOn.id,
+        lineTotal: "20.000",
+      },
+    ]
+  );
+
+  const causeReversalCount = await ctx.db.documentApplication.count({
+    where: {
+      kind: DocumentApplicationKind.CAUSE_REVERSAL,
+      sourceInvoice: { orderId: workflow.orderId },
+    },
+  });
+  assert.equal(causeReversalCount, 0);
+  const refundInvoiceCount = await ctx.db.invoice.count({
+    where: { orderId: workflow.orderId, invoiceType: InvoiceType.REFUND },
+  });
+  assert.equal(refundInvoiceCount, 0);
+  const outPaymentCount = await ctx.db.payment.count({
+    where: {
+      direction: PaymentDirection.OUT,
+      invoice: { orderId: workflow.orderId },
+    },
+  });
+  assert.equal(outPaymentCount, 0);
+  const order = await ctx.db.order.findUniqueOrThrow({
+    where: { id: workflow.orderId },
+    select: { refundPending: true },
+  });
+  assert.equal(order.refundPending, true);
+
+  const violations = await runAllInvariants(ctx.db);
+  assert.deepEqual(
+    violations.filter(
+      (violation) =>
+        violation.invariant ===
+        "paid-adjustment-line-removal-must-have-reversal"
+    ),
+    []
+  );
 }
 
 async function payInvoice(
@@ -546,52 +650,42 @@ async function assertAdjustmentReversal(
     expectRefund: boolean;
   }
 ) {
-  if (!input.expectRefund) {
-    const creditNote = await db.invoice.findFirstOrThrow({
-      where: {
-        orderId: input.orderId,
-        invoiceType: InvoiceType.CREDIT_NOTE,
-        parentInvoiceId: input.adjustmentInvoiceId,
-        creditOrigin: CreditOrigin.REVERSAL,
-        reversesInvoiceLineId: input.adjustmentLineId,
-      },
-      include: {
-        lineItems: true,
-        documentApplicationsAsSource: true,
-      },
-    });
-    assert.equal(creditNote.totalAmount.toFixed(3), input.amount);
-    assert.equal(creditNote.lineItems.length >= 1, true);
-    assert.equal(
-      creditNote.documentApplicationsAsSource.some(
-        (application) =>
-          application.kind === DocumentApplicationKind.CAUSE_REVERSAL ||
-          application.targetInvoiceLineId === input.adjustmentLineId
-      ),
-      false,
-      "unpaid reversal must not create a line-targeted CAUSE_REVERSAL application"
-    );
-
-    const order = await db.order.findUniqueOrThrow({
-      where: { id: input.orderId },
-      select: { refundPending: true },
-    });
-    assert.equal(order.refundPending, false);
-    return;
-  }
-
-  const application = await db.documentApplication.findFirstOrThrow({
+  const creditNote = await db.invoice.findFirstOrThrow({
     where: {
-      targetInvoiceId: input.adjustmentInvoiceId,
-      targetInvoiceLineId: input.adjustmentLineId,
-      kind: DocumentApplicationKind.CAUSE_REVERSAL,
-      sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
+      orderId: input.orderId,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      parentInvoiceId: input.adjustmentInvoiceId,
+      creditOrigin: CreditOrigin.REVERSAL,
+      reversesInvoiceLineId: input.adjustmentLineId,
     },
-    include: { sourceInvoice: { include: { lineItems: true } } },
+    include: {
+      lineItems: true,
+      documentApplicationsAsSource: true,
+    },
   });
-  assert.equal(application.amountApplied.toFixed(3), input.amount);
-  assert.equal(application.sourceInvoice.parentInvoiceId, input.adjustmentInvoiceId);
-  assert.equal(application.sourceInvoice.lineItems.length >= 1, true);
+  assert.equal(creditNote.totalAmount.toFixed(3), input.amount);
+  assert.equal(creditNote.lineItems.length >= 1, true);
+  assert.equal(
+    creditNote.documentApplicationsAsSource.some(
+      (application) =>
+        application.kind === DocumentApplicationKind.CAUSE_REVERSAL ||
+        application.targetInvoiceLineId === input.adjustmentLineId
+    ),
+    false,
+    "adjustment reversal must not create a line-targeted CAUSE_REVERSAL application"
+  );
+
+  const refundInvoiceCount = await db.invoice.count({
+    where: { orderId: input.orderId, invoiceType: InvoiceType.REFUND },
+  });
+  assert.equal(refundInvoiceCount, 0);
+  const outPaymentCount = await db.payment.count({
+    where: {
+      direction: PaymentDirection.OUT,
+      invoice: { orderId: input.orderId },
+    },
+  });
+  assert.equal(outPaymentCount, 0);
 
   const order = await db.order.findUniqueOrThrow({
     where: { id: input.orderId },

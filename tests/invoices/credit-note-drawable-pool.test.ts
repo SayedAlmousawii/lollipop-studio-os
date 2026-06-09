@@ -11,6 +11,9 @@ import {
   InvoiceLineType,
   InvoiceStatus,
   InvoiceType,
+  OrderStatus,
+  PaymentDirection,
+  PaymentMethod,
   Prisma,
   type Invoice,
   type PrismaClient,
@@ -43,7 +46,9 @@ test("credit-note available balance is derived from append-only applications", a
           applyDepositToFinalIfPresent,
           computeCreditNoteAvailable,
           createCreditNote,
+          settleAvailableCreditAgainstOpenReceivables,
         },
+        { issueRefundWithPayment },
         { runAllInvariants },
         { recordInvoiceLockSnapshot },
         {
@@ -54,6 +59,7 @@ test("credit-note available balance is derived from append-only applications", a
       ] = await Promise.all([
         import("@/lib/db"),
         import("@/modules/invoices/invoice.service"),
+        import("@/modules/refunds/refund.service"),
         import("@/modules/financial/invariants"),
         import("@/modules/invoices/invoice-lock.service"),
         import("../fixtures/financial"),
@@ -105,8 +111,41 @@ test("credit-note available balance is derived from append-only applications", a
             role: "MANAGER",
           },
         });
-        const fixtureWithManager = { ...fixture, managerId: manager.id };
         const suffix = randomUUID().slice(0, 8);
+        const syntheticOrder = await db.order.create({
+          data: {
+            publicId: `ORD-CN-POOL-${suffix}`,
+            jobNumber: `JOB-CN-POOL-${suffix}`,
+            jobId: fixture.jobId,
+            bookingId: fixture.bookingId,
+            customerId: fixture.customerId,
+            status: OrderStatus.WAITING_SELECTION,
+          },
+        });
+        const packageTemplate = await db.package.findFirstOrThrow({
+          select: {
+            id: true,
+            name: true,
+            price: true,
+            photoCount: true,
+            packageFamily: { select: { sessionTypeId: true } },
+          },
+        });
+        await db.orderPackage.create({
+          data: {
+            orderId: syntheticOrder.id,
+            originalPackageId: packageTemplate.id,
+            currentPackageId: packageTemplate.id,
+            sessionTypeId: packageTemplate.packageFamily.sessionTypeId,
+            originalPackageNameSnapshot: packageTemplate.name,
+            currentPackageNameSnapshot: packageTemplate.name,
+            originalPackagePriceSnapshot: packageTemplate.price,
+            finalPackagePriceSnapshot: packageTemplate.price,
+            selectedPhotoCount: packageTemplate.photoCount,
+          },
+        });
+        const fixtureWithOrder = { ...fixture, orderId: syntheticOrder.id };
+        const fixtureWithManager = { ...fixture, managerId: manager.id };
         const finalInvoice = await db.invoice.create({
           data: {
             publicId: `INV-CN-POOL-FINAL-${suffix}`,
@@ -382,6 +421,165 @@ test("credit-note available balance is derived from append-only applications", a
         assert.equal(storedDrawableReversal.creditOrigin, CreditOrigin.REVERSAL);
         assert.equal(storedDrawableReversal.reversesInvoiceLineId, firstBulkLine.id);
         assert.equal(storedDrawableReversal.documentApplicationsAsSource.length, 0);
+        assert.equal(
+          (await computeCreditNoteAvailable(drawableReversalCreditNote.id, db)).toFixed(3),
+          "2.000"
+        );
+
+        const refundResult = await issueRefundWithPayment(
+          {
+            sourceInvoiceId: drawableReversalCreditNote.id,
+            amount: new Prisma.Decimal("1.250"),
+            reason: "Spec 162 direct credit-note refund",
+            createdByUserId: manager.id,
+            method: PaymentMethod.CASH,
+          },
+          db
+        );
+        assert.equal(
+          (await computeCreditNoteAvailable(drawableReversalCreditNote.id, db)).toFixed(3),
+          "0.750"
+        );
+        const refundInvoice = await db.invoice.findUniqueOrThrow({
+          where: { id: refundResult.refundInvoiceId },
+          select: {
+            invoiceType: true,
+            parentInvoiceId: true,
+            totalAmount: true,
+          },
+        });
+        assert.equal(refundInvoice.invoiceType, InvoiceType.REFUND);
+        assert.equal(refundInvoice.parentInvoiceId, drawableReversalCreditNote.id);
+        assert.equal(refundInvoice.totalAmount.toFixed(3), "1.250");
+        const refundPayment = await db.payment.findUniqueOrThrow({
+          where: { id: refundResult.refundPaymentId },
+          select: { direction: true, refundOfPaymentId: true },
+        });
+        assert.equal(refundPayment.direction, PaymentDirection.OUT);
+        assert.equal(refundPayment.refundOfPaymentId, null);
+
+        await assert.rejects(
+          () =>
+            issueRefundWithPayment(
+              {
+                sourceInvoiceId: drawableReversalCreditNote.id,
+                amount: new Prisma.Decimal("0.751"),
+                reason: "Spec 162 over-cap credit-note refund",
+                createdByUserId: manager.id,
+                method: PaymentMethod.CASH,
+              },
+              db
+            ),
+          /credit note drawable balance/
+        );
+
+        const interleavedCreditNote = await db.invoice.create({
+          data: {
+            publicId: `INV-CN-POOL-R3-CN-${suffix}`,
+            invoiceNumber: `INV-CN-POOL-R3-CN-${suffix}`,
+            financialCaseId: fixture.financialCaseId,
+            invoiceType: InvoiceType.CREDIT_NOTE,
+            jobId: fixture.jobId,
+            bookingId: fixture.bookingId,
+            orderId: fixtureWithOrder.orderId,
+            customerId: fixture.customerId,
+            parentInvoiceId: finalInvoice.id,
+            totalAmount: new Prisma.Decimal(10),
+            paidAmount: new Prisma.Decimal(0),
+            remainingAmount: new Prisma.Decimal(0),
+            status: InvoiceStatus.CLOSED,
+            isLocked: true,
+            creditOrigin: CreditOrigin.REVERSAL,
+            reversesInvoiceLineId: firstBulkLine.id,
+            issuedAt: new Date(),
+            closedAt: new Date(),
+            lineItems: {
+              create: [
+                {
+                  lineType: InvoiceLineType.MANUAL_DISCOUNT,
+                  description: "Interleaved drawable reversal",
+                  quantity: 1,
+                  unitPrice: new Prisma.Decimal(10),
+                  lineTotal: new Prisma.Decimal(10),
+                  sortOrder: 0,
+                },
+              ],
+            },
+          },
+        });
+        await recordInvoiceLockSnapshot(db, interleavedCreditNote, manager.id);
+        await appendCreditApplication(
+          {
+            creditNoteId: interleavedCreditNote.id,
+            targetInvoiceId: firstAdjustment.id,
+            amount: new Prisma.Decimal(4),
+            kind: DocumentApplicationKind.SETTLEMENT,
+            appliedByUserId: manager.id,
+            notes: "Spec 162 settlement before refund",
+          },
+          db
+        );
+        await issueRefundWithPayment(
+          {
+            sourceInvoiceId: interleavedCreditNote.id,
+            amount: new Prisma.Decimal(3),
+            reason: "Spec 162 partial credit-note refund",
+            createdByUserId: manager.id,
+            method: PaymentMethod.CASH,
+          },
+          db
+        );
+        assert.equal(
+          (await computeCreditNoteAvailable(interleavedCreditNote.id, db)).toFixed(3),
+          "3.000"
+        );
+        const laterAdjustment = await createSyntheticAdjustment(
+          db,
+          fixtureWithOrder,
+          finalInvoice.id,
+          "POST-REFUND",
+          suffix,
+          5
+        );
+        assert.equal(
+          await db.invoice.count({
+            where: {
+              financialCaseId: fixture.financialCaseId,
+              orderId: fixtureWithOrder.orderId,
+              invoiceType: InvoiceType.CREDIT_NOTE,
+            },
+          }),
+          1
+        );
+        assert.equal(
+          await db.invoice.count({
+            where: {
+              financialCaseId: fixture.financialCaseId,
+              orderId: fixtureWithOrder.orderId,
+              invoiceType: InvoiceType.ADJUSTMENT,
+              id: laterAdjustment.id,
+            },
+          }),
+          1
+        );
+        await settleAvailableCreditAgainstOpenReceivables(
+          {
+            financialCaseId: fixture.financialCaseId,
+            orderId: fixtureWithOrder.orderId,
+            appliedByUserId: manager.id,
+            notes: "Spec 162 post-refund sweep",
+          },
+          db
+        );
+        assert.equal(
+          (await computeCreditNoteAvailable(interleavedCreditNote.id, db)).toFixed(3),
+          "0.000"
+        );
+        const laterAdjustmentAfterSweep = await db.invoice.findUniqueOrThrow({
+          where: { id: laterAdjustment.id },
+          select: { remainingAmount: true },
+        });
+        assert.equal(laterAdjustmentAfterSweep.remainingAmount.toFixed(3), "2.000");
 
         await assert.rejects(
           () =>
@@ -526,6 +724,7 @@ async function createSyntheticAdjustment(
     financialCaseId: string;
     jobId: string;
     bookingId: string;
+    orderId?: string | null;
     customerId: string;
   },
   finalInvoiceId: string,
@@ -541,6 +740,7 @@ async function createSyntheticAdjustment(
       invoiceType: InvoiceType.ADJUSTMENT,
       jobId: fixture.jobId,
       bookingId: fixture.bookingId,
+      orderId: fixture.orderId ?? null,
       customerId: fixture.customerId,
       parentInvoiceId: finalInvoiceId,
       totalAmount: new Prisma.Decimal(amount),
@@ -580,6 +780,7 @@ async function createSyntheticCreditNote(
     financialCaseId: string;
     jobId: string;
     bookingId: string;
+    orderId?: string | null;
     customerId: string;
     managerId: string;
   },
@@ -595,6 +796,7 @@ async function createSyntheticCreditNote(
       invoiceType: InvoiceType.CREDIT_NOTE,
       jobId: fixture.jobId,
       bookingId: fixture.bookingId,
+      orderId: fixture.orderId ?? null,
       customerId: fixture.customerId,
       parentInvoiceId: finalInvoiceId,
       totalAmount: new Prisma.Decimal(amount),
