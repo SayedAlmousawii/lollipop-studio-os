@@ -1,6 +1,16 @@
 import type { InvoiceType } from "@prisma/client";
 
 export type InvoiceStatusLabel = "Draft" | "Issued" | "Partial" | "Paid" | "Closed";
+export type InvoiceAccountantStatusLabel =
+  | "Draft"
+  | "Issued"
+  | "Paid"
+  | "Void"
+  | "Available"
+  | "Partially used"
+  | "Fully used";
+export type FinancialDocumentClass = "charge" | "credit" | "cash";
+export type FinancialDocumentMoneyTone = "neutral" | "success" | "danger" | "muted";
 
 export type InvoiceLineType =
   | "PACKAGE_BASE"
@@ -28,22 +38,58 @@ export interface InvoiceListItem {
   jobNumber: string;
   invoiceNumber: string;
   invoiceType: InvoiceType | null;
+  documentTypeLabel: string;
+  documentClass: FinancialDocumentClass;
   customerPhone: string;
   orderId: string | null;
   bookingId: string | null;
   referenceLabel: string;
   totalAmount: string;
+  signedAmount: string;
+  signedAmountTone: FinancialDocumentMoneyTone;
   paidAmount: string;
+  paidCash: string;
   settledAmount: string;
+  creditApplied: string;
   remainingAmount: string;
+  outstanding: string;
+  outstandingLabel: string;
+  outstandingTone: FinancialDocumentMoneyTone;
   status: InvoiceStatusLabel;
+  accountantStatus: InvoiceAccountantStatusLabel;
   isLocked: boolean;
+  applicationLinks: string[];
   createdAt: string;
+}
+
+export interface InvoiceRegisterSubtotals {
+  invoicedGross: string;
+  creditsIssued: string;
+  invoicedNet: string;
+  depositsPrepaid: string;
+  cashReceived: string;
+  receivable: string;
+}
+
+export interface InvoiceRegisterView {
+  rows: InvoiceListItem[];
+  subtotals: InvoiceRegisterSubtotals;
 }
 
 export interface InvoiceDetail extends InvoiceListItem {
   depositInvoiceNumber: string | null;
   depositPaidAmount: string | null;
+  creditNoteHeadline: {
+    totalCredit: string;
+    appliedCredit: string;
+    availableCredit: string;
+  } | null;
+  applicationBreakdown: Array<{
+    label: string;
+    documentNumber: string;
+    amount: string;
+    signed: string;
+  }>;
   overpaymentCapacity: string | null;
   creditNoteCapacity: string | null;
   creditNoteRefundable: string | null;

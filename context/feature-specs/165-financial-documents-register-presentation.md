@@ -15,6 +15,10 @@ forces unlike instruments (deposit, final, adjustment, credit note, refund) unde
 label with a single ambiguous "Settled" column, inviting nonsense sums; and the invoice-detail
 "Financial Breakdown" card exists only for FINAL and only itemizes the deposit, so an ADJUSTMENT
 settled by a credit note shows correct totals with **no line explaining where the credit came from**.
+This spec also closes a real post-R3 read-model bug: credit notes are persisted `remainingAmount 0 /
+CLOSED` with drawable value living only in `computeCreditNoteAvailable`, so every surface that renders
+them through charge-invoice semantics (register, detail headline, linked-document projector) misreads
+a partially-used credit note as fully consumed — hiding still-drawable credit (Part C).
 
 ## Read First
 
@@ -27,7 +31,11 @@ settled by a credit note shows correct totals with **no line explaining where th
   (current columns: Total · Settled · Remaining · Status · Locked).
 - `src/modules/invoices/invoice.service.ts` `getInvoices` (l.~835) → `InvoiceListItem`
   (invoice.types.ts l.26); `getInvoiceWithLineItems` → `InvoiceDetail`.
-- `app/invoices/[id]/page.tsx` — the FINAL-only "Financial Breakdown" card (l.~140) to generalize.
+- `app/invoices/[id]/page.tsx` — the FINAL-only "Financial Breakdown" card (l.~140) to generalize,
+  and the generic `Total / Settled / Remaining / Locked` metric grid (l.~99–113) that misreads
+  credit notes (Part C).
+- `src/modules/financial-cases/projections/to-invoice-list-row.ts` — linked-document row projector
+  that passes raw `remainingAmount` / `status` through for all types (Part C parity).
 - `src/modules/invoices/invoice.calculation.ts` `computeEffectivePaidFromAllocations` — the
   cash-vs-credit primitive the read split mirrors (IN/OUT payment allocations vs document
   applications). `computeCreditNoteAvailable` — a credit note's drawable/unapplied balance.
@@ -60,6 +68,9 @@ settled by a credit note shows correct totals with **no line explaining where th
     settlement credit), with the applied-from document referenced (convention #6).
   - *Outstanding* = charge `remainingAmount`; for a **credit note**, its unapplied drawable balance
     (`computeCreditNoteAvailable`), labeled as credit, not owed.
+  - **Credit-note Outstanding display state** (explicit): when the note is fully consumed, render `—`
+    (or `0.000`); when partially or wholly unapplied, render the remaining drawable balance in
+    **neutral styling — never `danger`/red** — to read as available store credit, not customer debt.
 - **Status vocabulary** (plan #8): map to accountant terms — **Draft / Issued / Paid / Void**
   (drop the "Locked Yes/No" column). `isLocked` stays available internally but is not a register column.
 - **Footer subtotals by class — gross + credits form (locked decision):**
@@ -74,6 +85,12 @@ settled by a credit note shows correct totals with **no line explaining where th
   No grand total across classes.
 - **Applied/consuming links** (convention #6): a credit/deposit shows what it applied to; a refund
   shows the credit note it drew down. Use the document graph already in the read layer.
+  - **Link direction (explicit token format):** the read layer resolves each application's role
+    relative to the row before passing strings to the component. If the row is the application
+    **target** (credit received), render the inbound source token `·SRC-xxxxx`; if the row is the
+    **source** (e.g. a credit note feeding others), render the outbound destination token
+    `→TRG-xxxxx`. The component renders these pre-resolved strings only — no direction logic, no
+    `DocumentApplication` query in the column.
 
 ### In Scope — B. Generalized invoice-detail breakdown (the deferred "B5")
 
@@ -88,11 +105,38 @@ settled by a credit note shows correct totals with **no line explaining where th
   signed}`), derived from the applications targeting the invoice. Card renders it; no derivation in
   the page.
 
+### In Scope — C. Credit-note availability display parity (detail headline + linked-document projector)
+
+> Closes a real read-model correctness bug found post-R3, not just polish: a credit note is persisted
+> `paidAmount 0 / remainingAmount 0 / status CLOSED`, with drawable value living only in
+> `computeCreditNoteAvailable` (= `totalAmount − Σ source applications − Σ REFUND children`). Every
+> surface that renders a credit note through **charge-invoice** semantics therefore misreads it —
+> e.g. `CN-00006` total 100 with 60 applied and 40 still drawable displays `Settled 100 / Remaining
+> 0 / Closed`, hiding the 40 that later correctly settles a new charge. Same root fix as the register
+> Outstanding column; shipped together so the register and the detail/Sales views can't contradict.
+
+- **Credit-note detail headline (`/invoices/[id]`).** The generic `Total / Settled / Remaining /
+  Locked` metric grid must, for `CREDIT_NOTE`, show **credit-note semantics** instead:
+  - `Total credit` = `totalAmount`
+  - `Applied credit` = `totalAmount − computeCreditNoteAvailable`
+  - `Available credit` = `computeCreditNoteAvailable` (drawable balance), neutral styling — never red,
+    never labeled "Remaining"/"owed".
+  Charge invoices (DEPOSIT/FINAL/ADJUSTMENT) keep the stored `Total / Settled / Remaining / status`
+  grid unchanged. Derivation lives in the `InvoiceDetail` read model; the page only renders.
+- **Linked-document projector parity.** `src/modules/financial-cases/projections/to-invoice-list-row.ts`
+  currently passes raw `remainingAmount` / `status` through for **all** types, so credit notes mirror
+  the same misleading `remaining 0` on the Sales / order linked-documents surface. Apply the same
+  CN-aware derivation (available = `computeCreditNoteAvailable`, applied = total − available) at the
+  projection source so a CN row never mirrors raw stored `remainingAmount`. This fixes the *projected
+  CN row semantics only* — the per-order settlement math (`FinancialCaseSummary.availableCaseCredit`,
+  `CustomerSettlementSummary`) is already correct and is **not** changed.
+
 ### Out of Scope
 
 - Any engine/model/numbering change; any new money math.
 - Period rollups / AR aging / revenue reports (separate future reporting project, per plan §7).
-- The per-order customer balance (that's the Sales settlement summary — a different surface).
+- The per-order settlement *math* (`FinancialCaseSummary.availableCaseCredit`,
+  `CustomerSettlementSummary`) — already correct; Part C only fixes the projected CN *row* display.
 - Pagination redesign (see Considerations).
 
 ## Implementation Direction
@@ -109,7 +153,13 @@ settled by a credit note shows correct totals with **no line explaining where th
    presentation over read-layer strings.
 4. **Invoice-detail breakdown:** add the generalized application breakdown to `InvoiceDetail`;
    render the card for FINAL and ADJUSTMENT.
-5. Use existing tokens/components (`Table`, `Badge`, `Card`); no new design system.
+5. **Credit-note detail headline (Part C):** add `totalCredit`/`appliedCredit`/`availableCredit`
+   (from `computeCreditNoteAvailable`) to `InvoiceDetail`; the page swaps the metric grid by type —
+   CN gets the credit grid, charge invoices keep the stored grid.
+6. **Projector parity (Part C):** apply the same CN-aware derivation in `to-invoice-list-row.ts` (and
+   the `linkedDocuments` source it reads) so CN rows expose drawable availability, not raw
+   `remainingAmount`. Keep it batched — do not call `computeCreditNoteAvailable` per row in a loop.
+7. Use existing tokens/components (`Table`, `Badge`, `Card`); no new design system.
 
 ## Observability Checklist
 
@@ -128,6 +178,12 @@ settled by a credit note shows correct totals with **no line explaining where th
   per-row, to preserve list performance.
 - **Credit-note "outstanding" mislabel** is the single highest-risk misread — it is *available
   credit*, never customer debt. Distinct label + sign.
+- **`computeCreditNoteAvailable` N+1 (Part C):** it nets source applications + REFUND children per
+  note. Across the register, the detail page, and the projector, drawable balances must be resolved
+  via batched/grouped aggregation, never a per-row call in a loop.
+- **Two loaders, one fix:** the register (`getInvoices`) and the linked-document projector
+  (`to-invoice-list-row.ts`) both map CN rows from raw stored fields. Fixing only one leaves the
+  other contradicting it — both must adopt the CN-aware derivation in this spec.
 
 ## Acceptance Criteria
 
@@ -142,6 +198,15 @@ settled by a credit note shows correct totals with **no line explaining where th
 - The invoice-detail breakdown lists **every** `DocumentApplication` on FINAL **and** ADJUSTMENT as
   labeled signed lines (deposit + settlement credit, sourced from the document graph) — an
   ADJUSTMENT settled by a credit note shows `Settlement credit applied (CN-xxxxx) −10.000`.
+- **A partially-used credit note reads correctly everywhere (Part C):** for `CN-00006` (total 100,
+  60 applied, 40 drawable) the **register** shows Outstanding `40` (neutral), the **detail headline**
+  shows `Total credit 100 / Applied credit 60 / Available credit 40`, and the **linked-document
+  projector** exposes available `40` — none of them show `Settled 100 / Remaining 0`. A fully-used CN
+  shows available `0`/`—`, applied `100`; a refunded child reduces availability.
+- Charge invoices (DEPOSIT/FINAL/ADJUSTMENT) keep their stored `Total / Settled / Remaining / status`
+  detail grid unchanged; the per-order settlement math is untouched.
 - No `@/lib/db` under `app/**` or `src/components/**`; no engine/model/money-math change; subtotals
-  computed over the full filtered set.
-- `npm run build` and `npm run lint` pass; existing invoice read/list tests updated for the new shape.
+  computed over the full filtered set; drawable balances resolved via batched aggregation, not per-row.
+- `npm run build` and `npm run lint` pass; existing invoice read/list tests updated for the new shape,
+  plus tests covering CN register row, CN detail headline, and projector parity (CN row ≠ raw
+  `remainingAmount`).

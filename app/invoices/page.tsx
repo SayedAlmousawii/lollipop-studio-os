@@ -8,23 +8,23 @@ export default async function InvoicesPage(props: PageProps<"/invoices">) {
   const search = Array.isArray(searchParams.search)
     ? searchParams.search[0]
     : searchParams.search;
-  const invoices = await getInvoices({ search });
+  const register = await getInvoices({ search });
 
   return (
     <PageContainer>
       <div className="space-y-6">
         <div>
           <h1 className="text-[28px] font-semibold text-text-primary">
-            Invoices
+            Financial Documents
           </h1>
           <p className="mt-1 text-sm text-text-secondary">
-            Track issued invoices, locked records, adjustments, and payments.
+            Accountant-facing register for charges, credits, deposits, and cash movements.
           </p>
         </div>
 
         <InvoicesFilters />
 
-        <InvoicesTable invoices={invoices} />
+        <InvoicesTable register={register} />
       </div>
     </PageContainer>
   );
