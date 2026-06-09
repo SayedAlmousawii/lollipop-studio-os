@@ -81,6 +81,7 @@ export type CreateCreditNoteInput = {
   notes?: string;
   applicationMode?: "AUTO_APPLY" | "UNAPPLIED";
   creditOrigin?: CreditOrigin;
+  reversesInvoiceLineId?: string;
 };
 
 export const createAdjustmentInvoiceLineSchema = z

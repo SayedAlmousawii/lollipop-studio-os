@@ -13,7 +13,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **OrderCommit arc complete (Specs 120–151):** `commitOrderChanges` is the sole production financial-emission path; all Sales order edits (locked and unlocked) flow through OrderCommit staging → preview → commit.
 - **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
-- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, and 160 R1 are implemented; the settlement arc is complete, reversal-credit foundation/invariants are active, and the accountant-facing register presentation plan remains pending before Phase 7.
+- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, 160 R1, and 161 R2 are implemented; the settlement arc is complete, unpaid reversal credit now emits drawable + swept, and the paid-reversal refund channel remains pending R3.
 - **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
@@ -34,6 +34,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - `FinancialCaseSummary.availableCaseCredit` is the canonical raw same-case CREDIT_NOTE pool (`totalAmount - Σ source applications`) and stays distinct from overpayment-backed spendable credit and credit-note capacity.
 - CREDIT_NOTE invoices now carry nullable `creditOrigin` plus optional `reversesInvoiceLineId` provenance for newly issued notes; R0 stamps origin/provenance without changing application routing, money math, or legacy null-row tolerance.
 - Credit-note runtime invariants are origin + conservation based: every CREDIT_NOTE requires `creditOrigin`, REVERSAL credits require same-case reversed-line provenance, and source applications conserve total credit without asserting application kind or line-targeting shape.
+- R2 reversal emission is live: unpaid adjustment-line reversals emit drawable REVERSAL credit notes with provenance and no CAUSE_REVERSAL application, then sweep as invoice-level SETTLEMENT to open receivables; paid adjustment-line reversals still use the legacy line-targeted CAUSE_REVERSAL + immediate refund channel until R3.
 - `computeCustomerSettlement` is the financial-owned model-A customer settlement core: `netCustomerTotal = gross customer total - issued credit notes`, `cashPaid` excludes applied credit, `remainingDue = max(netCustomerTotal - cashPaid, 0)`, and spendable `availableCredit = max(cashPaid - netCustomerTotal, 0)`.
 - `CustomerSettlementSummary` is the Sales receipt-style projection over `computeCustomerSettlement`; Sales renders clean/draft settlement fields verbatim and no longer assembles customer total, effective-paid, document, or remaining semantics.
 - `src/modules/financial/invariant-catalog.ts` is the canonical owner-facing index for registered financial invariants; `npm run docs:generate` refreshes `context/reviews/invariant-catalog.md`.
@@ -86,6 +87,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **161 R2** — Routed unpaid adjustment reversal value into drawable REVERSAL credit notes, swept direct and OrderCommit emission paths after reversal emission, loosened INV-09 for invoice-level SETTLEMENT, and left paid reversal refunds on the legacy channel pending R3.
 - **160 R1** — Collapsed credit-note runtime invariants from application-kind taxonomy to origin + same-case conservation, regenerated the invariant catalog, and unblocked R2 emission routing.
 - **159 R0** — Added credit-note `creditOrigin` and reversal provenance fields; new credit-note issuance stamps GOODWILL, REMOVAL, or REVERSAL while preserving existing application routing and money math.
 - **158 B4** — DocumentApplication writes now recalculate target charge invoices, deposit applications refresh target FINAL caches, fully credit-settled targets close/lock through the shared path, and a stored-vs-derived charge-invoice invariant was added.

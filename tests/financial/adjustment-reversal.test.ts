@@ -5,6 +5,8 @@ import Module from "node:module";
 import process from "node:process";
 import test from "node:test";
 import {
+  CreditOrigin,
+  DocumentApplicationKind,
   InvoiceType,
   PaymentMethod,
   PaymentType,
@@ -135,6 +137,8 @@ test("adjustment reversal regressions A-E", async () => {
     });
     }
 
+    await assertDirectUnpaidReversalSweepsSeparateReceivable(ctx);
+
     {
     const workflow = await ctx.buildLockedWorkflow("c");
     const packageItem = await ctx.db.packageItem.findFirstOrThrow({
@@ -205,16 +209,17 @@ test("adjustment reversal regressions A-E", async () => {
       approvalActorUserId: ctx.fixtures.managerId,
     });
 
-    const application = await ctx.db.documentApplication.findFirstOrThrow({
+    const creditNote = await ctx.db.invoice.findFirstOrThrow({
       where: {
-        targetInvoiceId: workflow.finalInvoiceId,
-        targetInvoiceLineId: null,
-        sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
+        orderId: workflow.orderId,
+        invoiceType: InvoiceType.CREDIT_NOTE,
+        parentInvoiceId: workflow.finalInvoiceId,
+        creditOrigin: CreditOrigin.REMOVAL,
       },
-      include: { sourceInvoice: true },
+      include: { documentApplicationsAsSource: true },
     });
-    assert.equal(application.amountApplied.toFixed(3), "50.000");
-    assert.equal(application.sourceInvoice.parentInvoiceId, workflow.finalInvoiceId);
+    assert.equal(creditNote.totalAmount.toFixed(3), "50.000");
+    assert.equal(creditNote.documentApplicationsAsSource.length, 0);
     const adjustmentCount = await ctx.db.invoice.count({
       where: { orderId: workflow.orderId, invoiceType: InvoiceType.ADJUSTMENT },
     });
@@ -269,6 +274,114 @@ test("adjustment reversal regressions A-E", async () => {
     }
   });
 });
+
+async function assertDirectUnpaidReversalSweepsSeparateReceivable(
+  ctx: TestContext
+) {
+  const { syncOrderInvoiceForFinancialEdit } = await import(
+    "@/modules/invoices/invoice.service"
+  );
+  const workflow = await ctx.buildLockedWorkflow("direct-r2");
+  const firstProduct = await createAddOnProduct(
+    ctx.db,
+    "direct-r2-first",
+    "Direct R2 first open add-on",
+    50
+  );
+  const secondProduct = await createAddOnProduct(
+    ctx.db,
+    "direct-r2-second",
+    "Direct R2 reversed add-on",
+    30
+  );
+
+  await ctx.db.orderAddOn.create({
+    data: {
+      orderId: workflow.orderId,
+      productId: firstProduct.id,
+      nameSnapshot: firstProduct.name,
+      priceSnapshot: firstProduct.canonicalPrice,
+      quantity: 1,
+    },
+  });
+  await syncOrderInvoiceForFinancialEdit(ctx.db, {
+    orderId: workflow.orderId,
+    actorContext: ctx.fixtures.adminActor,
+    previousAddOns: [],
+  });
+  const firstAdjustment = await firstAdjustmentWithLine(ctx.db, workflow.orderId);
+
+  const beforeSecondAdd = await orderAddOnsForSync(ctx.db, workflow.orderId);
+  await ctx.db.orderAddOn.create({
+    data: {
+      orderId: workflow.orderId,
+      productId: secondProduct.id,
+      nameSnapshot: secondProduct.name,
+      priceSnapshot: secondProduct.canonicalPrice,
+      quantity: 1,
+    },
+  });
+  await syncOrderInvoiceForFinancialEdit(ctx.db, {
+    orderId: workflow.orderId,
+    actorContext: ctx.fixtures.adminActor,
+    previousAddOns: beforeSecondAdd,
+  });
+  const secondAdjustment = await latestAdjustmentWithLine(
+    ctx.db,
+    workflow.orderId
+  );
+
+  const beforeRemoval = await orderAddOnsForSync(ctx.db, workflow.orderId);
+  const secondAddOn = await ctx.db.orderAddOn.findFirstOrThrow({
+    where: { orderId: workflow.orderId, productId: secondProduct.id },
+    select: { id: true },
+  });
+  await ctx.db.orderAddOn.delete({ where: { id: secondAddOn.id } });
+  await syncOrderInvoiceForFinancialEdit(ctx.db, {
+    orderId: workflow.orderId,
+    actorContext: ctx.fixtures.managerActor,
+    previousAddOns: beforeRemoval,
+    managerApprovedReductionByUserId: ctx.fixtures.managerId,
+    managerApprovedReason: "Direct R2 unpaid reversal sweep",
+  });
+
+  const reversalCreditNote = await ctx.db.invoice.findFirstOrThrow({
+    where: {
+      orderId: workflow.orderId,
+      invoiceType: InvoiceType.CREDIT_NOTE,
+      parentInvoiceId: secondAdjustment.id,
+      creditOrigin: CreditOrigin.REVERSAL,
+      reversesInvoiceLineId: secondAdjustment.lineItems[0].id,
+    },
+    include: { documentApplicationsAsSource: true },
+  });
+  assert.equal(reversalCreditNote.totalAmount.toFixed(3), "30.000");
+  assert.deepEqual(
+    reversalCreditNote.documentApplicationsAsSource.map((application) => ({
+      kind: application.kind,
+      targetInvoiceId: application.targetInvoiceId,
+      targetInvoiceLineId: application.targetInvoiceLineId,
+      amount: application.amountApplied.toFixed(3),
+    })),
+    [
+      {
+        kind: DocumentApplicationKind.SETTLEMENT,
+        targetInvoiceId: firstAdjustment.id,
+        targetInvoiceLineId: null,
+        amount: "30.000",
+      },
+    ]
+  );
+
+  const manufacturedOverpaymentApplications = await ctx.db.documentApplication.count({
+    where: {
+      targetInvoiceId: secondAdjustment.id,
+      targetInvoiceLineId: secondAdjustment.lineItems[0].id,
+      kind: DocumentApplicationKind.CAUSE_REVERSAL,
+    },
+  });
+  assert.equal(manufacturedOverpaymentApplications, 0);
+}
 
 async function assertSameCauseReversalConsumesAllOpenLines(ctx: TestContext) {
   const workflow = await ctx.buildLockedWorkflow("e-same-cause");
@@ -337,6 +450,26 @@ async function payInvoice(
     },
     ctx.fixtures.adminActor
   );
+}
+
+async function orderAddOnsForSync(db: PrismaClient, orderId: string) {
+  const addOns = await db.orderAddOn.findMany({
+    where: { orderId },
+    select: {
+      productId: true,
+      nameSnapshot: true,
+      priceSnapshot: true,
+      quantity: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return addOns.map((addOn) => ({
+    productId: addOn.productId ?? undefined,
+    name: addOn.nameSnapshot,
+    price: addOn.priceSnapshot.toNumber(),
+    quantity: addOn.quantity,
+  }));
 }
 
 async function firstAdjustmentWithLine(db: PrismaClient, orderId: string) {
@@ -413,10 +546,45 @@ async function assertAdjustmentReversal(
     expectRefund: boolean;
   }
 ) {
+  if (!input.expectRefund) {
+    const creditNote = await db.invoice.findFirstOrThrow({
+      where: {
+        orderId: input.orderId,
+        invoiceType: InvoiceType.CREDIT_NOTE,
+        parentInvoiceId: input.adjustmentInvoiceId,
+        creditOrigin: CreditOrigin.REVERSAL,
+        reversesInvoiceLineId: input.adjustmentLineId,
+      },
+      include: {
+        lineItems: true,
+        documentApplicationsAsSource: true,
+      },
+    });
+    assert.equal(creditNote.totalAmount.toFixed(3), input.amount);
+    assert.equal(creditNote.lineItems.length >= 1, true);
+    assert.equal(
+      creditNote.documentApplicationsAsSource.some(
+        (application) =>
+          application.kind === DocumentApplicationKind.CAUSE_REVERSAL ||
+          application.targetInvoiceLineId === input.adjustmentLineId
+      ),
+      false,
+      "unpaid reversal must not create a line-targeted CAUSE_REVERSAL application"
+    );
+
+    const order = await db.order.findUniqueOrThrow({
+      where: { id: input.orderId },
+      select: { refundPending: true },
+    });
+    assert.equal(order.refundPending, false);
+    return;
+  }
+
   const application = await db.documentApplication.findFirstOrThrow({
     where: {
       targetInvoiceId: input.adjustmentInvoiceId,
       targetInvoiceLineId: input.adjustmentLineId,
+      kind: DocumentApplicationKind.CAUSE_REVERSAL,
       sourceInvoice: { invoiceType: InvoiceType.CREDIT_NOTE },
     },
     include: { sourceInvoice: { include: { lineItems: true } } },

@@ -203,7 +203,7 @@ sweep, derived-truth (`computeEffectivePaidFromAllocations`), drawable pool
 |---|---|---|---|
 | **R0** | Foundation / schema | Add `CreditNote.origin` + `reversesInvoiceLineId`; classify origins. **Implemented in Spec 159.** | Behavior no-op |
 | **R1** | Invariant rework | Collapse the 4 taxonomy invariants → `valid-credit-origin` + `credit-applications-conserve`; regenerate catalog. **Implemented in Spec 160; R2 emission is now unblocked.** | Behavior no-op |
-| **R2** | Emission change (core) | Stop consuming **reversal** credit as `CAUSE_REVERSAL`; issue with origin + provenance; route value through the sweep. **Bug dies here.** | Behavioral |
+| **R2** | Emission change (core) | Stop consuming **unpaid reversal** credit as `CAUSE_REVERSAL`; issue with origin + provenance; route value through the sweep. **Implemented in Spec 161; the unpaid-line stranding bug dies here.** | Behavioral |
 | **R3** | Refund channel | Credit-note-balance refund for `origin ∈ {REVERSAL, REMOVAL}`; keep `computeOverpaymentCapacity` for true cash overpayment. | Behavioral |
 | **R4** | Taxonomy retirement | Retire `CAUSE_REVERSAL` / `CREDIT_TO_FINAL` enum kinds once nothing depends on them. | Cleanup |
 
@@ -225,5 +225,5 @@ ordering already run once.
    on a FINAL applies as a direct settlement at issuance, not via the sweep).
 
 ### Concentrated risk
-Refund-003 re-anchoring (R3) and the sweep-ordering guarantee (R2 — drawable reversal credit
-must be consumed on every commit that opens a receivable, before anything looks open).
+Refund-003 re-anchoring (R3). R2's sweep-ordering guarantee is now implemented for drawable
+unpaid reversal credit on both OrderCommit and direct reductive-edit emission paths.

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import Module from "node:module";
 import test, { after } from "node:test";
 import {
+  CreditOrigin,
   DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
@@ -435,7 +436,7 @@ test("runs shared available-credit sweep after pure positive adjustment emission
   ]);
 });
 
-test("groups adjustment reversals into line-targeted credit notes", async () => {
+test("emits unpaid adjustment reversals as drawable credit notes", async () => {
   const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
   const { client } = fakeEmissionClient();
   const dependencies = fakeDependencies({
@@ -450,6 +451,7 @@ test("groups adjustment reversals into line-targeted credit notes", async () => 
           causeOrderEntityId: "addon-1",
           amount: 8,
           description: "Removed: Add-on",
+          requiresRefund: false,
         },
       ],
     },
@@ -477,6 +479,65 @@ test("groups adjustment reversals into line-targeted credit notes", async () => 
     dependencies.createCreditNoteWithClient.calls[0]?.input.reason,
     "REMOVED_ADDON"
   );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    "UNAPPLIED"
+  );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.creditOrigin,
+    CreditOrigin.REVERSAL
+  );
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.reversesInvoiceLineId,
+    "adjustment-line-1"
+  );
+  assert.deepEqual(dependencies.createCreditNoteWithClient.calls[0]?.input.lines, [
+    {
+      lineType: InvoiceLineType.MANUAL_DISCOUNT,
+      description: "Removed: Add-on",
+      quantity: 1,
+      unitPrice: 8,
+      causeOrderEntityKind: OrderEntityKind.ADDON,
+      causeOrderEntityId: "addon-1",
+    },
+  ]);
+});
+
+test("keeps paid adjustment reversals line-targeted for immediate refund", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      adjustmentReversals: [
+        {
+          reason: "REMOVED_ADDON",
+          parentAdjustmentInvoiceId: "adjustment-parent",
+          targetInvoiceLineId: "adjustment-line-1",
+          causeOrderEntityKind: OrderEntityKind.ADDON,
+          causeOrderEntityId: "addon-1",
+          amount: 8,
+          description: "Removed: Add-on",
+          requiresRefund: true,
+        },
+      ],
+    },
+  });
+
+  await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    undefined
+  );
   assert.deepEqual(dependencies.createCreditNoteWithClient.calls[0]?.input.lines, [
     {
       lineType: InvoiceLineType.MANUAL_DISCOUNT,
@@ -487,6 +548,80 @@ test("groups adjustment reversals into line-targeted credit notes", async () => 
       causeOrderEntityId: "addon-1",
       targetInvoiceId: "adjustment-parent",
       targetInvoiceLineId: "adjustment-line-1",
+    },
+  ]);
+});
+
+test("splits mixed paid and unpaid adjustment reversals into separate notes", async () => {
+  const { emitOrderCommitFinancialDocuments } = await loadExecutionService();
+  const { client } = fakeEmissionClient();
+  const dependencies = fakeDependencies({
+    emission: {
+      ...emptyEmission(),
+      adjustmentReversals: [
+        {
+          reason: "REMOVED_ADDON",
+          parentAdjustmentInvoiceId: "adjustment-parent",
+          targetInvoiceLineId: "unpaid-line",
+          causeOrderEntityKind: OrderEntityKind.ADDON,
+          causeOrderEntityId: "addon-1",
+          amount: 8,
+          description: "Removed: Unpaid Add-on",
+          requiresRefund: false,
+        },
+        {
+          reason: "REMOVED_ADDON",
+          parentAdjustmentInvoiceId: "adjustment-parent",
+          targetInvoiceLineId: "paid-line",
+          causeOrderEntityKind: OrderEntityKind.ADDON,
+          causeOrderEntityId: "addon-2",
+          amount: 5,
+          description: "Removed: Paid Add-on",
+          requiresRefund: true,
+        },
+      ],
+    },
+  });
+
+  await emitOrderCommitFinancialDocuments({
+    ...baseInput(client),
+    requiresApproval: true,
+    approvalActorUserId: "manager-user",
+    documentPlan: documentPlan(
+      ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND.CREDIT_NOTE
+    ),
+    dependencies,
+  });
+
+  assert.equal(dependencies.createCreditNoteWithClient.calls.length, 2);
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[0]?.input.applicationMode,
+    "UNAPPLIED"
+  );
+  assert.deepEqual(dependencies.createCreditNoteWithClient.calls[0]?.input.lines, [
+    {
+      lineType: InvoiceLineType.MANUAL_DISCOUNT,
+      description: "Removed: Unpaid Add-on",
+      quantity: 1,
+      unitPrice: 8,
+      causeOrderEntityKind: OrderEntityKind.ADDON,
+      causeOrderEntityId: "addon-1",
+    },
+  ]);
+  assert.equal(
+    dependencies.createCreditNoteWithClient.calls[1]?.input.applicationMode,
+    undefined
+  );
+  assert.deepEqual(dependencies.createCreditNoteWithClient.calls[1]?.input.lines, [
+    {
+      lineType: InvoiceLineType.MANUAL_DISCOUNT,
+      description: "Removed: Paid Add-on",
+      quantity: 1,
+      unitPrice: 5,
+      causeOrderEntityKind: OrderEntityKind.ADDON,
+      causeOrderEntityId: "addon-2",
+      targetInvoiceId: "adjustment-parent",
+      targetInvoiceLineId: "paid-line",
     },
   ]);
 });
@@ -506,6 +641,7 @@ test("uses the first reversal reason when a parent ADJ groups mixed reasons", as
           causeOrderEntityId: "addon-1",
           amount: 5,
           description: "Removed: Add-on",
+          requiresRefund: false,
         },
         {
           reason: "REMOVED_PACKAGE_ITEM_UPGRADE",
@@ -515,6 +651,7 @@ test("uses the first reversal reason when a parent ADJ groups mixed reasons", as
           causeOrderEntityId: "upgrade-1",
           amount: 7,
           description: "Removed: Item upgrade",
+          requiresRefund: false,
         },
       ],
     },
@@ -552,6 +689,7 @@ test("keeps cause reversals line-targeted before residual settlement", async () 
           causeOrderEntityId: "addon-1",
           amount: 8,
           description: "Removed: Add-on",
+          requiresRefund: true,
         },
       ],
       creditNoteFinalLines: [
@@ -1190,6 +1328,8 @@ function fakeDependencies(options: {
       targetAdjustmentInvoiceId?: string;
       reason?: string;
       applicationMode?: "AUTO_APPLY" | "UNAPPLIED";
+      creditOrigin?: CreditOrigin;
+      reversesInvoiceLineId?: string;
       lines: unknown[];
     };
   }>;

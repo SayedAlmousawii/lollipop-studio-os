@@ -87,6 +87,7 @@ export type OrderCommitAdjustmentReversal = {
   causeOrderEntityId: string;
   amount: number;
   description: string;
+  requiresRefund: boolean;
 };
 
 export type OrderCommitFinancialEmission = {
@@ -611,6 +612,7 @@ function routeCreditNoteCandidate(input: {
       causeOrderEntityId: candidate.causeOrderEntityId,
       amount: reversalAmount,
       description: candidate.line.description,
+      requiresRefund: openLine.isPaid,
     });
     remaining = round3(remaining - reversalAmount);
     openLine.remainingAmount = round3(

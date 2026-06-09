@@ -717,6 +717,20 @@ export async function syncOrderInvoiceForFinancialEdit(
       });
     }
 
+    if (adjustmentReversalCreditNotes.length > 0) {
+      await settleAvailableCreditAgainstOpenReceivablesWithClient(
+        {
+          financialCaseId,
+          orderId: order.id,
+          appliedByUserId:
+            input.managerApprovedReductionByUserId ??
+            input.actorContext.actorUserId,
+          notes: "Direct financial edit available credit settlement",
+        },
+        client
+      );
+    }
+
     return buildOrderInvoiceSyncSummary({
       invoice: existingInvoice,
       packageAdjustmentAmount,
@@ -3008,6 +3022,13 @@ export async function createCreditNoteWithClient(
   const lineTargetedApplications = input.lines.filter(
     (line) => line.targetInvoiceId && line.targetInvoiceLineId
   );
+  const applicationMode = input.applicationMode ?? "AUTO_APPLY";
+  const isDrawableReversalCreditNote =
+    target.invoiceType === InvoiceType.ADJUSTMENT &&
+    applicationMode === "UNAPPLIED" &&
+    input.creditOrigin === CreditOrigin.REVERSAL &&
+    Boolean(input.reversesInvoiceLineId) &&
+    lineTargetedApplications.length === 0;
   if (
     lineTargetedApplications.length > 0 &&
     lineTargetedApplications.length !== input.lines.length
@@ -3016,7 +3037,8 @@ export async function createCreditNoteWithClient(
   }
   if (
     target.invoiceType === InvoiceType.ADJUSTMENT &&
-    lineTargetedApplications.length !== input.lines.length
+    lineTargetedApplications.length !== input.lines.length &&
+    !isDrawableReversalCreditNote
   ) {
     throw new Error("Adjustment credit notes require line-targeted applications");
   }
@@ -3059,12 +3081,50 @@ export async function createCreditNoteWithClient(
     }
   }
 
-  const applicationMode = input.applicationMode ?? "AUTO_APPLY";
+  if (input.reversesInvoiceLineId) {
+    if (input.creditOrigin && input.creditOrigin !== CreditOrigin.REVERSAL) {
+      throw new Error("Only reversal credit notes can reference a reversed line");
+    }
+    const reversedLine = await client.invoiceLineItem.findUnique({
+      where: { id: input.reversesInvoiceLineId },
+      select: {
+        id: true,
+        invoiceId: true,
+        invoice: {
+          select: {
+            invoiceType: true,
+            financialCaseId: true,
+            orderId: true,
+          },
+        },
+      },
+    });
+    if (!reversedLine) {
+      throw new Error("Credit note reversed line was not found");
+    }
+    if (
+      reversedLine.invoice.invoiceType !== InvoiceType.ADJUSTMENT ||
+      reversedLine.invoice.financialCaseId !== target.financialCaseId ||
+      reversedLine.invoice.orderId !== target.orderId
+    ) {
+      throw new Error("Credit note reversed line must belong to the same adjustment order");
+    }
+    if (
+      isDrawableReversalCreditNote &&
+      reversedLine.invoiceId !== target.id
+    ) {
+      throw new Error("Drawable reversal credit notes must parent to the reversed adjustment invoice");
+    }
+  }
+
   if (
     applicationMode === "UNAPPLIED" &&
-    (!input.targetFinalInvoiceId ||
-      Boolean(input.targetAdjustmentInvoiceId) ||
-      lineTargetedApplications.length > 0)
+    !(
+      (Boolean(input.targetFinalInvoiceId) &&
+        !input.targetAdjustmentInvoiceId &&
+        lineTargetedApplications.length === 0) ||
+      isDrawableReversalCreditNote
+    )
   ) {
     throw new Error(
       "Unapplied credit notes must be final-parented residual credits"
@@ -3094,7 +3154,9 @@ export async function createCreditNoteWithClient(
   });
   const reversesInvoiceLineId =
     creditOrigin === CreditOrigin.REVERSAL
-      ? lineTargetedApplications[0]?.targetInvoiceLineId ?? null
+      ? lineTargetedApplications[0]?.targetInvoiceLineId ??
+        input.reversesInvoiceLineId ??
+        null
       : null;
   const creditNote = await client.invoice.create({
     data: {
@@ -3314,27 +3376,67 @@ async function applyAdjustmentReversalsWithClient({
   const firstReversal = reversalInputs[0];
   if (!firstReversal) return [];
   const now = new Date();
-  const creditNote = await createCreditNote(
-    {
-      targetAdjustmentInvoiceId: firstReversal.causingLine.invoice.id,
-      lines: reversalInputs.map(({ reversal, causingLine }) => ({
-        lineType: causingLine.lineType,
-        description: `Reversal: ${reversal.lineSnapshot.name}`,
-        quantity: 1,
-        unitPrice: reversal.amount,
-        causeOrderEntityKind:
-          causingLine.causeOrderEntityKind ?? reversal.causeOrderEntityKind,
-        causeOrderEntityId:
-          causingLine.causeOrderEntityId ?? reversal.causeOrderEntityId,
-        targetInvoiceId: causingLine.invoice.id,
-        targetInvoiceLineId: causingLine.id,
-      })),
-      reason,
-      notes: `Auto-CREDIT_NOTE adjustment reversal from order edit on ${now.toISOString()}`,
-      createdByUserId,
-    },
-    client
+  const paidReversalInputs = reversalInputs.filter(
+    ({ reversal }) => reversal.requiresRefund
   );
+  const drawableReversalInputs = reversalInputs.filter(
+    ({ reversal }) => !reversal.requiresRefund
+  );
+  const creditNotes: Invoice[] = [];
+  let drawableCreditNote: Invoice | null = null;
+  if (drawableReversalInputs.length > 0) {
+    const firstDrawableReversal = drawableReversalInputs[0]!;
+    drawableCreditNote = await createCreditNote(
+      {
+        targetAdjustmentInvoiceId: firstDrawableReversal.causingLine.invoice.id,
+        lines: drawableReversalInputs.map(({ reversal, causingLine }) => ({
+          lineType: causingLine.lineType,
+          description: `Reversal: ${reversal.lineSnapshot.name}`,
+          quantity: 1,
+          unitPrice: reversal.amount,
+          causeOrderEntityKind:
+            causingLine.causeOrderEntityKind ?? reversal.causeOrderEntityKind,
+          causeOrderEntityId:
+            causingLine.causeOrderEntityId ?? reversal.causeOrderEntityId,
+        })),
+        reason,
+        notes: `Auto-CREDIT_NOTE drawable adjustment reversal from order edit on ${now.toISOString()}`,
+        createdByUserId,
+        applicationMode: "UNAPPLIED",
+        creditOrigin: CreditOrigin.REVERSAL,
+        reversesInvoiceLineId: firstDrawableReversal.causingLine.id,
+      },
+      client
+    );
+    creditNotes.push(drawableCreditNote);
+  }
+
+  let paidCreditNote: Invoice | null = null;
+  if (paidReversalInputs.length > 0) {
+    const firstPaidReversal = paidReversalInputs[0]!;
+    paidCreditNote = await createCreditNote(
+      {
+        targetAdjustmentInvoiceId: firstPaidReversal.causingLine.invoice.id,
+        lines: paidReversalInputs.map(({ reversal, causingLine }) => ({
+          lineType: causingLine.lineType,
+          description: `Reversal: ${reversal.lineSnapshot.name}`,
+          quantity: 1,
+          unitPrice: reversal.amount,
+          causeOrderEntityKind:
+            causingLine.causeOrderEntityKind ?? reversal.causeOrderEntityKind,
+          causeOrderEntityId:
+            causingLine.causeOrderEntityId ?? reversal.causeOrderEntityId,
+          targetInvoiceId: causingLine.invoice.id,
+          targetInvoiceLineId: causingLine.id,
+        })),
+        reason,
+        notes: `Auto-CREDIT_NOTE adjustment reversal from order edit on ${now.toISOString()}`,
+        createdByUserId,
+      },
+      client
+    );
+    creditNotes.push(paidCreditNote);
+  }
 
   for (const { reversal, causingLine } of reversalInputs) {
     if (reversal.requiresRefund) {
@@ -3369,6 +3471,10 @@ async function applyAdjustmentReversalsWithClient({
       );
     }
 
+    const creditNote = reversal.requiresRefund ? paidCreditNote : drawableCreditNote;
+    if (!creditNote) {
+      throw new Error("Adjustment reversal credit note was not issued");
+    }
     if (causingLine.invoice.orderId) {
       await recordOrderActivity(client, {
         orderId: causingLine.invoice.orderId,
@@ -3392,7 +3498,7 @@ async function applyAdjustmentReversalsWithClient({
     await assertFinancialCaseInvariants(causingLine.invoice.financialCaseId, client);
   }
 
-  return [creditNote];
+  return creditNotes;
 }
 
 function buildInvoiceWhere(search: string | undefined): Prisma.InvoiceWhereInput | undefined {
