@@ -835,6 +835,21 @@ test("commitOrderChanges source stays Task 6 scoped", () => {
   assert.doesNotMatch(source, /app\/orders|src\/components/);
 });
 
+test("OrderCommit FINAL residual credits pass removal origin", () => {
+  const source = readFileSync(
+    join(
+      process.cwd(),
+      "src/modules/order-commits/order-commit-execution.service.ts"
+    ),
+    "utf8"
+  );
+
+  assert.match(
+    source,
+    /notes: "OrderCommit final credit note emission",\s+applicationMode: "UNAPPLIED",\s+creditOrigin: CreditOrigin\.REMOVAL,/s
+  );
+});
+
 async function loadExecutionService() {
   return import("@/modules/order-commits/order-commit-execution.service");
 }

@@ -201,7 +201,7 @@ sweep, derived-truth (`computeEffectivePaidFromAllocations`), drawable pool
 
 | # | Spec | What it does | No-op? |
 |---|---|---|---|
-| **R0** | Foundation / schema | Add `CreditNote.origin` + `reversesInvoiceLineId`; classify origins. | Behavior no-op |
+| **R0** | Foundation / schema | Add `CreditNote.origin` + `reversesInvoiceLineId`; classify origins. **Implemented in Spec 159.** | Behavior no-op |
 | **R1** | Invariant rework | Collapse the 4 taxonomy invariants → `valid-credit-origin` + `credit-applications-conserve`; regenerate catalog (allows the new shape before anything emits it). | Behavior no-op |
 | **R2** | Emission change (core) | Stop consuming **reversal** credit as `CAUSE_REVERSAL`; issue with origin + provenance; route value through the sweep. **Bug dies here.** | Behavioral |
 | **R3** | Refund channel | Credit-note-balance refund for `origin ∈ {REVERSAL, REMOVAL}`; keep `computeOverpaymentCapacity` for true cash overpayment. | Behavioral |

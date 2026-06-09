@@ -1,6 +1,7 @@
 import {
   AuditAction,
   AuditEntityType,
+  CreditOrigin,
   DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
@@ -70,6 +71,17 @@ type SnapshotInvoiceLineItem = Omit<
   Prisma.InvoiceLineItemCreateManyInput,
   "invoiceId"
 >;
+
+function classifyCreditOrigin(input: {
+  creditOrigin?: CreditOrigin;
+  hasLineTargetedApplications: boolean;
+}): CreditOrigin {
+  if (input.hasLineTargetedApplications) {
+    return CreditOrigin.REVERSAL;
+  }
+
+  return input.creditOrigin ?? CreditOrigin.GOODWILL;
+}
 
 export type AppendCreditApplicationInput = {
   creditNoteId: string;
@@ -3075,6 +3087,14 @@ export async function createCreditNoteWithClient(
     client,
     InvoiceType.CREDIT_NOTE
   );
+  const creditOrigin = classifyCreditOrigin({
+    creditOrigin: input.creditOrigin,
+    hasLineTargetedApplications: lineTargetedApplications.length > 0,
+  });
+  const reversesInvoiceLineId =
+    creditOrigin === CreditOrigin.REVERSAL
+      ? lineTargetedApplications[0]?.targetInvoiceLineId ?? null
+      : null;
   const creditNote = await client.invoice.create({
     data: {
       publicId: await generatePublicId(client, PUBLIC_ID_KIND.INVOICE),
@@ -3092,12 +3112,20 @@ export async function createCreditNoteWithClient(
       remainingAmount: new Prisma.Decimal(0),
       status: InvoiceStatus.CLOSED,
       isLocked: true,
+      creditOrigin,
+      reversesInvoiceLineId,
       notes: input.notes?.trim() || reason,
       issuedAt: now,
       closedAt: now,
       lineItems: { create: lineItems },
     },
   });
+  if (
+    creditNote.invoiceType === InvoiceType.CREDIT_NOTE &&
+    !creditNote.creditOrigin
+  ) {
+    throw new Error("Issued credit note requires a credit origin");
+  }
 
   await recordInvoiceLockSnapshot(client, creditNote, input.createdByUserId);
 

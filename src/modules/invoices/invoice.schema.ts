@@ -1,4 +1,10 @@
-import { InvoiceLineType, OrderEntityKind, PaymentMethod, Prisma } from "@prisma/client";
+import {
+  CreditOrigin,
+  InvoiceLineType,
+  OrderEntityKind,
+  PaymentMethod,
+  Prisma,
+} from "@prisma/client";
 import { z } from "zod";
 
 export const createAdjustmentInvoiceSchema = z.object({
@@ -74,6 +80,7 @@ export type CreateCreditNoteInput = {
   createdByUserId: string;
   notes?: string;
   applicationMode?: "AUTO_APPLY" | "UNAPPLIED";
+  creditOrigin?: CreditOrigin;
 };
 
 export const createAdjustmentInvoiceLineSchema = z

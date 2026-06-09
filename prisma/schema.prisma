@@ -98,6 +98,12 @@ enum InvoiceType {
   SALE
 }
 
+enum CreditOrigin {
+  REVERSAL
+  REMOVAL
+  GOODWILL
+}
+
 enum DocumentApplicationKind {
   DEPOSIT
   CAUSE_REVERSAL
@@ -921,6 +927,8 @@ model Invoice {
   notes           String?
   issuedAt        DateTime?
   closedAt        DateTime?
+  creditOrigin    CreditOrigin?
+  reversesInvoiceLineId String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -938,11 +946,13 @@ model Invoice {
   documentApplicationsAsTarget  DocumentApplication[] @relation("DocumentApplicationTarget")
   paymentAllocations            PaymentAllocation[]
   orderCommitDocuments          OrderCommitDocument[] @relation("OrderCommitDocumentInvoice")
+  reversesInvoiceLine           InvoiceLineItem?      @relation("CreditNoteReversedLine", fields: [reversesInvoiceLineId], references: [id], onDelete: SetNull)
 
   @@unique([id, financialCaseId])
   @@index([financialCaseId])
   @@index([jobId])
   @@index([jobNumber])
+  @@index([reversesInvoiceLineId])
   @@map("invoices")
 }
 
@@ -997,6 +1007,7 @@ model InvoiceLineItem {
 
   invoice              Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   documentApplications DocumentApplication[]
+  reversedByCreditNotes Invoice[]             @relation("CreditNoteReversedLine")
 
   @@unique([invoiceId, sortOrder])
   @@index([invoiceId])

@@ -1,6 +1,6 @@
 "use server";
 
-import { InvoiceLineType } from "@prisma/client";
+import { CreditOrigin, InvoiceLineType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -136,6 +136,7 @@ export async function issueCreditNoteAction(
     reason: parsed.data.reason,
     notes: parsed.data.notes,
     createdByUserId: appUser.id,
+    creditOrigin: CreditOrigin.GOODWILL,
   });
 
   revalidatePath("/invoices");

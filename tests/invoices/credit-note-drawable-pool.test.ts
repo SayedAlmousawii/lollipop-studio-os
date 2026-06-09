@@ -6,6 +6,7 @@ import Module from "node:module";
 import process from "node:process";
 import test from "node:test";
 import {
+  CreditOrigin,
   DocumentApplicationKind,
   InvoiceLineType,
   InvoiceStatus,
@@ -69,6 +70,8 @@ test("credit-note available balance is derived from append-only applications", a
             isLocked: true,
             remainingAmount: true,
             status: true,
+            creditOrigin: true,
+            reversesInvoiceLineId: true,
             documentApplicationsAsSource: {
               select: { kind: true, amountApplied: true },
             },
@@ -81,6 +84,8 @@ test("credit-note available balance is derived from append-only applications", a
           normalCreditNote.documentApplicationsAsSource[0]?.kind,
           DocumentApplicationKind.CREDIT_TO_FINAL
         );
+        assert.equal(normalCreditNote.creditOrigin, CreditOrigin.GOODWILL);
+        assert.equal(normalCreditNote.reversesInvoiceLineId, null);
         assert.equal(
           normalCreditNote.documentApplicationsAsSource[0]?.amountApplied.toFixed(3),
           "20.000"
@@ -116,6 +121,8 @@ test("credit-note available balance is derived from append-only applications", a
             status: InvoiceStatus.ISSUED,
           },
         });
+        assert.equal(finalInvoice.creditOrigin, null);
+        assert.equal(finalInvoice.reversesInvoiceLineId, null);
         await applyDepositToFinalIfPresent(
           fixture.financialCaseId,
           finalInvoice.id,
@@ -282,6 +289,70 @@ test("credit-note available balance is derived from append-only applications", a
           (await computeCreditNoteAvailable(bulkCreditNote.id, db)).toFixed(3),
           "0.000"
         );
+        const reversalCreditNote = await db.invoice.findUniqueOrThrow({
+          where: { id: bulkCreditNote.id },
+          select: {
+            creditOrigin: true,
+            reversesInvoiceLineId: true,
+            documentApplicationsAsSource: {
+              select: {
+                kind: true,
+                targetInvoiceLineId: true,
+              },
+              orderBy: { targetInvoiceLineId: "asc" },
+            },
+          },
+        });
+        assert.equal(reversalCreditNote.creditOrigin, CreditOrigin.REVERSAL);
+        assert.equal(reversalCreditNote.reversesInvoiceLineId, firstBulkLine.id);
+        assert.deepEqual(
+          reversalCreditNote.documentApplicationsAsSource.map((application) => ({
+            kind: application.kind,
+            targetInvoiceLineId: application.targetInvoiceLineId,
+          })),
+          [
+            {
+              kind: DocumentApplicationKind.CAUSE_REVERSAL,
+              targetInvoiceLineId: firstBulkLine.id,
+            },
+            {
+              kind: DocumentApplicationKind.CAUSE_REVERSAL,
+              targetInvoiceLineId: secondBulkLine.id,
+            },
+          ].sort((left, right) =>
+            left.targetInvoiceLineId.localeCompare(right.targetInvoiceLineId)
+          )
+        );
+
+        const removalCreditNote = await createCreditNote(
+          {
+            targetFinalInvoiceId: normalCreditFixture.finalInvoiceId,
+            reason: "Spec 159 residual removal credit",
+            createdByUserId: manager.id,
+            lines: [
+              {
+                description: "Residual removal credit",
+                quantity: 1,
+                unitPrice: new Prisma.Decimal(3),
+              },
+            ],
+            applicationMode: "UNAPPLIED",
+            creditOrigin: CreditOrigin.REMOVAL,
+          },
+          db
+        );
+        const storedRemovalCreditNote = await db.invoice.findUniqueOrThrow({
+          where: { id: removalCreditNote.id },
+          select: {
+            creditOrigin: true,
+            reversesInvoiceLineId: true,
+            documentApplicationsAsSource: true,
+          },
+        });
+        assert.equal(storedRemovalCreditNote.creditOrigin, CreditOrigin.REMOVAL);
+        assert.equal(storedRemovalCreditNote.reversesInvoiceLineId, null);
+        assert.equal(storedRemovalCreditNote.documentApplicationsAsSource.length, 0);
+
         const refreshedBulkTargets = await db.invoice.findMany({
           where: { id: { in: [firstBulkTarget.id, secondBulkTarget.id] } },
           select: { id: true, remainingAmount: true, status: true, isLocked: true },
