@@ -32,19 +32,29 @@ Refundable-as-cash from a reversal CN must be bounded by the **case-level net ca
 what the customer paid in cash beyond what they still owe:
 
 ```
-caseNetCashOverpayment =
-  max( Σ IN payment allocations (case)
-       − Σ OUT payment allocations (case)
-       − Σ remaining owed on open FINAL/ADJ charge invoices (case),
-       0 )
+netCash               = Σ IN payment amounts (case) − Σ OUT payment amounts (case)   ← cash only
+customerTotal         = case net obligation = Σ FINAL/ADJ totals − Σ CREDIT_NOTE totals
+                        (reuse deriveLockedFinancialSidebarSummary().customerTotal — deposit-aware)
+caseNetCashOverpayment = max( netCash − customerTotal, 0 )
 
 creditNoteRefundable(CN) = min( computeCreditNoteAvailable(CN), caseNetCashOverpayment )
 ```
 
-**Critical: use actual payment allocations (cash), NOT `computeEffectivePaidFromAllocations`.**
-Effective-paid includes `SETTLEMENT` document applications — i.e. credit the CN itself applied — so
-using it would let reversal credit masquerade as cash and defeat the whole guard. The cap is about
-*cash in vs cash out vs cash owed*, full stop.
+**Two things that are easy to get wrong (both are deliberate):**
+1. **The cash side is raw payment amounts, NOT `computeEffectivePaidFromAllocations`.** Effective-paid
+   includes `SETTLEMENT` document applications — credit the CN itself applied — so using it would let
+   reversal credit masquerade as cash and defeat the guard. Use `Payment.amount` by `direction`
+   (IN − OUT), scoped to the case.
+2. **The subtrahend is the net *obligation* (`customerTotal`), NOT "remaining owed on open
+   invoices."** `remainingAmount` already nets cash + credit applications, so subtracting it
+   double-counts and yields a loose, wrong ceiling (e.g. it reads 260 instead of 100 in worked case
+   4). The right bound is "net cash held minus what the customer net-owes for what they keep,"
+   exactly mirroring the system's existing overpayment test `effectivePaid − customerTotal`
+   (financial-case-payment-status.ts) — but with **cash** on the paid side instead of effective-paid.
+
+Worked case 4 (paid 160 FINAL + 100 ADJ in cash, downgrade reverses the 100, CN drawable 100):
+`netCash = 260`, `customerTotal = 160 + 100 − 100 = 160` → `caseNetCashOverpayment = 100` →
+`min(100, 100) = 100` refundable. ✓ (The wrong "Σ remaining owed" form would read 260.)
 
 Why this is correct without per-line paid-origin tracking:
 - **Unpaid-origin reversal** (customer never paid the reversed line): cash-in is low, so
@@ -112,8 +122,11 @@ existing data and is the true financial bound.)
 
 ## Implementation Direction
 
-1. Add `caseNetCashOverpayment(financialCaseId, client)` = `max(Σ IN allocations − Σ OUT allocations
-   − Σ open FINAL/ADJ remaining, 0)`, using payment allocations (cash), not effective-paid.
+1. Add `caseNetCashOverpayment(financialCaseId, client)` =
+   `max( (Σ IN Payment.amount − Σ OUT Payment.amount) − customerTotal, 0 )`, where the cash side uses
+   raw `Payment.amount` by `direction` (NOT effective-paid) and `customerTotal` is the case net
+   obligation (reuse `deriveLockedFinancialSidebarSummary().customerTotal`, which is deposit-aware and
+   nets credit notes). Do **not** subtract `remainingAmount`.
 2. In the refund service CN branch, cap at `min(computeCreditNoteAvailable(CN), caseNetCashOverpayment)`
    under the existing `FOR UPDATE` lock; reuse the over-cap error path with a clear message.
 3. Add `creditNoteRefundable` to the invoice-view builder for eligible CNs (same capped value).
