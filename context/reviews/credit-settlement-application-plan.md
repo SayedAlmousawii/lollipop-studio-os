@@ -2,8 +2,9 @@
 
 > Status: **B1 removing-side settlement implemented. B2 adding-side available-credit
 > consumption implemented. B2C overpayment-backed correction implemented. B3 canonical
-> settlement projection implemented.** The settlement arc is complete; Phase 7's Sales
-> financial summary may now build on the canonical customer settlement summary. Does
+> settlement projection implemented. B4 settlement target cache sync implemented.** The
+> settlement arc is complete; Phase 7's Sales financial summary may now build on the
+> canonical customer settlement summary. Does
 > **not** reopen the OrderCommit financial math.
 
 ---
@@ -250,13 +251,15 @@ clean/draft contract verbatim (`netCustomerTotal`, `cashPaid`, `remainingDue`, o
 overpayment-backed `availableCredit`/`refundable`, and draft `amountDueAfterCommit`) and no
 longer assembles customer-facing settlement from document/accounting fields.
 
-**Correction pending (Spec 158 · B4):** settlement applications (`SETTLEMENT`/`CAUSE_REVERSAL`)
-insert `DocumentApplication` rows without recalculating the target invoice, so stored
-`ADJUSTMENT.remainingAmount`/`status` go stale (register/detail show 100, receipt shows the
-correct derived 90). Same shape as deposits, which only reconcile when a later payment
-triggers `recalculateInvoiceStatus`. B4 makes `appendCreditApplication` call that canonical
-helper on the target after writing the application (+ close/lock at zero, + a stored-vs-derived
-reconciliation invariant). The receipt (derived) is already correct; B4 fixes the stored cache.
+**Implemented (Spec 158 · B4):** settlement applications (`SETTLEMENT`/`CAUSE_REVERSAL`)
+and other credit-note `DocumentApplication` writes now recalculate every distinct target
+charge invoice, so stored `ADJUSTMENT.remainingAmount`/`status` stay synced with the
+derived receipt/accounting truth (the original 100/10 case now stores remaining 90).
+Fully credit-settled targets reuse the existing settled close/lock path with lock snapshot
+and audit attribution. Deposit-to-final applications also refresh the target FINAL cache
+without changing draft-final close semantics. The new
+`charge-invoice-remaining-matches-derived` invariant guards FINAL/ADJUSTMENT stored
+remaining/status against derived effective-paid.
 
 **Settlement arc status:** customer-facing receipt complete; B4 cache-sync correctness pending.
 The remaining financial-plan work after B4 is the separate accountant-facing document/register

@@ -7,6 +7,7 @@ import {
   Prisma,
   type PrismaClient,
 } from "@prisma/client";
+import { computeEffectivePaidFromAllocations } from "@/modules/invoices/invoice.calculation";
 
 export type InvariantContext = {
   tx: PrismaClient | Prisma.TransactionClient;
@@ -30,6 +31,7 @@ export type InvariantCheck = {
 };
 
 const invariantRegistry: InvariantCheck[] = [];
+const MONEY_TOLERANCE = new Prisma.Decimal("0.001");
 
 export function registerInvariant(check: InvariantCheck): void {
   if (invariantRegistry.some((entry) => entry.name === check.name)) {
@@ -188,6 +190,65 @@ registerInvariant({
 });
 
 registerInvariant({
+  name: "charge-invoice-remaining-matches-derived",
+  scope: "financial-case",
+  run: async ({ tx }, { financialCaseId } = {}) => {
+    const invoices = await tx.invoice.findMany({
+      where: {
+        ...(financialCaseId ? { financialCaseId } : {}),
+        invoiceType: { in: [InvoiceType.FINAL, InvoiceType.ADJUSTMENT] },
+      },
+      select: {
+        id: true,
+        invoiceType: true,
+        totalAmount: true,
+        remainingAmount: true,
+        status: true,
+      },
+    });
+
+    const violations: InvariantViolation[] = [];
+    for (const invoice of invoices) {
+      const effectivePaidAmount = await computeEffectivePaidFromAllocations(
+        invoice.id,
+        tx
+      );
+      const expectedRemaining = Prisma.Decimal.max(
+        invoice.totalAmount.minus(effectivePaidAmount),
+        0
+      );
+      if (!decimalWithinTolerance(invoice.remainingAmount, expectedRemaining)) {
+        violations.push({
+          invariant: "charge-invoice-remaining-matches-derived",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: `remainingAmount=${expectedRemaining.toFixed(3)}`,
+          actual: `remainingAmount=${invoice.remainingAmount.toFixed(3)}`,
+        });
+      }
+
+      const expectedStatus = expectedChargeInvoiceStatus({
+        currentStatus: invoice.status,
+        totalAmount: invoice.totalAmount,
+        effectivePaidAmount,
+        expectedRemaining,
+      });
+      if (expectedStatus && invoice.status !== expectedStatus) {
+        violations.push({
+          invariant: "charge-invoice-remaining-matches-derived",
+          entityType: "Invoice",
+          entityId: invoice.id,
+          expected: `status=${expectedStatus}`,
+          actual: `status=${invoice.status}`,
+        });
+      }
+    }
+
+    return violations;
+  },
+});
+
+registerInvariant({
   name: "document-application-not-over-source",
   scope: "global",
   run: async ({ tx }) => {
@@ -221,6 +282,42 @@ registerInvariant({
       }));
   },
 });
+
+function decimalWithinTolerance(
+  actual: Prisma.Decimal,
+  expected: Prisma.Decimal
+): boolean {
+  return actual.minus(expected).abs().lessThanOrEqualTo(MONEY_TOLERANCE);
+}
+
+function expectedChargeInvoiceStatus({
+  currentStatus,
+  totalAmount,
+  effectivePaidAmount,
+  expectedRemaining,
+}: {
+  currentStatus: InvoiceStatus;
+  totalAmount: Prisma.Decimal;
+  effectivePaidAmount: Prisma.Decimal;
+  expectedRemaining: Prisma.Decimal;
+}): InvoiceStatus | null {
+  if (
+    currentStatus === InvoiceStatus.CLOSED ||
+    currentStatus === InvoiceStatus.DRAFT
+  ) {
+    return null;
+  }
+  if (effectivePaidAmount.lessThanOrEqualTo(MONEY_TOLERANCE)) {
+    return InvoiceStatus.ISSUED;
+  }
+  if (
+    expectedRemaining.lessThanOrEqualTo(MONEY_TOLERANCE) ||
+    effectivePaidAmount.greaterThanOrEqualTo(totalAmount)
+  ) {
+    return InvoiceStatus.PAID;
+  }
+  return InvoiceStatus.PARTIAL;
+}
 
 registerInvariant({
   name: "deposit-final-pair-has-document-application",

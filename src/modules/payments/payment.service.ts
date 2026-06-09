@@ -20,12 +20,8 @@ import type { FinancialPaymentDirection, Money } from "@/modules/financial/types
 import { PUBLIC_ID_KIND } from "@/modules/identifiers/identifier.constants";
 import { generatePublicId } from "@/modules/identifiers/identifier.service";
 import {
-  invoiceLockSnapshotSelect,
-  recordInvoiceLockSnapshot,
-} from "@/modules/invoices/invoice-lock.service";
-import {
+  closeInvoiceIfSettledWithClient,
   recalculateInvoiceStatus,
-  snapshotInvoiceLineItemsWithClient,
 } from "@/modules/invoices/invoice.service";
 import { recordOrderActivity } from "@/modules/orders/order-activity.service";
 import type { RecordPaymentInput } from "./payment.schema";
@@ -180,6 +176,7 @@ async function createPaymentWithAllocationWithClient(
     },
   });
 
+  await recalculateInvoiceStatus(input.invoiceId, client);
   await assertFinancialCaseInvariants(input.financialCaseId, client);
 
   return payment;
@@ -364,7 +361,7 @@ export async function recordPaymentWithClient(
   });
 
   await recalculateInvoiceStatus(invoiceId, client);
-  const recalculatedInvoice = await closeInvoiceIfSettled(
+  const recalculatedInvoice = await closeInvoiceIfSettledWithClient(
     client,
     invoiceId,
     actorContext
@@ -438,108 +435,6 @@ async function lockInvoiceForUpdate(
   await client.$queryRaw<Array<{ id: string }>>`
     SELECT id FROM "invoices" WHERE id = ${invoiceId} FOR UPDATE
   `;
-}
-
-async function closeInvoiceIfSettled(
-  client: DbClient,
-  invoiceId: string,
-  actorContext: ActorContext
-): Promise<{
-  invoiceType: InvoiceType;
-  justClosed: boolean;
-} | null> {
-  const invoice = await client.invoice.findUnique({
-    where: { id: invoiceId },
-    select: {
-      ...invoiceLockSnapshotSelect,
-      id: true,
-      invoiceType: true,
-      orderId: true,
-      isLocked: true,
-      status: true,
-      remainingAmount: true,
-      issuedAt: true,
-      closedAt: true,
-      financialCaseId: true,
-      bookingId: true,
-    },
-  });
-  if (!invoice) return null;
-  const shouldAutoCloseDraftFinal =
-    invoice.invoiceType === InvoiceType.FINAL &&
-    invoice.status === InvoiceStatus.DRAFT;
-  if (
-    invoice.isLocked ||
-    invoice.status === InvoiceStatus.CLOSED ||
-    (invoice.status === InvoiceStatus.DRAFT && !shouldAutoCloseDraftFinal) ||
-    invoice.remainingAmount.greaterThan(0)
-  ) {
-    return { invoiceType: invoice.invoiceType, justClosed: false };
-  }
-
-  if (invoice.orderId) {
-    await snapshotInvoiceLineItemsWithClient(client, invoice.id, invoice.orderId);
-  }
-
-  const settledAt = new Date();
-  const updateResult = shouldAutoCloseDraftFinal
-    ? await client.invoice.updateMany({
-        where: {
-          id: invoice.id,
-          invoiceType: InvoiceType.FINAL,
-          isLocked: false,
-          status: InvoiceStatus.DRAFT,
-          remainingAmount: new Prisma.Decimal(0),
-        },
-        data: {
-          status: InvoiceStatus.CLOSED,
-          isLocked: true,
-          issuedAt: invoice.issuedAt ?? settledAt,
-          closedAt: settledAt,
-        },
-      })
-    : await client.invoice.updateMany({
-        where: {
-          id: invoice.id,
-          isLocked: false,
-          status: { notIn: [InvoiceStatus.CLOSED, InvoiceStatus.DRAFT] },
-          remainingAmount: new Prisma.Decimal(0),
-        },
-        data: {
-          status: InvoiceStatus.CLOSED,
-          isLocked: true,
-          closedAt: settledAt,
-        },
-      });
-
-  const justClosed = updateResult.count > 0;
-  if (justClosed) {
-    await recordInvoiceLockSnapshot(client, invoice, actorContext.actorUserId);
-
-    await recordAuditLog(client, actorContext, {
-      entityType: AuditEntityType.INVOICE,
-      entityId: invoice.id,
-      action: AuditAction.INVOICE_LOCKED,
-      before: {
-        isLocked: invoice.isLocked,
-        status: invoice.status,
-        closedAt: invoice.closedAt?.toISOString() ?? null,
-      },
-      after: {
-        isLocked: true,
-        status: InvoiceStatus.CLOSED,
-        closedAt: settledAt.toISOString(),
-      },
-      context: {
-        financialCaseId: invoice.financialCaseId,
-        orderId: invoice.orderId ?? null,
-        bookingId: invoice.bookingId ?? null,
-        invoiceType: invoice.invoiceType,
-      },
-    });
-  }
-
-  return { invoiceType: invoice.invoiceType, justClosed };
 }
 
 function recordPaymentCounter(

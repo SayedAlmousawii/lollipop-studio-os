@@ -76,6 +76,12 @@ const RUNTIME_INVARIANT_METADATA: Record<string, RuntimeInvariantMetadata> = {
     phase: "Phase C",
     description: "Document applications cannot exceed their source capacity.",
   },
+  "charge-invoice-remaining-matches-derived": {
+    id: "runtime-charge-invoice-remaining-matches-derived",
+    phase: "Spec 158 B4",
+    scope: "invoice",
+    description: "Final and adjustment invoice remaining/status caches must match derived effective-paid.",
+  },
   "deposit-final-pair-has-document-application": {
     id: "runtime-deposit-final-pair-has-document-application",
     phase: "Phase C",

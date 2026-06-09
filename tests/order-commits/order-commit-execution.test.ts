@@ -6,6 +6,7 @@ import test, { after } from "node:test";
 import {
   AuditAction,
   InvoiceStatus,
+  InvoiceType,
   OrderStatus,
   Prisma,
   SessionConfigurationFinancialBehavior,
@@ -1149,8 +1150,12 @@ function fakeExecutionHarness(input?: {
           ? [
               {
                 id: options.finalInvoice.id,
+                invoiceType: InvoiceType.FINAL,
+                totalAmount: new Prisma.Decimal(state.invoiceTotal),
+                remainingAmount: new Prisma.Decimal(state.invoiceTotal),
                 status: InvoiceStatus.DRAFT,
                 isLocked: options.finalInvoice.isLocked,
+                documentApplicationsAsTarget: [],
               },
             ]
           : [],
