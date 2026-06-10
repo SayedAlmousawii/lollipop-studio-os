@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -49,69 +50,7 @@ export function CustomersTable({ customers }: CustomersTableProps) {
         </TableHeader>
         <TableBody>
           {customers.map((customer) => (
-            <TableRow
-              key={customer.id}
-              className="border-border hover:bg-surface-soft"
-            >
-              <TableCell className="font-semibold tabular-nums text-text-primary">
-                {customer.phone}
-              </TableCell>
-              <TableCell className="text-sm text-text-secondary">
-                {customer.fullName}
-              </TableCell>
-              <TableCell className="text-sm text-text-secondary">
-                {customer.childrenCount}
-              </TableCell>
-              <TableCell className="text-sm text-text-secondary">
-                {customer.totalBookings}
-              </TableCell>
-              <TableCell className="text-sm text-text-secondary">
-                {customer.lastSessionDate}
-              </TableCell>
-              <TableCell>
-                <CustomerStatusBadge status={customer.status} />
-              </TableCell>
-              <TableCell>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    className={cn(
-                      buttonVariants({ variant: "ghost", size: "icon" }),
-                      "h-8 w-8"
-                    )}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                    <span className="sr-only">Open actions</span>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem asChild>
-                      <Link href={`/customers/${customer.id}`}>View Profile</Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href={`/bookings/new?customerId=${customer.id}`}>
-                        New Booking
-                      </Link>
-                    </DropdownMenuItem>
-                    <CustomerEditDialog
-                      customer={{
-                        id: customer.id,
-                        name: customer.fullName,
-                        phone: customer.phone,
-                        notes: customer.notes,
-                        status: customer.statusValue,
-                      }}
-                      returnTo="/customers"
-                      trigger={
-                        <DropdownMenuItem
-                          onSelect={(event) => event.preventDefault()}
-                        >
-                          Edit Customer
-                        </DropdownMenuItem>
-                      }
-                    />
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
+            <CustomerRow key={customer.id} customer={customer} />
           ))}
           {customers.length === 0 ? (
             <TableRow>
@@ -126,5 +65,74 @@ export function CustomersTable({ customers }: CustomersTableProps) {
         </TableBody>
       </Table>
     </div>
+  );
+}
+
+function CustomerRow({ customer }: { customer: Customer }) {
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+
+  return (
+    <TableRow className="border-border hover:bg-surface-soft">
+      <TableCell className="font-semibold tabular-nums text-text-primary">
+        {customer.phone}
+      </TableCell>
+      <TableCell className="text-sm text-text-secondary">
+        {customer.fullName}
+      </TableCell>
+      <TableCell className="text-sm text-text-secondary">
+        {customer.childrenCount}
+      </TableCell>
+      <TableCell className="text-sm text-text-secondary">
+        {customer.totalBookings}
+      </TableCell>
+      <TableCell className="text-sm text-text-secondary">
+        {customer.lastSessionDate}
+      </TableCell>
+      <TableCell>
+        <CustomerStatusBadge status={customer.status} />
+      </TableCell>
+      <TableCell>
+        <CustomerEditDialog
+          customer={{
+            id: customer.id,
+            name: customer.fullName,
+            phone: customer.phone,
+            notes: customer.notes,
+            status: customer.statusValue,
+          }}
+          returnTo="/customers"
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+        />
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "icon" }),
+              "h-8 w-8"
+            )}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+            <span className="sr-only">Open actions</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem asChild>
+              <Link href={`/customers/${customer.id}`}>View Profile</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href={`/bookings/new?customerId=${customer.id}`}>
+                New Booking
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                requestAnimationFrame(() => setEditDialogOpen(true));
+              }}
+            >
+              Edit Customer
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
   );
 }

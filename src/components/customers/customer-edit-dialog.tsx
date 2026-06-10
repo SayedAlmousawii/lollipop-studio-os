@@ -21,7 +21,9 @@ interface CustomerEditDialogProps {
   };
   returnTo: string;
   title?: string;
-  trigger: ReactNode;
+  trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function CustomerEditDialog({
@@ -29,10 +31,12 @@ export function CustomerEditDialog({
   returnTo,
   title = "Edit Customer",
   trigger,
+  open,
+  onOpenChange,
 }: CustomerEditDialogProps) {
   return (
-    <Dialog>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

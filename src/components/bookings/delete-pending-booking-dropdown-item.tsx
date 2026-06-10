@@ -10,10 +10,12 @@ import { cn } from "@/lib/utils";
 
 interface DeletePendingBookingDropdownItemProps {
   bookingId: string;
+  onConfirmedSubmit?: () => void;
 }
 
 export function DeletePendingBookingDropdownItem({
   bookingId,
+  onConfirmedSubmit,
 }: DeletePendingBookingDropdownItemProps) {
   const [state, formAction] = useActionState<
     DeletePendingBookingActionState,
@@ -23,7 +25,7 @@ export function DeletePendingBookingDropdownItem({
   return (
     <form action={formAction} className="space-y-1">
       <input type="hidden" name="bookingId" value={bookingId} />
-      <DropdownSubmitButton />
+      <DropdownSubmitButton onConfirmedSubmit={onConfirmedSubmit} />
       {state.errors?._global ? (
         <p
           aria-live="assertive"
@@ -37,7 +39,11 @@ export function DeletePendingBookingDropdownItem({
   );
 }
 
-function DropdownSubmitButton() {
+function DropdownSubmitButton({
+  onConfirmedSubmit,
+}: {
+  onConfirmedSubmit?: () => void;
+}) {
   const { pending } = useFormStatus();
 
   return (
@@ -51,7 +57,9 @@ function DropdownSubmitButton() {
           )
         ) {
           event.preventDefault();
+          return;
         }
+        onConfirmedSubmit?.();
       }}
       className={cn(
         "flex w-full select-none items-center rounded-sm px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus:bg-accent disabled:pointer-events-none disabled:opacity-50",
