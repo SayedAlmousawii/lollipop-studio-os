@@ -44,7 +44,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
           department: { select: { name: true, code: true } },
           assignedPhotographer: { select: { name: true } },
         },
-        orderBy: { sessionDate: "asc" },
+        orderBy: { sessionStartsAt: "asc" },
       }),
     "Failed to fetch calendar events"
   );
@@ -67,7 +67,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
       packageLinesDuration > 0
         ? packageLinesDuration
         : 60;
-    const end = new Date(row.sessionDate);
+    const end = new Date(row.sessionStartsAt);
     end.setMinutes(end.getMinutes() + durationMinutes);
     const packageName =
       row.packages.length > 0
@@ -83,7 +83,7 @@ export async function getCalendarEvents(): Promise<CalendarBooking[]> {
     return {
       id: row.id,
       title: row.customer.name,
-      start: row.sessionDate.toISOString(),
+      start: row.sessionStartsAt.toISOString(),
       end: end.toISOString(),
       ...colors,
       extendedProps: {

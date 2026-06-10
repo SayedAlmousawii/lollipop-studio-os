@@ -19,17 +19,11 @@ export async function updateBookingAction(
   formData: FormData
 ): Promise<UpdateBookingActionState> {
   const date = formData.get("date");
-  const time = formData.get("sessionTime");
-  const sessionDate = buildSessionDate(date, time);
-
-  if (!sessionDate) {
-    return { errors: { date: ["Enter a valid date and time"] } };
-  }
 
   const parsed = updateBookingSchema.safeParse({
     customerId: formData.get("customerId"),
     packages: parsePackageLines(formData),
-    date: sessionDate,
+    date,
     sessionTime: formData.get("sessionTime"),
     departmentId: formData.get("departmentId"),
     assignedPhotographerId:
@@ -53,12 +47,4 @@ export async function updateBookingAction(
   revalidatePath("/bookings");
   revalidatePath("/calendar");
   redirect("/bookings");
-}
-
-function buildSessionDate(date: FormDataEntryValue | null, time: FormDataEntryValue | null): Date | null {
-  if (typeof date !== "string" || typeof time !== "string") return null;
-  if (!date || !time) return null;
-
-  const value = new Date(`${date}T${time}:00.000Z`);
-  return Number.isNaN(value.getTime()) ? null : value;
 }

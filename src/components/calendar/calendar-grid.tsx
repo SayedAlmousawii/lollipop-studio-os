@@ -8,6 +8,7 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { EventClickArg } from "@fullcalendar/core";
 
+import { STUDIO_TIME_ZONE } from "@/lib/formatting/dates";
 import { CalendarHeader } from "./calendar-header";
 import { CalendarFilters } from "./calendar-filters";
 import { CalendarEventContent } from "./calendar-event-content";
@@ -38,7 +39,7 @@ function getInitialPeriod(events: CalendarBooking[]): string {
   return new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone: STUDIO_TIME_ZONE,
   }).format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
@@ -126,6 +127,7 @@ export function CalendarGrid({ events }: CalendarGridProps) {
               initialView="dayGridMonth"
               headerToolbar={false}
               events={events}
+              timeZone={STUDIO_TIME_ZONE}
               height="auto"
               slotMinTime="08:00:00"
               slotMaxTime="20:00:00"

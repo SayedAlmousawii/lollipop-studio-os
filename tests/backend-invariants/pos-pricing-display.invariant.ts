@@ -174,8 +174,7 @@ async function createMixedSessionPOSFixture(db: Db): Promise<string> {
       jobNumber,
       jobId: job.id,
       customerId: customer.id,
-      sessionDate: new Date("2026-05-14T11:00:00.000Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: new Date("2026-05-14T11:00:00.000Z"),
       departmentId: department.id,
     },
   });

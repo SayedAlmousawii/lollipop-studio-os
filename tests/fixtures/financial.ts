@@ -251,8 +251,7 @@ export async function makeCashDepositBookingFixture(
       customerId: customer.id,
       departmentId: department.id,
       status: BookingStatus.CONFIRMED,
-      sessionDate: new Date("2026-05-14T08:00:00.000Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: new Date("2026-05-14T08:00:00.000Z"),
     },
     create: {
       publicId: fixtureKeys.bookingPublicId,
@@ -261,8 +260,7 @@ export async function makeCashDepositBookingFixture(
       customerId: customer.id,
       departmentId: department.id,
       status: BookingStatus.CONFIRMED,
-      sessionDate: new Date("2026-05-14T08:00:00.000Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: new Date("2026-05-14T08:00:00.000Z"),
     },
   });
 
@@ -1367,8 +1365,7 @@ export async function makeFinancialCaseSummaryOrderFixture(
       customerId: customer.id,
       departmentId: department.id,
       status: BookingStatus.CONFIRMED,
-      sessionDate: new Date("2026-05-15T08:00:00.000Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: new Date("2026-05-15T08:00:00.000Z"),
     },
   });
   const financialCase = await prisma.financialCase.create({

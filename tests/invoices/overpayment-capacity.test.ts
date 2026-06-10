@@ -496,8 +496,7 @@ async function createSourceInvoice(
       id: `overpayment-capacity-booking-${suffix}`,
       customerId: customer.id,
       departmentId: fixture.departmentId,
-      sessionDate: new Date("2026-05-15T09:00:00.000Z"),
-      sessionTime: "12:00",
+      sessionStartsAt: new Date("2026-05-15T09:00:00.000Z"),
       status: BookingStatus.CONFIRMED,
     },
   });
@@ -933,8 +932,7 @@ async function createSpec164CaseShell(
       id: `spec164-booking-${suffix}`,
       customerId: customer.id,
       departmentId: fixture.departmentId,
-      sessionDate: new Date("2026-05-16T09:00:00.000Z"),
-      sessionTime: "12:00",
+      sessionStartsAt: new Date("2026-05-16T09:00:00.000Z"),
       status: BookingStatus.CONFIRMED,
     },
   });

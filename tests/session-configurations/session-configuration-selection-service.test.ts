@@ -509,8 +509,7 @@ async function createFixture(db: typeof import("@/lib/db")["db"]) {
       jobNumber: "JOB-SELECT",
       jobId: job.id,
       customerId: customer.id,
-      sessionDate: new Date("2026-05-18T09:00:00.000Z"),
-      sessionTime: "09:00",
+      sessionStartsAt: new Date("2026-05-18T09:00:00.000Z"),
       departmentId: department.id,
     },
   });

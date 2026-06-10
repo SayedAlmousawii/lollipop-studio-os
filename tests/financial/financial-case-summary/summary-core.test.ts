@@ -512,8 +512,7 @@ test("getFinancialCaseSummary covers booking and active stages", async (t) => {
               },
             },
             status: "CONFIRMED",
-            sessionDate: new Date("2026-05-16T08:00:00.000Z"),
-            sessionTime: "10:00",
+            sessionStartsAt: new Date("2026-05-16T08:00:00.000Z"),
           },
         });
 

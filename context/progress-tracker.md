@@ -14,6 +14,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
 - **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, 160 R1, 161 R2, 162 R3, 163 R4, 164, 165, 166, and 167 are implemented; the settlement arc is complete, paid and unpaid reversal credit carries as drawable REVERSAL credit, the application-kind taxonomy is collapsed, staff can refund eligible reversal/removal credit notes under the case cash ceiling, the accountant-facing register presents documents by class with credit-note availability semantics plus type/date/outstanding filters, and user-facing date display/filter boundaries use the studio timezone.
+- **Spec 168 implemented:** Booking session moments now persist as one UTC `sessionStartsAt` instant; booking form date/time picker values combine server-side, identifier years use the Kuwait calendar year, and calendar/order filters read studio-day boundaries from the instant.
 - **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
@@ -74,6 +75,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Booking check-in is atomic and payment-free: creates `Job`, stores `Booking.jobId/jobNumber`, creates `WAITING_SELECTION` Order, stamps `FinancialCase.jobId`.
 - Deposit truth comes from `Payment` records, not `Booking.depositPaid`.
 - Booking creation accepts customer phone, not customer id; existing customer names are display-only.
+- Booking session moment truth is `Booking.sessionStartsAt` (UTC instant); date/time picker strings are UX inputs only and must round-trip through `src/lib/formatting/dates.ts` in `Asia/Kuwait`.
 - Editing start requires: selection complete + editor assigned + settled DEPOSIT invoice + canonical full invoice balance settled.
 - Order completion requires: pickup recorded + production `READY_FOR_PICKUP`/`COMPLETED` + settled payment or admin override.
 
@@ -88,6 +90,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **168** — Replaced split Booking `sessionDate`/`sessionTime` storage with UTC `sessionStartsAt`, added studio wall-clock/input/time helpers, moved session displays/filters/calendar to the instant, and fixed Kuwait-year identifier boundaries.
 - **167** — Centralized studio timezone date formatting and invoice created-date filter boundaries; added date formatter coverage and module UTC display guard.
 - **166** — Added Financial Documents register filters for document type, created-at date range, and outstanding-only with shared row/footer predicates and a reusable searchable multi-select.
 - **165** — Reframed `/invoices` as the Financial Documents register, split cash from applied credit, added credit-note availability semantics to register/detail/projectors, and generalized invoice-detail application breakdowns.

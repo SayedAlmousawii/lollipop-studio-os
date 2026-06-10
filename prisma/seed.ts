@@ -15,12 +15,21 @@ import {
   UserRole,
 } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { studioWallClockToInstant } from "../src/lib/formatting/dates";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
 
 const schema = new URL(url).searchParams.get("schema") ?? undefined;
 const prisma = new PrismaClient({ adapter: new PrismaPg(url, { schema }) });
+
+function seedSessionStartsAt(date: string, time: string): Date {
+  const instant = studioWallClockToInstant(date, time);
+  if (!instant) {
+    throw new Error(`Invalid seed session moment: ${date} ${time}`);
+  }
+  return instant;
+}
 
 const SEEDED_USER_EMAIL_NORMALIZATIONS = [
   {
@@ -760,8 +769,7 @@ async function main() {
       jobNumber: "PH-2026-00001",
       jobId: job1.id,
       customerId: customerFatima.id,
-      sessionDate: new Date("2026-05-10T10:00:00Z"),
-      sessionTime: "10:00",
+      sessionStartsAt: seedSessionStartsAt("2026-05-10", "10:00"),
       departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
@@ -777,8 +785,7 @@ async function main() {
       jobNumber: "PH-2026-00001",
       jobId: job1.id,
       customerId: customerFatima.id,
-      sessionDate: new Date("2026-05-10T10:00:00Z"),
-      sessionTime: "10:00",
+      sessionStartsAt: seedSessionStartsAt("2026-05-10", "10:00"),
       departmentId: newbornDepartment.id,
       status: BookingStatus.CONFIRMED,
       assignedPhotographerId: photographer.id,
@@ -880,8 +887,7 @@ async function main() {
       jobNumber: "PH-2026-00002",
       jobId: job2.id,
       customerId: customerAhmed.id,
-      sessionDate: new Date("2026-05-20T14:00:00Z"),
-      sessionTime: "14:00",
+      sessionStartsAt: seedSessionStartsAt("2026-05-20", "14:00"),
       departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       assignedPhotographerId: null,
@@ -896,8 +902,7 @@ async function main() {
       jobNumber: "PH-2026-00002",
       jobId: job2.id,
       customerId: customerAhmed.id,
-      sessionDate: new Date("2026-05-20T14:00:00Z"),
-      sessionTime: "14:00",
+      sessionStartsAt: seedSessionStartsAt("2026-05-20", "14:00"),
       departmentId: kidsDepartment.id,
       status: BookingStatus.PENDING,
       notes: "Waiting for deposit confirmation",
@@ -917,8 +922,7 @@ async function main() {
       jobNumber: "PH-2026-00003",
       jobId: job3.id,
       customerId: customerMaryam.id,
-      sessionDate: new Date("2026-04-15T11:00:00Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: seedSessionStartsAt("2026-04-15", "11:00"),
       departmentId: kidsDepartment.id,
       status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,
@@ -934,8 +938,7 @@ async function main() {
       jobNumber: "PH-2026-00003",
       jobId: job3.id,
       customerId: customerMaryam.id,
-      sessionDate: new Date("2026-04-15T11:00:00Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: seedSessionStartsAt("2026-04-15", "11:00"),
       departmentId: kidsDepartment.id,
       status: BookingStatus.CHECKED_IN,
       assignedPhotographerId: photographer.id,

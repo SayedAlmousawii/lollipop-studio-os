@@ -81,8 +81,8 @@ async function createDuplicateBookingPackageFixture(
   );
   await client.query(
     `INSERT INTO ${schema}."bookings"
-      ("id", "customerId", "sessionDate", "sessionTime", "departmentId", "updatedAt")
-     VALUES ($1, $2, $3, '09:00', $4, now())`,
+      ("id", "customerId", "sessionStartsAt", "departmentId", "updatedAt")
+     VALUES ($1, $2, $3, $4, now())`,
     [bookingId, customerId, new Date("2026-05-14T09:00:00.000Z"), departmentId]
   );
   await client.query(

@@ -11,7 +11,14 @@ import {
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { formatStudioDate } from "@/lib/formatting/dates";
+import {
+  formatStudioDate,
+  getStudioDateParts,
+  formatStudioInputDate,
+  formatStudioTime,
+  studioDayRange,
+  studioWallClockToInstant,
+} from "@/lib/formatting/dates";
 import { formatMoney as formatPrice } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
@@ -269,7 +276,7 @@ export async function getBookings(
             },
           },
         },
-        orderBy: { sessionDate: "desc" },
+        orderBy: { sessionStartsAt: "desc" },
       });
     },
     "Failed to fetch bookings"
@@ -295,8 +302,8 @@ export async function getBookings(
       customerId: row.customerId,
       jobNumber: row.jobNumber ?? row.publicId ?? "Pending",
       customerPhone: formatCustomerPhone(row.customer.phone),
-      sessionDate: formatSessionDate(row.sessionDate),
-      sessionTime: row.sessionTime,
+      sessionDate: formatSessionDate(row.sessionStartsAt),
+      sessionTime: formatStudioTime(row.sessionStartsAt),
       department: row.department.name,
       package:
         row.packages.length > 0
@@ -451,11 +458,15 @@ export async function createBookingInDb(
           assignedPhotographerId: emptyToNull(data.assignedPhotographerId),
         });
 
+        const sessionStartsAt = parseSessionStartsAt(
+          data.sessionDate,
+          data.sessionTime
+        );
+
         return tx.booking.create({
           data: {
             customerId,
-            sessionDate: data.sessionDate,
-            sessionTime: data.sessionTime,
+            sessionStartsAt,
             departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
@@ -570,12 +581,16 @@ export async function updateBooking(
 
         await syncBookingPackageLines(tx, bookingId, packageLines);
 
+        const sessionStartsAt = parseSessionStartsAt(
+          data.date,
+          data.sessionTime
+        );
+
         return tx.booking.update({
           where: { id: bookingId },
           data: {
             customerId: data.customerId,
-            sessionDate: data.date,
-            sessionTime: data.sessionTime,
+            sessionStartsAt,
             departmentId: data.departmentId,
             assignedPhotographerId:
               emptyToNull(data.assignedPhotographerId) ?? null,
@@ -763,7 +778,7 @@ export async function recordBookingDeposit(
           select: {
             id: true,
             customerId: true,
-            sessionDate: true,
+            sessionStartsAt: true,
             status: true,
             department: { select: { code: true } },
             invoices: {
@@ -794,7 +809,7 @@ export async function recordBookingDeposit(
 
         const bookingReference = await generateBookingReference(tx, {
           departmentCode: booking.department.code,
-          sessionDate: booking.sessionDate,
+          sessionStartsAt: booking.sessionStartsAt,
         });
 
         await tx.booking.update({
@@ -894,7 +909,7 @@ export async function checkInBooking(
           select: {
             id: true,
             customerId: true,
-            sessionDate: true,
+            sessionStartsAt: true,
             status: true,
             jobId: true,
             jobNumber: true,
@@ -936,7 +951,7 @@ export async function checkInBooking(
 
         const jobNumber = await generateJobNumber(tx, {
           departmentCode: booking.department.code,
-          sessionDate: booking.sessionDate,
+          sessionStartsAt: booking.sessionStartsAt,
         });
         const job = await tx.job.create({
           data: {
@@ -1410,48 +1425,74 @@ function buildBookingsWhere(filters: BookingFilters): Prisma.BookingWhereInput {
 
 function buildSessionDateRange(
   filter: BookingDateFilter
-): Pick<Prisma.BookingWhereInput, "sessionDate"> {
-  const todayStart = startOfLocalDay(new Date());
+): Pick<Prisma.BookingWhereInput, "sessionStartsAt"> {
+  const today = getStudioDateParts(new Date());
+  if (!today) return {};
+  const todayDate = new Date(Date.UTC(today.year, today.month - 1, today.day));
 
   if (filter === "today") {
+    const range = studioDayRange(formatDateOnly(todayDate));
+    if (!range) return {};
     return {
-      sessionDate: {
-        gte: todayStart,
-        lt: addDays(todayStart, 1),
+      sessionStartsAt: {
+        gte: range.start,
+        lte: range.end,
       },
     };
   }
 
   if (filter === "week") {
-    const dayOfWeek = todayStart.getDay();
+    const dayOfWeek = todayDate.getUTCDay();
     const offsetToMonday = (dayOfWeek + 6) % 7;
-    const weekStart = addDays(todayStart, -offsetToMonday);
+    const weekStart = addUtcDays(todayDate, -offsetToMonday);
+    const weekEnd = addUtcDays(weekStart, 6);
+
+    const weekStartRange = studioDayRange(formatDateOnly(weekStart));
+    const weekEndRange = studioDayRange(formatDateOnly(weekEnd));
+    if (!weekStartRange || !weekEndRange) return {};
 
     return {
-      sessionDate: {
-        gte: weekStart,
-        lt: addDays(weekStart, 7),
+      sessionStartsAt: {
+        gte: weekStartRange.start,
+        lte: weekEndRange.end,
       },
     };
   }
 
-  const monthStart = new Date(
-    todayStart.getFullYear(),
-    todayStart.getMonth(),
-    1
-  );
-  const nextMonthStart = new Date(
-    todayStart.getFullYear(),
-    todayStart.getMonth() + 1,
-    1
-  );
+  const monthStart = new Date(Date.UTC(today.year, today.month - 1, 1));
+  const monthEnd = new Date(Date.UTC(today.year, today.month, 0));
+  const monthStartRange = studioDayRange(formatDateOnly(monthStart));
+  const monthEndRange = studioDayRange(formatDateOnly(monthEnd));
+  if (!monthStartRange || !monthEndRange) return {};
 
   return {
-    sessionDate: {
-      gte: monthStart,
-      lt: nextMonthStart,
+    sessionStartsAt: {
+      gte: monthStartRange.start,
+      lte: monthEndRange.end,
     },
   };
+}
+
+function parseSessionStartsAt(date: string, time: string): Date {
+  const sessionStartsAt = studioWallClockToInstant(date, time);
+  if (!sessionStartsAt) {
+    throw new Error("Enter a valid session date and time");
+  }
+  return sessionStartsAt;
+}
+
+function formatDateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  return new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() + days
+    )
+  );
 }
 
 function formatSessionDate(date: Date): string {
@@ -1488,8 +1529,8 @@ function mapEditableBooking(
     packageId: packageSummaries[0]?.packageId ?? "",
     packageName: packageSummaries[0]?.packageName ?? "—",
     packagePriceLabel: packageSummaries[0]?.packagePriceLabel ?? "—",
-    sessionDate: formatInputDate(row.sessionDate),
-    sessionTime: row.sessionTime,
+    sessionDate: formatStudioInputDate(row.sessionStartsAt),
+    sessionTime: formatStudioTime(row.sessionStartsAt),
     sessionType: packageSummaries[0]?.sessionTypeName ?? "—",
     departmentId: row.department.id,
     department: row.department.name,
@@ -1529,8 +1570,8 @@ function mapBookingDetail(
     jobNumber: row.jobNumber,
     orderId: row.order?.id ?? null,
     customerPhone: formatCustomerPhone(row.customer.phone),
-    sessionDate: formatSessionDate(row.sessionDate),
-    sessionTime: row.sessionTime,
+    sessionDate: formatSessionDate(row.sessionStartsAt),
+    sessionTime: formatStudioTime(row.sessionStartsAt),
     sessionType: packageSummaries[0]?.sessionTypeName ?? "—",
     packageName: packageSummaries[0]?.packageName ?? "—",
     packagePriceLabel: packageSummaries[0]?.packagePriceLabel ?? "—",
@@ -1633,10 +1674,6 @@ function hasDepositPayment(
   return invoices?.some((invoice) => (invoice.payments?.length ?? 0) > 0) ?? false;
 }
 
-function formatInputDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 function formatDuration(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
@@ -1672,14 +1709,4 @@ function normalizePhoneSearch(value: string | undefined): string | undefined {
 
   const normalized = trimmed.replace(/[\s\-().]/g, "");
   return normalized && normalized !== "+" ? normalized : undefined;
-}
-
-function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
 }

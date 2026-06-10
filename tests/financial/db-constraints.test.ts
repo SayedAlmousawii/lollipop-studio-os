@@ -298,8 +298,7 @@ async function createFinancialContext(
       publicId: `BK-80C-${suffix}`,
       customerId: customer.id,
       departmentId: department.id,
-      sessionDate: new Date("2026-05-16T08:00:00.000Z"),
-      sessionTime: "10:00",
+      sessionStartsAt: new Date("2026-05-16T08:00:00.000Z"),
       status: BookingStatus.CONFIRMED,
     },
   });

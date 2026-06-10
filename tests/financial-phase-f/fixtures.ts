@@ -223,7 +223,7 @@ export async function buildPendingBookingFixture(
         sortOrder: 0,
       },
     ],
-    sessionDate: new Date(`2026-08-${String(day).padStart(2, "0")}T08:00:00.000Z`),
+    sessionDate: `2026-08-${String(day).padStart(2, "0")}`,
     sessionTime: "10:00",
     departmentId: fixtures.departmentId,
     themes: [],

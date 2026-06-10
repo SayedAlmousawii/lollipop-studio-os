@@ -1,4 +1,5 @@
 import { CustomerStatus } from "@prisma/client";
+import { formatStudioInputDate } from "@/lib/formatting/dates";
 import {
   createBookingInDb,
   getAssignablePhotographers,
@@ -45,7 +46,7 @@ export async function createDevelopmentTestBooking(): Promise<CreatedDevelopment
     phone: customer.phone,
     customerName: customer.fullName,
     packages: [{ packageId: selectedPackage.id, quantity: 1, sortOrder: 0 }],
-    sessionDate: buildNextDaySessionDate(TEST_BOOKING_TIME),
+    sessionDate: buildNextDaySessionDate(),
     sessionTime: TEST_BOOKING_TIME,
     departmentId: department.id,
     assignedPhotographerId: photographers[0]?.id,
@@ -59,13 +60,8 @@ export async function createDevelopmentTestBooking(): Promise<CreatedDevelopment
   };
 }
 
-function buildNextDaySessionDate(time: string): Date {
+function buildNextDaySessionDate(): string {
   const tomorrow = new Date();
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-  const year = tomorrow.getUTCFullYear();
-  const month = String(tomorrow.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(tomorrow.getUTCDate()).padStart(2, "0");
-
-  return new Date(`${year}-${month}-${day}T${time}:00.000Z`);
+  return formatStudioInputDate(tomorrow);
 }

@@ -155,8 +155,7 @@ async function seedDriftBookingDepositInvoice(
       customerId: fixture.customerId,
       departmentId: fixture.departmentId,
       status: BookingStatus.CONFIRMED,
-      sessionDate: new Date("2026-05-16T08:00:00.000Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: new Date("2026-05-16T08:00:00.000Z"),
     },
     select: { id: true },
   });
