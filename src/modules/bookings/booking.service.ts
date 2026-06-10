@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { formatStudioDate } from "@/lib/formatting/dates";
 import { formatMoney as formatPrice } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
@@ -1454,15 +1455,7 @@ function buildSessionDateRange(
 }
 
 function formatSessionDate(date: Date): string {
-  if (!(date instanceof Date) || isNaN(date.getTime())) {
-    return "—";
-  }
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatStudioDate(date);
 }
 
 function mapBookingStatus(

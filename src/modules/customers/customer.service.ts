@@ -5,6 +5,7 @@ import {
   Prisma,
 } from "@prisma/client";
 import { db } from "@/lib/db";
+import { formatStudioDate } from "@/lib/formatting/dates";
 import { withRetry } from "@/lib/retry";
 import {
   childSchema,
@@ -684,15 +685,7 @@ function normalizePhoneSearch(value: string | undefined): string | undefined {
 }
 
 function formatSessionDate(date: Date): string {
-  if (!(date instanceof Date) || isNaN(date.getTime())) {
-    return "—";
-  }
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatStudioDate(date);
 }
 
 function formatDateInput(date: Date): string {

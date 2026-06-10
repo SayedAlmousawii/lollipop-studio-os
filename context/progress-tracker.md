@@ -13,7 +13,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **OrderCommit arc complete (Specs 120–151):** `commitOrderChanges` is the sole production financial-emission path; all Sales order edits (locked and unlocked) flow through OrderCommit staging → preview → commit.
 - **Adjustment Workspace fully retired (Specs 144–149):** runtime module, route, components, tests, and DB tables/enums/FKs removed. Historical FINAL/ADJUSTMENT/CREDIT_NOTE/REFUND documents remain valid.
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
-- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, 160 R1, 161 R2, 162 R3, 163 R4, 164, 165, and 166 are implemented; the settlement arc is complete, paid and unpaid reversal credit carries as drawable REVERSAL credit, the application-kind taxonomy is collapsed, staff can refund eligible reversal/removal credit notes under the case cash ceiling, and the accountant-facing register presents documents by class with credit-note availability semantics plus type/date/outstanding filters.
+- **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, 160 R1, 161 R2, 162 R3, 163 R4, 164, 165, 166, and 167 are implemented; the settlement arc is complete, paid and unpaid reversal credit carries as drawable REVERSAL credit, the application-kind taxonomy is collapsed, staff can refund eligible reversal/removal credit notes under the case cash ceiling, the accountant-facing register presents documents by class with credit-note availability semantics plus type/date/outstanding filters, and user-facing date display/filter boundaries use the studio timezone.
 - **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
@@ -88,6 +88,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **167** — Centralized studio timezone date formatting and invoice created-date filter boundaries; added date formatter coverage and module UTC display guard.
 - **166** — Added Financial Documents register filters for document type, created-at date range, and outstanding-only with shared row/footer predicates and a reusable searchable multi-select.
 - **165** — Reframed `/invoices` as the Financial Documents register, split cash from applied credit, added credit-note availability semantics to register/detail/projectors, and generalized invoice-detail application breakdowns.
 - **164** — Activated staff-initiated REVERSAL/REMOVAL credit-note refunds, added the case net cash overpayment ceiling, exposed `creditNoteRefundable` on invoice detail, and capped cross-channel refund issuance.

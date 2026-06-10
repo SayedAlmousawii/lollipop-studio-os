@@ -1,11 +1,13 @@
 import { db } from "@/lib/db";
+import {
+  KUWAIT_UTC_OFFSET_HOURS,
+  STUDIO_TIME_ZONE,
+} from "@/lib/formatting/dates";
 import { withRetry } from "@/lib/retry";
 import { BookingStatus, PaymentDirection } from "@prisma/client";
 import type { ScheduleStatus } from "./dashboard.types";
 
 type ActivityEntry = { id: string; createdAt: Date; timestamp: string; description: string };
-const STUDIO_TIME_ZONE = "Asia/Kuwait";
-const KUWAIT_UTC_OFFSET_HOURS = 3;
 
 export type DashboardData = {
   stats: {

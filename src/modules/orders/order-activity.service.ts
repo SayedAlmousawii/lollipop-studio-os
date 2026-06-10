@@ -1,5 +1,6 @@
 import { OrderActivityType, type Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { formatStudioDateTime } from "@/lib/formatting/dates";
 import { withRetry } from "@/lib/retry";
 import type { OrderActivityTimelineItem } from "./order-activity.types";
 
@@ -84,12 +85,5 @@ export async function getOrderActivityTimeline(
 }
 
 function formatDateTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  }).format(date);
+  return formatStudioDateTime(date);
 }

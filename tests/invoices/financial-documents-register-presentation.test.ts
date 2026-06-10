@@ -112,6 +112,29 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
           createdAt: new Date("2026-05-15T00:05:00.000Z"),
         },
       });
+      await db.invoice.create({
+        data: {
+          publicId: "INV-165-CN-PREV",
+          invoiceNumber: "CN-165-PREV",
+          financialCaseId: fixture.financialCaseId,
+          invoiceType: InvoiceType.CREDIT_NOTE,
+          jobId: fixture.jobId,
+          jobNumber: "JOB-FCS-165REG",
+          bookingId: fixture.bookingId,
+          orderId: fixture.orderId,
+          customerId: fixture.customerId,
+          parentInvoiceId: fixture.finalInvoiceId,
+          totalAmount: new Prisma.Decimal(10),
+          paidAmount: new Prisma.Decimal(0),
+          remainingAmount: new Prisma.Decimal(0),
+          status: InvoiceStatus.CLOSED,
+          isLocked: true,
+          creditOrigin: CreditOrigin.GOODWILL,
+          issuedAt: new Date("2026-05-15T20:59:00.000Z"),
+          closedAt: new Date("2026-05-15T20:59:00.000Z"),
+          createdAt: new Date("2026-05-15T20:59:00.000Z"),
+        },
+      });
       await db.documentApplication.create({
         data: {
           sourceInvoiceId: creditNote.id,
@@ -126,6 +149,7 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
         (row) => row.invoiceNumber === "CN-165"
       );
       assert.ok(creditNoteRow);
+      assert.equal(creditNoteRow.createdAt, "16 May 2026");
       assert.equal(creditNoteRow.signedAmount, "(100.000 KD)");
       assert.equal(creditNoteRow.outstanding, "40.000 KD");
       assert.equal(creditNoteRow.outstandingTone, "neutral");
@@ -138,8 +162,8 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
       assert.equal(adjustmentRow.creditApplied, "60.000 KD");
       assert.deepEqual(adjustmentRow.applicationLinks, ["·CN-165"]);
       assert.equal(register.subtotals.invoicedGross, "260.000 KD");
-      assert.equal(register.subtotals.creditsIssued, "(100.000 KD)");
-      assert.equal(register.subtotals.invoicedNet, "160.000 KD");
+      assert.equal(register.subtotals.creditsIssued, "(110.000 KD)");
+      assert.equal(register.subtotals.invoicedNet, "150.000 KD");
       assert.equal(register.subtotals.receivable, "40.000 KD");
 
       const creditNoteDetail = await getInvoiceById(creditNote.id);
@@ -188,12 +212,22 @@ test("Spec 165 register/detail/projector present credit-note availability", asyn
       });
       assert.deepEqual(
         createdOnDay.rows.map((row) => row.invoiceNumber),
-        ["CN-165", "ADJ-165"]
+        ["CN-165-PREV", "ADJ-165"]
       );
       assert.equal(createdOnDay.subtotals.invoicedGross, "100.000 KD");
-      assert.equal(createdOnDay.subtotals.creditsIssued, "(100.000 KD)");
-      assert.equal(createdOnDay.subtotals.invoicedNet, "0.000 KD");
+      assert.equal(createdOnDay.subtotals.creditsIssued, "(10.000 KD)");
+      assert.equal(createdOnDay.subtotals.invoicedNet, "90.000 KD");
       assert.equal(createdOnDay.subtotals.receivable, "40.000 KD");
+
+      const createdOnNextKuwaitDay = await getInvoices({
+        createdFrom: "2026-05-16",
+        createdTo: "2026-05-16",
+      });
+      assert.deepEqual(
+        createdOnNextKuwaitDay.rows.map((row) => row.invoiceNumber),
+        ["CN-165"]
+      );
+      assert.equal(createdOnNextKuwaitDay.rows[0]?.createdAt, "16 May 2026");
 
       const outstandingOnly = await getInvoices({ outstandingOnly: true });
       assert.deepEqual(
