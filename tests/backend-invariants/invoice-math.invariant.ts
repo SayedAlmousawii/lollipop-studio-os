@@ -215,8 +215,7 @@ async function createOrderFixture(
       jobNumber,
       jobId: job.id,
       customerId: customer.id,
-      sessionDate: new Date("2026-05-14T09:00:00.000Z"),
-      sessionTime: "09:00",
+      sessionStartsAt: new Date("2026-05-14T09:00:00.000Z"),
       departmentId: department.id,
     },
   });

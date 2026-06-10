@@ -11,6 +11,7 @@ import {
   type PrismaClient,
 } from "@prisma/client";
 import { deletePendingBooking, recordBookingDeposit } from "@/modules/bookings/booking.service";
+import { getStudioDateParts } from "@/lib/formatting/dates";
 import { classifyEditDelta } from "@/modules/financial/edit-classifier";
 import { runAllInvariants } from "@/modules/financial/invariants";
 import { OrderCommitDeliveredOrderError } from "@/modules/order-commits";
@@ -938,14 +939,14 @@ async function runEc42IdentifierSequenceSelfHealing(
   const confirmed = await buildConfirmedBookingFixture(db, fixtures, "ec42-existing");
   const existing = await db.booking.findUniqueOrThrow({
     where: { id: confirmed.bookingId },
-    select: { publicId: true, sessionDate: true, department: { select: { code: true } } },
+    select: { publicId: true, sessionStartsAt: true, department: { select: { code: true } } },
   });
   const existingNumber = Number(existing.publicId?.match(/(\d+)$/)?.[1] ?? "0");
   await db.identifierSequence.update({
     where: {
       scope_year_kind: {
         scope: existing.department.code,
-        year: existing.sessionDate.getUTCFullYear(),
+        year: getStudioDateParts(existing.sessionStartsAt)?.year ?? 0,
         kind: WORKFLOW_REFERENCE_KIND.BOOKING,
       },
     },
@@ -954,7 +955,7 @@ async function runEc42IdentifierSequenceSelfHealing(
   const nextReference = await db.$transaction((tx) =>
     generateBookingReference(tx, {
       departmentCode: existing.department.code,
-      sessionDate: existing.sessionDate,
+      sessionStartsAt: existing.sessionStartsAt,
     })
   );
   const nextNumber = Number(nextReference.match(/(\d+)$/)?.[1] ?? "0");

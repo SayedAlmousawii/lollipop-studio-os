@@ -149,6 +149,7 @@ These mirror §6 of `context/architecture-context.md`. They are repeated here be
 - **New financial / composition / workflow display surfaces require a projector** in the relevant module (`modules/financial-cases/projections/` for FinancialCase-bound displays). Do not re-derive in the page or component.
 - **One money formatter** lives at `src/lib/formatting/money.ts`. No surface defines its own.
 - **One date/time formatter** lives at `src/lib/formatting/dates.ts`. All user-facing date/time display and date-range filter boundaries must use this module (`STUDIO_TIME_ZONE = "Asia/Kuwait"`); never use `timeZone: "UTC"` for user-facing dates, and never hand-roll day-boundary math — use `studioDayRange`.
+- Session / appointment moments are stored as one UTC instant (`sessionStartsAt`) and displayed via `src/lib/formatting/dates.ts`; never split a moment across a date column plus a time string, and never store a naive wall-clock datetime.
 - **One status-label source per enum** lives in that enum's `*.constants.ts`. No component redefines labels.
 - **One canonical read model per business concept**; surface projectors reshape but never recompute.
 

@@ -103,9 +103,9 @@ export async function getCustomers(
         include: {
           _count: { select: { children: true, bookings: true } },
           bookings: {
-            orderBy: { sessionDate: "desc" },
+            orderBy: { sessionStartsAt: "desc" },
             take: 1,
-            select: { sessionDate: true },
+            select: { sessionStartsAt: true },
           },
         },
         orderBy: { createdAt: "desc" },
@@ -121,7 +121,7 @@ export async function getCustomers(
     childrenCount: row._count.children,
     totalBookings: row._count.bookings,
     lastSessionDate: row.bookings[0]
-      ? formatSessionDate(row.bookings[0].sessionDate)
+      ? formatSessionDate(row.bookings[0].sessionStartsAt)
       : "—",
     status: mapCustomerStatus(row.status),
     statusValue: row.status,
@@ -160,12 +160,12 @@ export async function getCustomerById(
             },
           },
           bookings: {
-            orderBy: { sessionDate: "desc" },
+            orderBy: { sessionStartsAt: "desc" },
             take: 6,
             select: {
               id: true,
               jobNumber: true,
-              sessionDate: true,
+              sessionStartsAt: true,
               status: true,
               packages: {
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -186,7 +186,7 @@ export async function getCustomerById(
               jobNumber: true,
               status: true,
               createdAt: true,
-              booking: { select: { sessionDate: true } },
+              booking: { select: { sessionStartsAt: true } },
               packages: {
                 orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
                 select: { currentPackageNameSnapshot: true },
@@ -203,7 +203,7 @@ export async function getCustomerById(
   const bookings = row.bookings.map((booking) => ({
     id: booking.id,
     jobNumber: booking.jobNumber ?? "Pending",
-    sessionDate: formatSessionDate(booking.sessionDate),
+    sessionDate: formatSessionDate(booking.sessionStartsAt),
     sessionType: booking.packages[0]?.sessionType.name ?? "—",
     department: booking.department.name,
     packageName: formatBookingPackageLineNames(booking.packages),
@@ -212,7 +212,7 @@ export async function getCustomerById(
   const orders = row.orders.map((order) => ({
     id: order.id,
     jobNumber: order.jobNumber,
-    bookingDate: formatSessionDate(order.booking.sessionDate),
+    bookingDate: formatSessionDate(order.booking.sessionStartsAt),
     packageName: formatPackageLineNames(order.packages),
     status: mapOrderStatus(order.status),
   }));
@@ -759,7 +759,7 @@ function buildRecentHistory(
   bookings: Array<{
     id: string;
     jobNumber: string | null;
-    sessionDate: Date;
+    sessionStartsAt: Date;
     status: BookingStatus;
   }>,
   orders: Array<{
@@ -774,8 +774,8 @@ function buildRecentHistory(
       id: `booking-${booking.id}`,
       label: `Job ${booking.jobNumber ?? "Pending"}`,
       detail: `Job ${booking.jobNumber ?? "Pending"} · ${mapBookingStatus(booking.status)}`,
-      date: formatSessionDate(booking.sessionDate),
-      sortDate: booking.sessionDate,
+      date: formatSessionDate(booking.sessionStartsAt),
+      sortDate: booking.sessionStartsAt,
       href: `/bookings/${booking.id}`,
     })),
     ...orders.map((order) => ({

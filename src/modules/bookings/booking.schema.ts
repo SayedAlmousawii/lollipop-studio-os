@@ -16,6 +16,7 @@ const bookingThemeSchema = z.object({
 });
 
 const SESSION_TIME_REGEX = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const SESSION_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const bookingPackageSchema = z.object({
   packageId: z.string().min(1, "Package is required"),
   quantity: z.coerce
@@ -41,7 +42,9 @@ export const createBookingSchema = z.object({
     .max(120, "Customer name must be 120 characters or fewer")
     .optional(),
   packages: z.array(bookingPackageSchema).min(1, "Add at least one package"),
-  sessionDate: z.coerce.date({ error: "Session date is required" }),
+  sessionDate: z
+    .string()
+    .regex(SESSION_DATE_REGEX, "Session date must use YYYY-MM-DD"),
   sessionTime: z
     .string()
     .regex(SESSION_TIME_REGEX, "Session time must use HH:MM (00-23:00-59)"),
@@ -63,7 +66,7 @@ export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 export const updateBookingSchema = z.object({
   customerId: z.string().min(1, "Customer is required"),
   packages: z.array(bookingPackageSchema).min(1, "Add at least one package"),
-  date: z.date({ error: "Session date is required" }),
+  date: z.string().regex(SESSION_DATE_REGEX, "Session date must use YYYY-MM-DD"),
   sessionTime: z
     .string()
     .regex(SESSION_TIME_REGEX, "Session time must use HH:MM (00-23:00-59)"),

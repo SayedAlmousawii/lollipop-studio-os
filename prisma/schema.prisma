@@ -554,8 +554,7 @@ model Booking {
   jobNumber              String?       @unique
   jobId                  String?       @unique
   customerId             String
-  sessionDate            DateTime
-  sessionTime            String
+  sessionStartsAt        DateTime
   departmentId           String
   status                 BookingStatus @default(PENDING)
   assignedPhotographerId String?
@@ -574,6 +573,7 @@ model Booking {
   packages             BookingPackage[]
 
   @@index([departmentId])
+  @@index([sessionStartsAt])
   @@map("bookings")
 }
 

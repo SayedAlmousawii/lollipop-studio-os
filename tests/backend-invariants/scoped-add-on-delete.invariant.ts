@@ -114,8 +114,8 @@ async function createScopedAddOnFixture(
   );
   await client.query(
     `INSERT INTO ${schema}."bookings"
-      ("id", "publicId", "jobNumber", "jobId", "customerId", "sessionDate", "sessionTime", "departmentId", "updatedAt")
-     VALUES ($1, $2, $3, $4, $5, $6, '11:00', $7, now())`,
+      ("id", "publicId", "jobNumber", "jobId", "customerId", "sessionStartsAt", "departmentId", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())`,
     [
       bookingId,
       `BK-SAD-${fixtureId}`,

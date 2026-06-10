@@ -169,8 +169,7 @@ export async function seedPhaseAFinancialFixtures(
       customerId: pendingCustomer.id,
       departmentId: department.id,
       status: BookingStatus.PENDING,
-      sessionDate: new Date("2026-05-20T08:00:00.000Z"),
-      sessionTime: "10:00",
+      sessionStartsAt: new Date("2026-05-20T08:00:00.000Z"),
     },
   });
 
@@ -181,8 +180,7 @@ export async function seedPhaseAFinancialFixtures(
       customerId: confirmedCustomer.id,
       departmentId: department.id,
       status: BookingStatus.CONFIRMED,
-      sessionDate: new Date("2026-05-21T08:00:00.000Z"),
-      sessionTime: "11:00",
+      sessionStartsAt: new Date("2026-05-21T08:00:00.000Z"),
       packages: {
         create: {
           id: `${FIXTURE_PREFIX}-confirmed-booking-package`,
@@ -248,8 +246,7 @@ export async function seedPhaseAFinancialFixtures(
       customerId: checkedInCustomer.id,
       departmentId: department.id,
       status: BookingStatus.CHECKED_IN,
-      sessionDate: new Date("2026-05-22T08:00:00.000Z"),
-      sessionTime: "12:00",
+      sessionStartsAt: new Date("2026-05-22T08:00:00.000Z"),
       packages: {
         create: {
           id: `${FIXTURE_PREFIX}-checked-in-booking-package`,

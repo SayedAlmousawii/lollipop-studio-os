@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import {
   KUWAIT_UTC_OFFSET_HOURS,
+  formatStudioTime,
   STUDIO_TIME_ZONE,
 } from "@/lib/formatting/dates";
 import { withRetry } from "@/lib/retry";
@@ -64,15 +65,6 @@ function startOfWeekUTC(): Date {
   );
 }
 
-function formatTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: STUDIO_TIME_ZONE,
-  }).format(date);
-}
-
 function relativeTime(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -116,13 +108,13 @@ export async function getDashboardData(): Promise<DashboardData> {
     () =>
       Promise.all([
         db.booking.count({
-          where: { sessionDate: { gte: todayStart, lte: todayEnd } },
+          where: { sessionStartsAt: { gte: todayStart, lte: todayEnd } },
         }),
         db.booking.count({
-          where: { sessionDate: { gte: todayStart, lte: todayEnd }, status: "CONFIRMED" },
+          where: { sessionStartsAt: { gte: todayStart, lte: todayEnd }, status: "CONFIRMED" },
         }),
         db.booking.count({
-          where: { sessionDate: { gte: todayStart, lte: todayEnd }, status: "PENDING" },
+          where: { sessionStartsAt: { gte: todayStart, lte: todayEnd }, status: "PENDING" },
         }),
         db.payment.aggregate({
           _sum: { amount: true },
@@ -145,8 +137,8 @@ export async function getDashboardData(): Promise<DashboardData> {
           where: { createdAt: { gte: weekStart } },
         }),
         db.booking.findMany({
-          where: { sessionDate: { gte: todayStart, lte: todayEnd } },
-          orderBy: { sessionDate: "asc" },
+          where: { sessionStartsAt: { gte: todayStart, lte: todayEnd } },
+          orderBy: { sessionStartsAt: "asc" },
           include: { customer: { select: { name: true } } },
         }),
         db.payment.findMany({
@@ -181,7 +173,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   const todaySchedule = todayBookings.map((b) => ({
     id: b.id,
-    time: formatTime(b.sessionDate),
+    time: formatStudioTime(b.sessionStartsAt),
     customerName: b.customer.name,
     status: mapScheduleStatus(b.status),
   }));

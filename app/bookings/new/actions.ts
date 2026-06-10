@@ -21,25 +21,11 @@ export async function createBooking(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  const sessionDate = buildSessionDate(
-    formData.get("sessionDate"),
-    formData.get("sessionTime")
-  );
-
-  if (!sessionDate) {
-    return {
-      errors: {
-        sessionDate: ["Enter a valid session date"],
-        sessionTime: ["Enter a valid session time"],
-      },
-    };
-  }
-
   const raw = {
     phone: formData.get("phone"),
     customerName: formData.get("customerName") || undefined,
     packages: parsePackageLines(formData),
-    sessionDate,
+    sessionDate: formData.get("sessionDate"),
     sessionTime: formData.get("sessionTime"),
     departmentId: formData.get("departmentId"),
     assignedPhotographerId:
@@ -78,15 +64,4 @@ export async function getBookingCustomerPhoneSuggestions(
     console.error("Booking customer phone suggestions failed", error);
     return [];
   }
-}
-
-function buildSessionDate(
-  date: FormDataEntryValue | null,
-  time: FormDataEntryValue | null
-): Date | null {
-  if (typeof date !== "string" || typeof time !== "string") return null;
-  if (!date || !time) return null;
-
-  const value = new Date(`${date}T${time}:00.000Z`);
-  return Number.isNaN(value.getTime()) ? null : value;
 }

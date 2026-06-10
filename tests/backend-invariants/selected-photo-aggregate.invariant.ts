@@ -122,8 +122,7 @@ async function createSelectedPhotoFixture(
       jobNumber,
       jobId: job.id,
       customerId: customer.id,
-      sessionDate: new Date("2026-05-14T10:00:00.000Z"),
-      sessionTime: "10:00",
+      sessionStartsAt: new Date("2026-05-14T10:00:00.000Z"),
       departmentId: department.id,
     },
   });

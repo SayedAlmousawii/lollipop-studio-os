@@ -82,13 +82,13 @@ async function runBookingConfirmationRollbackAfterReference(
           select: {
             id: true,
             customerId: true,
-            sessionDate: true,
+            sessionStartsAt: true,
             department: { select: { code: true } },
           },
         });
         const bookingReference = await generateBookingReference(tx, {
           departmentCode: booking.department.code,
-          sessionDate: booking.sessionDate,
+          sessionStartsAt: booking.sessionStartsAt,
         });
         await tx.booking.update({
           where: { id: booking.id },
@@ -118,13 +118,13 @@ async function runCheckInRollbackAfterJobCreation(
           select: {
             id: true,
             customerId: true,
-            sessionDate: true,
+            sessionStartsAt: true,
             department: { select: { code: true } },
           },
         });
         const jobNumber = await generateBookingReference(tx, {
           departmentCode: booking.department.code,
-          sessionDate: booking.sessionDate,
+          sessionStartsAt: booking.sessionStartsAt,
         });
         const job = await tx.job.create({
           data: {

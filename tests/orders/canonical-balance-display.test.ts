@@ -264,7 +264,7 @@ async function buildCanonicalWorkflow(input: {
         sortOrder: 0,
       },
     ],
-    sessionDate: new Date("2026-09-15T08:00:00.000Z"),
+    sessionDate: "2026-09-15",
     sessionTime: "10:00",
     departmentId: input.fixtures.departmentId,
     themes: [],

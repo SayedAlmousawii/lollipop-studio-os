@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { getStudioDateParts } from "@/lib/formatting/dates";
 import {
   PUBLIC_ID_KIND,
   PUBLIC_ID_PREFIX,
@@ -19,7 +20,7 @@ export async function generatePublicId(
 
 export async function generateJobNumber(
   client: IdentifierClient,
-  input: { departmentCode: string; sessionDate: Date }
+  input: { departmentCode: string; sessionStartsAt: Date }
 ): Promise<string> {
   return generateWorkflowReference(client, {
     ...input,
@@ -29,7 +30,7 @@ export async function generateJobNumber(
 
 export async function generateBookingReference(
   client: IdentifierClient,
-  input: { departmentCode: string; sessionDate: Date }
+  input: { departmentCode: string; sessionStartsAt: Date }
 ): Promise<string> {
   return generateWorkflowReference(client, {
     ...input,
@@ -41,12 +42,15 @@ async function generateWorkflowReference(
   client: IdentifierClient,
   input: {
     departmentCode: string;
-    sessionDate: Date;
+    sessionStartsAt: Date;
     kind: WorkflowReferenceKind;
   }
 ): Promise<string> {
   const code = input.departmentCode.trim().toUpperCase();
-  const year = input.sessionDate.getUTCFullYear();
+  const year = getStudioDateParts(input.sessionStartsAt)?.year;
+  if (!year) {
+    throw new Error("Unable to determine session year");
+  }
   const referencePrefix = `${input.kind}-${code}-${year}`;
   const referenceLike = `${referencePrefix}-%`;
   const rows =

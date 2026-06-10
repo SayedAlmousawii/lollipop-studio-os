@@ -22,7 +22,11 @@ import type { ActorContext } from "@/lib/auth/actor-context";
 import { PERMISSIONS } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
-import { formatStudioDate, formatStudioDateTime } from "@/lib/formatting/dates";
+import {
+  formatStudioDate,
+  formatStudioDateTime,
+  studioDayRange,
+} from "@/lib/formatting/dates";
 import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
@@ -367,7 +371,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
               customer: { select: { name: true, phone: true } },
               booking: {
                 select: {
-                  sessionDate: true,
+                  sessionStartsAt: true,
                   assignedPhotographer: { select: { name: true } },
                   financialCase: {
                     select: {
@@ -624,7 +628,7 @@ export const getPOSWorkspace = cache(async function getPOSWorkspaceInternal(
     orderStatusRaw: order.status,
     orderStatus: mapOrderStatus(order.status),
     selectionStatus: order.selectionStatus,
-    sessionDate: formatDateTime(order.booking.sessionDate),
+    sessionDate: formatDateTime(order.booking.sessionStartsAt),
     customerName: order.customer.name,
     customerPhone: formatCustomerPhone(order.customer.phone),
     photographerName:
@@ -870,7 +874,7 @@ function mapOrderDetailRow(row: OrderDetailRow): OrderDetail {
     bookingId: row.bookingId,
     packageLinePackageId: row.packages[0]?.currentPackageId ?? null,
     packageId: row.packages[0]?.currentPackageId ?? null,
-    sessionDateTime: formatDateTime(row.booking.sessionDate),
+    sessionDateTime: formatDateTime(row.booking.sessionStartsAt),
     sessionType: row.packages[0]?.sessionType.name ?? "—",
     selectedPhotoCount: formatCount(selectedPhotoCount),
     addonsSummary: formatAddOnsSummary(
@@ -2043,15 +2047,17 @@ export async function createOrderFromBookingWithClient(
 }
 
 async function fetchOrders(filters: OrderFilters) {
+  const sessionDateFrom = filters.sessionDateFrom
+    ? studioDayRange(filters.sessionDateFrom)?.start
+    : undefined;
+  const sessionDateTo = filters.sessionDateTo
+    ? studioDayRange(filters.sessionDateTo)?.end
+    : undefined;
   const sessionDateFilter: Prisma.DateTimeFilter | undefined =
-    filters.sessionDateFrom || filters.sessionDateTo
+    sessionDateFrom || sessionDateTo
       ? {
-          ...(filters.sessionDateFrom
-            ? { gte: toUtcDateBoundary(filters.sessionDateFrom, "start") }
-            : {}),
-          ...(filters.sessionDateTo
-            ? { lte: toUtcDateBoundary(filters.sessionDateTo, "end") }
-            : {}),
+          ...(sessionDateFrom ? { gte: sessionDateFrom } : {}),
+          ...(sessionDateTo ? { lte: sessionDateTo } : {}),
         }
       : undefined;
   const normalizedPhone = normalizePhoneSearch(filters.search);
@@ -2098,7 +2104,7 @@ async function fetchOrders(filters: OrderFilters) {
         }
       : {}),
     ...(sessionDateFilter
-      ? { booking: { sessionDate: sessionDateFilter } }
+      ? { booking: { sessionStartsAt: sessionDateFilter } }
       : {}),
     ...(filters.editorId
       ? { editingJob: { assignedEditorId: filters.editorId } }
@@ -2111,7 +2117,7 @@ async function fetchOrders(filters: OrderFilters) {
       customer: { select: { name: true, phone: true } },
       booking: {
         select: {
-          sessionDate: true,
+          sessionStartsAt: true,
           financialCase: {
             select: {
               invoices: {
@@ -2161,7 +2167,7 @@ function fetchOrdersByCustomerId(customerId: string, limit: number) {
       id: true,
       jobNumber: true,
       status: true,
-      booking: { select: { sessionDate: true } },
+      booking: { select: { sessionStartsAt: true } },
       packages: {
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         select: { currentPackageNameSnapshot: true },
@@ -2198,7 +2204,7 @@ function fetchOrderByIdWithClient(
       customer: { select: { name: true, phone: true } },
       booking: {
         select: {
-          sessionDate: true,
+          sessionStartsAt: true,
           financialCase: {
             select: {
               invoices: {
@@ -2277,7 +2283,7 @@ function mapOrderRow(
     id: row.id,
     jobNumber: row.jobNumber,
     customerPhone: formatCustomerPhone(row.customer.phone),
-    bookingDate: formatDate(row.booking.sessionDate),
+    bookingDate: formatDate(row.booking.sessionStartsAt),
     originalPackageName: formatOrderPackageNames(
       row.packages,
       "originalPackageNameSnapshot"
@@ -2322,7 +2328,7 @@ function mapCustomerOrderHistoryRow(
   return {
     id: row.id,
     jobNumber: row.jobNumber,
-    sessionDate: formatDate(row.booking.sessionDate),
+    sessionDate: formatDate(row.booking.sessionStartsAt),
     packageName: formatOrderPackageNames(row.packages),
     orderStatus: mapOrderStatus(row.status),
     invoiceStatus: financial ? mapInvoiceStatus(financial.invoiceStatus) : "No Invoice",
@@ -2607,17 +2613,6 @@ function parseDateInput(value: string | undefined): string | undefined {
   }
 
   return trimmed;
-}
-
-function toUtcDateBoundary(value: string, boundary: "start" | "end"): Date {
-  const [yearText, monthText, dayText] = value.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-
-  return boundary === "start"
-    ? new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0))
-    : new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 }
 
 function zeroMoney(): Prisma.Decimal {
@@ -4170,7 +4165,7 @@ async function fetchEditingQueue() {
     where: { status: { in: [OrderStatus.SELECTION_COMPLETED, OrderStatus.EDITING] } },
     include: {
       customer: { select: { name: true } },
-      booking: { select: { sessionDate: true } },
+      booking: { select: { sessionStartsAt: true } },
       editingJob: {
         select: {
           status: true,
@@ -4189,7 +4184,7 @@ function mapEditingQueueRow(row: EditingQueueRow): EditingQueueItem {
     id: row.id,
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
-    sessionDate: formatDate(row.booking.sessionDate),
+    sessionDate: formatDate(row.booking.sessionStartsAt),
     editingStatus: row.editingJob
       ? ORDER_EDITING_STATUS_LABELS[row.editingJob.status]
       : ORDER_EDITING_STATUS_LABELS[OrderEditingStatus.NOT_STARTED],
@@ -4202,7 +4197,7 @@ async function fetchProductionQueue() {
     where: { status: OrderStatus.PRODUCTION },
     include: {
       customer: { select: { name: true } },
-      booking: { select: { sessionDate: true } },
+      booking: { select: { sessionStartsAt: true } },
       editingJob: {
         select: {
           status: true,
@@ -4249,7 +4244,7 @@ function mapProductionQueueRow(row: ProductionQueueRow): ProductionQueueItem {
     id: row.id,
     jobNumber: row.jobNumber,
     customerName: row.customer.name,
-    sessionDate: formatDate(row.booking.sessionDate),
+    sessionDate: formatDate(row.booking.sessionStartsAt),
     productionStatus: ORDER_PRODUCTION_STATUS_LABELS[productionStatus],
     sectionSummary: `${completedSections} of 6 sections complete`,
   };
