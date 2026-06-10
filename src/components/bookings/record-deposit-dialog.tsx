@@ -12,16 +12,20 @@ import { RecordDepositForm } from "./record-deposit-form";
 
 interface RecordDepositDialogProps {
   bookingId: string;
-  trigger: ReactNode;
+  trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function RecordDepositDialog({
   bookingId,
   trigger,
+  open,
+  onOpenChange,
 }: RecordDepositDialogProps) {
   return (
-    <Dialog>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Record Deposit</DialogTitle>

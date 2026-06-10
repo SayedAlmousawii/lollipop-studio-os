@@ -90,6 +90,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **Pointer lock UI fix** — Dropdown-launched booking/customer dialogs now open after their menus close, and a root route-change guard clears only stale body pointer-event locks when no Radix layer is open.
 - **168** — Replaced split Booking `sessionDate`/`sessionTime` storage with UTC `sessionStartsAt`, added studio wall-clock/input/time helpers, moved session displays/filters/calendar to the instant, and fixed Kuwait-year identifier boundaries.
 - **167** — Centralized studio timezone date formatting and invoice created-date filter boundaries; added date formatter coverage and module UTC display guard.
 - **166** — Added Financial Documents register filters for document type, created-at date range, and outstanding-only with shared row/footer predicates and a reusable searchable multi-select.

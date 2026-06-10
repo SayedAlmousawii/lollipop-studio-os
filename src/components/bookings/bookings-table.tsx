@@ -4,6 +4,7 @@ import { useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import Link from "next/link";
 import { CheckInDialog } from "@/components/bookings/check-in-dialog";
+import { CheckInDropdownItem } from "@/components/bookings/check-in-dropdown-item";
 import { DeletePendingBookingDropdownItem } from "@/components/bookings/delete-pending-booking-dropdown-item";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -104,7 +105,9 @@ function TableRowWithActions({
   booking: Booking;
   photographers: BookingPhotographerOption[];
 }) {
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [checkInDialogOpen, setCheckInDialogOpen] = useState(false);
+  const [depositDialogOpen, setDepositDialogOpen] = useState(false);
   const canRecordDeposit =
     booking.status === "Pending" && booking.paymentStatus !== "Paid";
   const showStatusActions =
@@ -150,7 +153,14 @@ function TableRowWithActions({
             errorClassName="text-xs leading-5 text-danger"
           />
         ) : null}
-        <DropdownMenu>
+        {canRecordDeposit ? (
+          <RecordDepositDialog
+            bookingId={booking.id}
+            open={depositDialogOpen}
+            onOpenChange={setDepositDialogOpen}
+          />
+        ) : null}
+        <DropdownMenu open={actionsOpen} onOpenChange={setActionsOpen}>
           <DropdownMenuTrigger
             className={cn(
               buttonVariants({ variant: "ghost", size: "icon" }),
@@ -168,30 +178,27 @@ function TableRowWithActions({
               <Link href={`/bookings/${booking.id}/edit`}>Edit Booking</Link>
             </DropdownMenuItem>
             {canRecordDeposit ? (
-              <RecordDepositDialog
-                bookingId={booking.id}
-                trigger={
-                  <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
-                    Record Deposit
-                  </DropdownMenuItem>
-                }
-              />
+              <DropdownMenuItem
+                onSelect={() => {
+                  requestAnimationFrame(() => setDepositDialogOpen(true));
+                }}
+              >
+                Record Deposit
+              </DropdownMenuItem>
             ) : null}
             {showStatusActions ? (
               <>
                 <DropdownMenuSeparator />
                 {booking.canCheckIn ? (
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      setCheckInDialogOpen(true);
-                    }}
-                  >
-                    Check In
-                  </DropdownMenuItem>
+                  <CheckInDropdownItem
+                    onOpen={() => setCheckInDialogOpen(true)}
+                  />
                 ) : null}
                 {booking.canDeletePending ? (
-                  <DeletePendingBookingDropdownItem bookingId={booking.id} />
+                  <DeletePendingBookingDropdownItem
+                    bookingId={booking.id}
+                    onConfirmedSubmit={() => setActionsOpen(false)}
+                  />
                 ) : null}
                 <BookingStatusActions
                   bookingId={booking.id}
