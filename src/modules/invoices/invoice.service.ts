@@ -17,6 +17,7 @@ import {
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { formatStudioDate, studioDayRange } from "@/lib/formatting/dates";
 import { formatMoney } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
@@ -3971,29 +3972,11 @@ function parseDateInput(value: string | undefined): string | undefined {
 }
 
 function parseDateStart(value: string | undefined): Date | undefined {
-  const parsed = parseDateParts(value);
-  if (!parsed) return undefined;
-
-  return new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day, 0, 0, 0, 0));
+  return studioDayRange(value)?.start;
 }
 
 function parseDateEnd(value: string | undefined): Date | undefined {
-  const parsed = parseDateParts(value);
-  if (!parsed) return undefined;
-
-  return new Date(
-    Date.UTC(parsed.year, parsed.month - 1, parsed.day, 23, 59, 59, 999)
-  );
-}
-
-function parseDateParts(
-  value: string | undefined
-): { year: number; month: number; day: number } | undefined {
-  const parsed = parseDateInput(value);
-  if (!parsed) return undefined;
-
-  const [year, month, day] = parsed.split("-").map(Number);
-  return { year, month, day };
+  return studioDayRange(value)?.end;
 }
 
 export async function generateInvoiceNumber(
@@ -4142,12 +4125,7 @@ function computeDisplaySettledAmount(invoice: {
 }
 
 function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatStudioDate(date);
 }
 
 function formatEnum(value: string): string {

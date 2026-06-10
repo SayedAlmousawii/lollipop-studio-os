@@ -22,6 +22,7 @@ import type { ActorContext } from "@/lib/auth/actor-context";
 import { PERMISSIONS } from "@/lib/permissions";
 import { WorkflowGuardError } from "./order.errors";
 import { db } from "@/lib/db";
+import { formatStudioDate, formatStudioDateTime } from "@/lib/formatting/dates";
 import { formatMoney, formatSignedMoney } from "@/lib/formatting/money";
 import { withRetry } from "@/lib/retry";
 import { recordAuditLog } from "@/modules/audit/audit-log.service";
@@ -2541,23 +2542,11 @@ function assertWorkflowTransition(
 }
 
 function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatStudioDate(date);
 }
 
 function formatDateTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  }).format(date);
+  return formatStudioDateTime(date);
 }
 
 function formatDateInput(date: Date): string {
