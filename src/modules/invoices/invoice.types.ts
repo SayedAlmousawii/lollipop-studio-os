@@ -12,6 +12,16 @@ export type InvoiceAccountantStatusLabel =
 export type FinancialDocumentClass = "charge" | "credit" | "cash";
 export type FinancialDocumentMoneyTone = "neutral" | "success" | "danger" | "muted";
 
+export interface InvoiceFilters {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  types?: InvoiceType[];
+  createdFrom?: string;
+  createdTo?: string;
+  outstandingOnly?: boolean;
+}
+
 export type InvoiceLineType =
   | "PACKAGE_BASE"
   | "BUNDLE_ADJUSTMENT"
