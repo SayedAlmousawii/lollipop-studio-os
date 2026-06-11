@@ -56,6 +56,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - OrderCommit draft package staging removes scoped package-item upgrades only on actual package identity changes; same-package pricing/metadata/included-photo refreshes preserve existing scoped upgrades.
 - OrderCommit draft package staging normalizes package-tier included-photo changes before snapshot validation: absent an explicit intended photo outcome, selected photos become at least the new included count, digital extras become zero, remaining extras become print, and absorbed extra-photo lines are removed.
 - Snapshot-derived Sales included-deliverable display is catalog-current, not commit-historical; Option B snapshot-embedded deliverables remains deferred unless commit-time deliverable fidelity becomes required.
+- `OrderAlbum` is an operational-only album domain: it carries no price, finishing fields write live without an OrderCommit draft guard, size/pages ride existing package/add-on staging, and backing-line ids remap during `commitOrderChanges`.
 - OrderCommit draft domain staging now flows through `stageOrderCommitDraftChange`; the replacement snapshot is draft truth, the typed `SNAPSHOT_REPLACED` operation is history/UX metadata only, and package+explicit-photo composite staging is ordered package before photo.
 - Selected-photo totals are derived from `OrderPackage.selectedPhotoCount`; `Order.selectedPhotoCount` is a synchronized cache, not a read source.
 - Extra selected photos are stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, emitted as per-line/per-media Final Invoice lines.
@@ -90,6 +91,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **169** — Added the operational-only `OrderAlbum` domain, seeded the global Extra album page add-on, exposed album CRUD/finishing/extra-page helpers, and synced backing-line ids plus extra-page counts during OrderCommit execution.
 - **Pointer lock UI fix** — Dropdown-launched booking/customer dialogs now open after their menus close, and a root route-change guard clears only stale body pointer-event locks when no Radix layer is open.
 - **168** — Replaced split Booking `sessionDate`/`sessionTime` storage with UTC `sessionStartsAt`, added studio wall-clock/input/time helpers, moved session displays/filters/calendar to the instant, and fixed Kuwait-year identifier boundaries.
 - **167** — Centralized studio timezone date formatting and invoice created-date filter boundaries; added date formatter coverage and module UTC display guard.
@@ -254,7 +256,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 
 ## Open Follow-Ups
 - **Financial-plan owner confirmations** (before drafting specs from the financial plans): (a) confirm customer-wide store credit that travels across orders is out of scope; (b) ask the accountant whether the register footer should show net invoiced or gross invoiced + separate credits subtotal. See `credit-settlement-application-plan.md` and `financial-documents-register-presentation.md`.
-- **POS redesign open owner questions** (`pos-sales-redesign-planning.md`): S-E (does a multi-package order ever mix session types?) and S-I (session-config quick-config surface). Resolve before POS planning specs.
+- **Register footer reconciliation (deferred):** make the Financial Documents footer tie out as a waterfall — add **"Deposits applied"** (Σ DEPOSIT-kind `DocumentApplication`s over the full filtered set) as a *settlement* line below Invoiced (net), alongside Cash received, so `net − deposits applied − cash = receivable`. Credit notes stay above the line (no double-count). Replace the current face-value "Deposits (prepaid)" line. Read-layer/footer-only change to `buildInvoiceRegisterSubtotals`; revisit with the broader register work.
+- **POS redesign (`pos-sales-redesign-planning.md`):** S-E resolved (2026-06-12) — mixed session types are possible, so order-level photos/session-config editing stays a same-session-only convenience with per-package degrade; sequence as its own spec after B2. S-I confirmed wanted by owner but needs more planning before drafting; not a blocker for F1–F3 / B1–B4.
 - Spec 152 (**deferred** — OrderCommit chapter closed): retire the legacy direct-edit financial engine `syncOrderInvoiceForFinancialEdit` and migrate its remaining direct non-mutator callers onto the OrderCommit/financial-service path. Not urgent: after Spec 151 the engine has **no production caller** (`commitOrderChanges` is the sole production emission path) and survives only as test-only scaffolding. Revisit when convenient; placeholder spec archived.
 - R12/performance cleanup: remove legacy settlement imports and independent active-summary construction from `orders-table-projections.service.ts` only if it can preserve fixed-query batching.
 - Decide whether to add snapshot-at-order-time extra-photo pricing so historical uninvoiced order composition is insulated from later price edits.

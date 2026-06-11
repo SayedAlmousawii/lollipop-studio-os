@@ -16,6 +16,7 @@ import {
 } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { studioWallClockToInstant } from "../src/lib/formatting/dates";
+import { EXTRA_ALBUM_PAGE_PRODUCT_ID } from "../src/modules/albums/album.constants";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
@@ -661,6 +662,30 @@ async function main() {
         isPackageDeliverable: false,
         isAddOn: true,
         sortOrder: 50,
+      },
+    }),
+    prisma.product.upsert({
+      where: { id: EXTRA_ALBUM_PAGE_PRODUCT_ID },
+      update: {
+        name: "Extra album page",
+        category: ProductCategory.ALBUM,
+        // owner-confirm-pending: placeholder per-page price until business sign-off.
+        canonicalPrice: 1,
+        isActive: true,
+        isPackageDeliverable: false,
+        isAddOn: true,
+        sortOrder: 60,
+      },
+      create: {
+        id: EXTRA_ALBUM_PAGE_PRODUCT_ID,
+        name: "Extra album page",
+        category: ProductCategory.ALBUM,
+        // owner-confirm-pending: placeholder per-page price until business sign-off.
+        canonicalPrice: 1,
+        isActive: true,
+        isPackageDeliverable: false,
+        isAddOn: true,
+        sortOrder: 60,
       },
     }),
   ]);

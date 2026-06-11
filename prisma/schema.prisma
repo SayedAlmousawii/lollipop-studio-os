@@ -159,6 +159,17 @@ enum ProductCategory {
   OTHER
 }
 
+enum OrderAlbumSourceType {
+  PACKAGE
+  ADDON
+}
+
+enum OrderAlbumBackingLineKind {
+  PACKAGE_ITEM
+  ORDER_PACKAGE_ITEM_UPGRADE
+  ORDER_ADD_ON
+}
+
 enum MediaType {
   DIGITAL
   PRINT
@@ -248,17 +259,17 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  assignedBookings           Booking[]                  @relation("AssignedPhotographer")
-  assignedJobs               Job[]                      @relation("JobAssignedPhotographer")
-  assignedEditingJobs        EditingJob[]               @relation("AssignedEditor")
-  orderActivities            OrderActivity[]
-  auditLogs                  AuditLog[]
-  deliveryCompletions        Order[]                    @relation("DeliveryCompletedBy")
-  documentApplications       DocumentApplication[]
-  orderCommits               OrderCommit[]              @relation("OrderCommitCommittedBy")
-  ownedOrderCommitDrafts     OrderCommitDraft[]         @relation("OrderCommitDraftOwner")
-  openedOrderCommitDrafts    OrderCommitDraft[]         @relation("OrderCommitDraftOpenedBy")
-  touchedOrderCommitDrafts   OrderCommitDraft[]         @relation("OrderCommitDraftLastTouchedBy")
+  assignedBookings         Booking[]             @relation("AssignedPhotographer")
+  assignedJobs             Job[]                 @relation("JobAssignedPhotographer")
+  assignedEditingJobs      EditingJob[]          @relation("AssignedEditor")
+  orderActivities          OrderActivity[]
+  auditLogs                AuditLog[]
+  deliveryCompletions      Order[]               @relation("DeliveryCompletedBy")
+  documentApplications     DocumentApplication[]
+  orderCommits             OrderCommit[]         @relation("OrderCommitCommittedBy")
+  ownedOrderCommitDrafts   OrderCommitDraft[]    @relation("OrderCommitDraftOwner")
+  openedOrderCommitDrafts  OrderCommitDraft[]    @relation("OrderCommitDraftOpenedBy")
+  touchedOrderCommitDrafts OrderCommitDraft[]    @relation("OrderCommitDraftLastTouchedBy")
 
   @@map("users")
 }
@@ -290,12 +301,12 @@ model FinancialCase {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  booking  Booking   @relation(fields: [bookingId], references: [id])
-  customer Customer  @relation(fields: [customerId], references: [id])
-  job      Job?      @relation(fields: [jobId], references: [id])
-  invoices Invoice[]
-  payments Payment[]
-  orderCommits OrderCommit[]
+  booking           Booking            @relation(fields: [bookingId], references: [id])
+  customer          Customer           @relation(fields: [customerId], references: [id])
+  job               Job?               @relation(fields: [jobId], references: [id])
+  invoices          Invoice[]
+  payments          Payment[]
+  orderCommits      OrderCommit[]
   orderCommitDrafts OrderCommitDraft[]
 
   @@index([customerId])
@@ -356,10 +367,10 @@ model Package {
   updatedAt DateTime @updatedAt
 
   items                 PackageItem[]
-  packageFamily         PackageFamily  @relation(fields: [packageFamilyId], references: [id])
+  packageFamily         PackageFamily    @relation(fields: [packageFamilyId], references: [id])
   bookingPackages       BookingPackage[]
-  originalOrderPackages OrderPackage[] @relation("OriginalOrderPackage")
-  currentOrderPackages  OrderPackage[] @relation("CurrentOrderPackage")
+  originalOrderPackages OrderPackage[]   @relation("OriginalOrderPackage")
+  currentOrderPackages  OrderPackage[]   @relation("CurrentOrderPackage")
 
   @@index([packageFamilyId, isActive])
   @@map("packages")
@@ -536,9 +547,9 @@ model BookingPackage {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  booking     Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  package     Package     @relation(fields: [packageId], references: [id])
-  sessionType SessionType @relation(fields: [sessionTypeId], references: [id])
+  booking       Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  package       Package        @relation(fields: [packageId], references: [id])
+  sessionType   SessionType    @relation(fields: [sessionTypeId], references: [id])
   orderPackages OrderPackage[]
 
   @@unique([bookingId, packageId])
@@ -630,7 +641,8 @@ model Order {
   packageItemUpgrades     OrderPackageItemUpgrade[]
   packages                OrderPackage[]
   orderCommits            OrderCommit[]
-  orderCommitDraft         OrderCommitDraft?
+  orderCommitDraft        OrderCommitDraft?
+  albums                  OrderAlbum[]
   refundPending           Boolean                   @default(false) @map("refund_pending")
 
   @@index([jobNumber])
@@ -638,14 +650,14 @@ model Order {
 }
 
 model OrderPackage {
-  id                          String   @id @default(cuid())
-  orderId                     String
-  originalPackageId           String
-  currentPackageId            String
-  bookingPackageId            String?
-  sessionTypeId               String
-  originalPackageNameSnapshot String
-  currentPackageNameSnapshot  String
+  id                           String   @id @default(cuid())
+  orderId                      String
+  originalPackageId            String
+  currentPackageId             String
+  bookingPackageId             String?
+  sessionTypeId                String
+  originalPackageNameSnapshot  String
+  currentPackageNameSnapshot   String
   originalPackagePriceSnapshot Decimal? @db.Decimal(10, 3)
   finalPackagePriceSnapshot    Decimal? @db.Decimal(10, 3)
   selectedPhotoCount           Int?
@@ -663,6 +675,7 @@ model OrderPackage {
   orderAddOns                    OrderAddOn[]
   packageItemUpgrades            OrderPackageItemUpgrade[]
   sessionConfigurationSelections OrderPackageSessionConfigurationSelection[]
+  albums                         OrderAlbum[]
 
   @@index([orderId, sortOrder])
   @@index([originalPackageId])
@@ -840,31 +853,57 @@ model OrderPackageItemUpgrade {
   @@map("order_package_item_upgrades")
 }
 
-model OrderCommit {
-  id                          String   @id @default(cuid())
-  orderId                     String
-  financialCaseId             String
-  previousCommitId            String?
-  sequence                    Int
-  committedFromDraftId        String?
-  committedFromDraftVersion   Int?
-  kind                        String
-  status                      String
-  snapshotVersion             Int      @default(1)
-  snapshotJson                Json
-  metadataJson                Json     @default("{}")
-  committedAt                 DateTime @default(now())
-  committedByUserId           String?
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+model OrderAlbum {
+  id              String                    @id @default(cuid())
+  orderId         String
+  orderPackageId  String?
+  sourceType      OrderAlbumSourceType
+  backingLineKind OrderAlbumBackingLineKind
+  backingLineId   String
+  coverMaterial   String?
+  threadColor     String?
+  layout          String?
+  coverText       String?
+  coverImageRef   String?
+  instructions    String?
+  extraPages      Int                       @default(0)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
 
-  order                     Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  financialCase             FinancialCase        @relation(fields: [financialCaseId], references: [id])
-  previousCommit            OrderCommit?         @relation("OrderCommitSequence", fields: [previousCommitId], references: [id], onDelete: SetNull)
-  nextCommits               OrderCommit[]        @relation("OrderCommitSequence")
-  baseOrderCommitDrafts     OrderCommitDraft[]   @relation("OrderCommitDraftBaseCommit")
-  orderCommitDocuments      OrderCommitDocument[] @relation("OrderCommitDocumentOrderCommit")
-  committedByUser           User?                @relation("OrderCommitCommittedBy", fields: [committedByUserId], references: [id], onDelete: SetNull)
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderPackage OrderPackage? @relation(fields: [orderPackageId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, orderPackageId, backingLineKind, backingLineId])
+  @@index([orderId])
+  @@index([orderPackageId])
+  @@map("order_albums")
+}
+
+model OrderCommit {
+  id                        String   @id @default(cuid())
+  orderId                   String
+  financialCaseId           String
+  previousCommitId          String?
+  sequence                  Int
+  committedFromDraftId      String?
+  committedFromDraftVersion Int?
+  kind                      String
+  status                    String
+  snapshotVersion           Int      @default(1)
+  snapshotJson              Json
+  metadataJson              Json     @default("{}")
+  committedAt               DateTime @default(now())
+  committedByUserId         String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  order                 Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  financialCase         FinancialCase         @relation(fields: [financialCaseId], references: [id])
+  previousCommit        OrderCommit?          @relation("OrderCommitSequence", fields: [previousCommitId], references: [id], onDelete: SetNull)
+  nextCommits           OrderCommit[]         @relation("OrderCommitSequence")
+  baseOrderCommitDrafts OrderCommitDraft[]    @relation("OrderCommitDraftBaseCommit")
+  orderCommitDocuments  OrderCommitDocument[] @relation("OrderCommitDocumentOrderCommit")
+  committedByUser       User?                 @relation("OrderCommitCommittedBy", fields: [committedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([orderId, sequence])
   @@unique([orderId, committedFromDraftId])
@@ -876,26 +915,26 @@ model OrderCommit {
 }
 
 model OrderCommitDraft {
-  id                          String   @id @default(cuid())
-  orderId                     String
-  financialCaseId             String
-  baseCommitId                String?
-  pendingSnapshotVersion      Int      @default(1)
-  pendingSnapshotJson         Json
-  pendingOpsJson              Json     @default("{\"schemaVersion\":\"order_commit_draft_pending_ops_v1\",\"operations\":[]}")
-  version                     Int      @default(0)
-  ownerUserId                 String
-  openedByUserId              String
-  lastTouchedByUserId         String
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  orderId                String
+  financialCaseId        String
+  baseCommitId           String?
+  pendingSnapshotVersion Int      @default(1)
+  pendingSnapshotJson    Json
+  pendingOpsJson         Json     @default("{\"schemaVersion\":\"order_commit_draft_pending_ops_v1\",\"operations\":[]}")
+  version                Int      @default(0)
+  ownerUserId            String
+  openedByUserId         String
+  lastTouchedByUserId    String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
-  order                     Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  financialCase             FinancialCase        @relation(fields: [financialCaseId], references: [id])
-  baseCommit                OrderCommit?         @relation("OrderCommitDraftBaseCommit", fields: [baseCommitId], references: [id], onDelete: SetNull)
-  ownerUser                 User                 @relation("OrderCommitDraftOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
-  openedByUser              User                 @relation("OrderCommitDraftOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
-  lastTouchedByUser         User                 @relation("OrderCommitDraftLastTouchedBy", fields: [lastTouchedByUserId], references: [id], onDelete: Restrict)
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  financialCase     FinancialCase @relation(fields: [financialCaseId], references: [id])
+  baseCommit        OrderCommit?  @relation("OrderCommitDraftBaseCommit", fields: [baseCommitId], references: [id], onDelete: SetNull)
+  ownerUser         User          @relation("OrderCommitDraftOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  openedByUser      User          @relation("OrderCommitDraftOpenedBy", fields: [openedByUserId], references: [id], onDelete: Restrict)
+  lastTouchedByUser User          @relation("OrderCommitDraftLastTouchedBy", fields: [lastTouchedByUserId], references: [id], onDelete: Restrict)
 
   @@unique([orderId])
   @@index([financialCaseId])
@@ -905,46 +944,46 @@ model OrderCommitDraft {
 }
 
 model Invoice {
-  id              String        @id @default(cuid())
-  publicId        String        @unique
-  financialCaseId String
-  invoiceType     InvoiceType
-  jobNumber       String?
-  jobId           String?
-  orderId         String?
-  bookingId       String?
-  customerId      String
-  invoiceSeq      Int           @unique @default(dbgenerated("nextval('\"invoice_number_seq\"'::regclass)"))
-  invoiceNumber   String        @unique
-  totalAmount     Decimal       @db.Decimal(10, 3)
-  paidAmount      Decimal       @default(0) @db.Decimal(10, 3)
-  remainingAmount Decimal       @default(0) @db.Decimal(10, 3)
-  status          InvoiceStatus @default(DRAFT)
-  isLocked        Boolean       @default(false)
-  parentInvoiceId String?
-  notes           String?
-  issuedAt        DateTime?
-  closedAt        DateTime?
-  creditOrigin    CreditOrigin?
+  id                    String        @id @default(cuid())
+  publicId              String        @unique
+  financialCaseId       String
+  invoiceType           InvoiceType
+  jobNumber             String?
+  jobId                 String?
+  orderId               String?
+  bookingId             String?
+  customerId            String
+  invoiceSeq            Int           @unique @default(dbgenerated("nextval('\"invoice_number_seq\"'::regclass)"))
+  invoiceNumber         String        @unique
+  totalAmount           Decimal       @db.Decimal(10, 3)
+  paidAmount            Decimal       @default(0) @db.Decimal(10, 3)
+  remainingAmount       Decimal       @default(0) @db.Decimal(10, 3)
+  status                InvoiceStatus @default(DRAFT)
+  isLocked              Boolean       @default(false)
+  parentInvoiceId       String?
+  notes                 String?
+  issuedAt              DateTime?
+  closedAt              DateTime?
+  creditOrigin          CreditOrigin?
   reversesInvoiceLineId String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 
-  financialCase                 FinancialCase         @relation(fields: [financialCaseId], references: [id])
-  job                           Job?                  @relation(fields: [jobId], references: [id])
-  order                         Order?                @relation(fields: [orderId], references: [id])
-  booking                       Booking?              @relation(fields: [bookingId], references: [id])
-  customer                      Customer              @relation(fields: [customerId], references: [id])
-  parentInvoice                 Invoice?              @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
-  adjustments                   Invoice[]             @relation("InvoiceAdjustments")
-  payments                      Payment[]
-  lineItems                     InvoiceLineItem[]
-  lockSnapshots                 InvoiceLockSnapshot[]
-  documentApplicationsAsSource  DocumentApplication[] @relation("DocumentApplicationSource")
-  documentApplicationsAsTarget  DocumentApplication[] @relation("DocumentApplicationTarget")
-  paymentAllocations            PaymentAllocation[]
-  orderCommitDocuments          OrderCommitDocument[] @relation("OrderCommitDocumentInvoice")
-  reversesInvoiceLine           InvoiceLineItem?      @relation("CreditNoteReversedLine", fields: [reversesInvoiceLineId], references: [id], onDelete: SetNull)
+  financialCase                FinancialCase         @relation(fields: [financialCaseId], references: [id])
+  job                          Job?                  @relation(fields: [jobId], references: [id])
+  order                        Order?                @relation(fields: [orderId], references: [id])
+  booking                      Booking?              @relation(fields: [bookingId], references: [id])
+  customer                     Customer              @relation(fields: [customerId], references: [id])
+  parentInvoice                Invoice?              @relation("InvoiceAdjustments", fields: [parentInvoiceId], references: [id])
+  adjustments                  Invoice[]             @relation("InvoiceAdjustments")
+  payments                     Payment[]
+  lineItems                    InvoiceLineItem[]
+  lockSnapshots                InvoiceLockSnapshot[]
+  documentApplicationsAsSource DocumentApplication[] @relation("DocumentApplicationSource")
+  documentApplicationsAsTarget DocumentApplication[] @relation("DocumentApplicationTarget")
+  paymentAllocations           PaymentAllocation[]
+  orderCommitDocuments         OrderCommitDocument[] @relation("OrderCommitDocumentInvoice")
+  reversesInvoiceLine          InvoiceLineItem?      @relation("CreditNoteReversedLine", fields: [reversesInvoiceLineId], references: [id], onDelete: SetNull)
 
   @@unique([id, financialCaseId])
   @@index([financialCaseId])
@@ -1003,8 +1042,8 @@ model InvoiceLineItem {
   causeOrderEntityId   String?
   createdAt            DateTime         @default(now())
 
-  invoice              Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  documentApplications DocumentApplication[]
+  invoice               Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  documentApplications  DocumentApplication[]
   reversedByCreditNotes Invoice[]             @relation("CreditNoteReversedLine")
 
   @@unique([invoiceId, sortOrder])
@@ -1046,16 +1085,16 @@ model Payment {
 }
 
 model DocumentApplication {
-  id                  String   @id @default(cuid())
-  sourceInvoiceId     String   @map("source_invoice_id")
-  targetInvoiceId     String   @map("target_invoice_id")
-  targetInvoiceLineId String?  @map("target_invoice_line_id")
+  id                  String                  @id @default(cuid())
+  sourceInvoiceId     String                  @map("source_invoice_id")
+  targetInvoiceId     String                  @map("target_invoice_id")
+  targetInvoiceLineId String?                 @map("target_invoice_line_id")
   kind                DocumentApplicationKind
-  amountApplied       Decimal  @map("amount_applied") @db.Decimal(10, 3)
-  appliedAt           DateTime @default(now()) @map("applied_at")
-  appliedByUserId     String?  @map("applied_by_user_id")
+  amountApplied       Decimal                 @map("amount_applied") @db.Decimal(10, 3)
+  appliedAt           DateTime                @default(now()) @map("applied_at")
+  appliedByUserId     String?                 @map("applied_by_user_id")
   notes               String?
-  createdAt           DateTime @default(now()) @map("created_at")
+  createdAt           DateTime                @default(now()) @map("created_at")
 
   sourceInvoice     Invoice          @relation("DocumentApplicationSource", fields: [sourceInvoiceId], references: [id])
   targetInvoice     Invoice          @relation("DocumentApplicationTarget", fields: [targetInvoiceId], references: [id])
