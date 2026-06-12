@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 import {
   Aperture,
   BarChart2,
@@ -33,20 +32,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSidebarCollapse } from "./sidebar-collapse-provider";
 
 interface SidebarProps {
   showProductionLink: boolean;
   showProductsLink: boolean;
-  defaultCollapsed?: boolean;
 }
-
-// Persisted in a cookie (not localStorage) so the server can read it during
-// SSR and render the correct width on first paint. AppShell is mounted per
-// route-section layout, so the sidebar remounts on every cross-section
-// navigation; without an SSR-known initial value it would flash expanded for a
-// frame before a post-mount read re-collapsed it. The cookie removes that flash.
-export const SIDEBAR_COLLAPSED_COOKIE = "studio-os.sidebar-collapsed";
-const SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 const NAV_SECTIONS = [
   {
@@ -86,31 +77,12 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-function persistSidebarCollapsedCookie(collapsed: boolean) {
-  if (typeof document === "undefined") return;
-
-  document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${collapsed}; path=/; max-age=${SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
-}
-
 export function Sidebar({
   showProductionLink,
   showProductsLink,
-  defaultCollapsed = false,
 }: SidebarProps) {
   const pathname = usePathname();
-  // Seeded from the SSR-read cookie so server and first client render agree —
-  // no post-mount correction, no hydration mismatch, no expand→collapse flash.
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-
-  function toggleCollapsed() {
-    setCollapsed((current) => {
-      const next = !current;
-
-      persistSidebarCollapsedCookie(next);
-
-      return next;
-    });
-  }
+  const { collapsed, toggleCollapsed } = useSidebarCollapse();
 
   const navSections = NAV_SECTIONS.map((section, index) => {
     if (index === 1 && showProductsLink) {
@@ -226,33 +198,26 @@ export function Sidebar({
                   </>
                 );
 
-                if (collapsed) {
-                  return (
-                    <Tooltip key={item.href}>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={item.href}
-                          aria-label={item.label}
-                          className={linkClassName}
-                          onClick={() => persistSidebarCollapsedCookie(true)}
-                        >
-                          {linkContent}
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">{item.label}</TooltipContent>
-                    </Tooltip>
-                  );
-                }
-
-                return (
+                const link = (
                   <Link
-                    key={item.href}
                     href={item.href}
+                    aria-label={collapsed ? item.label : undefined}
                     className={linkClassName}
                   >
                     {linkContent}
                   </Link>
                 );
+
+                if (collapsed) {
+                  return (
+                    <Tooltip key={item.href}>
+                      <TooltipTrigger asChild>{link}</TooltipTrigger>
+                      <TooltipContent side="right">{item.label}</TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                return <div key={item.href}>{link}</div>;
               })}
             </div>
           ))}
