@@ -93,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **Isolated test DB guard** — Hardened `withIsolatedBackendInvariantSchema` against early `@/lib/db` singleton imports and moved DB-backed order-commit helper imports inside isolated callbacks.
 - **173** — Reworked Sales into the single-view fixed shell skeleton: pinned phone-led header, route-local partial-scroll layout, left composition panel, and independent right financial column while preserving existing Sales functionality.
 - **172** — Moved authenticated app sections under one protected route-group shell so `AppShell`, topbar, sidebar, and collapse state persist across cross-section navigation without URL changes.
 - **171 persistent-state follow-up** — Moved live sidebar collapse state into a root-level provider seeded from the cookie, so per-section AppShell remounts and sidebar Link navigation preserve collapsed state.

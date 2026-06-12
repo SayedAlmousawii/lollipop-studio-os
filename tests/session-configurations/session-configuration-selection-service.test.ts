@@ -17,10 +17,6 @@ import {
   UserRole,
 } from "@prisma/client";
 import { OrderCommitDraftActiveError } from "@/modules/orders/order.errors";
-import {
-  commitOrderEditForTest,
-  removeOrderAddOnChange,
-} from "../order-commits/helpers/commit-order-edit";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -60,6 +56,10 @@ test("session configuration selection service writes full package sets with fres
       } = await import(
         "@/modules/session-configurations/session-configuration-selection.service"
       );
+      const {
+        commitOrderEditForTest,
+        removeOrderAddOnChange,
+      } = await import("../order-commits/helpers/commit-order-edit");
       const fixture = await createFixture(db);
 
       const firstWrite = await writeOrderPackageSelections(

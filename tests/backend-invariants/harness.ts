@@ -3,9 +3,11 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { Client } from "pg";
 
 const DEFAULT_PRISMA_COMMAND_TIMEOUT_MS = 300_000;
+const requireForCache = createRequire(import.meta.url);
 
 function getBaseDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL;
@@ -36,6 +38,18 @@ function runPrismaCommand(args: string[], databaseUrl: string) {
   });
 }
 
+function assertAppDbClientNotLoaded(): void {
+  const dbModulePath = requireForCache.resolve("@/lib/db");
+  if (requireForCache.cache[dbModulePath]) {
+    throw new Error(
+      [
+        "withIsolatedBackendInvariantSchema requires @/lib/db to be imported only after the isolated DATABASE_URL is active.",
+        "Move DB-backed service/helper imports inside the isolated-schema callback, after setting process.env.DATABASE_URL.",
+      ].join(" ")
+    );
+  }
+}
+
 async function assertDatabaseUrlUsesSchema(databaseUrl: string, schemaName: string): Promise<void> {
   const client = new Client({ connectionString: databaseUrl });
 
@@ -51,6 +65,8 @@ async function assertDatabaseUrlUsesSchema(databaseUrl: string, schemaName: stri
 export async function withIsolatedBackendInvariantSchema<T>(
   run: (databaseUrl: string) => Promise<T>
 ): Promise<T> {
+  assertAppDbClientNotLoaded();
+
   const baseDatabaseUrl = getBaseDatabaseUrl();
   const schemaName = `backend_invariants_${randomUUID().replace(/-/g, "")}`;
   const isolatedDatabaseUrl = buildSchemaDatabaseUrl(baseDatabaseUrl, schemaName);

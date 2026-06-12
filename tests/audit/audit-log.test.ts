@@ -11,11 +11,6 @@ import {
   PaymentType,
   UserRole,
 } from "@prisma/client";
-import {
-  addOrderAddOnChange,
-  commitOrderEditForTest,
-  removeOrderAddOnChange,
-} from "../order-commits/helpers/commit-order-edit";
 import { withIsolatedBackendInvariantSchema } from "../backend-invariants/harness";
 
 type ModuleLoader = (
@@ -46,11 +41,17 @@ test("AuditLog records co-transactional financial and booking actions", async (t
         { seedPhaseBFixtures, buildFinalInvoiceWorkflowFixture, buildLockedFinalInvoiceWorkflowFixture },
         { recordPayment },
         { recordAuditLog },
+        {
+          addOrderAddOnChange,
+          commitOrderEditForTest,
+          removeOrderAddOnChange,
+        },
       ] = await Promise.all([
         import("@/lib/db"),
         import("../financial-phase-b/fixtures"),
         import("@/modules/payments/payment.service"),
         import("@/modules/audit/audit-log.service"),
+        import("../order-commits/helpers/commit-order-edit"),
       ]);
 
       const fixtures = await seedPhaseBFixtures(db);
