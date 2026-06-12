@@ -6,15 +6,23 @@
   overflow: hidden;
 }
 
+.leftColumn {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .compositionPanel {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   gap: 1.25rem;
   min-height: 0;
-  min-width: 0;
   overflow-y: auto;
-  padding-right: 0.25rem;
+  padding: 1rem 0.25rem 0 0;
 }
 
 .financialSidebar {
@@ -33,12 +41,20 @@
     overflow-y: auto;
   }
 
+  .leftColumn,
   .compositionPanel,
   .financialSidebar {
     flex: 0 0 auto;
     min-height: auto;
-    overflow-y: visible;
-    padding-right: 0;
     width: 100%;
+  }
+
+  .leftColumn,
+  .compositionPanel {
+    overflow: visible;
+  }
+
+  .compositionPanel {
+    padding: 1rem 0 0;
   }
 }

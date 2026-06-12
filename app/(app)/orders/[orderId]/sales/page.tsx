@@ -32,6 +32,7 @@ import {
   createOrderCommitSalesCompositionHandlers,
 } from "@/modules/order-commits/sales-staging-handler-adapter";
 import styles from "./sales-page.module.css";
+import { SalesWorkspaceHeader } from "./sales-workspace-header";
 
 export default async function SalesPage(
   props: PageProps<"/orders/[orderId]/sales">
@@ -90,40 +91,43 @@ export default async function SalesPage(
 
   return (
     <div className={styles.salesGrid}>
-      <main className={styles.compositionPanel}>
-        <SalesDraftOwnershipBanner
-          orderId={workspace.orderId}
-          ownership={salesPageView.ownership}
-        />
-        <POSPackageComposition
-          workspace={workspace}
-          composition={salesPageView.composition}
-          handlers={compositionHandlers}
-          editPolicies={packageEditPolicies}
-          configurePanelMode="commit-staging"
-          expectedVersion={salesPageView.draft?.version ?? 0}
-        />
-        <POSPhotoCountCard
-          workspace={workspace}
-          composition={salesPageView.composition}
-          handlers={compositionHandlers}
-          editPolicies={packageEditPolicies}
-        />
-        <POSAddOnMarketplace
-          workspace={workspace}
-          marketplace={addOnMarketplace}
-          handlers={addOnHandlers}
-          editPolicies={addOnEditPolicies}
-        />
-        <SalesStagedCommitControls
-          orderId={workspace.orderId}
-          draft={salesPageView.draft}
-          preview={salesPageView.preview}
-          stagedChanges={salesPageView.stagedChanges}
-          financialPreview={salesPageView.financialPreview}
-          ownership={salesPageView.ownership}
-        />
-      </main>
+      <div className={styles.leftColumn}>
+        <SalesWorkspaceHeader workspace={workspace} />
+        <main className={styles.compositionPanel}>
+          <SalesDraftOwnershipBanner
+            orderId={workspace.orderId}
+            ownership={salesPageView.ownership}
+          />
+          <POSPackageComposition
+            workspace={workspace}
+            composition={salesPageView.composition}
+            handlers={compositionHandlers}
+            editPolicies={packageEditPolicies}
+            configurePanelMode="commit-staging"
+            expectedVersion={salesPageView.draft?.version ?? 0}
+          />
+          <POSPhotoCountCard
+            workspace={workspace}
+            composition={salesPageView.composition}
+            handlers={compositionHandlers}
+            editPolicies={packageEditPolicies}
+          />
+          <POSAddOnMarketplace
+            workspace={workspace}
+            marketplace={addOnMarketplace}
+            handlers={addOnHandlers}
+            editPolicies={addOnEditPolicies}
+          />
+          <SalesStagedCommitControls
+            orderId={workspace.orderId}
+            draft={salesPageView.draft}
+            preview={salesPageView.preview}
+            stagedChanges={salesPageView.stagedChanges}
+            financialPreview={salesPageView.financialPreview}
+            ownership={salesPageView.ownership}
+          />
+        </main>
+      </div>
       <OrderCommitFinancialSidebar
         workspace={workspace}
         financialPreview={salesPageView.financialPreview}

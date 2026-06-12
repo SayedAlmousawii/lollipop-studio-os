@@ -15,6 +15,10 @@ const stylesSource = readFileSync(
   "app/(app)/orders/[orderId]/sales/sales-page.module.css",
   "utf8"
 );
+const salesWorkspaceHeaderSource = readFileSync(
+  "app/(app)/orders/[orderId]/sales/sales-workspace-header.tsx",
+  "utf8"
+);
 const stagedControlsSource = readFileSync(
   "src/components/orders/sales-staged-commit-controls.tsx",
   "utf8"
@@ -55,21 +59,35 @@ const ORDER_COMMIT_SALES_SURFACE_FILES = [
 test("Sales route owns the fixed shell and bypasses PageContainer", () => {
   assert.doesNotMatch(layoutSource, /PageContainer/);
   assert.match(layoutSource, /className="flex h-full flex-col overflow-hidden bg-background"/);
-  assert.match(layoutSource, /<header className="flex-shrink-0/);
-  assert.match(layoutSource, /<h1[\s\S]*\{workspace\.customerPhone\}[\s\S]*<\/h1>/);
-  assert.match(layoutSource, /Job \{workspace\.jobNumber\}/);
-  assert.match(layoutSource, /\{workspace\.orderStatus\}/);
-  assert.match(layoutSource, /\{workspace\.sessionDate\}/);
-  assert.match(layoutSource, /workspace\.photographerName \?/);
+  assert.match(layoutSource, /className="min-h-0 flex-1 overflow-hidden px-4 py-4 sm:px-6"/);
+  assert.doesNotMatch(layoutSource, /getPOSWorkspace/);
+  assert.doesNotMatch(layoutSource, /notFound/);
+  assert.doesNotMatch(layoutSource, /<header/);
   assert.doesNotMatch(layoutSource, /Sales Workspace/);
+});
+
+test("Sales workspace header is pinned inside the left column only", () => {
+  assert.match(pageSource, /import \{ SalesWorkspaceHeader \} from "\.\/sales-workspace-header"/);
+  assert.match(salesViewSource, /<div className=\{styles\.leftColumn\}>\s*<SalesWorkspaceHeader workspace=\{workspace\} \/>\s*<main className=\{styles\.compositionPanel\}>/);
+  assert.match(salesViewSource, /<\/main>\s*<\/div>\s*<OrderCommitFinancialSidebar/);
+  assert.match(salesWorkspaceHeaderSource, /<header className="flex-shrink-0/);
+  assert.doesNotMatch(salesWorkspaceHeaderSource, /<header[^>]+bg-surface/);
+  assert.match(salesWorkspaceHeaderSource, /<h1[\s\S]*\{workspace\.customerPhone\}[\s\S]*<\/h1>/);
+  assert.match(salesWorkspaceHeaderSource, /Job \{workspace\.jobNumber\}/);
+  assert.match(salesWorkspaceHeaderSource, /\{workspace\.orderStatus\}/);
+  assert.match(salesWorkspaceHeaderSource, /\{workspace\.sessionDate\}/);
+  assert.match(salesWorkspaceHeaderSource, /workspace\.photographerName \?/);
+  assert.doesNotMatch(salesWorkspaceHeaderSource, /Sales Workspace/);
   assert.doesNotMatch(layoutSource, /sessionType/i);
 });
 
 test("Sales page delegates scroll to left and right shell regions", () => {
+  assert.match(salesViewSource, /<div className=\{styles\.leftColumn\}>/);
   assert.match(salesViewSource, /<main className=\{styles\.compositionPanel\}>/);
   assert.match(salesViewSource, /className=\{styles\.financialSidebar\}/);
   assert.match(stylesSource, /\.salesGrid \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
-  assert.match(stylesSource, /\.compositionPanel \{[\s\S]*flex: 1 1 auto;[\s\S]*min-height: 0;[\s\S]*min-width: 0;[\s\S]*overflow-y: auto;/);
+  assert.match(stylesSource, /\.leftColumn \{[\s\S]*flex: 1 1 auto;[\s\S]*flex-direction: column;[\s\S]*min-height: 0;[\s\S]*min-width: 0;[\s\S]*overflow: hidden;/);
+  assert.match(stylesSource, /\.compositionPanel \{[\s\S]*flex: 1 1 auto;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;/);
   assert.match(stylesSource, /\.financialSidebar \{[\s\S]*flex: 0 0 380px;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;[\s\S]*width: 380px;/);
   assert.match(stylesSource, /@media \(max-width: 767px\)/);
 });
