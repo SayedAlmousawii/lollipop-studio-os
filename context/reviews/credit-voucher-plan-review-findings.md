@@ -31,8 +31,10 @@ This is a **Postgres schema/service discipline**, not an integration decision. D
 
 ## 🟠 Medium
 
-### M1 — Non-cash credit-issuance Payment collides with cash reconciliation  ⟶ OPEN
-Issuance settles the REFUND invoice with a `Payment(direction=OUT, method=credit-issuance)`. `caseNetCashOverpayment` sums OUT payments **by direction, no method filter** → it subtracts this non-cash 20, and the **nightly cash reconciliation** may flag a discrepancy (an OUT payment exists but the till never decreased). `customer-credit-plan.md §9` flags "exclude from cash-out reporting" but not the **capacity-math + reconciliation-invariant** interaction. **Define how the non-cash method is treated by `caseNetCashOverpayment` and the reconciliation runner.**
+### M1 — Non-cash credit-issuance Payment: reconciliation + "synthetic payment" smell  ⟶ OPEN
+Issuance settles the REFUND invoice with a `Payment(direction=OUT, method=credit-issuance)`. Two problems:
+1. **Reconciliation:** `caseNetCashOverpayment` sums OUT payments **by direction, no method filter** → it subtracts this non-cash 20, and the **nightly cash reconciliation** may flag a discrepancy (an OUT payment exists but the till never decreased). `customer-credit-plan.md §9` flags "exclude from cash-out reporting" but not the **capacity-math + reconciliation-invariant** interaction.
+2. **Synthetic-payment smell (raised by the accounting-ledger investigation + master-plan principle #2 "no synthetic ledger-only payments"):** a fake Payment posts a meaningless Dr/Cr. The ledger-clean model treats credit issuance as its **own document/event** (`Dr contra-revenue/clearing, Cr customer-credit-liability`, §9.6), not a settlement payment. **Reconsider whether issuance should avoid the synthetic Payment entirely** in favour of a distinct credit-issuance record that the REFUND invoice closes against.
 
 ### M2 — DEPOSIT→FINAL credit for a voucher-funded deposit  ⟶ OPEN
 At attendance the deposit "credits to FINAL (existing DEPOSIT→FINAL `DocumentApplication`)." That mechanic must credit the deposit's **effective** settlement (the `ValueApplication`), not a cash `paidAmount`. If the existing deposit→final logic reads cash payments only, a voucher-funded deposit credits 0 to FINAL. **Verify/extend the deposit→final credit source.**
@@ -67,6 +69,23 @@ Sits ACTIVE/0; enum has no `DEPLETED`/`REDEEMED`. Already flagged in the voucher
 
 ### L5 — FIFO tiebreak + partial-VOID semantics  ⟶ OPEN
 Customer-credit FIFO needs a tiebreak for equal `expiresAt` (e.g. `createdAt`). Partial-VOID of a partially-spent credit (void only the remaining) is unspecified. **Specify at spec time.**
+
+---
+
+## 🟣 Ledger-readiness — GL PLAN DEFERRED (revisit only after the product is 100% done)
+
+The accounting-ledger investigation (`studio-os-accounting-ledger-architecture-investigation.md`) was a **sanity check only**; the owner has **deferred any GL/journal work** until the full software is complete (decided 2026-06-12). The purely ledger-motivated item below is **PARKED**. The two items that have **standalone value** (independent of any ledger) are kept and re-scoped — they survive on consistency/audit/existing-principle grounds, not because of the GL.
+
+### LR1 — Customer credit needs a `CustomerCreditEvent` table for non-application events  ⟶ OPEN (standalone: audit/breakage)
+Vouchers have `VoucherEvent`; **customer credit has no equivalent** for non-application events (issuance reason, **no-show forfeit**, **expiry breakage**, void). Needed for audit + breakage tracking (M5) regardless of any ledger. *(Ledger "posting-compatible" framing dropped; the audit/breakage need stands.)*
+
+### LR2 — Customer-credit `remainingAmount` should be a DERIVED cache, not a mutated counter  ⟶ OPEN (standalone: consistency/correctness)
+`customer-credit-plan.md §3` describes `remainingAmount` as "decremented by applications" (mutation language) — inconsistent with the voucher plan's explicitly-derived `currentBalance` and with the existing codebase pattern (invoices derive `paidAmount` from allocations). **Reframe as `remainingAmount = originalAmount − Σ ValueApplication.amountDrawn`, a cache never mutated without a typed row.** Stands on its own as a consistency/correctness fix.
+
+### LR3 — Unified stored-value model vs separate instruments  ⟶ PARKED (ledger-only)
+The investigation floated one `StoredValueInstrument` vs our separate tables + shared `ValueApplication`. This was purely a GL-mapping consideration; with the ledger deferred, our separate-instruments design is fine and this is **parked**.
+
+> Note: **M1's "synthetic-payment" concern is NOT ledger-dependent** — master-plan principle #2 ("no synthetic ledger-only payments") already forbids fake payments today. That half of M1 stands; only the "model it as a journal posting" alternative is parked.
 
 ---
 
