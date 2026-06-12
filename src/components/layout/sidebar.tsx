@@ -86,6 +86,12 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
+function persistSidebarCollapsedCookie(collapsed: boolean) {
+  if (typeof document === "undefined") return;
+
+  document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${collapsed}; path=/; max-age=${SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
+}
+
 export function Sidebar({
   showProductionLink,
   showProductsLink,
@@ -100,9 +106,7 @@ export function Sidebar({
     setCollapsed((current) => {
       const next = !current;
 
-      if (typeof document !== "undefined") {
-        document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${next}; path=/; max-age=${SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
-      }
+      persistSidebarCollapsedCookie(next);
 
       return next;
     });
@@ -206,40 +210,48 @@ export function Sidebar({
               {section.items.map((item) => {
                 const active = isActive(pathname, item.href);
                 const Icon = item.icon;
-                const link = (
-                  <Link
-                    href={item.href}
-                    aria-label={collapsed ? item.label : undefined}
-                    className={cn(
-                      "flex items-center rounded-md text-sm transition-colors",
-                      collapsed
-                        ? "h-10 justify-center px-0"
-                        : "gap-2.5 px-3 py-2",
-                      active
-                        ? "bg-sidebar-active-bg font-medium text-primary"
-                        : "text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
-                    )}
-                  >
+                const linkClassName = cn(
+                  "flex items-center rounded-md text-sm transition-colors",
+                  collapsed ? "h-10 justify-center px-0" : "gap-2.5 px-3 py-2",
+                  active
+                    ? "bg-sidebar-active-bg font-medium text-primary"
+                    : "text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
+                );
+                const linkContent = (
+                  <>
                     <Icon className="h-4 w-4 flex-shrink-0" />
                     <span className={cn(collapsed && "sr-only")}>
                       {item.label}
                     </span>
-                  </Link>
+                  </>
                 );
 
                 if (collapsed) {
                   return (
                     <Tooltip key={item.href}>
-                      <TooltipTrigger asChild>{link}</TooltipTrigger>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={item.href}
+                          aria-label={item.label}
+                          className={linkClassName}
+                          onClick={() => persistSidebarCollapsedCookie(true)}
+                        >
+                          {linkContent}
+                        </a>
+                      </TooltipTrigger>
                       <TooltipContent side="right">{item.label}</TooltipContent>
                     </Tooltip>
                   );
                 }
 
                 return (
-                  <div key={item.href}>
-                    {link}
-                  </div>
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={linkClassName}
+                  >
+                    {linkContent}
+                  </Link>
                 );
               })}
             </div>
