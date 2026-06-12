@@ -1,15 +1,15 @@
 "use client";
 
-import { useActionState } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   ArrowRightLeft,
+  ChevronDown,
+  ChevronRight,
   CircleCheck,
   Lock,
   Monitor,
   Package2,
-  PackageOpen,
   Printer,
   Tags,
 } from "lucide-react";
@@ -91,129 +91,214 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
   const packagePriceTotal = composition.totals.packageBaseTotal;
 
   return (
-    <Card id="package-composition">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <PackageOpen className="h-4 w-4 text-accent" />
-          Package Composition
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <PolicyNotice policy={editPolicies.packageTierChange} />
+    <section id="package-composition" className="space-y-4">
+      <h2 className="sr-only">Package Composition</h2>
+      <PolicyNotice policy={editPolicies.packageTierChange} />
 
-        <div className="space-y-4">
-          {composition.packageLines.map((line) => {
-            const workspaceLine = workspaceLineById.get(line.orderPackageId);
-            if (process.env.NODE_ENV !== "production" && !workspaceLine) {
-              console.error(
-                `[POSPackageComposition] projected line ${line.orderPackageId} has no matching workspace line`
-              );
-            }
-            return (
-            <div key={line.id} className="space-y-4 rounded-md border border-border p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-medium text-text-primary">
-                    {line.packageName}
-                  </p>
-                  <p className="text-sm text-text-secondary">
-                    {line.sessionTypeName} · {line.includedPhotoCount} included photos · {formatMoney(line.packagePrice)}
-                  </p>
-                </div>
-                {workspaceLine ? (
-                  <>
-                    <PackageUpgradeDialog
-                      line={workspaceLine}
-                      handlers={handlers}
-                      policy={editPolicies.packageTierChange}
-                    />
-                    <ConfigureSessionPanel
-                      key={configureSessionPanelKey({
-                        mode: configurePanelMode,
-                        line: workspaceLine,
-                        expectedVersion:
-                          commitStagingVersion ?? undefined,
-                      })}
-                      orderId={workspace.orderId}
-                      orderPackageId={workspaceLine.id}
-                      packageName={line.packageName}
-                      sessionTypeName={line.sessionTypeName ?? workspaceLine.sessionTypeName}
-                      mode={
-                        commitStagingVersion !== null
-                            ? {
-                                kind: "commit-staging",
-                                expectedVersion: commitStagingVersion,
-                              }
-                          : editPolicies.sessionConfigurationFinancialEdit
-                                .mode === "locked"
-                            ? { kind: "locked" }
-                            : { kind: "draft" }
-                      }
-                      editPolicies={{
-                        operational:
-                          editPolicies.sessionConfigurationOperationalEdit,
-                        financial: editPolicies.sessionConfigurationFinancialEdit,
-                      }}
-                      availableConfigurations={workspaceLine.availableConfigurations}
-                      currentSelections={workspaceLine.currentSelections}
-                    />
-                  </>
-                ) : null}
-              </div>
-              {workspaceLine &&
-              (workspaceLine.sessionConfigurationSummary.length > 0 ||
-                workspaceLine.missingRequiredConfigurationCodes.length > 0) ? (
-                <div className="space-y-2">
-                  <ConfigurationSummaryChip
-                    summary={workspaceLine.sessionConfigurationSummary}
-                    subtotal={workspaceLine.sessionConfigurationSubtotal}
-                  />
-                  <ConfigurationMissingRequiredBadge
-                    missingRequiredConfigurationCodes={
-                      workspaceLine.missingRequiredConfigurationCodes
-                    }
-                    availableConfigurations={workspaceLine.availableConfigurations}
-                  />
-                </div>
-              ) : null}
+      <div className="space-y-4">
+        {composition.packageLines.map((line, index) => {
+          const workspaceLine = workspaceLineById.get(line.orderPackageId);
+          if (process.env.NODE_ENV !== "production" && !workspaceLine) {
+            console.error(
+              `[POSPackageComposition] projected line ${line.orderPackageId} has no matching workspace line`
+            );
+          }
 
-              <div className="grid gap-3 md:grid-cols-2">
-                {line.packageItems.map((item) => (
-                  <DeliverableCard
-                    key={item.id}
-                    item={item}
-                    orderPackageId={line.orderPackageId}
-                    productOptions={workspace.productOptions}
-                    handlers={handlers}
-                    policy={editPolicies.packageItemUpgrade}
-                  />
-                ))}
-                {line.packageItems.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
-                    Structured package deliverables will appear here when available.
-                  </div>
-                ) : null}
-              </div>
-            </div>
+          return (
+            <PackageCompositionCard
+              key={line.id}
+              line={line}
+              workspace={workspace}
+              workspaceLine={workspaceLine ?? null}
+              handlers={handlers}
+              editPolicies={editPolicies}
+              configurePanelMode={configurePanelMode}
+              commitStagingVersion={commitStagingVersion}
+              defaultOpen={index === 0}
+            />
           );
-          })}
-          {composition.packageLines.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
-              Structured package deliverables will appear here when available.
+        })}
+        {composition.packageLines.length === 0 ? (
+          <div className="rounded-[14px] border border-dashed border-border bg-surface p-5 text-sm text-text-secondary">
+            Structured package deliverables will appear here when available.
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-2 border-t border-border pt-4 text-sm">
+        <MoneyLine
+          label="Package price"
+          value={formatMoney(packagePriceTotal)}
+          strong
+        />
+      </div>
+    </section>
+  );
+}
+
+function PackageCompositionCard({
+  line,
+  workspace,
+  workspaceLine,
+  handlers,
+  editPolicies,
+  configurePanelMode,
+  commitStagingVersion,
+  defaultOpen,
+}: {
+  line: POSCompositionPackageLineProjection;
+  workspace: POSWorkspace;
+  workspaceLine: POSPackageLine | null;
+  handlers: POSCompositionHandlers;
+  editPolicies: POSPackageCompositionEditPolicies;
+  configurePanelMode: "auto" | "commit-staging";
+  commitStagingVersion: number | null;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const tierLabel = packageTierLabel(line.packageName);
+  const sessionLabel =
+    line.sessionTypeName ?? workspaceLine?.sessionTypeName ?? "Session";
+  const includedItemsLabel = `${line.packageItems.length} included ${
+    line.packageItems.length === 1 ? "item" : "items"
+  }`;
+
+  function toggleOpen() {
+    setOpen((current) => !current);
+  }
+
+  return (
+    <article className="overflow-hidden rounded-[14px] border border-border bg-surface">
+      <button
+        type="button"
+        className="flex w-full items-center gap-4 px-[18px] py-4 text-left"
+        aria-expanded={open}
+        onClick={toggleOpen}
+      >
+        <div className="flex h-[76px] w-[76px] shrink-0 items-end overflow-hidden rounded-[10px] border border-border bg-gradient-to-br from-accent-soft via-surface-soft to-surface p-2">
+          <span className="rounded-sm bg-accent px-2 py-1 text-[10px] font-semibold uppercase text-surface">
+            {tierLabel}
+          </span>
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[18px] font-semibold leading-snug text-text-primary">
+            {line.packageName}
+          </h3>
+          <p className="mt-1 truncate text-[13px] text-text-muted">
+            {sessionLabel} · {includedItemsLabel} · {workspace.sessionDate}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="text-[22px] font-semibold leading-none text-text-primary">
+            {formatMoney(line.packagePrice)}
+          </div>
+          <div className="mt-1 text-[11px] font-semibold uppercase text-text-muted">
+            BASE
+          </div>
+        </div>
+        <span className="shrink-0 text-text-muted" aria-hidden="true">
+          {open ? (
+            <ChevronDown className="h-[18px] w-[18px]" />
+          ) : (
+            <ChevronRight className="h-[18px] w-[18px]" />
+          )}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="space-y-[14px] px-[18px] pb-[18px]">
+          <div className="h-px bg-border" />
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {line.packageItems.map((item) => (
+              <DeliverableCard
+                key={item.id}
+                item={item}
+                orderPackageId={line.orderPackageId}
+                productOptions={workspace.productOptions}
+                handlers={handlers}
+                policy={editPolicies.packageItemUpgrade}
+              />
+            ))}
+            {line.packageItems.length === 0 ? (
+              <div className="rounded-[10px] border border-dashed border-border bg-surface-soft p-4 text-sm text-text-secondary md:col-span-2">
+                Structured package deliverables will appear here when available.
+              </div>
+            ) : null}
+          </div>
+
+          {workspaceLine &&
+          (workspaceLine.sessionConfigurationSummary.length > 0 ||
+            workspaceLine.missingRequiredConfigurationCodes.length > 0) ? (
+            <div className="space-y-2 rounded-[10px] border border-border bg-surface-soft p-3">
+              <ConfigurationSummaryChip
+                summary={workspaceLine.sessionConfigurationSummary}
+                subtotal={workspaceLine.sessionConfigurationSubtotal}
+              />
+              <ConfigurationMissingRequiredBadge
+                missingRequiredConfigurationCodes={
+                  workspaceLine.missingRequiredConfigurationCodes
+                }
+                availableConfigurations={workspaceLine.availableConfigurations}
+              />
+            </div>
+          ) : null}
+
+          {workspaceLine ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <PackageUpgradeDialog
+                line={workspaceLine}
+                handlers={handlers}
+                policy={editPolicies.packageTierChange}
+              />
+              <ConfigureSessionPanel
+                key={configureSessionPanelKey({
+                  mode: configurePanelMode,
+                  line: workspaceLine,
+                  expectedVersion: commitStagingVersion ?? undefined,
+                })}
+                orderId={workspace.orderId}
+                orderPackageId={workspaceLine.id}
+                packageName={line.packageName}
+                sessionTypeName={line.sessionTypeName ?? workspaceLine.sessionTypeName}
+                mode={
+                  commitStagingVersion !== null
+                    ? {
+                        kind: "commit-staging",
+                        expectedVersion: commitStagingVersion,
+                      }
+                    : editPolicies.sessionConfigurationFinancialEdit.mode ===
+                        "locked"
+                      ? { kind: "locked" }
+                      : { kind: "draft" }
+                }
+                editPolicies={{
+                  operational: editPolicies.sessionConfigurationOperationalEdit,
+                  financial: editPolicies.sessionConfigurationFinancialEdit,
+                }}
+                availableConfigurations={workspaceLine.availableConfigurations}
+                currentSelections={workspaceLine.currentSelections}
+              />
             </div>
           ) : null}
         </div>
-
-        <div className="space-y-2 border-t border-border pt-4 text-sm">
-          <MoneyLine
-            label="Package price"
-            value={formatMoney(packagePriceTotal)}
-            strong
-          />
-        </div>
-      </CardContent>
-    </Card>
+      ) : null}
+    </article>
   );
+}
+
+function packageTierLabel(packageName: string): string {
+  const words = packageName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return "PKG";
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
 }
 
 function configureSessionPanelKey(input: {

@@ -255,7 +255,7 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
 
   **Sales single-view — shell first, then surfaces:**
   - **B1 — Shell skeleton: SHIPPED by Spec 173.** Single view (no tabs), fixed shell / partial scroll, bypass `PageContainer`, header restyle, and left-panel + right-column region scaffolding now exist with existing Sales content re-homed.
-  - **B2 — Composition rows restyle:** left panel = collapsible package + add-on rows + dashed "+ add another…" CTA. **Functionally unchanged.** *(needs B1)*
+  - **B2 — Composition rows restyle: SHIPPED by Spec 174.** Left panel = collapsible package + add-on rows + dashed "+ add another…" CTA. **Functionally unchanged.**
   - **B3 — Right column:** receipt card + simplified financial card + context-aware commit area (commit/discard ↔ record-payment). *(needs B1)*
   - **B4 — Photos in-card:** per-package photo summary → modal (count + digital/print/split extras; today's `POSPhotoCountCard` behavior). **Its own spec.** *(needs B2)*
   - **B5 — Album in-card:** configure-album modal in package card (handles 2 albums) + standalone album rows. *(needs F1 + B2)*
