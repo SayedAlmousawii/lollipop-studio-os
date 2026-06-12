@@ -15,6 +15,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - **Spec 152 deferred:** retire `syncOrderInvoiceForFinancialEdit`; no production callers remain after Spec 151. See Open Follow-Ups.
 - **Financial-foundation sequence active:** Specs 153 F1, 154 B1, 155 B2, 157 B2C, 156 B3, 158 B4, 159 R0, 160 R1, 161 R2, 162 R3, 163 R4, 164, 165, 166, and 167 are implemented; the settlement arc is complete, paid and unpaid reversal credit carries as drawable REVERSAL credit, the application-kind taxonomy is collapsed, staff can refund eligible reversal/removal credit notes under the case cash ceiling, the accountant-facing register presents documents by class with credit-note availability semantics plus type/date/outstanding filters, and user-facing date display/filter boundaries use the studio timezone.
 - **Spec 168 implemented:** Booking session moments now persist as one UTC `sessionStartsAt` instant; booking form date/time picker values combine server-side, identifier years use the Kuwait calendar year, and calendar/order filters read studio-day boundaries from the instant.
+- **Spec 170 implemented:** Shared `Note` domain now exists as backend-only infrastructure for typed, order/package-scoped operational annotations.
 - **Active roadmap (gated):** `context/reviews/unified-order-commit-live-pos-roadmap.md`; Phases 1–6 complete; Phase 7 (polish/redesign/history/takeover) planned but **held behind the financial plans**. POS redesign planning lives in `context/reviews/pos-sales-redesign-planning.md`. Centralization R0–R12 fully archived.
 
 ## Key State
@@ -57,6 +58,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - OrderCommit draft package staging normalizes package-tier included-photo changes before snapshot validation: absent an explicit intended photo outcome, selected photos become at least the new included count, digital extras become zero, remaining extras become print, and absorbed extra-photo lines are removed.
 - Snapshot-derived Sales included-deliverable display is catalog-current, not commit-historical; Option B snapshot-embedded deliverables remains deferred unless commit-time deliverable fidelity becomes required.
 - `OrderAlbum` is an operational-only album domain: it carries no price, finishing fields write live without an OrderCommit draft guard, size/pages ride existing package/add-on staging, and backing-line ids remap during `commitOrderChanges`.
+- `Note` is the shared typed operational annotation domain: six kinds, order-level or package-scoped, live non-financial writes, `NOTE_ADDED` activity on create only, and legacy per-row `notes` fields coexist until later absorption.
 - OrderCommit draft domain staging now flows through `stageOrderCommitDraftChange`; the replacement snapshot is draft truth, the typed `SNAPSHOT_REPLACED` operation is history/UX metadata only, and package+explicit-photo composite staging is ordered package before photo.
 - Selected-photo totals are derived from `OrderPackage.selectedPhotoCount`; `Order.selectedPhotoCount` is a synchronized cache, not a read source.
 - Extra selected photos are stored per order package line as digital and print counts, priced from `SessionTypeExtraPhotoPricing`, emitted as per-line/per-media Final Invoice lines.
@@ -91,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **170** — Added the shared `Note` domain for typed order/package-scoped operational annotations with live CRUD writes, `NOTE_WRITE`, and `NOTE_ADDED` create activity.
 - **169** — Added the operational-only `OrderAlbum` domain, seeded the global Extra album page add-on, exposed album CRUD/finishing/extra-page helpers, and synced backing-line ids plus extra-page counts during OrderCommit execution.
 - **Pointer lock UI fix** — Dropdown-launched booking/customer dialogs now open after their menus close, and a root route-change guard clears only stale body pointer-event locks when no Radix layer is open.
 - **168** — Replaced split Booking `sessionDate`/`sessionTime` storage with UTC `sessionStartsAt`, added studio wall-clock/input/time helpers, moved session displays/filters/calendar to the instant, and fixed Kuwait-year identifier boundaries.
