@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
-import { closeInvoiceAction } from "@/app/invoices/actions";
+import { closeInvoiceAction } from "@/app/(app)/invoices/actions";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

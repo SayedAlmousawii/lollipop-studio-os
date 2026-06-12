@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   recordDepositAction,
   type RecordDepositActionState,
-} from "@/app/bookings/actions";
+} from "@/app/(app)/bookings/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

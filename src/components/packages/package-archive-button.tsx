@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   archivePackageAction,
   type PackageArchiveActionState,
-} from "@/app/packages/actions";
+} from "@/app/(app)/packages/actions";
 import { Button } from "@/components/ui/button";
 
 interface PackageArchiveButtonProps {

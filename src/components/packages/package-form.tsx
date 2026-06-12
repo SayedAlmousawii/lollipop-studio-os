@@ -9,7 +9,7 @@ import {
   updatePackage,
   type PackageActionState,
   type PackageFormValues,
-} from "@/app/packages/actions";
+} from "@/app/(app)/packages/actions";
 import {
   Dialog,
   DialogClose,

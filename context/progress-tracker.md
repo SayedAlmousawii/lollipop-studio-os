@@ -93,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **172** — Moved authenticated app sections under one protected route-group shell so `AppShell`, topbar, sidebar, and collapse state persist across cross-section navigation without URL changes.
 - **171 persistent-state follow-up** — Moved live sidebar collapse state into a root-level provider seeded from the cookie, so per-section AppShell remounts and sidebar Link navigation preserve collapsed state.
 - **171 nav-state follow-up** — Preserved collapsed sidebar state across collapsed rail nav clicks by avoiding stale prefetched shell payloads.
 - **171 flash fix** — Moved sidebar collapse persistence from localStorage to a cookie read server-side in `AppShell`, so the sidebar renders its correct width on first paint and no longer flashes expanded→collapsed on cross-section navigations (AppShell remounts per route-section layout).

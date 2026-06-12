@@ -7,7 +7,7 @@ import {
   updateSessionType,
   type SessionTypeActionState,
   type SessionTypeFormValues,
-} from "@/app/session-types/actions";
+} from "@/app/(app)/session-types/actions";
 import { Button } from "@/components/ui/button";
 import { DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

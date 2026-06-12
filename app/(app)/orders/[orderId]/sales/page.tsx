@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { stageSalesChangeAction } from "@/app/orders/[orderId]/sales/actions";
+import { stageSalesChangeAction } from "@/app/(app)/orders/[orderId]/sales/actions";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { OrderCommitFinancialSidebar } from "@/components/orders/order-commit-financial-sidebar";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";

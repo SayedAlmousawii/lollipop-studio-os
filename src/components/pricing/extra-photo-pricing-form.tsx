@@ -6,7 +6,7 @@ import {
   updateExtraPhotoPricingAction,
   type ExtraPhotoPricingActionState,
   type ExtraPhotoPricingFormValues,
-} from "@/app/pricing/actions";
+} from "@/app/(app)/pricing/actions";
 import { Button } from "@/components/ui/button";
 import { DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

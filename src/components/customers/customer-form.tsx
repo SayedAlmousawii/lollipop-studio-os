@@ -7,7 +7,7 @@ import {
   createCustomer,
   updateCustomer,
   type CustomerActionState,
-} from "@/app/customers/actions";
+} from "@/app/(app)/customers/actions";
 import { DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

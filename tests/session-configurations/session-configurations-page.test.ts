@@ -79,7 +79,7 @@ test("session configurations page filters archived rows and denies non-managers"
 
   try {
     const { default: SessionConfigurationsPage } = await import(
-      "@/app/session-configurations/page"
+      "@/app/(app)/session-configurations/page"
     );
     const activeElement = await SessionConfigurationsPage({
       searchParams: Promise.resolve({}),

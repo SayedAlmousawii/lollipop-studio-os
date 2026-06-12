@@ -21,7 +21,7 @@ import {
 import { toast } from "sonner";
 import {
   commitSalesChangesAction,
-} from "@/app/orders/[orderId]/sales/actions";
+} from "@/app/(app)/orders/[orderId]/sales/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

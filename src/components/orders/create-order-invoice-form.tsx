@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   createOrderInvoiceAction,
   type CreateOrderInvoiceActionState,
-} from "@/app/orders/[orderId]/actions";
+} from "@/app/(app)/orders/[orderId]/actions";
 import { Button } from "@/components/ui/button";
 
 export function CreateOrderInvoiceForm({

@@ -16,7 +16,7 @@ import {
   lookupDashboardSalesByCustomerId,
   lookupDashboardSalesByPhone,
   type DashboardPhoneLookupState,
-} from "@/app/(dashboard)/actions";
+} from "@/app/(app)/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InvoiceStatusBadge } from "@/components/orders/invoice-status-badge";

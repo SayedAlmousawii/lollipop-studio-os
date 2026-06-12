@@ -201,12 +201,12 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     isMain
   ) {
     if (request === "server-only") return {};
-    if (request === "@/app/orders/[orderId]/sales/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/sales/actions") {
       return {
         stageSessionConfigurationSelectionAction: async () => ({ kind: "success" }),
       };
     }
-    if (request === "@/app/orders/[orderId]/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/actions") {
       return {};
     }
     return originalModuleLoad.call(this, request, parent, isMain);

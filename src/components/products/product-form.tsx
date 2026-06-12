@@ -6,7 +6,7 @@ import {
   createProduct,
   updateProduct,
   type ProductActionState,
-} from "@/app/products/actions";
+} from "@/app/(app)/products/actions";
 import { DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

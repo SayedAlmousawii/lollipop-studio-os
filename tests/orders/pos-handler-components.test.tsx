@@ -428,14 +428,14 @@ test("POS composition components do not import sales server actions directly", (
   assert.equal(
     hasImportFrom(
       "src/components/orders/pos-package-composition.tsx",
-      "@/app/orders/[orderId]/sales/actions"
+      "@/app/(app)/orders/[orderId]/sales/actions"
     ),
     false
   );
   assert.equal(
     hasImportFrom(
       "src/components/orders/pos-add-on-marketplace.tsx",
-      "@/app/orders/[orderId]/sales/actions"
+      "@/app/(app)/orders/[orderId]/sales/actions"
     ),
     false
   );
@@ -565,12 +565,12 @@ async function withPOSComponentStubs<T>(callback: () => Promise<T>): Promise<T> 
     isMain
   ) {
     if (request === "server-only") return {};
-    if (request === "@/app/orders/[orderId]/sales/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/sales/actions") {
       return {
         stageSessionConfigurationSelectionAction: async () => ({ kind: "success" }),
       };
     }
-    if (request === "@/app/orders/[orderId]/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/actions") {
       return {};
     }
     return originalModuleLoad.call(this, request, parent, isMain);

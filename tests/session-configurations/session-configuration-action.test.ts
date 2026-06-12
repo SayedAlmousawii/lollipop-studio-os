@@ -58,7 +58,7 @@ test("session configuration create action parses nested options and revalidates 
 
   try {
     const { createSessionConfigurationAction } = await import(
-      "@/app/session-configurations/actions"
+      "@/app/(app)/session-configurations/actions"
     );
     const result = await createSessionConfigurationAction({}, formData({
       sessionTypeId: "session-type-1",

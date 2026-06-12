@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom";
 import {
   checkInBookingAction,
   type CheckInBookingActionState,
-} from "@/app/bookings/[bookingId]/actions";
+} from "@/app/(app)/bookings/[bookingId]/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

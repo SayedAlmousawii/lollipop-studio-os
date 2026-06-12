@@ -6,7 +6,7 @@ import {
   archiveSessionTypeAction,
   unarchiveSessionTypeAction,
   type SessionTypeArchiveActionState,
-} from "@/app/session-types/actions";
+} from "@/app/(app)/session-types/actions";
 import { Button } from "@/components/ui/button";
 
 export function SessionTypeArchiveButton({

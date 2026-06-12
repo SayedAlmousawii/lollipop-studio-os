@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { recordPaymentAction, type RecordPaymentActionState } from "@/app/invoices/actions";
+import { recordPaymentAction, type RecordPaymentActionState } from "@/app/(app)/invoices/actions";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";

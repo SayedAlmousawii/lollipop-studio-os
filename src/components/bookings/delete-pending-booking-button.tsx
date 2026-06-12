@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   deletePendingBookingAction,
   type DeletePendingBookingActionState,
-} from "@/app/bookings/actions";
+} from "@/app/(app)/bookings/actions";
 import { Button } from "@/components/ui/button";
 
 interface DeletePendingBookingButtonProps {

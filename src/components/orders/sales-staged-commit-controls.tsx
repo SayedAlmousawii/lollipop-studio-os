@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ClipboardList, RotateCcw } from "lucide-react";
 import {
   discardSalesDraftAction,
-} from "@/app/orders/[orderId]/sales/actions";
+} from "@/app/(app)/orders/[orderId]/sales/actions";
 import { OrderCommitReviewDialog } from "@/components/orders/order-commit-review-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

@@ -278,7 +278,7 @@ async function loadDialogModule(): Promise<DialogModule> {
     if (request === "sonner") {
       return { toast: { success: () => undefined } };
     }
-    if (request === "@/app/orders/[orderId]/sales/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/sales/actions") {
       return {
         commitSalesChangesAction: async () => ({ kind: "success" }),
       };

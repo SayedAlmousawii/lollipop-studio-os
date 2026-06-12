@@ -5,13 +5,9 @@ import { hasPermission, PERMISSIONS } from "@/lib/permissions";
 
 interface AppShellProps {
   children: React.ReactNode;
-  pageTitle?: string;
 }
 
-export async function AppShell({
-  children,
-  pageTitle = "Dashboard",
-}: AppShellProps) {
+export async function AppShell({ children }: AppShellProps) {
   const appUser = await requireCurrentAppUser();
 
   return (
@@ -24,7 +20,7 @@ export async function AppShell({
         )}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar pageTitle={pageTitle} />
+        <Topbar />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
