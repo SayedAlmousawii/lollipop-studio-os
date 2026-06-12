@@ -25,19 +25,19 @@ Build the **shell skeleton** for the single-view Sales redesign — Phase 7 / PO
 
 ### In Scope
 
-1. **Fixed-shell root + scroll ownership** (Sales `layout.tsx`, or a small client/server wrapper it renders):
+1. **Fixed-shell root + scroll ownership**:
    - Replace the `PageContainer` wrapper with a root that fills `<main>`: `h-full flex flex-col overflow-hidden`. This makes the Sales view own its height and internal scroll so `<main>` does not scroll.
-   - A **pinned header region** (`flex-shrink-0`) at the top (see #2).
-   - Below the header, a **content row** (`flex-1 min-h-0 flex`) holding the two columns:
-     - **Left composition panel** — `flex-1 min-w-0 min-h-0 overflow-y-auto` (the panel that scrolls).
-     - **Right glance column** — fixed width ~`380px` (per locked decision; current code uses 320px — widen to ~380), `min-h-0 overflow-y-auto` (scrolls independently if tall). Internal pinning of receipt vs financial vs commit (S-F) is **B3's** job; B1 just establishes the scrollable right region.
-   - Collapse to a single column on narrow widths (mirror the existing `@media (max-width: 767px)` behavior) so tablet width still works.
+   - **No full-width header band.** The app-wide `Topbar` already sits above the whole page; the Sales header belongs to the **left column only** (see #2). Do **not** put a header row spanning both columns at the top of the root.
+   - The root holds a single **content row** (`flex-1 min-h-0 flex`) with the two columns:
+     - **Left composition column** — a `flex flex-col min-w-0 min-h-0` column whose **top is the pinned Sales header** (`flex-shrink-0`, see #2) and whose **body is the scrolling composition panel** (`flex-1 min-h-0 overflow-y-auto`). The header stays put; only the composition body scrolls under it.
+     - **Right glance column** — fixed width ~`380px` (per locked decision; current code uses 320px — widen to ~380), `min-h-0 overflow-y-auto` (scrolls independently if tall), and **its top edge starts at the top of the content row — aligned with the Sales header's top, not below it** (in the mockup the right card's top lines up with the order breadcrumb). Internal pinning of receipt vs financial vs commit (S-F) is **B3's** job; B1 just establishes the scrollable right region.
+   - Collapse to a single column on narrow widths (mirror the existing `@media (max-width: 767px)` behavior) so tablet width still works. On collapse the header sits above the single stacked column, which is fine.
 
 2. **Header restyle** (replaces the current header card; planning header decision #4):
-   - Back-to-Order control kept (links to `/orders/[orderId]`), placed in the pinned header region.
+   - Back-to-Order control kept (links to `/orders/[orderId]`), placed in the left-column header.
    - `h1` = **customer phone** (per the locked decision; replaces "Sales Workspace").
    - Show **reference / order state / session date / photographer** when available (from `getPOSWorkspace`); omit gracefully when a field is absent. **Duration left blank**; **session-type badge omitted** (no clean order-level value for multi-package).
-   - Pure restyle within Sales — do not push Sales-specific content into the global `Topbar`. "Topbar" in the planning note means the Sales view's own pinned header row, not the app-wide `Topbar`.
+   - Pure restyle within Sales — do not push Sales-specific content into the global `Topbar`. "Topbar" in the planning note means the Sales view's own pinned header row, not the app-wide `Topbar`. **This header sits only above the left composition column — it must not span the right glance column.** (The right column begins at the top of the content row, level with the header.)
 
 3. **Re-home existing content into the regions** (page.tsx):
    - **Left region:** the existing left stack as-is — `POSPackageComposition`, `POSPhotoCountCard`, `POSAddOnMarketplace`, `SalesStagedCommitControls`, plus the `SalesDraftOwnershipBanner`. Same props, same handlers, same policies. (B2 will restyle these into collapsible rows; B1 leaves them functionally and visually as today, just inside the scrollable left panel.)
@@ -54,11 +54,17 @@ Build the **shell skeleton** for the single-view Sales redesign — Phase 7 / PO
 
 ## Implementation Direction
 
-The whole change is containers + header. Start in the Sales `layout.tsx`: drop `PageContainer` and make the root a flex column that fills `<main>` (`h-full flex flex-col overflow-hidden`). Put the restyled header in a `flex-shrink-0` row, then a `flex-1 min-h-0` content area. Because `<main>` is `flex-1 overflow-y-auto` inside the `overflow-hidden` content column of `AppShell`, a `h-full` Sales root resolves to a definite height and, with `overflow-hidden`, prevents `<main>` from scrolling — the verified escape hatch. The two columns live either in the layout (with the left/right slotted) or, more simply, keep the layout owning the header + shell frame and let `page.tsx` render the two-column content area. Given the current split (layout = header/frame, page = columns), the cleanest move is: layout provides the fixed-shell frame + header + a `flex-1 min-h-0` slot for `children`; `page.tsx` renders the two-column row (left scroll panel + right column) inside that slot. Confirm the `min-h-0` chain from the scroll parent down to the scrolling panel so the left panel scrolls rather than pushing the page.
+The whole change is containers + header. In the Sales `layout.tsx`: drop `PageContainer` and make the root a flex column that fills `<main>` (`h-full flex flex-col overflow-hidden`), with **just a `flex-1 min-h-0` content slot for `children` — no header band here.** Because `<main>` is `flex-1 overflow-y-auto` inside the `overflow-hidden` content column of `AppShell`, a `h-full` Sales root resolves to a definite height and, with `overflow-hidden`, prevents `<main>` from scrolling — the verified escape hatch. **The header is not a sibling above the columns; it lives inside the left column.** So the split is: layout = shell frame + content slot; `page.tsx` (which already loads the same cached `getPOSWorkspace`) renders the two-column row, and the **left column owns the header**.
 
-For the two columns, replace `.salesGrid`'s `grid` with a flex row (or keep a grid, but ensure both columns can own their own `overflow-y-auto` and the row is `min-h-0`). Left column = `flex-1 min-w-0 overflow-y-auto`; right column = `w-[380px] shrink-0 overflow-y-auto`. Keep the existing single-column collapse at `max-width: 767px`.
+The previous build put the header in `layout.tsx` as a full-width `flex-shrink-0` band above the content row, which made it span both columns — that is the defect this revision corrects. **Move the header into the left column.** Extract a small `sales-workspace-header.tsx` (presentational, in the Sales route folder) and render it as the first, pinned child of the left column; this keeps `page.tsx` readable and the header reusable.
 
-For the header, read the fields off the `workspace` already loaded in `layout.tsx` (`customerPhone`, `jobNumber`/reference, `orderStatus`, `sessionDate`, and whatever photographer field `getPOSWorkspace` exposes — check the workspace type and use it if present, otherwise omit). Keep the Back-to-Order `Link`. Use existing tokens and the `Badge`/`Button` primitives already imported. Minor label/placement choices are allowed UI assumptions — state them in the PR.
+For the two columns, structure the content row as a flex row holding the left column and the right column:
+- **Left column** = `flex flex-col min-w-0 min-h-0` → first child `SalesWorkspaceHeader` (`shrink-0`), second child the scrolling composition panel (`flex-1 min-h-0 overflow-y-auto`) that holds the existing left stack. The old `.compositionPanel` (the `<main>`) becomes this scroll body; wrap it in the new left-column flex-col.
+- **Right column** = `w-[380px] shrink-0 min-h-0 overflow-y-auto`, rendered as the second child of the content row so **its top aligns with the header's top**, not below it.
+
+Replace `.salesGrid`'s layout accordingly (keep a flex row; ensure the row is `min-h-0` and each scroll region owns its own `overflow-y-auto`). Keep the existing single-column collapse at `max-width: 767px`; on collapse the header stacks above the single column.
+
+For the header, read the fields off the `workspace` (`customerPhone`, `jobNumber`/reference, `orderStatus`, `sessionDate`, `photographerName` when present, else omit) — pass `workspace` (or just the needed fields) into `SalesWorkspaceHeader` from `page.tsx`. Keep the Back-to-Order `Link`. Use existing tokens and the `Badge`/`Button` primitives. Minor label/placement choices are allowed UI assumptions — state them in the PR. Since the header no longer needs to be in `layout.tsx`, `layout.tsx` may drop its `getPOSWorkspace`/`notFound` guard only if `page.tsx` already guards a missing workspace; otherwise keep the guard in layout and just remove the header JSX.
 
 Re-home the existing components verbatim; do not alter their props, handlers, policies, or internal markup. The success bar for B1 is: the Sales page looks reorganized into a fixed shell with a pinned header and an internally-scrolling left panel, while every existing action (stage, configure, add-on, photo count, review & commit, discard) works exactly as before.
 
@@ -72,6 +78,7 @@ Re-home the existing components verbatim; do not alter their props, handlers, po
 - `/orders/[orderId]/sales` renders inside the `(app)` shell with **no whole-page scroll**: the header is pinned, the left composition panel scrolls internally, and the right column scrolls independently; `<main>` does not scroll.
 - `PageContainer` is no longer used by the Sales route; the Sales root fills `<main>` (`h-full flex flex-col overflow-hidden`) and owns internal scroll.
 - The header is restyled per the locked decision: Back-to-Order present, `h1` = customer phone, reference/state/session-date/photographer shown when available, no session-type badge, duration blank.
+- **The Sales header sits only above the LEFT composition column — it does not span the right glance column.** The right column starts at the top of the content row, its top edge level with the header. The app-wide `Topbar` remains the only full-width header on the page.
 - The existing Sales functionality is intact and unchanged: package composition, photo count, add-on marketplace, draft ownership banner, staged commit/discard/review controls, and the financial sidebar all render and operate exactly as before, with no prop/logic/projector/action change.
 - No change to `AppShell`, `<main>`, `(app)/layout.tsx`, global `Topbar`, `PageContainer`, the sidebar, `getSalesPageView`, projectors, edit policies, or any OrderCommit/financial code; all changes are confined to `app/(app)/orders/[orderId]/sales/`.
 - Layout collapses to a single column at tablet/narrow widths without breaking scroll.

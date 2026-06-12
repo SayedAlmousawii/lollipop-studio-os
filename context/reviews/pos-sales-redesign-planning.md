@@ -254,7 +254,7 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
   - **F3 — Sidebar collapse (S-H2):** standalone, app-wide; independent of everything — can land anytime.
 
   **Sales single-view — shell first, then surfaces:**
-  - **B1 — Shell skeleton:** single view (no tabs), fixed shell / partial scroll, bypass `PageContainer`, header restyle, left-panel + right-column region scaffolding (placeholder content).
+  - **B1 — Shell skeleton: SHIPPED by Spec 173.** Single view (no tabs), fixed shell / partial scroll, bypass `PageContainer`, header restyle, and left-panel + right-column region scaffolding now exist with existing Sales content re-homed.
   - **B2 — Composition rows restyle:** left panel = collapsible package + add-on rows + dashed "+ add another…" CTA. **Functionally unchanged.** *(needs B1)*
   - **B3 — Right column:** receipt card + simplified financial card + context-aware commit area (commit/discard ↔ record-payment). *(needs B1)*
   - **B4 — Photos in-card:** per-package photo summary → modal (count + digital/print/split extras; today's `POSPhotoCountCard` behavior). **Its own spec.** *(needs B2)*
@@ -266,6 +266,8 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
 - **S-H — Token reconciliation:** deferred polish — map the mockup's visual style onto existing shadcn/app tokens; tweak a token only where clearly better. Final pass; core build doesn't depend on it.
 - **S-H2 — Sidebar collapse: SHIPPED by Spec 171.** App-wide collapse/expand toggle on the main sidebar, persisted with localStorage; collapsed rail shows icons only. Delivered as a standalone foundation independent of the Sales redesign.
 - **S-I — Session-config quick-config surface (owner idea, confirmed wanted, needs more planning — 2026-06-12):** owner floated showing **session configs** (e.g. Twins surcharge, age range, cake) as a **quick-config surface** in place of / alongside the current add-on marketplace on the composition panel — so common config toggles are one tap, framed as "configuring the session" not "adding a fee." Owner confirmed they want this but it needs further planning before specs can be drafted. Feasible on what we have: configs resolve per package via `sessionTypeId`; `ConfigureSessionPanel` already renders them; financial ones stage as `SESSION_CONFIGURATION` lines, linked-product ones as `OrderAddOn`. Still open: how this coexists with the add-on marketplace (replace? complement?), per-package vs the S-E order-level surface, and which configs surface as "quick." Revisit with owner before drafting; not a blocker for F1–F3 / B1–B4.
+
+- **S-J — Order-context breadcrumb in the global Topbar (parked, owner-flagged 2026-06-12):** the claude-design handoff carries order context (`‹ Orders / ORD-ref · Customer`) in the **global Topbar** (`chrome.jsx` → `.tb`), not inside the Sales view. Our B1 build instead uses a **"Back to Order" button in the left-column header**. Owner may later want to add the handoff-style breadcrumb to the app-wide Topbar (could replace or sit alongside the Back-to-Order button). **Out of scope for the whole B-series** — it touches `src/components/layout/topbar.tsx` (shared, app-wide), not the Sales route. Its own small spec when prioritized; decide replace-vs-alongside then.
 
 ### Superseded (removed in this revision)
 
