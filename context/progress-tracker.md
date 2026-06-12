@@ -93,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **176** — Moved Sales photo count/extras editing into each package card as a per-package summary plus modal, reusing the existing photo form and retiring the standalone Selected Photos card.
 - **175** — Rebuilt the Sales right column into a receipt scroller, simplified settlement-backed financial summary, and context-aware commit/payment area while relocating commit controls out of the left composition stack.
 - **174** — Restyled the Sales composition stack into presentation-only collapsible package cards, collapsible add-on rows, and a dashed add-another CTA while preserving existing staging/action wiring.
 - **Isolated test DB guard** — Hardened `withIsolatedBackendInvariantSchema` against early `@/lib/db` singleton imports and moved DB-backed order-commit helper imports inside isolated callbacks.

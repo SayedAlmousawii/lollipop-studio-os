@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -227,6 +226,12 @@ function PackageCompositionCard({
             ) : null}
           </div>
 
+          <PhotoSummaryDialog
+            line={line}
+            handlers={handlers}
+            policy={editPolicies.selectedPhotoCountChange}
+          />
+
           {workspaceLine &&
           (workspaceLine.sessionConfigurationSummary.length > 0 ||
             workspaceLine.missingRequiredConfigurationCodes.length > 0) ? (
@@ -314,33 +319,137 @@ function configureSessionPanelKey(input: {
   });
 }
 
-export function POSPhotoCountCard({
-  composition,
+function PhotoSummaryDialog({
+  line,
   handlers,
-  editPolicies,
-}: POSPackageCompositionBaseProps) {
-  const policy = editPolicies.selectedPhotoCountChange;
+  policy,
+}: {
+  line: POSCompositionPackageLineProjection;
+  handlers: POSCompositionHandlers;
+  policy: OrderEditModePolicy;
+}) {
+  const canEdit = policy.isInteractive;
+  const extraSummary = photoExtraSummary(line);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Selected Photos</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <PolicyNotice policy={policy} />
-        <div className="space-y-4">
-          {composition.packageLines.map((line) => (
-            <POSPhotoLineForm
-              key={`${line.id}:${line.selectedPhotoCount}:${line.extraDigitalCount}:${line.extraPrintCount}`}
-              line={line}
-              handlers={handlers}
-              policy={policy}
-            />
-          ))}
+    <Dialog>
+      <div className="rounded-[10px] border border-border bg-surface-soft p-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent-soft text-accent-dark">
+                <Tags className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-text-primary">
+                  Photos
+                </p>
+                <p className="mt-0.5 text-xs text-text-secondary">
+                  {line.selectedPhotoCount} / {line.includedPhotoCount} included ·{" "}
+                  {extraSummary}
+                </p>
+              </div>
+            </div>
+            <div className="grid overflow-hidden rounded-[10px] border border-border bg-surface md:grid-cols-4">
+              <PhotoSummaryStat
+                label="Included"
+                value={String(line.includedPhotoCount)}
+                detail="Package allowance"
+              />
+              <PhotoSummaryStat
+                label="Selected"
+                value={String(line.selectedPhotoCount)}
+                detail="Saved count"
+              />
+              <PhotoSummaryStat
+                label="Digital"
+                value={String(line.extraDigitalCount)}
+                detail="Extra photos"
+              />
+              <PhotoSummaryStat
+                label="Print"
+                value={String(line.extraPrintCount)}
+                detail={formatMoney(line.extraPhotoTotal)}
+                accent={line.extraPhotoCount > 0}
+              />
+            </div>
+          </div>
+          <DialogTrigger asChild>
+            <Button
+              className="shrink-0"
+              disabled={!canEdit}
+              type="button"
+              variant="outline"
+            >
+              Edit photos
+            </Button>
+          </DialogTrigger>
         </div>
-      </CardContent>
-    </Card>
+        {!canEdit ? <PolicyNotice policy={policy} /> : null}
+      </div>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>Edit photos for {line.packageName}</DialogTitle>
+          <DialogDescription>
+            Update the selected count and split any extra photos between digital
+            and print.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <PolicyNotice policy={policy} />
+          <POSPhotoLineForm
+            key={`${line.id}:${line.selectedPhotoCount}:${line.extraDigitalCount}:${line.extraPrintCount}`}
+            line={line}
+            handlers={handlers}
+            policy={policy}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
+}
+
+function PhotoSummaryStat({
+  label,
+  value,
+  detail,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="border-border p-3 md:border-l md:first:border-l-0">
+      <div className="text-[10px] font-semibold uppercase text-text-muted">
+        {label}
+      </div>
+      <div
+        className={`mt-1 text-[22px] font-semibold leading-none ${
+          accent ? "text-accent-dark" : "text-text-primary"
+        }`}
+      >
+        {value}
+      </div>
+      <div className="mt-1 text-[11px] text-text-muted">{detail}</div>
+    </div>
+  );
+}
+
+function photoExtraSummary(line: POSCompositionPackageLineProjection): string {
+  if (line.extraPhotoCount === 0) {
+    return "no extras";
+  }
+
+  const parts = [
+    line.extraDigitalCount > 0
+      ? `${line.extraDigitalCount} digital`
+      : null,
+    line.extraPrintCount > 0 ? `${line.extraPrintCount} print` : null,
+  ].filter(Boolean);
+
+  return `${parts.join(" · ")} extra`;
 }
 
 function POSPhotoLineForm({

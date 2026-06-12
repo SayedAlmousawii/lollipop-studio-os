@@ -106,7 +106,7 @@ test("Sales page mounts SalesPageView as the unified composition source", () => 
   assert.equal(
     [...salesViewSource.matchAll(/composition=\{salesPageView\.composition\}/g)]
       .length,
-    3
+    2
   );
   assert.match(salesViewSource, /marketplace=\{addOnMarketplace\}/);
   assert.doesNotMatch(salesViewSource, /draftComposition/);

@@ -35,12 +35,6 @@ type PackageComponents = {
     handlers: POSCompositionHandlers;
     editPolicies: POSPackageCompositionEditPolicies;
   }>;
-  POSPhotoCountCard: ComponentType<{
-    workspace: POSWorkspace;
-    composition: DraftPOSCompositionProjection;
-    handlers: POSCompositionHandlers;
-    editPolicies: POSPackageCompositionEditPolicies;
-  }>;
 };
 
 type AddOnComponents = {
@@ -56,8 +50,7 @@ const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 
 test("locked POS edit controls follow edit-mode policy interactivity", async () => {
   await withPOSComponentStubs(async () => {
-    const { POSPackageComposition, POSPhotoCountCard } =
-      await loadPackageComponents();
+    const { POSPackageComposition } = await loadPackageComponents();
     const { POSAddOnMarketplace } = await loadAddOnComponents();
     const workspace = lockedPOSWorkspaceFixture();
     const composition = buildDraftPOSCompositionFixture(workspace);
@@ -81,12 +74,6 @@ test("locked POS edit controls follow edit-mode policy interactivity", async () 
           handlers: compositionHandlers,
           editPolicies: buildPackagePolicies(workspace, "sales"),
         }),
-        createElement(POSPhotoCountCard, {
-          workspace,
-          composition,
-          handlers: compositionHandlers,
-          editPolicies: buildPackagePolicies(workspace, "sales"),
-        }),
         createElement(POSAddOnMarketplace, {
           workspace,
           marketplace: toPOSAddOnMarketplace(composition),
@@ -101,12 +88,6 @@ test("locked POS edit controls follow edit-mode policy interactivity", async () 
         "div",
         null,
         createElement(POSPackageComposition, {
-          workspace,
-          composition: { ...composition, sourceState: "adjustment" },
-          handlers: compositionHandlers,
-          editPolicies: buildPackagePolicies(workspace, "sales"),
-        }),
-        createElement(POSPhotoCountCard, {
           workspace,
           composition: { ...composition, sourceState: "adjustment" },
           handlers: compositionHandlers,
@@ -134,7 +115,7 @@ test("locked POS edit controls follow edit-mode policy interactivity", async () 
       !lockedPackagePolicy.packageTierChange.isInteractive
     );
     assert.equal(
-      inputIsDisabled(lockedMarkup, "selectedPhotoCount-order-package-1"),
+      buttonIsDisabled(lockedMarkup, "Edit photos"),
       !lockedPackagePolicy.selectedPhotoCountChange.isInteractive
     );
     assert.equal(
@@ -151,7 +132,7 @@ test("locked POS edit controls follow edit-mode policy interactivity", async () 
       !adjustmentPackagePolicy.packageTierChange.isInteractive
     );
     assert.equal(
-      inputIsDisabled(adjustmentMarkup, "selectedPhotoCount-order-package-1"),
+      buttonIsDisabled(adjustmentMarkup, "Edit photos"),
       !adjustmentPackagePolicy.selectedPhotoCountChange.isInteractive
     );
     assert.equal(
@@ -254,16 +235,6 @@ function buttonIsDisabled(markup: string, label: string): boolean {
 function iconButtonIsDisabled(markup: string, label: string): boolean {
   const pattern = new RegExp(
     `<button(?=[^>]*aria-label="${escapeRegExp(label)}")(?<attrs>[^>]*)>`,
-    "s"
-  );
-  const match = pattern.exec(markup);
-  assert.ok(match?.groups);
-  return /\sdisabled(?:=""|=|\s)/.test(match.groups.attrs);
-}
-
-function inputIsDisabled(markup: string, id: string): boolean {
-  const pattern = new RegExp(
-    `<input(?=[^>]*id="${escapeRegExp(id)}")(?<attrs>[^>]*)>`,
     "s"
   );
   const match = pattern.exec(markup);
