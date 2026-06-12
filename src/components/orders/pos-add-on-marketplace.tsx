@@ -1,9 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import { Lock, PackagePlus, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  PackagePlus,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,9 +71,15 @@ export function POSAddOnMarketplace({
   handlers,
   editPolicies,
 }: POSAddOnMarketplaceProps) {
+  const addFlowRef = useRef<HTMLDivElement>(null);
   const productStateById = new Map(
     marketplace.productStates.map((state) => [state.productId, state])
   );
+
+  function focusAddFlow() {
+    addFlowRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    addFlowRef.current?.focus({ preventScroll: true });
+  }
 
   return (
     <div className="space-y-5">
@@ -102,30 +115,44 @@ export function POSAddOnMarketplace({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <PolicyNotice policy={editPolicies.addAddOn} />
-          {workspace.addOnCatalog.length > 0 ? (
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {workspace.addOnCatalog.map((item) => (
-                <CatalogCard
-                  key={item.id}
-                  item={item}
-                  productState={productStateById.get(item.id) ?? null}
-                  handlers={handlers}
-                  policies={editPolicies}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
-              No marketplace add-ons are configured yet.
-            </p>
-          )}
+          <div
+            ref={addFlowRef}
+            tabIndex={-1}
+            className="scroll-mt-4 space-y-4 outline-none"
+          >
+            <PolicyNotice policy={editPolicies.addAddOn} />
+            {workspace.addOnCatalog.length > 0 ? (
+              <div className="flex gap-3 overflow-x-auto pb-2">
+                {workspace.addOnCatalog.map((item) => (
+                  <CatalogCard
+                    key={item.id}
+                    item={item}
+                    productState={productStateById.get(item.id) ?? null}
+                    handlers={handlers}
+                    policies={editPolicies}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-border p-4 text-sm text-text-secondary">
+                No marketplace add-ons are configured yet.
+              </p>
+            )}
+          </div>
 
           <CurrentAddOns
             addOns={marketplace.currentAddOns}
             handlers={handlers}
             removePolicy={editPolicies.removeAddOn}
           />
+          <button
+            type="button"
+            onClick={focusAddFlow}
+            className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-border bg-transparent p-[18px] text-sm text-text-muted transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent-dark"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add another package, add-on, or product</span>
+          </button>
         </CardContent>
       </Card>
     </div>
@@ -297,7 +324,7 @@ function CurrentAddOns({
     <div className="space-y-3 border-t border-border pt-4">
       <h3 className="text-sm font-medium text-text-primary">Current add-ons</h3>
       {addOns.length > 0 ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {addOns.map((addOn) => (
             <CurrentAddOnRow
               key={addOn.id}
@@ -325,6 +352,7 @@ function CurrentAddOnRow({
   handlers: POSAddOnHandlers;
   removePolicy: OrderEditModePolicy;
 }) {
+  const [open, setOpen] = useState(false);
   const [state, formAction] = useHandlerAction(
     handlers.removeAddOn,
     (formData) => ({
@@ -334,29 +362,82 @@ function CurrentAddOnRow({
   );
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
-      <div>
-        <p className="font-medium text-text-primary">{addOn.name}</p>
-        <GlobalError messages={state.errors?._global} />
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="font-medium tabular-nums text-text-primary">
-          {formatMoney(addOn.unitAmount)}
-        </span>
+    <article className="overflow-hidden rounded-[14px] border border-border bg-surface">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-border bg-surface-soft text-accent">
+            <PackagePlus className="h-4 w-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium text-text-primary">
+              {addOn.name}
+            </span>
+            <span className="mt-1 block text-xs text-text-muted">
+              {addOn.currentQuantity}x · {formatMoney(addOn.unitAmount)} each
+            </span>
+          </span>
+          <span className="shrink-0 text-right">
+            <span className="block text-sm font-semibold tabular-nums text-text-primary">
+              {formatMoney(addOn.unitAmount)}
+            </span>
+            <span className="mt-1 block text-[11px] font-semibold uppercase text-text-muted">
+              ADD-ON
+            </span>
+          </span>
+          <span className="shrink-0 text-text-muted" aria-hidden="true">
+            {open ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronRight className="h-4 w-4" />
+            )}
+          </span>
+        </button>
         {addOn.orderAddOnId ? (
-          <>
-            <form action={formAction} className="space-y-2">
-              <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
-              <input
-                type="hidden"
-                name="currentQuantity"
-                value={addOn.currentQuantity}
-              />
-              <SubmitIconButton disabled={!removePolicy.isInteractive} />
-            </form>
-          </>
+          <form action={formAction} className="shrink-0">
+            <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
+            <input
+              type="hidden"
+              name="currentQuantity"
+              value={addOn.currentQuantity}
+            />
+            <SubmitIconButton disabled={!removePolicy.isInteractive} />
+          </form>
         ) : null}
       </div>
+      {open ? (
+        <div className="space-y-3 border-t border-border bg-surface-soft px-4 py-3 text-sm">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <AddOnSummaryCell label="Quantity" value={`${addOn.currentQuantity}x`} />
+            <AddOnSummaryCell
+              label="Unit"
+              value={formatMoney(addOn.unitAmount)}
+            />
+            <AddOnSummaryCell
+              label="Current row"
+              value="Ordinary add-on"
+            />
+          </div>
+          <GlobalError messages={state.errors?._global} />
+        </div>
+      ) : (
+        <GlobalError messages={state.errors?._global} />
+      )}
+    </article>
+  );
+}
+
+function AddOnSummaryCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[10px] border border-border bg-surface px-3 py-2">
+      <p className="text-[11px] font-semibold uppercase text-text-muted">
+        {label}
+      </p>
+      <p className="mt-1 font-medium tabular-nums text-text-primary">{value}</p>
     </div>
   );
 }
