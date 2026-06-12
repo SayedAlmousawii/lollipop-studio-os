@@ -1,27 +1,23 @@
 import { notFound } from "next/navigation";
 import { stageSalesChangeAction } from "@/app/(app)/orders/[orderId]/sales/actions";
 import { requireCurrentAppUser } from "@/lib/auth";
-import { OrderCommitFinancialSidebar } from "@/components/orders/order-commit-financial-sidebar";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import {
   POSPackageComposition,
   POSPhotoCountCard,
 } from "@/components/orders/pos-package-composition";
 import { SalesDraftOwnershipBanner } from "@/components/orders/sales-draft-ownership-banner";
-import { SalesStagedCommitControls } from "@/components/orders/sales-staged-commit-controls";
 import {
   toPOSAddOnMarketplace,
 } from "@/modules/orders/composition";
 import { getPOSWorkspace } from "@/modules/orders/order.service";
 import {
   buildPOSAddOnEditPolicies,
-  buildPOSFinancialSidebarEditPolicies,
   buildPOSPackageCompositionEditPolicies,
   orderEditModeContextFromWorkspace,
 } from "@/modules/orders/policies/edit-mode-policy";
 import {
   applyOrderCommitSalesSurfaceToAddOnPolicies,
-  applyOrderCommitSalesSurfaceToFinancialPolicies,
   applyOrderCommitSalesSurfaceToPackagePolicies,
   applySalesDraftOwnershipToAddOnPolicies,
   applySalesDraftOwnershipToPackagePolicies,
@@ -32,6 +28,7 @@ import {
   createOrderCommitSalesCompositionHandlers,
 } from "@/modules/order-commits/sales-staging-handler-adapter";
 import styles from "./sales-page.module.css";
+import { SalesRightColumn } from "./sales-right-column";
 import { SalesWorkspaceHeader } from "./sales-workspace-header";
 
 export default async function SalesPage(
@@ -74,10 +71,6 @@ export default async function SalesPage(
     ),
     salesPageView.ownership
   );
-  const financialSidebarPolicies =
-    applyOrderCommitSalesSurfaceToFinancialPolicies(
-      buildPOSFinancialSidebarEditPolicies(salesPolicyContext)
-    );
   const compositionHandlers = createOrderCommitSalesCompositionHandlers({
     orderId,
     expectedVersion: salesPageView.draft?.version ?? 0,
@@ -118,23 +111,16 @@ export default async function SalesPage(
             handlers={addOnHandlers}
             editPolicies={addOnEditPolicies}
           />
-          <SalesStagedCommitControls
-            orderId={workspace.orderId}
-            draft={salesPageView.draft}
-            preview={salesPageView.preview}
-            stagedChanges={salesPageView.stagedChanges}
-            financialPreview={salesPageView.financialPreview}
-            ownership={salesPageView.ownership}
-          />
         </main>
       </div>
-      <OrderCommitFinancialSidebar
+      <SalesRightColumn
         workspace={workspace}
+        composition={salesPageView.composition}
         financialPreview={salesPageView.financialPreview}
-        financialCase={salesPageView.financialCase}
+        draft={salesPageView.draft}
         preview={salesPageView.preview}
-        editPolicies={financialSidebarPolicies}
-        className={styles.financialSidebar}
+        stagedChanges={salesPageView.stagedChanges}
+        ownership={salesPageView.ownership}
       />
     </div>
   );

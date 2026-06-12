@@ -93,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **175** — Rebuilt the Sales right column into a receipt scroller, simplified settlement-backed financial summary, and context-aware commit/payment area while relocating commit controls out of the left composition stack.
 - **174** — Restyled the Sales composition stack into presentation-only collapsible package cards, collapsible add-on rows, and a dashed add-another CTA while preserving existing staging/action wiring.
 - **Isolated test DB guard** — Hardened `withIsolatedBackendInvariantSchema` against early `@/lib/db` singleton imports and moved DB-backed order-commit helper imports inside isolated callbacks.
 - **173** — Reworked Sales into the single-view fixed shell skeleton: pinned phone-led header, route-local partial-scroll layout, left composition panel, and independent right financial column while preserving existing Sales functionality.

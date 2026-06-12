@@ -27,8 +27,8 @@ const ownershipBannerSource = readFileSync(
   "src/components/orders/sales-draft-ownership-banner.tsx",
   "utf8"
 );
-const orderCommitFinancialSidebarSource = readFileSync(
-  "src/components/orders/order-commit-financial-sidebar.tsx",
+const salesRightColumnSource = readFileSync(
+  "app/(app)/orders/[orderId]/sales/sales-right-column.tsx",
   "utf8"
 );
 const orderCommitReviewDialogSource = readFileSync(
@@ -46,13 +46,14 @@ const salesViewSource = pageSource.slice(
 const ORDER_COMMIT_SALES_SURFACE_FILES = [
   "src/components/orders/sales-staged-commit-controls.tsx",
   "src/components/orders/sales-draft-ownership-banner.tsx",
-  "src/components/orders/order-commit-financial-sidebar.tsx",
+  "app/(app)/orders/[orderId]/sales/sales-right-column.tsx",
   "src/components/orders/order-commit-review-dialog.tsx",
   "src/modules/order-commits/sales-staging-handler-adapter.ts",
   "src/modules/order-commits/projections/sales-page-view.loader.ts",
   "src/modules/order-commits/projections/sales-page-view.types.ts",
   "src/modules/order-commits/projections/to-sales-page-composition.ts",
   "src/modules/order-commits/projections/to-sales-page-financial-preview.ts",
+  "src/modules/order-commits/projections/to-sales-right-column-receipt.ts",
   "src/modules/order-commits/projections/to-sales-page-staged-changes.ts",
 ];
 
@@ -69,7 +70,7 @@ test("Sales route owns the fixed shell and bypasses PageContainer", () => {
 test("Sales workspace header is pinned inside the left column only", () => {
   assert.match(pageSource, /import \{ SalesWorkspaceHeader \} from "\.\/sales-workspace-header"/);
   assert.match(salesViewSource, /<div className=\{styles\.leftColumn\}>\s*<SalesWorkspaceHeader workspace=\{workspace\} \/>\s*<main className=\{styles\.compositionPanel\}>/);
-  assert.match(salesViewSource, /<\/main>\s*<\/div>\s*<OrderCommitFinancialSidebar/);
+  assert.match(salesViewSource, /<\/main>\s*<\/div>\s*<SalesRightColumn/);
   assert.match(salesWorkspaceHeaderSource, /<header className="flex-shrink-0/);
   assert.doesNotMatch(salesWorkspaceHeaderSource, /<header[^>]+bg-surface/);
   assert.match(salesWorkspaceHeaderSource, /<h1[\s\S]*\{workspace\.customerPhone\}[\s\S]*<\/h1>/);
@@ -84,11 +85,13 @@ test("Sales workspace header is pinned inside the left column only", () => {
 test("Sales page delegates scroll to left and right shell regions", () => {
   assert.match(salesViewSource, /<div className=\{styles\.leftColumn\}>/);
   assert.match(salesViewSource, /<main className=\{styles\.compositionPanel\}>/);
-  assert.match(salesViewSource, /className=\{styles\.financialSidebar\}/);
+  assert.match(salesViewSource, /<SalesRightColumn/);
   assert.match(stylesSource, /\.salesGrid \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
   assert.match(stylesSource, /\.leftColumn \{[\s\S]*flex: 1 1 auto;[\s\S]*flex-direction: column;[\s\S]*min-height: 0;[\s\S]*min-width: 0;[\s\S]*overflow: hidden;/);
   assert.match(stylesSource, /\.compositionPanel \{[\s\S]*flex: 1 1 auto;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;/);
-  assert.match(stylesSource, /\.financialSidebar \{[\s\S]*flex: 0 0 380px;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;[\s\S]*width: 380px;/);
+  assert.match(stylesSource, /\.rightColumn \{[\s\S]*flex: 0 0 380px;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;[\s\S]*width: 380px;/);
+  assert.match(stylesSource, /\.receiptCard \{[\s\S]*flex: 1 1 auto;[\s\S]*min-height: 0;/);
+  assert.match(stylesSource, /\.receiptList \{[\s\S]*flex: 1 1 auto;[\s\S]*overflow-y: auto;/);
   assert.match(stylesSource, /@media \(max-width: 767px\)/);
 });
 
@@ -103,7 +106,7 @@ test("Sales page mounts SalesPageView as the unified composition source", () => 
   assert.equal(
     [...salesViewSource.matchAll(/composition=\{salesPageView\.composition\}/g)]
       .length,
-    2
+    3
   );
   assert.match(salesViewSource, /marketplace=\{addOnMarketplace\}/);
   assert.doesNotMatch(salesViewSource, /draftComposition/);
@@ -153,7 +156,6 @@ test("Sales page forwards SalesPageView pieces to mounted surfaces", () => {
     salesViewSource,
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
-  assert.match(salesViewSource, /financialCase=\{salesPageView\.financialCase\}/);
   assert.match(salesViewSource, /ownership=\{salesPageView\.ownership\}/);
 });
 
@@ -163,7 +165,7 @@ test("Sales page applies co-editor ownership UI and policy overlay", () => {
   assert.match(salesViewSource, /ownership=\{salesPageView\.ownership\}/);
   assert.match(pageSource, /applySalesDraftOwnershipToPackagePolicies/);
   assert.match(pageSource, /applySalesDraftOwnershipToAddOnPolicies/);
-  assert.match(pageSource, /applyOrderCommitSalesSurfaceToFinancialPolicies/);
+  assert.doesNotMatch(pageSource, /applyOrderCommitSalesSurfaceToFinancialPolicies/);
   assert.match(
     salesViewSource,
     /applySalesDraftOwnershipToPackagePolicies\([\s\S]*buildPOSPackageCompositionEditPolicies/
@@ -175,12 +177,15 @@ test("Sales page applies co-editor ownership UI and policy overlay", () => {
   assert.doesNotMatch(salesViewSource, /Take Over|takeOver/);
 });
 
-test("Sales page mounts staged commit controls for locked and unlocked orders", () => {
+test("Sales page relocates staged commit controls into the right column", () => {
   assert.doesNotMatch(pageSource, /getOpenWorkspaceForInvoice/);
   assert.doesNotMatch(pageSource, /FinancialSidebarLocked/);
-  assert.match(pageSource, /SalesStagedCommitControls/);
-  assert.match(salesViewSource, /<SalesStagedCommitControls/);
-  assert.match(salesViewSource, /orderId=\{workspace\.orderId\}/);
+  assert.doesNotMatch(pageSource, /import \{ SalesStagedCommitControls \}/);
+  assert.doesNotMatch(salesViewSource, /<SalesStagedCommitControls/);
+  assert.match(pageSource, /SalesRightColumn/);
+  assert.match(salesViewSource, /<SalesRightColumn/);
+  assert.match(salesViewSource, /workspace=\{workspace\}/);
+  assert.match(salesViewSource, /composition=\{salesPageView\.composition\}/);
   assert.match(salesViewSource, /draft=\{salesPageView\.draft\}/);
   assert.match(salesViewSource, /preview=\{salesPageView\.preview\}/);
   assert.match(salesViewSource, /stagedChanges=\{salesPageView\.stagedChanges\}/);
@@ -202,26 +207,29 @@ test("Sales package item rows render deliverable cards with upgrade dialog", () 
   assert.match(posPackageCompositionSource, /handlers\.upgradePackageItem/);
 });
 
-test("Sales page mounts OrderCommit financial sidebar only", () => {
-  assert.match(pageSource, /OrderCommitFinancialSidebar/);
-  assert.match(salesViewSource, /<OrderCommitFinancialSidebar/);
+test("Sales page mounts the Spec 175 right column instead of the old financial sidebar", () => {
+  assert.doesNotMatch(pageSource, /OrderCommitFinancialSidebar/);
+  assert.doesNotMatch(salesViewSource, /<OrderCommitFinancialSidebar/);
+  assert.doesNotMatch(pageSource, /buildPOSFinancialSidebarEditPolicies/);
+  assert.doesNotMatch(pageSource, /applyOrderCommitSalesSurfaceToFinancialPolicies/);
+  assert.match(pageSource, /SalesRightColumn/);
+  assert.match(salesViewSource, /<SalesRightColumn/);
   assert.match(
     salesViewSource,
-    /applyOrderCommitSalesSurfaceToFinancialPolicies\([\s\S]*buildPOSFinancialSidebarEditPolicies/
+    /composition=\{salesPageView\.composition\}/
   );
   assert.match(
     salesViewSource,
     /financialPreview=\{salesPageView\.financialPreview\}/
   );
-  assert.match(salesViewSource, /financialCase=\{salesPageView\.financialCase\}/);
   assert.match(salesViewSource, /preview=\{salesPageView\.preview\}/);
   assert.doesNotMatch(pageSource, /FinancialSidebarDraft/);
   assert.doesNotMatch(pageSource, /FinancialSidebarLocked/);
-  const sidebarMountSource = salesViewSource.slice(
-    salesViewSource.indexOf("<OrderCommitFinancialSidebar"),
-    salesViewSource.indexOf("</div>", salesViewSource.indexOf("<OrderCommitFinancialSidebar"))
+  const rightColumnMountSource = salesViewSource.slice(
+    salesViewSource.indexOf("<SalesRightColumn"),
+    salesViewSource.indexOf("/>", salesViewSource.indexOf("<SalesRightColumn"))
   );
-  assert.doesNotMatch(sidebarMountSource, /composition=\{salesPageView\.composition\}/);
+  assert.doesNotMatch(rightColumnMountSource, /financialCase=\{salesPageView\.financialCase\}/);
 });
 
 test("Sales page mount keeps source boundaries", () => {
@@ -239,8 +247,8 @@ test("locked Sales branch is removed from the active Sales page", () => {
   assert.doesNotMatch(pageSource, /<FinancialSidebarLocked/);
   assert.doesNotMatch(pageSource, /LockedCompositionView/);
   assert.match(salesViewSource, /getSalesPageView/);
-  assert.match(salesViewSource, /OrderCommitFinancialSidebar/);
-  assert.match(salesViewSource, /SalesStagedCommitControls/);
+  assert.match(salesViewSource, /SalesRightColumn/);
+  assert.doesNotMatch(salesViewSource, /OrderCommitFinancialSidebar/);
 });
 
 test("staged commit controls mount the Spec 128 dialog and exact discard version", () => {
@@ -295,24 +303,27 @@ test("staged changes panel stays display-only", () => {
   assert.doesNotMatch(ownershipBannerSource, /AdjustmentWorkspace/);
 });
 
-test("OrderCommit financial sidebar stays display-only", () => {
-  assert.match(orderCommitFinancialSidebarSource, /financialPreview\.settlement/);
-  assert.match(orderCommitFinancialSidebarSource, /Previous total/);
-  assert.match(orderCommitFinancialSidebarSource, /Pending delta/);
-  assert.match(orderCommitFinancialSidebarSource, /After commit/);
-  assert.match(orderCommitFinancialSidebarSource, /Amount due after commit/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /Document plan/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /Payment impact/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /Refund impact/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /@\/lib\/db/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /commitOrderChanges/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /AdjustmentWorkspace/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /\.reduce\(/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /lineDiffs/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /stagedChanges/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /pendingTotal\s*[-+*/]/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /pendingDelta\s*[-+*/]/);
-  assert.doesNotMatch(orderCommitFinancialSidebarSource, /previousTotal\s*[-+*/]/);
+test("Sales right column stays display-only", () => {
+  assert.match(salesRightColumnSource, /financialPreview\.settlement/);
+  assert.match(salesRightColumnSource, /Previous total/);
+  assert.match(salesRightColumnSource, /Pending diff/);
+  assert.match(salesRightColumnSource, /After commit/);
+  assert.match(salesRightColumnSource, /Due after commit/);
+  assert.match(salesRightColumnSource, /SalesStagedCommitControls/);
+  assert.match(salesRightColumnSource, /POSRecordPaymentDialog/);
+  assert.doesNotMatch(salesRightColumnSource, /CreateOrderInvoiceForm|Create Invoice/);
+  assert.doesNotMatch(salesRightColumnSource, /Document plan/);
+  assert.doesNotMatch(salesRightColumnSource, /Payment impact/);
+  assert.doesNotMatch(salesRightColumnSource, /Refund impact/);
+  assert.doesNotMatch(salesRightColumnSource, /@\/lib\/db/);
+  assert.doesNotMatch(salesRightColumnSource, /commitOrderChanges/);
+  assert.doesNotMatch(salesRightColumnSource, /AdjustmentWorkspace/);
+  assert.doesNotMatch(salesRightColumnSource, /lineDiffs/);
+  assert.doesNotMatch(salesRightColumnSource, /row\.netDelta\s*[-+*/]/);
+  assert.doesNotMatch(salesRightColumnSource, /[-+*/]\s*row\.netDelta/);
+  assert.doesNotMatch(salesRightColumnSource, /pendingTotal\s*[-+*/]/);
+  assert.doesNotMatch(salesRightColumnSource, /pendingDelta\s*[-+*/]/);
+  assert.doesNotMatch(salesRightColumnSource, /previousTotal\s*[-+*/]/);
 });
 
 test("OrderCommit review dialog receives display DTOs without line-diff arithmetic", () => {
@@ -365,8 +376,8 @@ test("OrderCommit Sales surface does not expose public Adjustment Workspace nami
 test("OrderCommit Sales page and components do not calculate preview money from rows", () => {
   const guardedFiles = [
     "app/(app)/orders/[orderId]/sales/page.tsx",
+    "app/(app)/orders/[orderId]/sales/sales-right-column.tsx",
     "src/components/orders/sales-staged-commit-controls.tsx",
-    "src/components/orders/order-commit-financial-sidebar.tsx",
     "src/components/orders/order-commit-review-dialog.tsx",
   ];
 
