@@ -147,7 +147,7 @@ The v1 Notes build **must** be structured so migrating to the shared-note future
 ### Open Items
 
 - **N-1: RESOLVED** — per-package "Add note" defaults to kind `CUSTOMER` (changeable). See Piece 3 → S-A.
-- **N-2:** Order-details display of new notes (the near-term bridge) — confirm which surfaces and that read-only is acceptable for v1.
+- **N-2: SATISFIED by Spec 170** — the shared Notes module exposes `getOrderNotes({ orderId, kind?, orderPackageId? })`, so order-details can read typed notes read-only when its bridge UI is built.
 
 ---
 

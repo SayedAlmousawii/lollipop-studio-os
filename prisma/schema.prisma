@@ -170,6 +170,15 @@ enum OrderAlbumBackingLineKind {
   ORDER_ADD_ON
 }
 
+enum NoteKind {
+  CUSTOMER
+  PHOTOGRAPHER
+  EDITING
+  PRODUCTION
+  DELIVERY
+  INTERNAL
+}
+
 enum MediaType {
   DIGITAL
   PRINT
@@ -270,6 +279,7 @@ model User {
   ownedOrderCommitDrafts   OrderCommitDraft[]    @relation("OrderCommitDraftOwner")
   openedOrderCommitDrafts  OrderCommitDraft[]    @relation("OrderCommitDraftOpenedBy")
   touchedOrderCommitDrafts OrderCommitDraft[]    @relation("OrderCommitDraftLastTouchedBy")
+  authoredNotes            Note[]                @relation("NoteAuthor")
 
   @@map("users")
 }
@@ -643,6 +653,7 @@ model Order {
   orderCommits            OrderCommit[]
   orderCommitDraft        OrderCommitDraft?
   albums                  OrderAlbum[]
+  typedNotes              Note[]
   refundPending           Boolean                   @default(false) @map("refund_pending")
 
   @@index([jobNumber])
@@ -676,6 +687,7 @@ model OrderPackage {
   packageItemUpgrades            OrderPackageItemUpgrade[]
   sessionConfigurationSelections OrderPackageSessionConfigurationSelection[]
   albums                         OrderAlbum[]
+  notes                          Note[]
 
   @@index([orderId, sortOrder])
   @@index([originalPackageId])
@@ -877,6 +889,25 @@ model OrderAlbum {
   @@index([orderId])
   @@index([orderPackageId])
   @@map("order_albums")
+}
+
+model Note {
+  id             String   @id @default(cuid())
+  orderId        String
+  orderPackageId String?
+  kind           NoteKind
+  body           String
+  authorUserId   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderPackage OrderPackage? @relation(fields: [orderPackageId], references: [id], onDelete: SetNull)
+  author       User?         @relation("NoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, kind])
+  @@index([orderPackageId])
+  @@map("notes")
 }
 
 model OrderCommit {
