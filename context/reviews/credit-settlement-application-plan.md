@@ -278,8 +278,16 @@ a paper trail instead of a trust-me balance.
 - ~~**Reversibility / immutability.**~~ **RESOLVED** → locked decision #8 (immutable +
   offsetting records).
 - ~~**Canonical settlement projection.**~~ **RESOLVED** → see §6.1.
-- **Owner policy confirmations** — none outstanding for the behavior above, but the
-  customer-wide store-credit question (decision #4) should be confirmed as out of scope.
+- ~~**Owner policy confirmations** — the customer-wide store-credit question (decision #4)
+  should be confirmed as out of scope.~~ **RESOLVED (2026-06-12)** → confirmed out of scope
+  *for this engine*. Customer-wide store credit is being built as a **separate additive layer
+  above** this case-scoped engine — a portable, customer-owned, expiring instrument that feeds
+  into cases as a settlement source (shared `ValueApplication` table), **not** a replacement for
+  the intra-case settlement pool. Investigation confirmed the two are orthogonal: routing
+  intra-case corrections through customer credit would reintroduce phantom-credit/under-collection
+  (the Spec 155→157 B2/B2C bug, decision #10), break per-case reconciliation + net presentation
+  (#11), and trap cash behind a no-cash-out expiring wallet. See `context/reviews/customer-credit-plan.md`
+  and `context/reviews/gift-voucher-plan.md`.
 
 ### 6.1 Canonical settlement projection (Sales-facing) — RESOLVED
 
