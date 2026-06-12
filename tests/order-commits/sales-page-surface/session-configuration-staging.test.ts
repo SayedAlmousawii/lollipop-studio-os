@@ -21,9 +21,12 @@ const panelSource = readFileSync(
   "src/components/session-configurations/configure-session-panel.tsx",
   "utf8"
 );
-const salesPageSource = readFileSync("app/orders/[orderId]/sales/page.tsx", "utf8");
+const salesPageSource = readFileSync(
+  "app/(app)/orders/[orderId]/sales/page.tsx",
+  "utf8"
+);
 const salesActionSource = readFileSync(
-  "app/orders/[orderId]/sales/actions.ts",
+  "app/(app)/orders/[orderId]/sales/actions.ts",
   "utf8"
 );
 

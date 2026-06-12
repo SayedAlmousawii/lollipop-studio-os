@@ -38,12 +38,6 @@ type PackageComponents = {
     handlers: POSCompositionHandlers;
     editPolicies: POSPackageCompositionEditPolicies;
   }>;
-  POSPhotoCountCard: ComponentType<{
-    workspace: POSWorkspace;
-    composition: DraftPOSCompositionProjection;
-    handlers: POSCompositionHandlers;
-    editPolicies: POSPackageCompositionEditPolicies;
-  }>;
 };
 
 type AddOnComponents = {
@@ -59,8 +53,7 @@ const moduleWithLoader = Module as typeof Module & { _load: ModuleLoader };
 
 test("POS handler components render the stable sales DOM labels from handler props", async () => {
   await withPOSComponentStubs(async () => {
-    const { POSPackageComposition, POSPhotoCountCard } =
-      await loadPackageComponents();
+    const { POSPackageComposition } = await loadPackageComponents();
     const { POSAddOnMarketplace } = await loadAddOnComponents();
     const workspace = buildPOSWorkspaceFixture();
     const composition = buildDraftPOSCompositionFixture(workspace);
@@ -86,12 +79,6 @@ test("POS handler components render the stable sales DOM labels from handler pro
           handlers: compositionHandlers,
           editPolicies: packagePolicies,
         }),
-        createElement(POSPhotoCountCard, {
-          workspace,
-          composition,
-          handlers: compositionHandlers,
-          editPolicies: packagePolicies,
-        }),
         createElement(POSAddOnMarketplace, {
           workspace,
           marketplace: toPOSAddOnMarketplace(composition),
@@ -103,11 +90,12 @@ test("POS handler components render the stable sales DOM labels from handler pro
 
     assert.match(markup, /Package Composition/);
     assert.match(markup, /Upgrade Package/);
-    assert.match(markup, /Selected Photos/);
+    assert.match(markup, /Photos/);
+    assert.match(markup, /Edit photos/);
     assert.match(markup, /Classic/);
-    assert.match(markup, /2 extras · Print · 6.000 KD/);
-    assert.match(markup, /Digital 0 x 2.000 KD · Print 2 x 3.000 KD · Total 6.000 KD/);
-    assert.match(markup, /Autosaves on blur or mode change/);
+    assert.match(markup, /12 \/ 10 included/);
+    assert.match(markup, /2 print extra/);
+    assert.match(markup, /6.000 KD/);
     assert.match(markup, /Commercial Actions/);
     assert.match(markup, /Add-On Marketplace/);
     assert.match(markup, /Current add-ons/);
@@ -116,8 +104,7 @@ test("POS handler components render the stable sales DOM labels from handler pro
 
 test("R9 POS handler components render locked notices from policy fixtures", async () => {
   await withPOSComponentStubs(async () => {
-    const { POSPackageComposition, POSPhotoCountCard } =
-      await loadPackageComponents();
+    const { POSPackageComposition } = await loadPackageComponents();
     const { POSAddOnMarketplace } = await loadAddOnComponents();
     const workspace = lockedPOSWorkspaceFixture();
     const composition = buildDraftPOSCompositionFixture(workspace);
@@ -142,7 +129,7 @@ test("R9 POS handler components render locked notices from policy fixtures", asy
       })
     );
     const photoMarkup = renderToStaticMarkup(
-      createElement(POSPhotoCountCard, {
+      createElement(POSPackageComposition, {
         workspace,
         composition,
         handlers: compositionHandlers,
@@ -369,9 +356,9 @@ test("R8b POS add-on marketplace removes projected current row target", async ()
   });
 });
 
-test("POSPhotoCountCard renders saved photo values from a pending-adjustment composition projection", async () => {
+test("POSPackageComposition renders saved in-card photo values from a pending-adjustment composition projection", async () => {
   await withPOSComponentStubs(async () => {
-    const { POSPhotoCountCard } = await loadPackageComponents();
+    const { POSPackageComposition } = await loadPackageComponents();
     const workspace = buildPOSWorkspaceFixture();
     const composition = pendingAdjustmentCompositionFixture(workspace);
     const handlers = {
@@ -381,7 +368,7 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
     } satisfies POSCompositionHandlers;
 
     const markup = renderToStaticMarkup(
-      createElement(POSPhotoCountCard, {
+      createElement(POSPackageComposition, {
         workspace,
         composition,
         handlers,
@@ -389,12 +376,15 @@ test("POSPhotoCountCard renders saved photo values from a pending-adjustment com
       })
     );
 
-    assert.match(markup, /Selected Photos/);
-    assert.match(markup, /10 included/);
-    assert.match(markup, /value="12"/);
-    assert.match(markup, /2 extras · Print · 6.000 KD/);
-    assert.match(markup, /Digital 0 x 2.000 KD · Print 2 x 3.000 KD · Total 6.000 KD/);
+    assert.match(markup, /Photos/);
+    assert.match(markup, /Edit photos/);
+    assert.match(markup, /12 \/ 10 included/);
+    assert.match(markup, /2 print extra/);
+    assert.match(markup, /Included/);
+    assert.match(markup, /Selected/);
+    assert.match(markup, /Digital/);
     assert.match(markup, /Print/);
+    assert.match(markup, /6.000 KD/);
   });
 });
 
@@ -459,7 +449,7 @@ test("R8a POS package component keeps photo draft helpers out of the client comp
 
 test("R8a sales page consumes composition projectors", () => {
   const salesSource = readFileSync(
-    "app/orders/[orderId]/sales/page.tsx",
+    "app/(app)/orders/[orderId]/sales/page.tsx",
     "utf8"
   );
   assert.doesNotMatch(salesSource, /buildCompositionView/);

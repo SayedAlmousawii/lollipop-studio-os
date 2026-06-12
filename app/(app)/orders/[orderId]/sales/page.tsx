@@ -2,10 +2,7 @@ import { notFound } from "next/navigation";
 import { stageSalesChangeAction } from "@/app/(app)/orders/[orderId]/sales/actions";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
-import {
-  POSPackageComposition,
-  POSPhotoCountCard,
-} from "@/components/orders/pos-package-composition";
+import { POSPackageComposition } from "@/components/orders/pos-package-composition";
 import { SalesDraftOwnershipBanner } from "@/components/orders/sales-draft-ownership-banner";
 import {
   toPOSAddOnMarketplace,
@@ -98,12 +95,6 @@ export default async function SalesPage(
             editPolicies={packageEditPolicies}
             configurePanelMode="commit-staging"
             expectedVersion={salesPageView.draft?.version ?? 0}
-          />
-          <POSPhotoCountCard
-            workspace={workspace}
-            composition={salesPageView.composition}
-            handlers={compositionHandlers}
-            editPolicies={packageEditPolicies}
           />
           <POSAddOnMarketplace
             workspace={workspace}
