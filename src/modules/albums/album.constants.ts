@@ -1,0 +1,12 @@
+export const ORDER_ALBUM_SOURCE_TYPE = {
+  PACKAGE: "PACKAGE",
+  ADDON: "ADDON",
+} as const;
+
+export const ORDER_ALBUM_BACKING_LINE_KIND = {
+  PACKAGE_ITEM: "PACKAGE_ITEM",
+  ORDER_PACKAGE_ITEM_UPGRADE: "ORDER_PACKAGE_ITEM_UPGRADE",
+  ORDER_ADD_ON: "ORDER_ADD_ON",
+} as const;
+
+export const EXTRA_ALBUM_PAGE_PRODUCT_ID = "addon-extra-album-page";

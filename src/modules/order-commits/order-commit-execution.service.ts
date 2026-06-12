@@ -11,6 +11,7 @@ import {
 } from "@prisma/client";
 import type { ActorContext } from "@/lib/auth";
 import { withRetry } from "@/lib/retry";
+import { syncOrderAlbumsAfterCommit } from "@/modules/albums";
 import {
   deriveCustomerSettlementFromFinancialCaseSummary,
 } from "@/modules/financial-cases/customer-settlement.calculation";
@@ -365,6 +366,14 @@ async function commitOrderChangesWithTransaction(
     pendingSnapshot,
     draftToOrderEntityMap,
   });
+  await syncOrderAlbumsAfterCommit(
+    {
+      orderId: input.orderId,
+      committedSnapshot,
+      draftToOrderEntityEntries: [...draftToOrderEntityMap.entries()],
+    },
+    client
+  );
 
   if (shouldEmitFinancialDocuments(approvalAndDocumentPreview.documentPlan)) {
     await lockParentInvoiceForEmissionIfPresent({

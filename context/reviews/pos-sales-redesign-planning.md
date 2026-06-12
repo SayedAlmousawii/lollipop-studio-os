@@ -88,10 +88,10 @@ instead of reassembling totals from `FinancialCaseSummary` document/accounting f
 
 ### Open Items
 
-- **A-1 (catalog check):** Confirm no album size/upgrade currently lives as a `LINKED_PRODUCT` session config in catalog/seed. If it does, retire it so there's one source of truth. (Data/catalog change, not code.)
-- **A-2 (commit remap):** `OrderAlbum`'s backing-line reference must remap `draft:` → materialized id on commit (the Spec 138/143 pattern).
-- **A-3 (draft guard):** Operational `OrderAlbum` writes are exempt from the Spec 135 active-draft guard (out-of-snapshot, non-financial) — confirm safe.
-- **A-4 (extra-page product):** Create the single global "Extra album page" product (flat price) — confirm category/flags and price value with owner.
+- **A-1 (catalog check): RESOLVED by Spec 169.** Planning found no album size/upgrade currently lives as a `LINKED_PRODUCT` session config in catalog/seed, so no catalog retirement is needed.
+- **A-2 (commit remap): RESOLVED by Spec 169.** `OrderAlbum` backing-line references remap `draft:` → materialized ids during `commitOrderChanges`, and removed draft backing ids remain non-blocking metadata.
+- **A-3 (draft guard): RESOLVED by Spec 169.** Operational `OrderAlbum` finishing writes are live, out-of-snapshot, non-financial writes with no active-draft guard.
+- **A-4 (extra-page product): RESOLVED by Spec 169.** The single global "Extra album page" product exists as an `ALBUM` add-on with placeholder owner-confirm-pending price.
 - **A-5 (in-card presentation):** Decide how album config is presented **in the package card** (bundled, possibly **two** albums → configs for both) vs a **standalone album row** (own row → Configure button). Same modal in both.
 
 ---
@@ -239,11 +239,10 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
   - **Operational (no-price) configs:** **skip for now** (don't render $0 config selections like "Twins"/"Cake theme" on the receipt).
   - **Labels:** **customer-facing** — clean labels, no internal codes/ids.
   - **Source/behavior:** **live draft preview during draft state; last-committed preview during no-draft state** — same source switch as the editable composition panel (projector over current `Order*` composition when no draft, over `pendingSnapshot` when a draft exists). Projector-only, no recomputation.
-- **S-E — Order-level editing for same-session multi-package (photos + session configs):** today both are **per-`OrderPackage`** (photos via `OrderPackage.selectedPhotoCount`; session-config selections via `OrderPackageSessionConfigurationSelection`, scoped by each package's `sessionTypeId`). Multi-package orders are *usually* one session type, so per-package editing repeats the same input N times. **Opportunity:** offer an **order-level editing surface** that configures once and **fans out** to each same-session package — *keeping per-package storage unchanged* (required for per-line pricing and mixed session types). This is a UI-aggregation change, not a data-model change. Apply the **same decision to both photos and session configs** for consistency.
-  - **⚠️ BLOCKED on owner confirmation:** does a multi-package order ever contain **different session types**? 
-    - If **always one session type** → the order-level editing surface is clean and clearly worth it.
-    - If **mixed session types are possible** → order-level editing must degrade to per-package (or group by session type) when types differ; the per-package model is mandatory and the order-level surface is a same-session-only convenience.
-  - Owner to confirm; plan the UX once answered.
+- **S-E — Order-level editing for same-session multi-package (photos + session configs): RESOLVED (2026-06-12).** today both are **per-`OrderPackage`** (photos via `OrderPackage.selectedPhotoCount`; session-config selections via `OrderPackageSessionConfigurationSelection`, scoped by each package's `sessionTypeId`). Multi-package orders are *usually* one session type, so per-package editing repeats the same input N times. **Opportunity:** offer an **order-level editing surface** that configures once and **fans out** to each same-session package — *keeping per-package storage unchanged* (required for per-line pricing and mixed session types). This is a UI-aggregation change, not a data-model change. Apply the **same decision to both photos and session configs** for consistency.
+  - **Owner confirmed: mixed session types are possible** within a single order's packages.
+  - **Decision:** the per-package model stays mandatory (unchanged storage, unchanged pricing). An order-level editing surface is a **same-session-only convenience**: when all packages in the order share one `sessionTypeId`, show the order-level surface that configures once and fans out to each package; when session types differ, **degrade to per-package editing** (or group controls by session type) — never silently apply one package's session-type selections to a different session type.
+  - UX detail (which grouping/labels for the degraded multi-session-type case) still TBD at implementation time; not a blocker for F1–F3 or B1–B4. Sequence as its own spec after B2 (needs the composition rows in place to fan out into).
 - **S-F — Right-column scroll behavior: RESOLVED (2026-06-07).** Right column stacks: **Order summary (receipt) → Financial summary → commit area** (the S-C context-aware block). Only the **receipt's line list scrolls internally**; the **financial card + commit area stay pinned** at the bottom, always visible. (Mirrors the mockup rail: variable part scrolls, money + action always in view.)
 - **S-G — Phased spec breakdown: RESOLVED (2026-06-07).**
 
@@ -263,10 +262,10 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
   - **B6 — Notes UI:** left-panel Notes section + per-package customer notes inline + add-note modal. *(needs F2 + B1/B2)*
   - **B7 — Token reconciliation / visual polish (S-H):** deferred, last.
 
-  **Owner-blocked — sequence later:** order-level photos + session configs (S-E); session-config quick-config surface (S-I).
+  **Sequence later (resolved, not yet planned in detail):** order-level same-session photos + session configs (S-E, see above); session-config quick-config surface (S-I, owner wants it but needs more planning).
 - **S-H — Token reconciliation:** deferred polish — map the mockup's visual style onto existing shadcn/app tokens; tweak a token only where clearly better. Final pass; core build doesn't depend on it.
 - **S-H2 — Sidebar collapse: its own standalone spec.** App-wide collapse/expand toggle on the main sidebar (net-new; `src/components/layout/sidebar.tsx` has none today). **Independent of the Sales redesign** — can land anytime, even early. Persist collapsed state (e.g. localStorage), collapsed rail shows icons only. Include in the S-G breakdown as a standalone spec.
-- **S-I — Session-config quick-config surface (owner idea, exploratory):** owner floated showing **session configs** (e.g. Twins surcharge, age range, cake) as a **quick-config surface** in place of / alongside the current add-on marketplace on the composition panel — so common config toggles are one tap, framed as "configuring the session" not "adding a fee." Feasible on what we have: configs resolve per package via `sessionTypeId`; `ConfigureSessionPanel` already renders them; financial ones stage as `SESSION_CONFIGURATION` lines, linked-product ones as `OrderAddOn`. Open: how this coexists with the add-on marketplace (replace? complement?), per-package vs the S-E order-level surface, and which configs surface as "quick." Exploratory until owner firms it up.
+- **S-I — Session-config quick-config surface (owner idea, confirmed wanted, needs more planning — 2026-06-12):** owner floated showing **session configs** (e.g. Twins surcharge, age range, cake) as a **quick-config surface** in place of / alongside the current add-on marketplace on the composition panel — so common config toggles are one tap, framed as "configuring the session" not "adding a fee." Owner confirmed they want this but it needs further planning before specs can be drafted. Feasible on what we have: configs resolve per package via `sessionTypeId`; `ConfigureSessionPanel` already renders them; financial ones stage as `SESSION_CONFIGURATION` lines, linked-product ones as `OrderAddOn`. Still open: how this coexists with the add-on marketplace (replace? complement?), per-package vs the S-E order-level surface, and which configs surface as "quick." Revisit with owner before drafting; not a blocker for F1–F3 / B1–B4.
 
 ### Superseded (removed in this revision)
 

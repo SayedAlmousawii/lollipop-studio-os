@@ -7,6 +7,7 @@ import {
   AuditAction,
   InvoiceStatus,
   InvoiceType,
+  OrderAlbumSourceType,
   OrderStatus,
   Prisma,
   SessionConfigurationFinancialBehavior,
@@ -26,6 +27,7 @@ import {
   ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND,
 } from "@/modules/order-commits/order-commit-preview.constants";
 import type { OrderCommitSnapshotV1 } from "@/modules/order-commits/order-commit.types";
+import { EXTRA_ALBUM_PAGE_PRODUCT_ID } from "@/modules/albums/album.constants";
 
 type ModuleLoader = (
   request: string,
@@ -339,6 +341,72 @@ test("commitOrderChanges persists materialized order-level add-on ids before sna
   assert.equal(committedAddOnLine?.parentOrderPackageId, null);
   assert.equal("draftOrderAddOnId" in (committedAddOnLine?.metadata ?? {}), false);
   assert.doesNotMatch(JSON.stringify(committedSnapshot), /draft:order-add-on-canvas/);
+});
+
+test("commitOrderChanges syncs album backing ids and extra pages without failing missing draft ids", async () => {
+  const harness = fakeExecutionHarness({
+    pendingSnapshot: snapshot({
+      catalogEntityId: "package-base",
+      label: "Base package",
+      unitPrice: 100,
+      extraLines: [
+        {
+          ...addOnLine({
+          addOnId: "draft:extra-pages",
+          productId: EXTRA_ALBUM_PAGE_PRODUCT_ID,
+          unitPrice: 0,
+          quantity: 4,
+          }),
+          parentOrderPackageId: "order-package-1",
+        },
+      ],
+    }),
+    initialAlbums: [
+      {
+        id: "album-remap",
+        sourceType: OrderAlbumSourceType.PACKAGE,
+        orderPackageId: "order-package-1",
+        backingLineId: "draft:extra-pages",
+      },
+      {
+        id: "album-removed-line",
+        sourceType: OrderAlbumSourceType.PACKAGE,
+        orderPackageId: "order-package-1",
+        backingLineId: "draft:removed-before-commit",
+      },
+    ],
+  });
+  activeHarness = harness;
+  const { commitOrderChanges } = await loadExecutionService();
+
+  await commitOrderChanges({
+    orderId: "order-1",
+    expectedDraftVersion: 2,
+    actorContext,
+    client: harness.client,
+  });
+
+  assert.equal(
+    harness.state.albums.find((album) => album.id === "album-remap")
+      ?.backingLineId,
+    "addon-1"
+  );
+  assert.equal(
+    harness.state.albums.find((album) => album.id === "album-remap")
+      ?.extraPages,
+    4
+  );
+  assert.equal(
+    harness.state.albums.find((album) => album.id === "album-removed-line")
+      ?.backingLineId,
+    "draft:removed-before-commit"
+  );
+  assert.equal(
+    harness.state.albums.find((album) => album.id === "album-removed-line")
+      ?.extraPages,
+    4
+  );
+  assert.equal(harness.calls.albumUpdates.length, 2);
 });
 
 test("commitOrderChanges persists materialized package-item-upgrade ids before snapshotJson", async () => {
@@ -898,6 +966,12 @@ function fakeExecutionHarness(input?: {
   initialInvoiceTotal?: number;
   pendingSnapshot?: OrderCommitSnapshotV1;
   initialCommits?: Array<Record<string, unknown>>;
+  initialAlbums?: Array<{
+    id: string;
+    sourceType: OrderAlbumSourceType;
+    orderPackageId: string | null;
+    backingLineId: string;
+  }>;
   currentItemUpgrades?: Array<{
     id: string;
     orderId: string;
@@ -935,6 +1009,10 @@ function fakeExecutionHarness(input?: {
     commits: (input?.initialCommits ?? []).map((commit) =>
       fakeCommittedOrderCommitRow(commit)
     ) as Array<Record<string, unknown>>,
+    albums: (input?.initialAlbums ?? []).map((album) => ({
+      ...album,
+      extraPages: 0,
+    })),
   };
   const calls = {
     transactionOptions: [] as unknown[],
@@ -947,6 +1025,7 @@ function fakeExecutionHarness(input?: {
     audit: [] as Array<Record<string, unknown>>,
     activity: [] as Array<Record<string, unknown>>,
     invariants: [] as string[],
+    albumUpdates: [] as Array<{ id: string; data: Record<string, unknown> }>,
     paymentsCreated: 0,
   };
   const currentPackage = {
@@ -1027,6 +1106,21 @@ function fakeExecutionHarness(input?: {
       deleteMany: async () => ({ count: 0 }),
       create: async () => ({ id: "selection-1" }),
       update: async () => ({ id: "selection-1" }),
+    },
+    orderAlbum: {
+      findMany: async () => state.albums,
+      update: async (args: {
+        where: { id: string };
+        data: { backingLineId?: string; extraPages?: number };
+      }) => {
+        calls.albumUpdates.push({ id: args.where.id, data: args.data });
+        const album = state.albums.find((row) => row.id === args.where.id);
+        if (album) {
+          album.backingLineId = args.data.backingLineId ?? album.backingLineId;
+          album.extraPages = args.data.extraPages ?? album.extraPages;
+        }
+        return { id: args.where.id };
+      },
     },
     orderCommitDraft: {
       findUnique: async () => ({
