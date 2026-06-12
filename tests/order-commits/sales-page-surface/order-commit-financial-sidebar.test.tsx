@@ -51,6 +51,7 @@ let stagedControlsPropsCapture:
       stagedChanges: SalesPageStagedChangesRow[];
       financialPreview: SalesPageFinancialPreview;
       ownership: SalesPageDraftOwnership;
+      showStagedList?: boolean;
     }>
   | undefined;
 
@@ -86,8 +87,15 @@ test("SalesRightColumn renders grouped receipt and draft financial summary", asy
   assert.match(markup, /Pending diff/);
   assert.match(markup, /Due after commit/);
   assert.match(markup, /Draft/);
+  assert.match(markup, /1 staged/);
   assert.match(markup, /Review &amp; commit/);
   assert.match(markup, /Discard draft/);
+  assert.doesNotMatch(markup, /Staged changes/);
+  assert.doesNotMatch(
+    markup,
+    /Draft changes stay staged until they are reviewed and committed/
+  );
+  assert.doesNotMatch(markup, /Added · Signature Family/);
 });
 
 test("SalesRightColumn renders clean financial rows and record payment target", async () => {
@@ -181,8 +189,9 @@ test("SalesRightColumn forwards draft commit props unchanged", async () => {
     preview: SalesPagePreviewState | null;
     stagedChanges: SalesPageStagedChangesRow[];
     financialPreview: SalesPageFinancialPreview;
-    ownership: SalesPageDraftOwnership;
-  }> = [];
+      ownership: SalesPageDraftOwnership;
+      showStagedList?: boolean;
+    }> = [];
   stagedControlsPropsCapture = stagedControlsProps;
   const SalesRightColumn = await loadSalesRightColumn();
   const draft = draftFixture();
@@ -208,6 +217,7 @@ test("SalesRightColumn forwards draft commit props unchanged", async () => {
   assert.equal(stagedControlsProps[0]?.stagedChanges, stagedChanges);
   assert.equal(stagedControlsProps[0]?.financialPreview, financialPreview);
   assert.equal(stagedControlsProps[0]?.ownership, ownership);
+  assert.equal(stagedControlsProps[0]?.showStagedList, false);
   stagedControlsPropsCapture = undefined;
 });
 
@@ -264,6 +274,7 @@ async function loadSalesRightColumn(): Promise<SalesRightColumnComponent> {
           stagedChanges: SalesPageStagedChangesRow[];
           financialPreview: SalesPageFinancialPreview;
           ownership: SalesPageDraftOwnership;
+          showStagedList?: boolean;
         }) => {
           stagedControlsPropsCapture?.push(props);
           return createElement(

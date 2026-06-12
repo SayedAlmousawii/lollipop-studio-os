@@ -254,6 +254,8 @@ test("locked Sales branch is removed from the active Sales page", () => {
 test("staged commit controls mount the Spec 128 dialog and exact discard version", () => {
   assert.match(stagedControlsSource, /OrderCommitReviewDialog/);
   assert.match(stagedControlsSource, /discardSalesDraftAction/);
+  assert.match(stagedControlsSource, /showStagedList\?: boolean/);
+  assert.match(stagedControlsSource, /showStagedList = true/);
   assert.match(stagedControlsSource, /ownership\.canDiscard/);
   assert.match(stagedControlsSource, /discardAction\(orderId, draft\.version\)/);
   assert.match(stagedControlsSource, /canCommit=\{ownership\.canCommit\}/);
@@ -310,6 +312,7 @@ test("Sales right column stays display-only", () => {
   assert.match(salesRightColumnSource, /After commit/);
   assert.match(salesRightColumnSource, /Due after commit/);
   assert.match(salesRightColumnSource, /SalesStagedCommitControls/);
+  assert.match(salesRightColumnSource, /showStagedList=\{false\}/);
   assert.match(salesRightColumnSource, /POSRecordPaymentDialog/);
   assert.doesNotMatch(salesRightColumnSource, /CreateOrderInvoiceForm|Create Invoice/);
   assert.doesNotMatch(salesRightColumnSource, /Document plan/);

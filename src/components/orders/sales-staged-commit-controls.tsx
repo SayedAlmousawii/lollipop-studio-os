@@ -32,6 +32,7 @@ export type SalesStagedCommitControlsProps = {
   financialPreview: SalesPageFinancialPreview;
   ownership: SalesPageDraftOwnership;
   discardAction?: DiscardDraftAction;
+  showStagedList?: boolean;
 };
 
 export function SalesStagedCommitControls({
@@ -42,6 +43,7 @@ export function SalesStagedCommitControls({
   financialPreview,
   ownership,
   discardAction = discardSalesDraftAction,
+  showStagedList = true,
 }: SalesStagedCommitControlsProps) {
   const router = useRouter();
   const [discardState, setDiscardState] = useState<POSMutationActionState>({});
@@ -61,16 +63,18 @@ export function SalesStagedCommitControls({
   return (
     <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
-            <ClipboardList className="h-4 w-4" />
-            <span>Staged changes</span>
-            <Badge variant="outline">{stagedChanges.length}</Badge>
+        {showStagedList ? (
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+              <ClipboardList className="h-4 w-4" />
+              <span>Staged changes</span>
+              <Badge variant="outline">{stagedChanges.length}</Badge>
+            </div>
+            <p className="mt-1 text-xs text-text-secondary">
+              Draft changes stay staged until they are reviewed and committed.
+            </p>
           </div>
-          <p className="mt-1 text-xs text-text-secondary">
-            Draft changes stay staged until they are reviewed and committed.
-          </p>
-        </div>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           {draft ? (
             <Button
@@ -106,7 +110,9 @@ export function SalesStagedCommitControls({
         </RefreshNotice>
       ) : null}
 
-      <StagedChangesList stagedChanges={stagedChanges} />
+      {showStagedList ? (
+        <StagedChangesList stagedChanges={stagedChanges} />
+      ) : null}
     </section>
   );
 }

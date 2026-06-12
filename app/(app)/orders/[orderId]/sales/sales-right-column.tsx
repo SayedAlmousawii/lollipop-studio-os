@@ -246,6 +246,7 @@ function CommitArea({
           stagedChanges={stagedChanges}
           financialPreview={financialPreview}
           ownership={ownership}
+          showStagedList={false}
         />
       </section>
     );
