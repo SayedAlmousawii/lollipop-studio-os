@@ -90,7 +90,7 @@ export default async function SalesPage(
 
   return (
     <div className={styles.salesGrid}>
-      <main className="space-y-5">
+      <main className={styles.compositionPanel}>
         <SalesDraftOwnershipBanner
           orderId={workspace.orderId}
           ownership={salesPageView.ownership}

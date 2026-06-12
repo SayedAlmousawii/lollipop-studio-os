@@ -4,7 +4,15 @@ import { join } from "node:path";
 import test from "node:test";
 
 const pageSource = readFileSync(
-  "app/orders/[orderId]/sales/page.tsx",
+  "app/(app)/orders/[orderId]/sales/page.tsx",
+  "utf8"
+);
+const layoutSource = readFileSync(
+  "app/(app)/orders/[orderId]/sales/layout.tsx",
+  "utf8"
+);
+const stylesSource = readFileSync(
+  "app/(app)/orders/[orderId]/sales/sales-page.module.css",
   "utf8"
 );
 const stagedControlsSource = readFileSync(
@@ -43,6 +51,28 @@ const ORDER_COMMIT_SALES_SURFACE_FILES = [
   "src/modules/order-commits/projections/to-sales-page-financial-preview.ts",
   "src/modules/order-commits/projections/to-sales-page-staged-changes.ts",
 ];
+
+test("Sales route owns the fixed shell and bypasses PageContainer", () => {
+  assert.doesNotMatch(layoutSource, /PageContainer/);
+  assert.match(layoutSource, /className="flex h-full flex-col overflow-hidden bg-background"/);
+  assert.match(layoutSource, /<header className="flex-shrink-0/);
+  assert.match(layoutSource, /<h1[\s\S]*\{workspace\.customerPhone\}[\s\S]*<\/h1>/);
+  assert.match(layoutSource, /Job \{workspace\.jobNumber\}/);
+  assert.match(layoutSource, /\{workspace\.orderStatus\}/);
+  assert.match(layoutSource, /\{workspace\.sessionDate\}/);
+  assert.match(layoutSource, /workspace\.photographerName \?/);
+  assert.doesNotMatch(layoutSource, /Sales Workspace/);
+  assert.doesNotMatch(layoutSource, /sessionType/i);
+});
+
+test("Sales page delegates scroll to left and right shell regions", () => {
+  assert.match(salesViewSource, /<main className=\{styles\.compositionPanel\}>/);
+  assert.match(salesViewSource, /className=\{styles\.financialSidebar\}/);
+  assert.match(stylesSource, /\.salesGrid \{[\s\S]*height: 100%;[\s\S]*min-height: 0;[\s\S]*overflow: hidden;/);
+  assert.match(stylesSource, /\.compositionPanel \{[\s\S]*flex: 1 1 auto;[\s\S]*min-height: 0;[\s\S]*min-width: 0;[\s\S]*overflow-y: auto;/);
+  assert.match(stylesSource, /\.financialSidebar \{[\s\S]*flex: 0 0 380px;[\s\S]*min-height: 0;[\s\S]*overflow-y: auto;[\s\S]*width: 380px;/);
+  assert.match(stylesSource, /@media \(max-width: 767px\)/);
+});
 
 test("Sales page mounts SalesPageView as the unified composition source", () => {
   assert.match(pageSource, /getSalesPageView,\n\} from "@\/modules\/order-commits\/projections"/);
@@ -316,7 +346,7 @@ test("OrderCommit Sales surface does not expose public Adjustment Workspace nami
 
 test("OrderCommit Sales page and components do not calculate preview money from rows", () => {
   const guardedFiles = [
-    "app/orders/[orderId]/sales/page.tsx",
+    "app/(app)/orders/[orderId]/sales/page.tsx",
     "src/components/orders/sales-staged-commit-controls.tsx",
     "src/components/orders/order-commit-financial-sidebar.tsx",
     "src/components/orders/order-commit-review-dialog.tsx",

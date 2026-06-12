@@ -254,7 +254,7 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
   - **F3 — Sidebar collapse (S-H2):** standalone, app-wide; independent of everything — can land anytime.
 
   **Sales single-view — shell first, then surfaces:**
-  - **B1 — Shell skeleton:** single view (no tabs), fixed shell / partial scroll, bypass `PageContainer`, header restyle, left-panel + right-column region scaffolding (placeholder content).
+  - **B1 — Shell skeleton: SHIPPED by Spec 173.** Single view (no tabs), fixed shell / partial scroll, bypass `PageContainer`, header restyle, and left-panel + right-column region scaffolding now exist with existing Sales content re-homed.
   - **B2 — Composition rows restyle:** left panel = collapsible package + add-on rows + dashed "+ add another…" CTA. **Functionally unchanged.** *(needs B1)*
   - **B3 — Right column:** receipt card + simplified financial card + context-aware commit area (commit/discard ↔ record-payment). *(needs B1)*
   - **B4 — Photos in-card:** per-package photo summary → modal (count + digital/print/split extras; today's `POSPhotoCountCard` behavior). **Its own spec.** *(needs B2)*
