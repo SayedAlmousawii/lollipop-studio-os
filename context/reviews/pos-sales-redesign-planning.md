@@ -35,7 +35,7 @@ instead of reassembling totals from `FinancialCaseSummary` document/accounting f
 
 | Area | Adopt |
 |---|---|
-| Shell | Fixed shell, partial scroll (only panel scrolls); sidebar collapse toggle (deferred polish) |
+| Shell | Fixed shell, partial scroll (only panel scrolls); sidebar collapse toggle shipped by Spec 171 |
 | Style | Visual language + component kit (cards, rows, badges, chips, buttons). Use our tokens; tweak toward the mockup only where clearly better. |
 | Composition | Collapsible package/add-on **rows** in one scrollable area; expand-to-edit; dashed "+ add another…" CTA |
 | Photos | Per-package **photo summary in the package card → modal** to edit count + digital/print/split extras |
@@ -264,7 +264,7 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
 
   **Sequence later (resolved, not yet planned in detail):** order-level same-session photos + session configs (S-E, see above); session-config quick-config surface (S-I, owner wants it but needs more planning).
 - **S-H — Token reconciliation:** deferred polish — map the mockup's visual style onto existing shadcn/app tokens; tweak a token only where clearly better. Final pass; core build doesn't depend on it.
-- **S-H2 — Sidebar collapse: its own standalone spec.** App-wide collapse/expand toggle on the main sidebar (net-new; `src/components/layout/sidebar.tsx` has none today). **Independent of the Sales redesign** — can land anytime, even early. Persist collapsed state (e.g. localStorage), collapsed rail shows icons only. Include in the S-G breakdown as a standalone spec.
+- **S-H2 — Sidebar collapse: SHIPPED by Spec 171.** App-wide collapse/expand toggle on the main sidebar, persisted with localStorage; collapsed rail shows icons only. Delivered as a standalone foundation independent of the Sales redesign.
 - **S-I — Session-config quick-config surface (owner idea, confirmed wanted, needs more planning — 2026-06-12):** owner floated showing **session configs** (e.g. Twins surcharge, age range, cake) as a **quick-config surface** in place of / alongside the current add-on marketplace on the composition panel — so common config toggles are one tap, framed as "configuring the session" not "adding a fee." Owner confirmed they want this but it needs further planning before specs can be drafted. Feasible on what we have: configs resolve per package via `sessionTypeId`; `ConfigureSessionPanel` already renders them; financial ones stage as `SESSION_CONFIGURATION` lines, linked-product ones as `OrderAddOn`. Still open: how this coexists with the add-on marketplace (replace? complement?), per-package vs the S-E order-level surface, and which configs surface as "quick." Revisit with owner before drafting; not a blocker for F1–F3 / B1–B4.
 
 ### Superseded (removed in this revision)
