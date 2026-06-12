@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Aperture,
   BarChart2,
@@ -13,6 +14,8 @@ import {
   Image,
   LayoutDashboard,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   PenLine,
   Printer,
   ReceiptText,
@@ -23,11 +26,20 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SidebarProps {
   showProductionLink: boolean;
   showProductsLink: boolean;
 }
+
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio-os.sidebar-collapsed";
 
 const NAV_SECTIONS = [
   {
@@ -69,6 +81,43 @@ function isActive(pathname: string, href: string): boolean {
 
 export function Sidebar({ showProductionLink, showProductsLink }: SidebarProps) {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        setCollapsed(
+          window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
+        );
+      } catch {
+        setCollapsed(false);
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(
+            SIDEBAR_COLLAPSED_STORAGE_KEY,
+            String(next)
+          );
+        } catch {
+          // Ignore disabled storage; the in-memory preference still applies.
+        }
+      }
+
+      return next;
+    });
+  }
+
   const navSections = NAV_SECTIONS.map((section, index) => {
     if (index === 1 && showProductsLink) {
       const packageIndex = section.items.findIndex(
@@ -106,50 +155,135 @@ export function Sidebar({ showProductionLink, showProductsLink }: SidebarProps) 
   });
 
   return (
-    <aside className="flex h-full w-60 flex-shrink-0 flex-col bg-sidebar">
+    <aside
+      className={cn(
+        "flex h-full flex-shrink-0 flex-col bg-sidebar transition-[width] duration-200 ease-in-out",
+        collapsed ? "w-16" : "w-60"
+      )}
+    >
       {/* Logo */}
-      <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
-          <Aperture className="h-4 w-4 text-white" />
+      <div
+        className={cn(
+          "flex h-14 items-center border-b border-sidebar-border px-4",
+          collapsed ? "justify-center px-3" : "gap-2.5"
+        )}
+      >
+        <div
+          className={cn(
+            "flex min-w-0 items-center",
+            collapsed ? "justify-center" : "flex-1 gap-2.5"
+          )}
+        >
+          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-primary">
+            <Aperture className="h-4 w-4 text-white" />
+          </div>
+          <span
+            className={cn(
+              "text-sm font-semibold tracking-wide text-sidebar-foreground",
+              collapsed && "sr-only"
+            )}
+          >
+            Studio OS
+          </span>
         </div>
-        <span className="text-sm font-semibold text-sidebar-foreground tracking-wide">
-          Studio OS
-        </span>
+
+        {collapsed ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
+            aria-label="Collapse sidebar"
+            aria-expanded
+            onClick={toggleCollapsed}
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3">
-        {navSections.map((section, si) => (
-          <div key={si} className={cn("space-y-0.5", si > 0 && "mt-1 pt-1 border-t border-sidebar-border")}>
-            {section.items.map((item) => {
-              const active = isActive(pathname, item.href);
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors",
-                    active
-                      ? "bg-sidebar-active-bg text-primary font-medium"
-                      : "text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
-                  )}
-                >
-                  <Icon className="h-4 w-4 flex-shrink-0" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
+      <TooltipProvider delayDuration={150}>
+        <nav className={cn("flex-1 overflow-y-auto py-3", collapsed ? "px-2" : "px-3")}>
+          {navSections.map((section, si) => (
+            <div
+              key={si}
+              className={cn(
+                "space-y-0.5",
+                si > 0 && "mt-1 border-t border-sidebar-border pt-1"
+              )}
+            >
+              {section.items.map((item) => {
+                const active = isActive(pathname, item.href);
+                const Icon = item.icon;
+                const link = (
+                  <Link
+                    href={item.href}
+                    aria-label={collapsed ? item.label : undefined}
+                    className={cn(
+                      "flex items-center rounded-md text-sm transition-colors",
+                      collapsed
+                        ? "h-10 justify-center px-0"
+                        : "gap-2.5 px-3 py-2",
+                      active
+                        ? "bg-sidebar-active-bg font-medium text-primary"
+                        : "text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
+                    )}
+                  >
+                    <Icon className="h-4 w-4 flex-shrink-0" />
+                    <span className={cn(collapsed && "sr-only")}>
+                      {item.label}
+                    </span>
+                  </Link>
+                );
+
+                if (collapsed) {
+                  return (
+                    <Tooltip key={item.href}>
+                      <TooltipTrigger asChild>{link}</TooltipTrigger>
+                      <TooltipContent side="right">{item.label}</TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                return (
+                  <div key={item.href}>
+                    {link}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+      </TooltipProvider>
+
+      {collapsed ? (
+        <div className="border-t border-sidebar-border px-3 py-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
+            aria-label="Expand sidebar"
+            aria-expanded={false}
+            onClick={toggleCollapsed}
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
 
       {/* User block */}
-      <div className="flex items-center gap-3 border-t border-sidebar-border px-4 py-3">
+      <div
+        className={cn(
+          "flex items-center border-t border-sidebar-border py-3",
+          collapsed ? "justify-center px-3" : "gap-3 px-4"
+        )}
+      >
         <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
           <User className="h-4 w-4" />
         </div>
-        <div className="min-w-0 flex-1">
+        <div className={cn("min-w-0 flex-1", collapsed && "sr-only")}>
           <p className="truncate text-sm font-medium text-sidebar-foreground">
             Studio Admin
           </p>

@@ -93,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **171** — Added app-wide sidebar collapse with localStorage persistence, an accessible icon-only rail, collapsed nav tooltips, and smooth shell reflow.
 - **170** — Added the shared `Note` domain for typed order/package-scoped operational annotations with live CRUD writes, `NOTE_WRITE`, and `NOTE_ADDED` create activity.
 - **169** — Added the operational-only `OrderAlbum` domain, seeded the global Extra album page add-on, exposed album CRUD/finishing/extra-page helpers, and synced backing-line ids plus extra-page counts during OrderCommit execution.
 - **Pointer lock UI fix** — Dropdown-launched booking/customer dialogs now open after their menus close, and a root route-change guard clears only stale body pointer-event locks when no Radix layer is open.
