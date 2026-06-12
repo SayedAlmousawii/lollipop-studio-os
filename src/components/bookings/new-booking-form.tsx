@@ -32,7 +32,7 @@ import {
   createBooking,
   getBookingCustomerPhoneSuggestions,
   type ActionState,
-} from "@/app/bookings/new/actions";
+} from "@/app/(app)/bookings/new/actions";
 import type { RecommendedPhotographer } from "@/modules/bookings/booking.service";
 
 type PhoneSuggestion = {

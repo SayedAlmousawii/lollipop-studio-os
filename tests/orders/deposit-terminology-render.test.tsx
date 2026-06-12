@@ -34,7 +34,7 @@ test("EditingWorkflowForm renders deposit terminology for the unpaid start gate"
 async function loadEditingWorkflowForm(): Promise<EditingWorkflowFormComponent> {
   const originalModuleLoad = moduleWithLoader._load;
   moduleWithLoader._load = function loadWithActionStubs(request, parent, isMain) {
-    if (request === "@/app/orders/[orderId]/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/actions") {
       return {
         updateEditingWorkflowAction: async () => ({}),
       };

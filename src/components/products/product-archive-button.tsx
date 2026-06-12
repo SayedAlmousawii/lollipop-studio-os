@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   archiveProductAction,
   type ProductArchiveActionState,
-} from "@/app/products/actions";
+} from "@/app/(app)/products/actions";
 import { Button } from "@/components/ui/button";
 
 interface ProductArchiveButtonProps {

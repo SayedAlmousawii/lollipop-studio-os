@@ -14,7 +14,7 @@ import {
 import {
   updateProductionWorkflowAction,
   type UpdateProductionActionState,
-} from "@/app/orders/[orderId]/actions";
+} from "@/app/(app)/orders/[orderId]/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type {

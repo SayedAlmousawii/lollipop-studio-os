@@ -99,7 +99,7 @@ async function loadPOSRecordPaymentDialog(): Promise<POSRecordPaymentDialogCompo
     if (request === "sonner") {
       return { toast: { success: () => undefined } };
     }
-    if (request === "@/app/orders/[orderId]/sales/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/sales/actions") {
       return { recordPOSPaymentAction: async () => ({}) };
     }
     if (request === "@/components/ui/dialog") {

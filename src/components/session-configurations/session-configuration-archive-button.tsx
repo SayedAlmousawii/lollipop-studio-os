@@ -6,7 +6,7 @@ import {
   archiveSessionConfigurationAction,
   unarchiveSessionConfigurationAction,
   type SessionConfigurationArchiveActionState,
-} from "@/app/session-configurations/actions";
+} from "@/app/(app)/session-configurations/actions";
 import { Button } from "@/components/ui/button";
 
 export function SessionConfigurationArchiveButton({

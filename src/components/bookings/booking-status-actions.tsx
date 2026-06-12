@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   updateBookingStatusAction,
   type UpdateBookingStatusActionState,
-} from "@/app/bookings/actions";
+} from "@/app/(app)/bookings/actions";
 import { cn } from "@/lib/utils";
 import type {
   BookingWorkflowAction,

@@ -7,7 +7,7 @@ import {
   createChild,
   updateChild,
   type ChildActionState,
-} from "@/app/customers/actions";
+} from "@/app/(app)/customers/actions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,

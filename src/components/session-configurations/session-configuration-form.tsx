@@ -13,7 +13,7 @@ import {
   updateSessionConfigurationAction,
   type SessionConfigurationActionState,
   type SessionConfigurationFormValues,
-} from "@/app/session-configurations/actions";
+} from "@/app/(app)/session-configurations/actions";
 import { Button } from "@/components/ui/button";
 import { DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";

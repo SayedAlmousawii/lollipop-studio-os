@@ -269,7 +269,7 @@ async function createBehaviorHarness(): Promise<BehaviorHarness> {
         },
       };
     }
-    if (request === "@/app/orders/[orderId]/sales/actions") {
+    if (request === "@/app/(app)/orders/[orderId]/sales/actions") {
       return {
         commitSalesChangesAction: async () => ({ kind: "success" }),
       };

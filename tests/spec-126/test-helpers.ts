@@ -30,7 +30,7 @@ type FinalInvoiceWorkflow = Awaited<
 >;
 type OrderServices = typeof import("@/modules/orders/order.service");
 type OrderCommitServices = typeof import("@/modules/order-commits/order-commit.service");
-type SalesActions = typeof import("@/app/orders/[orderId]/sales/actions");
+type SalesActions = typeof import("@/app/(app)/orders/[orderId]/sales/actions");
 type SalesPageLoader = typeof import("@/modules/order-commits/projections");
 
 type ActionUser = {
@@ -105,7 +105,7 @@ export async function withSpec126Harness<T>(
         const orderCommitServices = await import(
           "@/modules/order-commits/order-commit.service"
         );
-        const salesActions = await import("@/app/orders/[orderId]/sales/actions");
+        const salesActions = await import("@/app/(app)/orders/[orderId]/sales/actions");
         const salesPageLoader = await import("@/modules/order-commits/projections");
 
         const fixtures = await fixturesModule.seedPhaseBFixtures(db);

@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import {
   recordPOSPaymentAction,
   type POSRecordPaymentActionState,
-} from "@/app/orders/[orderId]/sales/actions";
+} from "@/app/(app)/orders/[orderId]/sales/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";

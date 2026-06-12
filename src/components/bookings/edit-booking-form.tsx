@@ -8,7 +8,7 @@ import { Save } from "lucide-react";
 import {
   updateBookingAction,
   type UpdateBookingActionState,
-} from "@/app/bookings/[bookingId]/edit/actions";
+} from "@/app/(app)/bookings/[bookingId]/edit/actions";
 import { BookingStatusBadge } from "@/components/bookings/booking-status-badge";
 import { PaymentStatusBadge } from "@/components/bookings/payment-status-badge";
 import { Button } from "@/components/ui/button";

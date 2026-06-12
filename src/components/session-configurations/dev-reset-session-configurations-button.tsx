@@ -7,7 +7,7 @@ import { RotateCcw, X } from "lucide-react";
 import {
   resetSessionConfigurationsAction,
   type ResetSessionConfigurationsActionState,
-} from "@/app/session-configurations/actions";
+} from "@/app/(app)/session-configurations/actions";
 import { Button } from "@/components/ui/button";
 
 export function DevResetSessionConfigurationsButton() {

@@ -1,16 +1,13 @@
 import { UserButton } from "@clerk/nextjs";
 import { Bell } from "lucide-react";
 import { DevResetWorkflowButton } from "./dev-reset-workflow-button";
+import { TopbarTitle } from "./topbar-title";
 
-interface TopbarProps {
-  pageTitle: string;
-}
-
-export function Topbar({ pageTitle }: TopbarProps) {
+export function Topbar() {
   return (
     <header className="flex h-14 flex-shrink-0 items-center gap-4 border-b border-border bg-surface px-6">
       <h1 className="flex-shrink-0 text-lg font-semibold text-text-primary">
-        {pageTitle}
+        <TopbarTitle />
       </h1>
 
       <div className="flex flex-1 items-center justify-end gap-2">

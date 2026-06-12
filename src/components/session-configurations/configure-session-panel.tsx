@@ -10,7 +10,7 @@ import {
 import {
   stageSessionConfigurationSelectionAction,
   type POSSessionConfigurationStagingActionState,
-} from "@/app/orders/[orderId]/sales/actions";
+} from "@/app/(app)/orders/[orderId]/sales/actions";
 import { formatSignedMoney } from "@/lib/formatting/money";
 import { Button } from "@/components/ui/button";
 import {

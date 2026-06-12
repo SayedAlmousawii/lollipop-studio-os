@@ -66,7 +66,7 @@ test("session types page renders for catalog managers and denies other roles", a
   };
 
   try {
-    const { default: SessionTypesPage } = await import("@/app/session-types/page");
+    const { default: SessionTypesPage } = await import("@/app/(app)/session-types/page");
     const pageProps = {
       searchParams: Promise.resolve({}),
     } as Parameters<typeof SessionTypesPage>[0];

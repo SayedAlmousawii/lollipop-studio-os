@@ -48,7 +48,7 @@ test("extra-photo pricing action updates for catalog managers and rejects other 
   };
 
   try {
-    const { updateExtraPhotoPricingAction } = await import("@/app/pricing/actions");
+    const { updateExtraPhotoPricingAction } = await import("@/app/(app)/pricing/actions");
     const allowedResult = await updateExtraPhotoPricingAction(
       "session-type-1",
       {},
