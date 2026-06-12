@@ -39,6 +39,7 @@ export type POSCompositionPackageLineProjection = {
 export type POSCompositionAddOnProjection = {
   id: string;
   orderAddOnId: string | null;
+  orderPackageId: string | null;
   productId: string | null;
   name: string;
   quantity: number;
@@ -259,6 +260,7 @@ function projectAddOn(line: CompositionLine): POSCompositionAddOnProjection {
   return {
     id: line.id,
     orderAddOnId: line.metadata.orderAddOnId ?? null,
+    orderPackageId: line.metadata.orderPackageId ?? null,
     productId: line.metadata.productId ?? line.metadata.sourceRefId ?? null,
     name: line.label,
     quantity: line.quantity,

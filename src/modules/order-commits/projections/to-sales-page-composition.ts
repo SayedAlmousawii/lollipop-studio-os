@@ -129,6 +129,8 @@ export function toSalesPageComposition({
       .map((line) => ({
         id: line.lineId,
         orderAddOnId: metadataString(line, "orderAddOnId") ?? line.orderEntityId,
+        orderPackageId:
+          line.parentOrderPackageId ?? metadataString(line, "orderPackageId"),
         productId: line.catalogEntityId ?? metadataString(line, "productId"),
         name: line.label,
         quantity: line.quantity,
@@ -139,7 +141,10 @@ export function toSalesPageComposition({
       .filter(
         (line) =>
           line.lineKind ===
-          ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION
+            ORDER_COMMIT_SNAPSHOT_LINE_KIND.SESSION_CONFIGURATION ||
+          line.lineKind ===
+            ORDER_COMMIT_SNAPSHOT_LINE_KIND
+              .LINKED_PRODUCT_SESSION_CONFIGURATION_ADD_ON
       )
       .map((line) => ({
         id: line.lineId,
