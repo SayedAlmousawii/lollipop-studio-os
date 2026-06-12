@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
 import {
   Aperture,
   BarChart2,
@@ -33,20 +32,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSidebarCollapse } from "./sidebar-collapse-provider";
 
 interface SidebarProps {
   showProductionLink: boolean;
   showProductsLink: boolean;
-  defaultCollapsed?: boolean;
 }
-
-// Persisted in a cookie (not localStorage) so the server can read it during
-// SSR and render the correct width on first paint. AppShell is mounted per
-// route-section layout, so the sidebar remounts on every cross-section
-// navigation; without an SSR-known initial value it would flash expanded for a
-// frame before a post-mount read re-collapsed it. The cookie removes that flash.
-export const SIDEBAR_COLLAPSED_COOKIE = "studio-os.sidebar-collapsed";
-const SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 const NAV_SECTIONS = [
   {
@@ -89,24 +80,9 @@ function isActive(pathname: string, href: string): boolean {
 export function Sidebar({
   showProductionLink,
   showProductsLink,
-  defaultCollapsed = false,
 }: SidebarProps) {
   const pathname = usePathname();
-  // Seeded from the SSR-read cookie so server and first client render agree —
-  // no post-mount correction, no hydration mismatch, no expand→collapse flash.
-  const [collapsed, setCollapsed] = useState(defaultCollapsed);
-
-  function toggleCollapsed() {
-    setCollapsed((current) => {
-      const next = !current;
-
-      if (typeof document !== "undefined") {
-        document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${next}; path=/; max-age=${SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
-      }
-
-      return next;
-    });
-  }
+  const { collapsed, toggleCollapsed } = useSidebarCollapse();
 
   const navSections = NAV_SECTIONS.map((section, index) => {
     if (index === 1 && showProductsLink) {
@@ -206,24 +182,29 @@ export function Sidebar({
               {section.items.map((item) => {
                 const active = isActive(pathname, item.href);
                 const Icon = item.icon;
-                const link = (
-                  <Link
-                    href={item.href}
-                    aria-label={collapsed ? item.label : undefined}
-                    className={cn(
-                      "flex items-center rounded-md text-sm transition-colors",
-                      collapsed
-                        ? "h-10 justify-center px-0"
-                        : "gap-2.5 px-3 py-2",
-                      active
-                        ? "bg-sidebar-active-bg font-medium text-primary"
-                        : "text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
-                    )}
-                  >
+                const linkClassName = cn(
+                  "flex items-center rounded-md text-sm transition-colors",
+                  collapsed ? "h-10 justify-center px-0" : "gap-2.5 px-3 py-2",
+                  active
+                    ? "bg-sidebar-active-bg font-medium text-primary"
+                    : "text-sidebar-muted hover:bg-sidebar-active-bg hover:text-sidebar-foreground"
+                );
+                const linkContent = (
+                  <>
                     <Icon className="h-4 w-4 flex-shrink-0" />
                     <span className={cn(collapsed && "sr-only")}>
                       {item.label}
                     </span>
+                  </>
+                );
+
+                const link = (
+                  <Link
+                    href={item.href}
+                    aria-label={collapsed ? item.label : undefined}
+                    className={linkClassName}
+                  >
+                    {linkContent}
                   </Link>
                 );
 
@@ -236,11 +217,7 @@ export function Sidebar({
                   );
                 }
 
-                return (
-                  <div key={item.href}>
-                    {link}
-                  </div>
-                );
+                return <div key={item.href}>{link}</div>;
               })}
             </div>
           ))}

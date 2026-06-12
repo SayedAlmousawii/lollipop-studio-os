@@ -43,6 +43,7 @@ Gift Vouchers (a later phase) are code-based, single-lifecycle, transferable pre
 | 12 | Settlement plumbing | **Shared `ValueApplication` table** | One application table for customer credit now and gift vouchers later; the invoice settlement read model sums cash + document + value sources uniformly. |
 | — | Sequencing | **Customer Credit before Gift Vouchers** | Delivers the named business need; builds the shared settlement layer; de-risks vouchers. |
 | — | Redemption rules | **Any invoice, partial allowed, FIFO by expiry, mixed sources allowed** | Confirmed earlier in discussion. |
+| 13 | Credit funds a new booking's deposit | **Yes** — at confirmation, via `ValueApplication(CUSTOMER_CREDIT)` (Option-G-style variant). No-show → **forfeit as breakage**; credit < deposit → **credit + cash top-up**; cancel-in-window → **restore credit**; credit stays **portable** (only deposit amount drawn). | Review finding H1 (2026-06-12). Makes deposit settlement symmetric across cash/credit/voucher. |
 
 ---
 
@@ -135,7 +136,20 @@ effectivePaid(invoice) =
 4. **Partial** allowed; a single settlement may span **multiple** credits and **mix** with cash / (future) voucher (e.g. 160 = 20 credit + 100 voucher + 40 cash).
 5. The settlement read model counts `ValueApplication.amountApplied` toward `effectivePaid`.
 
-### 5.3 Manager actions
+### 5.3 Fund a new booking's deposit (the driving use case — H1)
+
+The primary way a customer "uses the credit toward a new booking." Mirrors the voucher Option-G confirmation variant; key difference: **credit never commits to the case — it stays portable.**
+
+1. At new-booking confirmation, draw from the customer's `ACTIVE` non-expired credits **FIFO** to settle the deposit invoice via `ValueApplication(CUSTOMER_CREDIT)` → deposit issued → paid-by-credit → CLOSED + locked → CONFIRMED.
+2. If available credit **< deposit**, draw all of it and collect the remainder in **cash** (mixed settlement: `ValueApplication(credit)` + cash `Payment`). Confirmation still requires the deposit fully settled.
+3. Only the **deposit amount** is drawn; any remaining credit stays `ACTIVE` and portable (still applies to other invoices/bookings).
+4. The booking-confirmation "deposit paid" gate (`booking.service.ts:864`) must recognize a `ValueApplication` as settlement — generalize to one **"deposit settled by any source"** check shared with vouchers.
+5. **Dispositions** for a credit-funded booking:
+   - **No-show** → the credit-funded deposit is **forfeited as breakage income** (parity with cash/voucher no-show).
+   - **Cancel-in-window** → **restore the credit** (reverse the `ValueApplication`; `remainingAmount` goes back up; return-to-source), not cash.
+6. At **attendance**, the credit-funded deposit credits to FINAL via the **effective-settlement** path (see M2), as a cash deposit would.
+
+### 5.4 Manager actions
 
 - **Extend** (audited): set a new `expiresAt`, return an `EXPIRED` credit to `ACTIVE`. Original expiry preserved in audit history.
 
