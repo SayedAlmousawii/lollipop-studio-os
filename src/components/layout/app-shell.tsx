@@ -1,4 +1,5 @@
-import { Sidebar } from "./sidebar";
+import { cookies } from "next/headers";
+import { Sidebar, SIDEBAR_COLLAPSED_COOKIE } from "./sidebar";
 import { Topbar } from "./topbar";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions";
@@ -13,6 +14,12 @@ export async function AppShell({
   pageTitle = "Dashboard",
 }: AppShellProps) {
   const appUser = await requireCurrentAppUser();
+  // Read the persisted collapsed preference server-side so the sidebar renders
+  // at its correct width on first paint, even though it remounts on every
+  // cross-section navigation (AppShell is per route-section layout).
+  const cookieStore = await cookies();
+  const sidebarCollapsed =
+    cookieStore.get(SIDEBAR_COLLAPSED_COOKIE)?.value === "true";
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -22,6 +29,7 @@ export async function AppShell({
           appUser,
           PERMISSIONS.PACKAGE_CATALOG_MANAGE
         )}
+        defaultCollapsed={sidebarCollapsed}
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar pageTitle={pageTitle} />
