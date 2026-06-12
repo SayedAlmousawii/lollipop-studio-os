@@ -10,7 +10,7 @@ Legend: 🔴 high (core use case / correctness) · 🟠 medium · 🟡 low / spe
 ## 🔴 High
 
 ### H1 — Customer credit funding a NEW booking's deposit  ⟶ RESOLVED (2026-06-12)
-**Decision: YES — credit can fund a new booking's deposit at confirmation** (Option-G-style confirmation variant; FIFO draw via `ValueApplication(CUSTOMER_CREDIT)`; deposit invoice issued→paid-by-credit→CLOSED+locked→CONFIRMED). Sub-decisions: **no-show → forfeit as breakage** (parity with cash/voucher); **credit < deposit → allow credit + cash top-up** (mixed settlement). Determined by existing principles: **cancel-in-window → restore the credit** (return-to-source); credit stays **portable** (only the deposit amount is drawn, remainder stays ACTIVE — no pool commit, unlike vouchers).
+**Decision: YES — credit can fund a new booking's deposit at confirmation** (Option-G-style confirmation variant; FIFO pending hold via `ValueApplication(CUSTOMER_CREDIT)`; deposit invoice issued→settled-by-credit-hold→CLOSED+locked→CONFIRMED). Sub-decisions: **no-show → post hold to breakage** (parity with cash/voucher); **credit < deposit → allow credit + cash top-up** (mixed settlement). Determined by existing principles: **cancel-in-window → void the hold and restore the credit** (return-to-source); credit stays **portable** (only the deposit amount is held, remainder stays ACTIVE — no pool commit, unlike vouchers).
 **Cascades:** the "deposit paid" check (`booking.service.ts:864`) must recognize a `ValueApplication` as settlement — generalize to ONE "deposit settled by any source" check shared with vouchers (relates H3, M2). **M2 now applies to credit too** (credit-funded deposit credits to FINAL via effective settlement). Introduces a **credit-breakage** income event (no-show forfeit) — relates M5 (expiry breakage).
 Folded into `customer-credit-plan.md` (§2 decisions, new §5 deposit-funding flow, dispositions).
 
@@ -19,6 +19,13 @@ Foundation: "voucher = liability until redeemed." But `gift-voucher-plan.md §2`
 
 ### H3 — A voucher-funded deposit must not be convertible to customer credit  ⟶ OPEN
 Customer-credit issuance (`customer-credit-plan.md §5.1`) keys off "the locked DEPOSIT invoice." If the booking was voucher-backed (Option G), the deposit was funded by a `ValueApplication`, not cash — converting it to customer credit would mint value from nothing. The cash cap *implicitly* saves us (`caseNetCashOverpayment` = 0 for a voucher booking → capped at 0), but: (a) the plan never states the guard, and (b) the UI must route voucher-backed cancellations to **voucher-restore**, not offer "convert to credit." Cross-plan. **Add explicit guard + UI routing rule.**
+
+### H4 — Shared value applications need hold lifecycle + idempotency  ⟶ RESOLVED (2026-06-12)
+**Decision: YES — `ValueApplication` becomes the shared reservation/application primitive for customer credit and gift vouchers.** Deposit-funded credit/voucher usage starts as a **PENDING hold**, not an immediately-final draw. The hold later resolves exactly once: **POSTED** (attendance deposit commit, no-show penalty, voucher/customer-credit breakage) or **VOIDED** (cancel-in-window / manager release, which restores the source value). This replaces bespoke restore/unwind paths with one source-agnostic disposition model.
+
+Every financial mutation in the credit/voucher layer must also carry an **idempotency key** enforced by a unique constraint. Examples: credit-funded deposit hold, voucher-funded deposit hold, credit redemption, voucher sale fulfillment, manager void/adjustment/extension where retry safety matters. A duplicate key returns the already-created result or fails as an already-processed operation; it must never create a second draw, second credit, second voucher, or second breakage event.
+
+This is a **Postgres schema/service discipline**, not an integration decision. Do not add TigerBeetle, Formance, Voucherify, Odoo, Medusa, or Square as runtime dependencies. Borrow only the primitives: two-phase holds and idempotency. Folded into `customer-credit-plan.md` and `gift-voucher-plan.md`.
 
 ---
 
@@ -64,4 +71,5 @@ Customer-credit FIFO needs a tiebreak for equal `expiresAt` (e.g. `createdAt`). 
 ---
 
 ## Resolution log
-- **H1 — RESOLVED 2026-06-12.** Credit can fund a new booking's deposit (confirmation variant, FIFO). No-show → forfeit as breakage; credit < deposit → credit + cash top-up; cancel-in-window → restore credit; credit stays portable (no commit). Updated `customer-credit-plan.md`. Cascades into H3/M2 (shared deposit-settled-by-any-source check) and M5 (credit breakage).
+- **H4 — RESOLVED 2026-06-12.** Shared `ValueApplication` gets a two-phase hold lifecycle (`PENDING -> POSTED|VOIDED`) plus unique idempotency keys for credit/voucher money movements. Updated `customer-credit-plan.md`, `gift-voucher-plan.md`, and `credit-settlement-application-plan.md`.
+- **H1 — RESOLVED 2026-06-12.** Credit can fund a new booking's deposit (confirmation variant, FIFO pending hold). No-show → post hold to breakage; credit < deposit → credit + cash top-up; cancel-in-window → void hold and restore credit; credit stays portable (no commit). Updated `customer-credit-plan.md`. Cascades into H3/M2 (shared deposit-settled-by-any-source check) and M5 (credit breakage).

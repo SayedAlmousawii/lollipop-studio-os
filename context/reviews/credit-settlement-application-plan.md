@@ -7,6 +7,13 @@
 > canonical customer settlement summary. Does
 > **not** reopen the OrderCommit financial math.
 
+> Future note (2026-06-12): Customer Credit and Gift Vouchers add a sibling
+> `ValueApplication` settlement source for external stored value. That work should
+> extend invoice effective-paid/read models with **posted** value applications only,
+> while deposit funding uses a two-phase hold lifecycle (`PENDING -> POSTED|VOIDED`)
+> and idempotency keys. This remains Postgres-owned schema/service discipline; do
+> not introduce a second ledger/runtime dependency.
+
 ---
 
 ## 1. Origin — the bug that started this

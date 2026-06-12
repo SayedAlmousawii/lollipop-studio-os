@@ -43,7 +43,8 @@ Gift Vouchers (a later phase) are code-based, single-lifecycle, transferable pre
 | 12 | Settlement plumbing | **Shared `ValueApplication` table** | One application table for customer credit now and gift vouchers later; the invoice settlement read model sums cash + document + value sources uniformly. |
 | — | Sequencing | **Customer Credit before Gift Vouchers** | Delivers the named business need; builds the shared settlement layer; de-risks vouchers. |
 | — | Redemption rules | **Any invoice, partial allowed, FIFO by expiry, mixed sources allowed** | Confirmed earlier in discussion. |
-| 13 | Credit funds a new booking's deposit | **Yes** — at confirmation, via `ValueApplication(CUSTOMER_CREDIT)` (Option-G-style variant). No-show → **forfeit as breakage**; credit < deposit → **credit + cash top-up**; cancel-in-window → **restore credit**; credit stays **portable** (only deposit amount drawn). | Review finding H1 (2026-06-12). Makes deposit settlement symmetric across cash/credit/voucher. |
+| 13 | Credit funds a new booking's deposit | **Yes** — at confirmation, via a pending `ValueApplication(CUSTOMER_CREDIT)` hold (Option-G-style variant). No-show / attendance disposition → **POST** the held deposit; cancel-in-window → **VOID** the hold and restore credit; credit < deposit → **credit + cash top-up**; credit stays **portable** (only deposit amount held). | Review findings H1 and H4 (2026-06-12). Makes deposit settlement symmetric across cash/credit/voucher and avoids bespoke restore paths. |
+| 14 | Retry / double-submit safety | **Every credit money movement has an idempotency key** enforced by a unique constraint. | Review finding H4 (2026-06-12). Prevents double issue, double hold, double redemption, and duplicate breakage on retries/concurrent submits. |
 
 ---
 
@@ -75,23 +76,28 @@ model CustomerCredit {
 
 ```
 enum ValueApplicationSourceKind { CUSTOMER_CREDIT }   // v1; GIFT_VOUCHER added in the voucher phase
+enum ValueApplicationStatus { PENDING | POSTED | VOIDED }
 
 model ValueApplication {
   id
   sourceKind        ValueApplicationSourceKind
   sourceId          String        // polymorphic -> CustomerCredit (or GiftCard later); unconstrained FK,
                                    // mirroring existing polymorphic refs (e.g. OrderCommitSnapshotLineV1.orderEntityId)
-  targetInvoiceId   -> Invoice
-  amountDrawn       Decimal        // deducted from the source instrument
-  amountApplied     Decimal        // credited to the invoice (== amountDrawn for customer credit; differs
-                                   // for vouchers when leftover forfeits)
-  appliedByUserId   -> User
+  targetInvoiceId?  -> Invoice      // required for invoice-settling POSTs; nullable for source-only breakage/void bookkeeping if needed
+  amountHeld        Decimal        // reserved from the source while PENDING
+  amountPosted      Decimal        // credited/forfeited when POSTED
+  amountVoided      Decimal        // released back to source when VOIDED
+  status            ValueApplicationStatus
+  idempotencyKey    String @unique
+  createdByUserId   -> User
+  resolvedByUserId? -> User
   createdAt
+  resolvedAt?
   // indexes: targetInvoiceId, (sourceKind, sourceId)
 }
 ```
 
-For **customer credit there is no forfeiture**, so `amountDrawn == amountApplied`. The split exists for forward-compatibility with gift vouchers (which can forfeit leftover).
+For ordinary **customer-credit invoice redemption**, `amountHeld == amountPosted` and `amountVoided == 0`. The split exists because deposit funding is two-phase: confirmation creates a **PENDING hold**; attendance/no-show **POSTS** it; cancel-in-window **VOIDS** it and restores the source credit. Gift vouchers reuse the same shape and may later post only part of a hold while voiding the remainder.
 
 `PaymentAllocation` (cash) and `DocumentApplication` (invoice↔invoice) are **unchanged**.
 
@@ -105,7 +111,7 @@ The invoice settlement read model becomes:
 effectivePaid(invoice) =
     Σ PaymentAllocation against it (signed by Payment.direction)
   + Σ DocumentApplication.amountApplied targeting it
-  + Σ ValueApplication.amountApplied targeting it
+  + Σ posted ValueApplication.amountPosted targeting it
 ```
 
 - This is the single place "invoices don't care where value came from" lives (per `Financial-brainstorming.md` future-proofing requirement).
@@ -132,22 +138,23 @@ effectivePaid(invoice) =
 
 1. At settlement of any future invoice, staff applies the customer's available credit.
 2. Selection is **FIFO by `expiresAt`** across the customer's `ACTIVE`, non-expired credits.
-3. For each consumed credit, create `ValueApplication { sourceKind: CUSTOMER_CREDIT, sourceId, targetInvoiceId, amountDrawn = amountApplied }`, decrement `remainingAmount`; when it hits 0, set status `REDEEMED`.
+3. For each consumed credit, create and immediately post `ValueApplication { sourceKind: CUSTOMER_CREDIT, sourceId, targetInvoiceId, amountHeld = amountPosted }`, decrement available value; when it hits 0, set status `REDEEMED`.
 4. **Partial** allowed; a single settlement may span **multiple** credits and **mix** with cash / (future) voucher (e.g. 160 = 20 credit + 100 voucher + 40 cash).
-5. The settlement read model counts `ValueApplication.amountApplied` toward `effectivePaid`.
+5. The settlement read model counts posted `ValueApplication.amountPosted` toward `effectivePaid`.
 
 ### 5.3 Fund a new booking's deposit (the driving use case — H1)
 
 The primary way a customer "uses the credit toward a new booking." Mirrors the voucher Option-G confirmation variant; key difference: **credit never commits to the case — it stays portable.**
 
-1. At new-booking confirmation, draw from the customer's `ACTIVE` non-expired credits **FIFO** to settle the deposit invoice via `ValueApplication(CUSTOMER_CREDIT)` → deposit issued → paid-by-credit → CLOSED + locked → CONFIRMED.
-2. If available credit **< deposit**, draw all of it and collect the remainder in **cash** (mixed settlement: `ValueApplication(credit)` + cash `Payment`). Confirmation still requires the deposit fully settled.
-3. Only the **deposit amount** is drawn; any remaining credit stays `ACTIVE` and portable (still applies to other invoices/bookings).
+1. At new-booking confirmation, reserve from the customer's `ACTIVE` non-expired credits **FIFO** using `ValueApplication(CUSTOMER_CREDIT, status=PENDING)`. The deposit invoice is issued and considered settled by the pending value hold plus any cash top-up → CLOSED + locked → CONFIRMED.
+2. If available credit **< deposit**, hold all available credit and collect the remainder in **cash** (mixed settlement: pending `ValueApplication(credit)` + cash `Payment`). Confirmation still requires the deposit fully settled.
+3. Only the **deposit amount** is held; any remaining credit stays `ACTIVE` and portable (still applies to other invoices/bookings).
 4. The booking-confirmation "deposit paid" gate (`booking.service.ts:864`) must recognize a `ValueApplication` as settlement — generalize to one **"deposit settled by any source"** check shared with vouchers.
 5. **Dispositions** for a credit-funded booking:
-   - **No-show** → the credit-funded deposit is **forfeited as breakage income** (parity with cash/voucher no-show).
-   - **Cancel-in-window** → **restore the credit** (reverse the `ValueApplication`; `remainingAmount` goes back up; return-to-source), not cash.
-6. At **attendance**, the credit-funded deposit credits to FINAL via the **effective-settlement** path (see M2), as a cash deposit would.
+   - **Attendance** → **POST** the hold; the credit-funded deposit credits to FINAL via the **effective-settlement** path (see M2), as a cash deposit would.
+   - **No-show** → **POST** the hold to breakage income (parity with cash/voucher no-show).
+   - **Cancel-in-window** → **VOID** the hold; source credit is restored by the same operation, not by bespoke balance repair, and no cash is returned.
+6. A hold must resolve exactly once. Partial-post + auto-void remainder is allowed at spec time if the penalty is less than the held deposit.
 
 ### 5.4 Manager actions
 
@@ -158,8 +165,10 @@ The primary way a customer "uses the credit toward a new booking." Mirrors the v
 ## 6. Invariants
 
 - `0 <= remainingAmount <= originalAmount` (DB CHECK).
-- `originalAmount − Σ ValueApplication.amountDrawn (for this credit) = remainingAmount`.
-- `ValueApplication.amountApplied > 0`; at apply time `amountDrawn <= source.remainingAmount` and the source is `ACTIVE` and not past `expiresAt`.
+- `originalAmount − Σ posted/held source consumption + Σ voided releases (for this credit) = remainingAmount`; the spec should define whether pending holds reduce `remainingAmount` directly or are exposed as a separate `availableAmount = remainingAmount - heldAmount`.
+- `ValueApplication.amountHeld > 0`; at hold/apply time `amountHeld <= source.availableAmount` and the source is `ACTIVE` and not past `expiresAt`.
+- A `ValueApplication` resolves exactly once: `PENDING -> POSTED` or `PENDING -> VOIDED`; no `POSTED -> VOIDED` or `VOIDED -> POSTED`.
+- `ValueApplication.idempotencyKey` is unique and required for every credit money movement.
 - A credit past `expiresAt` cannot be applied (enforced at application time; status lazily reflected as `EXPIRED` — no background job per architecture §5).
 - Issuance and every state change write co-transactional `AuditLog` rows.
 - Existing financial invariants extend to include the `ValueApplication` term in `effectivePaid`.
@@ -192,7 +201,8 @@ The primary way a customer "uses the credit toward a new booking." Mirrors the v
 - **Non-cash refund payment method** — the exact method/enum for the credit-issuance outbound Payment, and ensuring it is excluded from cash-out reporting/reconciliation.
 - **`computeOverpaymentCapacity(source)`** (`refund.service.ts:207`) — confirm it tolerates a DEPOSIT source, or rely solely on the `caseNetCashOverpayment` half of the `Decimal.min`.
 - **Manager VOID of a credit** (issued-in-error) — confirm whether v1 needs it; cheap to add, audited.
-- **Re-credit on later reversal** — if a booking the credit was *spent on* is itself cancelled/refunded, how the application unwinds. Likely out of v1 scope; confirm.
+- **Hold accounting shape** — whether `remainingAmount` is decremented at hold creation with held amount reported separately, or remains gross with `availableAmount` derived from pending holds.
+- **Re-credit on later reversal** — if a booking the credit was *spent on* is itself cancelled/refunded, how the posted application unwinds. Likely out of v1 scope; confirm.
 - **Customer-facing surfacing** — where the customer's available credits appear (customer profile, POS settlement). Read-layer/projector work.
 
 ---
@@ -201,7 +211,7 @@ The primary way a customer "uses the credit toward a new booking." Mirrors the v
 
 The shared settlement layer and the customer-credit domain split cleanly along migration boundaries:
 
-1. **Schema + settlement read-layer** — `CustomerCredit`, `ValueApplication`, enums, migration; extend `recalculateInvoiceStatus` / `FinancialCaseSummary` to include the `ValueApplication` term (with zero rows, behavior-neutral).
+1. **Schema + settlement read-layer** — `CustomerCredit`, `ValueApplication`, hold-status enum, idempotency keys, migration; extend `recalculateInvoiceStatus` / `FinancialCaseSummary` to include the posted `ValueApplication` term (with zero rows, behavior-neutral).
 2. **Issuance** — booking-stage deposit disposition: widen refund source-gate to DEPOSIT, non-cash credit-issuance Payment, mint `CustomerCredit`; manager-gated; audited.
 3. **Redemption** — apply credit at settlement (FIFO, partial, mixed-source), `ValueApplication` writes, status transitions; any-staff.
 4. **Manager actions + surfacing** — extend (and VOID if confirmed); customer-facing read surfaces.
