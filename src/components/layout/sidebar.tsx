@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Aperture,
   BarChart2,
@@ -37,9 +37,16 @@ import {
 interface SidebarProps {
   showProductionLink: boolean;
   showProductsLink: boolean;
+  defaultCollapsed?: boolean;
 }
 
-const SIDEBAR_COLLAPSED_STORAGE_KEY = "studio-os.sidebar-collapsed";
+// Persisted in a cookie (not localStorage) so the server can read it during
+// SSR and render the correct width on first paint. AppShell is mounted per
+// route-section layout, so the sidebar remounts on every cross-section
+// navigation; without an SSR-known initial value it would flash expanded for a
+// frame before a post-mount read re-collapsed it. The cookie removes that flash.
+export const SIDEBAR_COLLAPSED_COOKIE = "studio-os.sidebar-collapsed";
+const SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 const NAV_SECTIONS = [
   {
@@ -79,39 +86,22 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
-export function Sidebar({ showProductionLink, showProductsLink }: SidebarProps) {
+export function Sidebar({
+  showProductionLink,
+  showProductsLink,
+  defaultCollapsed = false,
+}: SidebarProps) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const frame = window.requestAnimationFrame(() => {
-      try {
-        setCollapsed(
-          window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
-        );
-      } catch {
-        setCollapsed(false);
-      }
-    });
-
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
+  // Seeded from the SSR-read cookie so server and first client render agree —
+  // no post-mount correction, no hydration mismatch, no expand→collapse flash.
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   function toggleCollapsed() {
     setCollapsed((current) => {
       const next = !current;
 
-      if (typeof window !== "undefined") {
-        try {
-          window.localStorage.setItem(
-            SIDEBAR_COLLAPSED_STORAGE_KEY,
-            String(next)
-          );
-        } catch {
-          // Ignore disabled storage; the in-memory preference still applies.
-        }
+      if (typeof document !== "undefined") {
+        document.cookie = `${SIDEBAR_COLLAPSED_COOKIE}=${next}; path=/; max-age=${SIDEBAR_COLLAPSED_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
       }
 
       return next;

@@ -93,7 +93,8 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
-- **171** — Added app-wide sidebar collapse with localStorage persistence, an accessible icon-only rail, collapsed nav tooltips, and smooth shell reflow.
+- **171 flash fix** — Moved sidebar collapse persistence from localStorage to a cookie read server-side in `AppShell`, so the sidebar renders its correct width on first paint and no longer flashes expanded→collapsed on cross-section navigations (AppShell remounts per route-section layout).
+- **171** — Added app-wide sidebar collapse with persisted state, an accessible icon-only rail, collapsed nav tooltips, and smooth shell reflow.
 - **170** — Added the shared `Note` domain for typed order/package-scoped operational annotations with live CRUD writes, `NOTE_WRITE`, and `NOTE_ADDED` create activity.
 - **169** — Added the operational-only `OrderAlbum` domain, seeded the global Extra album page add-on, exposed album CRUD/finishing/extra-page helpers, and synced backing-line ids plus extra-page counts during OrderCommit execution.
 - **Pointer lock UI fix** — Dropdown-launched booking/customer dialogs now open after their menus close, and a root route-change guard clears only stale body pointer-event locks when no Radix layer is open.
