@@ -31,12 +31,24 @@ const salesRightColumnSource = readFileSync(
   "app/(app)/orders/[orderId]/sales/sales-right-column.tsx",
   "utf8"
 );
+const salesActionsSource = readFileSync(
+  "app/(app)/orders/[orderId]/sales/actions.ts",
+  "utf8"
+);
 const orderCommitReviewDialogSource = readFileSync(
   "src/components/orders/order-commit-review-dialog.tsx",
   "utf8"
 );
 const posPackageCompositionSource = readFileSync(
   "src/components/orders/pos-package-composition.tsx",
+  "utf8"
+);
+const posAddOnMarketplaceSource = readFileSync(
+  "src/components/orders/pos-add-on-marketplace.tsx",
+  "utf8"
+);
+const salesAlbumConfigSource = readFileSync(
+  "src/components/orders/sales-album-config.tsx",
   "utf8"
 );
 const salesViewSource = pageSource.slice(
@@ -123,7 +135,7 @@ test("Sales page load is read-only and does not create or stage drafts", () => {
 });
 
 test("Sales page uses OrderCommit staging handlers for all invoice states", () => {
-  assert.match(pageSource, /import \{ stageSalesChangeAction \}/);
+  assert.match(pageSource, /stageSalesChangeAction/);
   assert.match(pageSource, /createOrderCommitSalesCompositionHandlers/);
   assert.match(pageSource, /createOrderCommitSalesAddOnHandlers/);
   assert.match(salesViewSource, /createOrderCommitSalesCompositionHandlers\(\{/);
@@ -249,6 +261,39 @@ test("locked Sales branch is removed from the active Sales page", () => {
   assert.match(salesViewSource, /getSalesPageView/);
   assert.match(salesViewSource, /SalesRightColumn/);
   assert.doesNotMatch(salesViewSource, /OrderCommitFinancialSidebar/);
+});
+
+test("Sales page surfaces albums through the F1 album read service", () => {
+  assert.match(pageSource, /getOrderAlbums/);
+  assert.match(pageSource, /getOrderAlbums\(\{ orderId \}\)/);
+  assert.match(pageSource, /buildSalesAlbumRead/);
+  assert.match(salesViewSource, /albumsByPackageId=\{albumRead\.albumsByPackageId\}/);
+  assert.match(salesViewSource, /standaloneAlbums=\{albumRead\.standaloneAlbums\}/);
+  assert.match(
+    salesViewSource,
+    /updateAlbumFinishingAction=\{updateOrderAlbumFinishingAction\}/
+  );
+  assert.match(posPackageCompositionSource, /SalesAlbumCard/);
+  assert.match(posPackageCompositionSource, /albums\.map/);
+  assert.match(posAddOnMarketplaceSource, /SalesAlbumConfigureDialog/);
+  assert.match(posAddOnMarketplaceSource, /standaloneAlbumByBackingLineId/);
+});
+
+test("Sales album finishing is live operational and not an OrderCommit path", () => {
+  assert.match(salesActionsSource, /updateOrderAlbumFinishingAction/);
+  assert.match(salesActionsSource, /assertActorPermission/);
+  assert.match(salesActionsSource, /PERMISSIONS\.ORDER_FINANCIAL_UPDATE/);
+  assert.match(salesActionsSource, /getOrderAlbums\(\{ orderId \}\)/);
+  assert.match(salesActionsSource, /updateOrderAlbumFinishing\(input\)/);
+  assert.match(salesActionsSource, /revalidatePOSPaths\(orderId\)/);
+  assert.doesNotMatch(salesActionsSource, /createOrderAlbum/);
+  assert.doesNotMatch(salesActionsSource, /buildExtraAlbumPageAddOnStagingChange/);
+  assert.doesNotMatch(salesActionsSource, /stageOrderCommitDraftChange\(input\)/);
+  assert.doesNotMatch(salesAlbumConfigSource, /createOrderAlbum/);
+  assert.doesNotMatch(salesAlbumConfigSource, /buildExtraAlbumPageAddOnStagingChange/);
+  assert.doesNotMatch(salesAlbumConfigSource, /stageSalesChangeAction/);
+  assert.match(salesAlbumConfigSource, /Finishing saves immediately/);
+  assert.match(salesAlbumConfigSource, /Size and pages stage for commit/);
 });
 
 test("staged commit controls mount the Spec 128 dialog and exact discard version", () => {

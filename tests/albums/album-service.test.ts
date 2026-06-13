@@ -7,6 +7,7 @@ import {
   buildExtraAlbumPageAddOnStagingChange,
   createOrderAlbum,
   getOrderAlbums,
+  syncOrderAlbumsAfterCommit,
   updateOrderAlbumFinishing,
 } from "@/modules/albums";
 import {
@@ -209,10 +210,142 @@ test("buildExtraAlbumPageAddOnStagingChange returns null for no-op branches", ()
   );
 });
 
-function fakeAlbumClient(initialRows: AlbumRow[] = []) {
+test("syncOrderAlbumsAfterCommit materializes package, upgrade, and standalone albums", async () => {
+  const client = fakeAlbumClient([], {
+    orderPackages: [
+      orderPackageRow({
+        id: "order-package-base",
+        albumPackageItems: ["package-item-base-album"],
+      }),
+      orderPackageRow({
+        id: "order-package-upgrade",
+        albumPackageItems: ["package-item-upgraded-album"],
+      }),
+    ],
+    packageItemUpgrades: [
+      packageItemUpgradeRow({
+        id: "upgrade-album",
+        orderPackageId: "order-package-upgrade",
+        packageItemId: "package-item-upgraded-album",
+      }),
+    ],
+    addOns: [
+      orderAddOnRow({ id: "standalone-album", productId: "album-product" }),
+      orderAddOnRow({
+        id: "extra-page-add-on",
+        productId: EXTRA_ALBUM_PAGE_PRODUCT_ID,
+      }),
+    ],
+  });
+
+  await syncOrderAlbumsAfterCommit(
+    {
+      orderId: "order-1",
+      committedSnapshot: snapshotFixture({
+        lines: [
+          packageLine({ orderPackageId: "order-package-base" }),
+          packageLine({ orderPackageId: "order-package-upgrade" }),
+          extraAlbumPageLine({
+            addOnId: "extra-page-add-on",
+            parentOrderPackageId: "order-package-base",
+            quantity: 4,
+          }),
+        ],
+      }),
+      draftToOrderEntityEntries: [],
+    },
+    client
+  );
+
+  assert.deepEqual(
+    client.rows.map((row) => ({
+      orderPackageId: row.orderPackageId,
+      sourceType: row.sourceType,
+      backingLineKind: row.backingLineKind,
+      backingLineId: row.backingLineId,
+      extraPages: row.extraPages,
+    })),
+    [
+      {
+        orderPackageId: "order-package-base",
+        sourceType: ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+        backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.PACKAGE_ITEM,
+        backingLineId: "package-item-base-album",
+        extraPages: 4,
+      },
+      {
+        orderPackageId: "order-package-upgrade",
+        sourceType: ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+        backingLineKind:
+          ORDER_ALBUM_BACKING_LINE_KIND.ORDER_PACKAGE_ITEM_UPGRADE,
+        backingLineId: "upgrade-album",
+        extraPages: 0,
+      },
+      {
+        orderPackageId: null,
+        sourceType: ORDER_ALBUM_SOURCE_TYPE.ADDON,
+        backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.ORDER_ADD_ON,
+        backingLineId: "standalone-album",
+        extraPages: 0,
+      },
+    ]
+  );
+  assert.equal(
+    client.rows.some((row) => row.backingLineId === "extra-page-add-on"),
+    false
+  );
+  assert.equal(
+    client.rows.some((row) => row.backingLineId === "package-item-upgraded-album"),
+    false
+  );
+});
+
+test("syncOrderAlbumsAfterCommit is idempotent and uses the passed client", async () => {
+  const client = fakeAlbumClient([], {
+    orderPackages: [
+      orderPackageRow({
+        id: "order-package-base",
+        albumPackageItems: ["package-item-base-album"],
+      }),
+    ],
+    addOns: [orderAddOnRow({ id: "standalone-album", productId: "album-product" })],
+  });
+
+  const input = {
+    orderId: "order-1",
+    committedSnapshot: snapshotFixture({
+      lines: [packageLine({ orderPackageId: "order-package-base" })],
+    }),
+    draftToOrderEntityEntries: [],
+  };
+  await syncOrderAlbumsAfterCommit(input, client);
+  await syncOrderAlbumsAfterCommit(input, client);
+
+  assert.equal(client.rows.length, 2);
+  assert.deepEqual(client.calls, {
+    orderPackageFindMany: 2,
+    orderPackageItemUpgradeFindMany: 2,
+    orderAddOnFindMany: 2,
+  });
+});
+
+function fakeAlbumClient(
+  initialRows: AlbumRow[] = [],
+  options: {
+    orderPackages?: FakeOrderPackageRow[];
+    packageItemUpgrades?: FakePackageItemUpgradeRow[];
+    addOns?: FakeOrderAddOnRow[];
+  } = {}
+) {
   const rows = [...initialRows];
+  const calls = {
+    orderPackageFindMany: 0,
+    orderPackageItemUpgradeFindMany: 0,
+    orderAddOnFindMany: 0,
+  };
   return {
     rows,
+    calls,
     orderAlbum: {
       findMany: async (args: { where: { orderId: string } }) =>
         rows.filter((row) => row.orderId === args.where.orderId),
@@ -250,8 +383,64 @@ function fakeAlbumClient(initialRows: AlbumRow[] = []) {
         return rows[index];
       },
     },
+    orderPackage: {
+      findMany: async () => {
+        calls.orderPackageFindMany += 1;
+        return options.orderPackages ?? [];
+      },
+    },
+    orderPackageItemUpgrade: {
+      findMany: async () => {
+        calls.orderPackageItemUpgradeFindMany += 1;
+        return options.packageItemUpgrades ?? [];
+      },
+    },
+    orderAddOn: {
+      findMany: async (args: {
+        where: {
+          orderId: string;
+          orderPackageId: null;
+          product: { category: string };
+          productId: { not: string };
+        };
+      }) => {
+        calls.orderAddOnFindMany += 1;
+        assert.equal(args.where.orderId, "order-1");
+        assert.equal(args.where.orderPackageId, null);
+        assert.equal(args.where.product.category, "ALBUM");
+        assert.equal(args.where.productId.not, EXTRA_ALBUM_PAGE_PRODUCT_ID);
+        return (options.addOns ?? []).filter(
+          (addOn) =>
+            addOn.orderPackageId === null &&
+            addOn.product.category === args.where.product.category &&
+            addOn.productId !== args.where.productId.not
+        );
+      },
+    },
   } as never;
 }
+
+type FakeOrderPackageRow = {
+  id: string;
+  currentPackage: {
+    items: Array<{ id: string }>;
+  };
+};
+
+type FakePackageItemUpgradeRow = {
+  id: string;
+  orderPackageId: string;
+  packageItemId: string;
+};
+
+type FakeOrderAddOnRow = {
+  id: string;
+  orderPackageId: string | null;
+  productId: string;
+  product: {
+    category: string;
+  };
+};
 
 type AlbumRow = {
   id: string;
@@ -311,21 +500,51 @@ function snapshotFixture(input: {
   };
 }
 
-function packageLine(): OrderCommitSnapshotLineV1 {
+function packageLine(input: { orderPackageId?: string } = {}): OrderCommitSnapshotLineV1 {
+  const orderPackageId = input.orderPackageId ?? "order-package-1";
   return {
-    lineId: "package:order-package-1",
+    lineId: `package:${orderPackageId}`,
     lineKind: ORDER_COMMIT_SNAPSHOT_LINE_KIND.PACKAGE,
     orderEntityKind: ORDER_COMMIT_ORDER_ENTITY_KIND.ORDER_PACKAGE,
-    orderEntityId: "order-package-1",
+    orderEntityId: orderPackageId,
     parentOrderPackageId: null,
     catalogEntityId: "package-base",
-    stableKey: "order-package:order-package-1",
+    stableKey: `order-package:${orderPackageId}`,
     label: "Base package",
     quantity: 1,
     unitPrice: 100,
     lineTotal: 100,
     priceSource: ORDER_COMMIT_PRICE_SOURCE.ORDER_ROW_SNAPSHOT,
     metadata: {},
+  };
+}
+
+function orderPackageRow(input: {
+  id: string;
+  albumPackageItems: string[];
+}): FakeOrderPackageRow {
+  return {
+    id: input.id,
+    currentPackage: {
+      items: input.albumPackageItems.map((id) => ({ id })),
+    },
+  };
+}
+
+function packageItemUpgradeRow(
+  input: FakePackageItemUpgradeRow
+): FakePackageItemUpgradeRow {
+  return input;
+}
+
+function orderAddOnRow(
+  input: Partial<FakeOrderAddOnRow> & { id: string; productId: string }
+): FakeOrderAddOnRow {
+  return {
+    id: input.id,
+    orderPackageId: input.orderPackageId ?? null,
+    productId: input.productId,
+    product: input.product ?? { category: "ALBUM" },
   };
 }
 

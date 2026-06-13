@@ -1,8 +1,17 @@
 import { notFound } from "next/navigation";
-import { stageSalesChangeAction } from "@/app/(app)/orders/[orderId]/sales/actions";
+import {
+  stageSalesChangeAction,
+  updateOrderAlbumFinishingAction,
+} from "@/app/(app)/orders/[orderId]/sales/actions";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import { POSPackageComposition } from "@/components/orders/pos-package-composition";
+import type { SalesAlbumView } from "@/components/orders/sales-album-config";
+import {
+  getOrderAlbums,
+  ORDER_ALBUM_SOURCE_TYPE,
+  type OrderAlbumRow,
+} from "@/modules/albums";
 import { SalesDraftOwnershipBanner } from "@/components/orders/sales-draft-ownership-banner";
 import {
   toPOSAddOnMarketplace,
@@ -32,9 +41,10 @@ export default async function SalesPage(
   props: PageProps<"/orders/[orderId]/sales">
 ) {
   const { orderId } = await props.params;
-  const [workspace, appUser] = await Promise.all([
+  const [workspace, appUser, orderAlbums] = await Promise.all([
     getPOSWorkspace(orderId),
     requireCurrentAppUser(),
+    getOrderAlbums({ orderId }),
   ]);
   if (!workspace) notFound();
 
@@ -49,6 +59,11 @@ export default async function SalesPage(
     },
   });
   const addOnMarketplace = toPOSAddOnMarketplace(salesPageView.composition);
+  const albumRead = buildSalesAlbumRead({
+    albums: orderAlbums,
+    packageLines: salesPageView.composition.packageLines,
+    currentAddOns: addOnMarketplace.currentAddOns,
+  });
   const salesPolicyContext = orderEditModeContextFromWorkspace({
     orderId: workspace.orderId,
     orderStatus: workspace.orderStatusRaw,
@@ -95,12 +110,16 @@ export default async function SalesPage(
             editPolicies={packageEditPolicies}
             configurePanelMode="commit-staging"
             expectedVersion={salesPageView.draft?.version ?? 0}
+            albumsByPackageId={albumRead.albumsByPackageId}
+            updateAlbumFinishingAction={updateOrderAlbumFinishingAction}
           />
           <POSAddOnMarketplace
             workspace={workspace}
             marketplace={addOnMarketplace}
             handlers={addOnHandlers}
             editPolicies={addOnEditPolicies}
+            standaloneAlbums={albumRead.standaloneAlbums}
+            updateAlbumFinishingAction={updateOrderAlbumFinishingAction}
           />
         </main>
       </div>
@@ -115,4 +134,107 @@ export default async function SalesPage(
       />
     </div>
   );
+}
+
+function buildSalesAlbumRead({
+  albums,
+  packageLines,
+  currentAddOns,
+}: {
+  albums: OrderAlbumRow[];
+  packageLines: Array<{
+    orderPackageId: string;
+    packageItems: Array<{ id: string; productName: string; category: string | null }>;
+  }>;
+  currentAddOns: Array<{
+    orderAddOnId: string | null;
+    name: string;
+  }>;
+}): {
+  albumsByPackageId: Record<string, SalesAlbumView[]>;
+  standaloneAlbums: SalesAlbumView[];
+} {
+  const packageLineById = new Map(
+    packageLines.map((line) => [line.orderPackageId, line])
+  );
+  const addOnNameById = new Map(
+    currentAddOns.flatMap((addOn) =>
+      addOn.orderAddOnId ? [[addOn.orderAddOnId, addOn.name] as const] : []
+    )
+  );
+  const albumsByPackageId: Record<string, SalesAlbumView[]> = {};
+  const standaloneAlbums: SalesAlbumView[] = [];
+
+  for (const album of albums) {
+    const productLabel = resolveAlbumProductLabel({
+      album,
+      packageLine: album.orderPackageId
+        ? packageLineById.get(album.orderPackageId) ?? null
+        : null,
+      addOnNameById,
+    });
+    const view = toSalesAlbumView(album, productLabel);
+
+    if (
+      album.sourceType === ORDER_ALBUM_SOURCE_TYPE.PACKAGE &&
+      album.orderPackageId
+    ) {
+      albumsByPackageId[album.orderPackageId] = [
+        ...(albumsByPackageId[album.orderPackageId] ?? []),
+        view,
+      ];
+      continue;
+    }
+
+    if (album.sourceType === ORDER_ALBUM_SOURCE_TYPE.ADDON) {
+      standaloneAlbums.push(view);
+    }
+  }
+
+  return { albumsByPackageId, standaloneAlbums };
+}
+
+function resolveAlbumProductLabel({
+  album,
+  packageLine,
+  addOnNameById,
+}: {
+  album: OrderAlbumRow;
+  packageLine: {
+    packageItems: Array<{ id: string; productName: string; category: string | null }>;
+  } | null;
+  addOnNameById: Map<string, string>;
+}): string {
+  if (album.sourceType === ORDER_ALBUM_SOURCE_TYPE.ADDON) {
+    return addOnNameById.get(album.backingLineId) ?? "Album product";
+  }
+
+  const exactItem = packageLine?.packageItems.find(
+    (item) => item.id === album.backingLineId
+  );
+  if (exactItem) return exactItem.productName;
+
+  const albumItem = packageLine?.packageItems.find(
+    (item) => item.category?.toUpperCase() === "ALBUM"
+  );
+  return albumItem?.productName ?? "Album product";
+}
+
+function toSalesAlbumView(
+  album: OrderAlbumRow,
+  productLabel: string
+): SalesAlbumView {
+  return {
+    id: album.id,
+    orderPackageId: album.orderPackageId,
+    backingLineId: album.backingLineId,
+    productLabel,
+    pageCount: album.extraPages,
+    coverMaterial: album.coverMaterial,
+    threadColor: album.threadColor,
+    layout: album.layout,
+    coverText: album.coverText,
+    coverImageRef: album.coverImageRef,
+    instructions: album.instructions,
+  };
 }

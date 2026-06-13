@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma, ProductCategory, type PrismaClient } from "@prisma/client";
 import { db } from "@/lib/db";
 import {
   ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
@@ -12,6 +12,7 @@ import {
 import type { OrderCommitSnapshotLineV1 } from "@/modules/order-commits/order-commit.types";
 import {
   EXTRA_ALBUM_PAGE_PRODUCT_ID,
+  ORDER_ALBUM_BACKING_LINE_KIND,
   ORDER_ALBUM_SOURCE_TYPE,
 } from "./album.constants";
 import {
@@ -29,10 +30,15 @@ import type {
   UpdateOrderAlbumFinishingInput,
 } from "./album.types";
 
-type AlbumClient = Pick<PrismaClient, "orderAlbum"> | Pick<
-  Prisma.TransactionClient,
-  "orderAlbum"
->;
+type AlbumClient =
+  | Pick<
+      PrismaClient,
+      "orderAlbum" | "orderPackage" | "orderPackageItemUpgrade" | "orderAddOn"
+    >
+  | Pick<
+      Prisma.TransactionClient,
+      "orderAlbum" | "orderPackage" | "orderPackageItemUpgrade" | "orderAddOn"
+    >;
 
 const orderAlbumSelect = {
   id: true,
@@ -169,6 +175,7 @@ export async function syncOrderAlbumsAfterCommit(
 ): Promise<void> {
   const parsed = syncOrderAlbumsAfterCommitInputSchema.parse(input);
   const draftToOrderEntityMap = new Map(parsed.draftToOrderEntityEntries);
+  await materializeOrderAlbumsAfterCommit(parsed.orderId, client);
   const albums = await client.orderAlbum.findMany({
     where: { orderId: parsed.orderId },
     select: {
@@ -202,6 +209,111 @@ export async function syncOrderAlbumsAfterCommit(
       select: { id: true },
     });
   }
+}
+
+async function materializeOrderAlbumsAfterCommit(
+  orderId: string,
+  client: AlbumClient
+): Promise<void> {
+  const [orderPackages, packageItemUpgrades, albumAddOns] = await Promise.all([
+    client.orderPackage.findMany({
+      where: { orderId },
+      select: {
+        id: true,
+        currentPackage: {
+          select: {
+            items: {
+              where: { product: { category: ProductCategory.ALBUM } },
+              select: { id: true },
+            },
+          },
+        },
+      },
+    }),
+    client.orderPackageItemUpgrade.findMany({
+      where: {
+        orderId,
+        packageItem: { product: { category: ProductCategory.ALBUM } },
+      },
+      select: {
+        id: true,
+        orderPackageId: true,
+        packageItemId: true,
+      },
+    }),
+    client.orderAddOn.findMany({
+      where: {
+        orderId,
+        orderPackageId: null,
+        product: { category: ProductCategory.ALBUM },
+        productId: { not: EXTRA_ALBUM_PAGE_PRODUCT_ID },
+      },
+      select: { id: true },
+    }),
+  ]);
+  const upgradeByPackageAndItem = new Map(
+    packageItemUpgrades.map((upgrade) => [
+      albumPackageItemKey(upgrade.orderPackageId, upgrade.packageItemId),
+      upgrade,
+    ])
+  );
+
+  for (const orderPackage of orderPackages) {
+    for (const packageItem of orderPackage.currentPackage?.items ?? []) {
+      const upgrade = upgradeByPackageAndItem.get(
+        albumPackageItemKey(orderPackage.id, packageItem.id)
+      );
+
+      if (upgrade) {
+        await createOrderAlbum(
+          {
+            orderId,
+            orderPackageId: orderPackage.id,
+            sourceType: ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+            backingLineKind:
+              ORDER_ALBUM_BACKING_LINE_KIND.ORDER_PACKAGE_ITEM_UPGRADE,
+            backingLineId: upgrade.id,
+          },
+          client
+        );
+        continue;
+      }
+
+      // Part 2 size/product swaps must migrate this logical album row from the
+      // PACKAGE_ITEM backing id to the upgrade backing id across commits, so a
+      // swap does not leave both backing rows visible for one album.
+      await createOrderAlbum(
+        {
+          orderId,
+          orderPackageId: orderPackage.id,
+          sourceType: ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+          backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.PACKAGE_ITEM,
+          backingLineId: packageItem.id,
+        },
+        client
+      );
+    }
+  }
+
+  for (const addOn of albumAddOns) {
+    await createOrderAlbum(
+      {
+        orderId,
+        orderPackageId: null,
+        sourceType: ORDER_ALBUM_SOURCE_TYPE.ADDON,
+        backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.ORDER_ADD_ON,
+        backingLineId: addOn.id,
+      },
+      client
+    );
+  }
+}
+
+function albumPackageItemKey(
+  orderPackageId: string,
+  packageItemId: string
+): string {
+  return `${orderPackageId}:${packageItemId}`;
 }
 
 async function findExistingAlbum(
