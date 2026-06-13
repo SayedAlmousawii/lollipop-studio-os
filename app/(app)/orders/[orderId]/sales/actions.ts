@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import {
   InvoiceType,
@@ -12,13 +13,21 @@ import { requireCurrentAppUser } from "@/lib/auth";
 import { assertActorPermission } from "@/lib/auth/assert-actor-permission";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
 import {
+  buildExtraAlbumPageAddOnStagingChange,
+  createOrderAlbum,
   getOrderAlbums,
+  ORDER_ALBUM_BACKING_LINE_KIND,
+  ORDER_ALBUM_SOURCE_TYPE,
+  EXTRA_ALBUM_PAGE_PRODUCT_ID,
+  rebindOrderAlbumBacking,
   updateOrderAlbumFinishing,
   type UpdateOrderAlbumFinishingInput,
 } from "@/modules/albums";
 import {
+  captureOrderCommitSnapshotFromOrderRows,
   commitOrderChanges,
   discardOrderCommitDraft,
+  getOrderCommitDraft,
   getOrCreateOrderCommitDraft,
   stageOrderCommitDraftChange,
   type OrderCommitDraftStagingChange,
@@ -31,6 +40,12 @@ import {
 import {
   commitSalesChangesActionWithDependencies,
 } from "@/modules/order-commits/sales-commit-actions";
+import {
+  ORDER_COMMIT_DRAFT_STAGING_DOMAIN,
+} from "@/modules/order-commits/order-commit-draft.constants";
+import {
+  ORDER_COMMIT_SNAPSHOT_LINE_KIND,
+} from "@/modules/order-commits/order-commit.constants";
 import {
   buildSalesSessionConfigurationStagingChange,
   type SalesSessionConfigurationSelectionStagingInput,
@@ -53,6 +68,9 @@ export type POSCompositionActionState = POSMutationActionState;
 export type POSSessionConfigurationStagingActionState = POSMutationActionState & {
   version?: number;
 };
+export type SalesAlbumStagingActionState = POSMutationActionState & {
+  version?: number;
+};
 
 export type POSRecordPaymentActionState = {
   errors?: Partial<Record<string, string[]>>;
@@ -63,6 +81,45 @@ export type SalesAlbumFinishingActionState = {
   errors?: Partial<Record<keyof UpdateOrderAlbumFinishingInput | "_global", string[]>>;
   success?: string;
 };
+
+const stageAlbumExtraPagesInputSchema = z
+  .object({
+    albumId: z.string().min(1),
+    orderPackageId: z.string().min(1).nullable(),
+    sourceType: z.enum([
+      ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+      ORDER_ALBUM_SOURCE_TYPE.ADDON,
+    ]),
+    requestedExtraPages: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const stageAlbumSizeSwapInputSchema = z
+  .object({
+    albumId: z.string().min(1),
+    orderPackageId: z.string().min(1).nullable(),
+    sourceType: z.enum([
+      ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+      ORDER_ALBUM_SOURCE_TYPE.ADDON,
+    ]),
+    backingLineKind: z.enum([
+      ORDER_ALBUM_BACKING_LINE_KIND.PACKAGE_ITEM,
+      ORDER_ALBUM_BACKING_LINE_KIND.ORDER_PACKAGE_ITEM_UPGRADE,
+      ORDER_ALBUM_BACKING_LINE_KIND.ORDER_ADD_ON,
+    ]),
+    backingLineId: z.string().min(1),
+    packageItemId: z.string().min(1).nullable(),
+    currentProductId: z.string().min(1).nullable(),
+    toProductId: z.string().min(1),
+    quantity: z.number().int().positive(),
+  })
+  .strict();
+
+const addStandaloneAlbumInputSchema = z
+  .object({
+    productId: z.string().min(1),
+  })
+  .strict();
 
 export async function stageSalesChangeAction(
   orderId: string,
@@ -153,6 +210,300 @@ export async function updateOrderAlbumFinishingAction(
 
     return { errors: { _global: [posActionErrorMessage(error)] } };
   }
+}
+
+export async function stageAlbumExtraPagesAction(
+  orderId: string,
+  expectedVersion: number,
+  input: z.infer<typeof stageAlbumExtraPagesInputSchema>
+): Promise<SalesAlbumStagingActionState> {
+  try {
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    const actorContext = {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    };
+    const parsed = stageAlbumExtraPagesInputSchema.parse(input);
+    const album = await requireOrderAlbum(orderId, parsed.albumId);
+    const snapshot = await getCurrentAlbumStagingSnapshot(orderId);
+    const change = buildExtraAlbumPageAddOnStagingChange({
+      snapshot,
+      orderAlbum: {
+        id: album.id,
+        orderPackageId: parsed.orderPackageId,
+        sourceType: parsed.sourceType,
+      },
+      requestedExtraPages: parsed.requestedExtraPages,
+    });
+
+    if (!change) {
+      return { kind: "success", version: expectedVersion };
+    }
+
+    await getOrCreateOrderCommitDraft({ orderId, actorContext });
+    const staged = await stageOrderCommitDraftChange({
+      orderId,
+      expectedVersion,
+      change,
+      actorContext,
+    });
+
+    revalidatePOSPaths(orderId);
+    return { kind: "success", version: staged.draft.version };
+  } catch (error) {
+    return mapAlbumStagingActionError(error);
+  }
+}
+
+export async function stageAlbumSizeSwapAction(
+  orderId: string,
+  expectedVersion: number,
+  input: z.infer<typeof stageAlbumSizeSwapInputSchema>
+): Promise<SalesAlbumStagingActionState> {
+  try {
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    const actorContext = {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    };
+    const parsed = stageAlbumSizeSwapInputSchema.parse(input);
+    const album = await requireOrderAlbum(orderId, parsed.albumId);
+
+    if (parsed.currentProductId === parsed.toProductId) {
+      return { kind: "success", version: expectedVersion };
+    }
+
+    if (parsed.sourceType === ORDER_ALBUM_SOURCE_TYPE.PACKAGE) {
+      if (!parsed.orderPackageId || !parsed.packageItemId) {
+        return {
+          kind: "error",
+          errors: { _global: ["Package album backing is incomplete."] },
+        };
+      }
+
+      const draftPackageItemUpgradeId = `draft:${randomUUID()}`;
+      await getOrCreateOrderCommitDraft({ orderId, actorContext });
+      const staged = await stageOrderCommitDraftChange({
+        orderId,
+        expectedVersion,
+        actorContext,
+        change: {
+          domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.PACKAGE_ITEM_UPGRADE,
+          action: "ADD",
+          parentPackageTarget: packageTarget(parsed.orderPackageId),
+          packageItemId: parsed.packageItemId,
+          toProductId: parsed.toProductId,
+          quantity: parsed.quantity,
+          draftPackageItemUpgradeId,
+        },
+      });
+
+      await rebindOrderAlbumBacking({
+        id: album.id,
+        orderId,
+        orderPackageId: parsed.orderPackageId,
+        sourceType: ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+        backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.ORDER_PACKAGE_ITEM_UPGRADE,
+        backingLineId: draftPackageItemUpgradeId,
+      });
+
+      revalidatePOSPaths(orderId);
+      return { kind: "success", version: staged.draft.version };
+    }
+
+    await assertStandaloneAlbumProductCanBeUnique(orderId, parsed.toProductId, {
+      excludeBackingLineId: parsed.backingLineId,
+    });
+
+    await getOrCreateOrderCommitDraft({ orderId, actorContext });
+    const removed = await stageOrderCommitDraftChange({
+      orderId,
+      expectedVersion,
+      actorContext,
+      change: {
+        domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+        action: "REMOVE",
+        target: addOnTarget(parsed.backingLineId),
+      },
+    });
+    const draftOrderAddOnId = `draft:${randomUUID()}`;
+    const added = await stageOrderCommitDraftChange({
+      orderId,
+      expectedVersion: removed.draft.version,
+      actorContext,
+      change: {
+        domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+        action: "ADD",
+        productId: parsed.toProductId,
+        quantity: 1,
+        draftOrderAddOnId,
+      },
+    });
+
+    await rebindOrderAlbumBacking({
+      id: album.id,
+      orderId,
+      orderPackageId: null,
+      sourceType: ORDER_ALBUM_SOURCE_TYPE.ADDON,
+      backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.ORDER_ADD_ON,
+      backingLineId: draftOrderAddOnId,
+    });
+
+    revalidatePOSPaths(orderId);
+    return { kind: "success", version: added.draft.version };
+  } catch (error) {
+    return mapAlbumStagingActionError(error);
+  }
+}
+
+export async function addStandaloneAlbumAction(
+  orderId: string,
+  expectedVersion: number,
+  input: z.infer<typeof addStandaloneAlbumInputSchema>
+): Promise<SalesAlbumStagingActionState> {
+  try {
+    const appUser = await requireCurrentAppUserPermission(
+      PERMISSIONS.ORDER_FINANCIAL_UPDATE
+    );
+    const actorContext = {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    };
+    const parsed = addStandaloneAlbumInputSchema.parse(input);
+    await assertStandaloneAlbumProductCanBeUnique(orderId, parsed.productId);
+
+    const draftOrderAddOnId = `draft:${randomUUID()}`;
+    await getOrCreateOrderCommitDraft({ orderId, actorContext });
+    const staged = await stageOrderCommitDraftChange({
+      orderId,
+      expectedVersion,
+      actorContext,
+      change: {
+        domain: ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON,
+        action: "ADD",
+        productId: parsed.productId,
+        quantity: 1,
+        draftOrderAddOnId,
+      },
+    });
+
+    await createOrderAlbum({
+      orderId,
+      orderPackageId: null,
+      sourceType: ORDER_ALBUM_SOURCE_TYPE.ADDON,
+      backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.ORDER_ADD_ON,
+      backingLineId: draftOrderAddOnId,
+    });
+
+    revalidatePOSPaths(orderId);
+    return { kind: "success", version: staged.draft.version };
+  } catch (error) {
+    return mapAlbumStagingActionError(error);
+  }
+}
+
+async function requireOrderAlbum(orderId: string, albumId: string) {
+  const orderAlbums = await getOrderAlbums({ orderId });
+  const album = orderAlbums.find((item) => item.id === albumId);
+  if (!album) {
+    throw new Error("Album does not belong to this order.");
+  }
+  return album;
+}
+
+async function getCurrentAlbumStagingSnapshot(orderId: string) {
+  const draft = await getOrderCommitDraft({ orderId });
+  return draft?.pendingSnapshot ?? captureOrderCommitSnapshotFromOrderRows({ orderId });
+}
+
+async function assertStandaloneAlbumProductCanBeUnique(
+  orderId: string,
+  productId: string,
+  options: { excludeBackingLineId?: string } = {}
+): Promise<void> {
+  if (productId === EXTRA_ALBUM_PAGE_PRODUCT_ID) {
+    throw new Error("Extra album page cannot be added as a standalone album.");
+  }
+
+  const workspace = await getPOSWorkspace(orderId);
+  const product = workspace?.addOnCatalog.find((item) => item.id === productId);
+  if (!product || product.category !== "ALBUM") {
+    throw new Error("Select an active standalone album product.");
+  }
+
+  const snapshot = await getCurrentAlbumStagingSnapshot(orderId);
+  const duplicate = snapshot.lines.find(
+    (line) =>
+      line.lineKind === ORDER_COMMIT_SNAPSHOT_LINE_KIND.ADD_ON &&
+      line.parentOrderPackageId === null &&
+      line.catalogEntityId === productId &&
+      line.orderEntityId !== options.excludeBackingLineId
+  );
+  if (duplicate) {
+    throw new Error(
+      "This album product is already on the order. Choose a different album size."
+    );
+  }
+}
+
+function packageTarget(orderPackageId: string) {
+  return {
+    stableKey: `order-package:${orderPackageId}`,
+    orderEntityId: orderPackageId,
+  };
+}
+
+function addOnTarget(orderAddOnId: string) {
+  return {
+    stableKey: `order-add-on:${orderAddOnId}`,
+    orderEntityId: orderAddOnId,
+  };
+}
+
+function mapAlbumStagingActionError(error: unknown): SalesAlbumStagingActionState {
+  if (error instanceof OrderCommitDraftStaleVersionError) {
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "Draft changed since you opened it. Refresh to see the latest.",
+          "draft.stale",
+        ],
+      },
+    };
+  }
+
+  if (error instanceof OrderCommitDraftPermissionError) {
+    return {
+      kind: "error",
+      errors: {
+        _global: [
+          "Another user owns this draft. Refresh or coordinate before editing.",
+          "draft.permission",
+        ],
+      },
+    };
+  }
+
+  if (error instanceof OrderCommitDraftMissingError) {
+    return { kind: "error", errors: { _global: ["draft.missing"] } };
+  }
+
+  if (error instanceof z.ZodError) {
+    return {
+      kind: "error",
+      errors: {
+        ...error.flatten().fieldErrors,
+        _global: ["Invalid album staging payload."],
+      },
+    };
+  }
+
+  return { kind: "error", errors: { _global: [posActionErrorMessage(error)] } };
 }
 
 function mapSessionConfigurationStagingActionError(

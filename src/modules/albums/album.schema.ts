@@ -69,6 +69,39 @@ export const updateOrderAlbumFinishingInputSchema = z
   })
   .strict();
 
+export const rebindOrderAlbumBackingInputSchema = z
+  .object({
+    id: z.string().min(1),
+    orderId: z.string().min(1),
+    orderPackageId: nullableIdSchema,
+    sourceType: orderAlbumSourceTypeSchema,
+    backingLineKind: orderAlbumBackingLineKindSchema,
+    backingLineId: z.string().min(1),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (
+      input.sourceType === ORDER_ALBUM_SOURCE_TYPE.PACKAGE &&
+      !input.orderPackageId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orderPackageId"],
+        message: "Package albums require orderPackageId.",
+      });
+    }
+    if (
+      input.sourceType === ORDER_ALBUM_SOURCE_TYPE.ADDON &&
+      input.orderPackageId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["orderPackageId"],
+        message: "Standalone add-on albums must not include orderPackageId.",
+      });
+    }
+  });
+
 export const orderAlbumScopeSchema = z
   .object({
     id: z.string().min(1).optional(),

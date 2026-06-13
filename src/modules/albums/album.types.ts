@@ -4,6 +4,7 @@ import type {
   createOrderAlbumInputSchema,
   getOrderAlbumsInputSchema,
   orderAlbumBackingLineKindSchema,
+  rebindOrderAlbumBackingInputSchema,
   orderAlbumScopeSchema,
   orderAlbumSourceTypeSchema,
   syncOrderAlbumsAfterCommitInputSchema,
@@ -22,6 +23,10 @@ export type CreateOrderAlbumInput = z.infer<typeof createOrderAlbumInputSchema>;
 
 export type UpdateOrderAlbumFinishingInput = z.infer<
   typeof updateOrderAlbumFinishingInputSchema
+>;
+
+export type RebindOrderAlbumBackingInput = z.infer<
+  typeof rebindOrderAlbumBackingInputSchema
 >;
 
 export type OrderAlbumScope = z.infer<typeof orderAlbumScopeSchema>;

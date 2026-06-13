@@ -19,6 +19,7 @@ import {
   buildExtraAlbumPageAddOnStagingChangeInputSchema,
   createOrderAlbumInputSchema,
   getOrderAlbumsInputSchema,
+  rebindOrderAlbumBackingInputSchema,
   syncOrderAlbumsAfterCommitInputSchema,
   updateOrderAlbumFinishingInputSchema,
 } from "./album.schema";
@@ -26,6 +27,7 @@ import type {
   BuildExtraAlbumPageAddOnStagingChangeInput,
   CreateOrderAlbumInput,
   GetOrderAlbumsInput,
+  RebindOrderAlbumBackingInput,
   SyncOrderAlbumsAfterCommitInput,
   UpdateOrderAlbumFinishingInput,
 } from "./album.types";
@@ -39,6 +41,12 @@ type AlbumClient =
       Prisma.TransactionClient,
       "orderAlbum" | "orderPackage" | "orderPackageItemUpgrade" | "orderAddOn"
     >;
+
+type SalesAlbumClient = AlbumClient &
+  (
+    | Pick<PrismaClient, "packageItem">
+    | Pick<Prisma.TransactionClient, "packageItem">
+  );
 
 const orderAlbumSelect = {
   id: true,
@@ -62,6 +70,12 @@ export type OrderAlbumRow = Prisma.OrderAlbumGetPayload<{
   select: typeof orderAlbumSelect;
 }>;
 
+export type SalesOrderAlbumRow = OrderAlbumRow & {
+  packageItemId: string | null;
+  productId: string | null;
+  productLabel: string | null;
+};
+
 type AddOnStagingChange = Extract<
   OrderCommitDraftStagingChange,
   { domain: typeof ORDER_COMMIT_DRAFT_STAGING_DOMAIN.ADD_ON }
@@ -76,6 +90,102 @@ export async function getOrderAlbums(
     where: { orderId: parsed.orderId },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: orderAlbumSelect,
+  });
+}
+
+export async function getSalesOrderAlbums(
+  input: GetOrderAlbumsInput,
+  client: SalesAlbumClient = db
+): Promise<SalesOrderAlbumRow[]> {
+  const albums = await getOrderAlbums(input, client);
+  const packageItemBackingIds = albums.flatMap((album) =>
+    album.backingLineKind === ORDER_ALBUM_BACKING_LINE_KIND.PACKAGE_ITEM
+      ? [album.backingLineId]
+      : []
+  );
+  const packageItemUpgradeBackingIds = albums.flatMap((album) =>
+    album.backingLineKind ===
+    ORDER_ALBUM_BACKING_LINE_KIND.ORDER_PACKAGE_ITEM_UPGRADE
+      ? [album.backingLineId]
+      : []
+  );
+  const addOnBackingIds = albums.flatMap((album) =>
+    album.backingLineKind === ORDER_ALBUM_BACKING_LINE_KIND.ORDER_ADD_ON
+      ? [album.backingLineId]
+      : []
+  );
+
+  const [packageItems, packageItemUpgrades, orderAddOns] = await Promise.all([
+    packageItemBackingIds.length > 0
+      ? client.packageItem.findMany({
+          where: { id: { in: packageItemBackingIds } },
+          select: {
+            id: true,
+            productId: true,
+            product: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([]),
+    packageItemUpgradeBackingIds.length > 0
+      ? client.orderPackageItemUpgrade.findMany({
+          where: { id: { in: packageItemUpgradeBackingIds } },
+          select: {
+            id: true,
+            packageItemId: true,
+            nameSnapshot: true,
+            packageItem: { select: { productId: true } },
+          },
+        })
+      : Promise.resolve([]),
+    addOnBackingIds.length > 0
+      ? client.orderAddOn.findMany({
+          where: { id: { in: addOnBackingIds } },
+          select: {
+            id: true,
+            productId: true,
+            product: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const packageItemById = new Map(packageItems.map((item) => [item.id, item]));
+  const packageItemUpgradeById = new Map(
+    packageItemUpgrades.map((upgrade) => [upgrade.id, upgrade])
+  );
+  const addOnById = new Map(orderAddOns.map((addOn) => [addOn.id, addOn]));
+
+  return albums.map((album) => {
+    if (album.backingLineKind === ORDER_ALBUM_BACKING_LINE_KIND.PACKAGE_ITEM) {
+      const packageItem = packageItemById.get(album.backingLineId);
+      return {
+        ...album,
+        packageItemId: album.backingLineId,
+        productId: packageItem?.productId ?? null,
+        productLabel: packageItem?.product.name ?? null,
+      };
+    }
+
+    if (
+      album.backingLineKind ===
+      ORDER_ALBUM_BACKING_LINE_KIND.ORDER_PACKAGE_ITEM_UPGRADE
+    ) {
+      const upgrade = packageItemUpgradeById.get(album.backingLineId);
+      return {
+        ...album,
+        packageItemId: upgrade?.packageItemId ?? null,
+        productId: upgrade?.packageItem.productId ?? null,
+        productLabel: upgrade?.nameSnapshot ?? null,
+      };
+    }
+
+    const addOn = addOnById.get(album.backingLineId);
+    return {
+      ...album,
+      packageItemId: null,
+      productId: addOn?.productId ?? null,
+      productLabel: addOn?.product.name ?? null,
+    };
   });
 }
 
@@ -104,6 +214,34 @@ export async function createOrderAlbum(
     if (raced) return raced;
     throw error;
   }
+}
+
+export async function rebindOrderAlbumBacking(
+  input: RebindOrderAlbumBackingInput,
+  client: AlbumClient = db
+): Promise<OrderAlbumRow> {
+  const parsed = rebindOrderAlbumBackingInputSchema.parse(input);
+  const updated = await client.orderAlbum.updateMany({
+    where: { id: parsed.id, orderId: parsed.orderId },
+    data: {
+      orderPackageId: parsed.orderPackageId ?? null,
+      sourceType: parsed.sourceType,
+      backingLineKind: parsed.backingLineKind,
+      backingLineId: parsed.backingLineId,
+    },
+  });
+  if (updated.count !== 1) {
+    throw new Error("Album does not belong to this order.");
+  }
+
+  const album = await client.orderAlbum.findUnique({
+    where: { id: parsed.id },
+    select: orderAlbumSelect,
+  });
+  if (!album) {
+    throw new Error("Album was not found after backing update.");
+  }
+  return album;
 }
 
 export async function updateOrderAlbumFinishing(
@@ -175,8 +313,8 @@ export async function syncOrderAlbumsAfterCommit(
 ): Promise<void> {
   const parsed = syncOrderAlbumsAfterCommitInputSchema.parse(input);
   const draftToOrderEntityMap = new Map(parsed.draftToOrderEntityEntries);
-  await materializeOrderAlbumsAfterCommit(parsed.orderId, client);
-  const albums = await client.orderAlbum.findMany({
+
+  const preMaterializedAlbums = await client.orderAlbum.findMany({
     where: { orderId: parsed.orderId },
     select: {
       id: true,
@@ -185,11 +323,41 @@ export async function syncOrderAlbumsAfterCommit(
       backingLineId: true,
     },
   });
+  const extraPagesUpdatedAlbumIds = new Set<string>();
 
-  for (const album of albums) {
+  for (const album of preMaterializedAlbums) {
     const remappedBackingLineId = album.backingLineId.startsWith("draft:")
       ? draftToOrderEntityMap.get(album.backingLineId) ?? album.backingLineId
       : album.backingLineId;
+    if (remappedBackingLineId === album.backingLineId) continue;
+    const scopeOrderPackageId =
+      album.sourceType === ORDER_ALBUM_SOURCE_TYPE.PACKAGE
+        ? album.orderPackageId
+        : null;
+    const extraPages =
+      findExtraAlbumPageLine(parsed.committedSnapshot.lines, scopeOrderPackageId)
+        ?.quantity ?? 0;
+
+    await client.orderAlbum.update({
+      where: { id: album.id },
+      data: { backingLineId: remappedBackingLineId, extraPages },
+      select: { id: true },
+    });
+    extraPagesUpdatedAlbumIds.add(album.id);
+  }
+
+  await materializeOrderAlbumsAfterCommit(parsed.orderId, client);
+  const albums = await client.orderAlbum.findMany({
+    where: { orderId: parsed.orderId },
+    select: {
+      id: true,
+      sourceType: true,
+      orderPackageId: true,
+    },
+  });
+
+  for (const album of albums) {
+    if (extraPagesUpdatedAlbumIds.has(album.id)) continue;
     const scopeOrderPackageId =
       album.sourceType === ORDER_ALBUM_SOURCE_TYPE.PACKAGE
         ? album.orderPackageId
@@ -203,7 +371,6 @@ export async function syncOrderAlbumsAfterCommit(
     await client.orderAlbum.update({
       where: { id: album.id },
       data: {
-        backingLineId: remappedBackingLineId,
         extraPages,
       },
       select: { id: true },

@@ -259,7 +259,7 @@ Notes domain (Piece 2) unchanged; UI home moved from a tab to **a modal**.
   - **B2 — Composition rows restyle: SHIPPED by Spec 174.** Left panel = collapsible package + add-on rows + dashed "+ add another…" CTA. **Functionally unchanged.**
   - **B3 — Right column: SHIPPED by Spec 175.** Receipt card + simplified financial card + context-aware commit area (commit/discard ↔ record-payment); the old staged-changes delta rail is retired in favor of the receipt + simplified financial stack.
   - **B4 — Photos in-card: SHIPPED by Spec 176.** Per-package photo summary now lives in the package card and opens a modal for count + digital/print/split extras; the standalone `POSPhotoCountCard` surface is retired.
-  - **B5 Part 1 — Album in-card read + finishing: SHIPPED by Spec 177.** Existing `OrderAlbum` rows surface in package cards / standalone add-on rows; finishing edits save live. **B5 Part 2 remains:** priced pages, size/product swap, and add standalone album.
+  - **B5 — Album in-card: COMPLETE by Specs 177–178.** Existing `OrderAlbum` rows surface in package cards / standalone add-on rows; finishing edits save live, and priced Specifications (extra pages, size/product swap, add standalone album) stage through existing OrderCommit add-on/package-item-upgrade paths.
   - **B6 — Notes UI:** left-panel Notes section + per-package customer notes inline + add-note modal. *(needs F2 + B1/B2)*
   - **B7 — Token reconciliation / visual polish (S-H):** deferred, last.
 

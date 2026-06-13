@@ -31,7 +31,10 @@ import { ConfigurationSummaryChip } from "@/components/session-configurations/co
 import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import {
   SalesAlbumCard,
+  type SalesAlbumProductOption,
   type SalesAlbumView,
+  type StageAlbumExtraPagesAction,
+  type StageAlbumSizeSwapAction,
   type UpdateSalesAlbumFinishingAction,
 } from "@/components/orders/sales-album-config";
 import {
@@ -74,6 +77,10 @@ type POSPackageCompositionBaseProps = {
   editPolicies: POSPackageCompositionEditPolicies;
   albumsByPackageId?: Record<string, SalesAlbumView[]>;
   updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
+  stageAlbumExtraPagesAction?: StageAlbumExtraPagesAction;
+  stageAlbumSizeSwapAction?: StageAlbumSizeSwapAction;
+  albumProductOptions?: SalesAlbumProductOption[];
+  albumExtraPagesPolicy?: OrderEditModePolicy;
 };
 
 type POSPackageCompositionProps =
@@ -89,6 +96,7 @@ type POSPackageCompositionProps =
 export function POSPackageComposition(props: POSPackageCompositionProps) {
   const { workspace, composition, handlers, editPolicies } = props;
   const albumsByPackageId = props.albumsByPackageId ?? {};
+  const albumProductOptions = props.albumProductOptions ?? [];
   const configurePanelMode = props.configurePanelMode ?? "auto";
   const commitStagingVersion =
     props.configurePanelMode === "commit-staging" ? props.expectedVersion : null;
@@ -124,6 +132,10 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
               defaultOpen={index === 0}
               albums={albumsByPackageId[line.orderPackageId] ?? []}
               updateAlbumFinishingAction={props.updateAlbumFinishingAction}
+              stageAlbumExtraPagesAction={props.stageAlbumExtraPagesAction}
+              stageAlbumSizeSwapAction={props.stageAlbumSizeSwapAction}
+              albumProductOptions={albumProductOptions}
+              albumExtraPagesPolicy={props.albumExtraPagesPolicy}
             />
           );
         })}
@@ -156,6 +168,10 @@ function PackageCompositionCard({
   defaultOpen,
   albums,
   updateAlbumFinishingAction,
+  stageAlbumExtraPagesAction,
+  stageAlbumSizeSwapAction,
+  albumProductOptions,
+  albumExtraPagesPolicy,
 }: {
   line: POSCompositionPackageLineProjection;
   workspace: POSWorkspace;
@@ -167,6 +183,10 @@ function PackageCompositionCard({
   defaultOpen: boolean;
   albums: SalesAlbumView[];
   updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
+  stageAlbumExtraPagesAction?: StageAlbumExtraPagesAction;
+  stageAlbumSizeSwapAction?: StageAlbumSizeSwapAction;
+  albumProductOptions: SalesAlbumProductOption[];
+  albumExtraPagesPolicy?: OrderEditModePolicy;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const tierLabel = packageTierLabel(line.packageName);
@@ -257,6 +277,12 @@ function PackageCompositionCard({
                   orderId={workspace.orderId}
                   album={album}
                   updateFinishingAction={updateAlbumFinishingAction}
+                  expectedVersion={commitStagingVersion ?? 0}
+                  albumProductOptions={albumProductOptions}
+                  extraPagesPolicy={albumExtraPagesPolicy}
+                  sizePolicy={editPolicies.packageItemUpgrade}
+                  stageExtraPagesAction={stageAlbumExtraPagesAction}
+                  stageSizeSwapAction={stageAlbumSizeSwapAction}
                 />
               ))}
             </div>

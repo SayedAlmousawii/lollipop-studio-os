@@ -16,7 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   SalesAlbumConfigureDialog,
+  type AddStandaloneAlbumAction,
+  type SalesAlbumProductOption,
   type SalesAlbumView,
+  type StageAlbumExtraPagesAction,
+  type StageAlbumSizeSwapAction,
   type UpdateSalesAlbumFinishingAction,
 } from "@/components/orders/sales-album-config";
 import {
@@ -54,6 +58,7 @@ import type {
   OrderEditModePolicy,
   POSAddOnEditPolicies,
 } from "@/modules/orders/policies/edit-mode-policy";
+import { EXTRA_ALBUM_PAGE_PRODUCT_ID } from "@/modules/albums/album.constants";
 import { formatMoney } from "@/lib/formatting/money";
 
 const QUICK_ACTIONS: Array<{ label: string; category: string }> = [
@@ -68,8 +73,13 @@ interface POSAddOnMarketplaceProps {
   marketplace: POSAddOnMarketplaceProjection;
   handlers: POSAddOnHandlers;
   editPolicies: POSAddOnEditPolicies;
+  expectedVersion: number;
   standaloneAlbums?: SalesAlbumView[];
   updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
+  stageAlbumExtraPagesAction?: StageAlbumExtraPagesAction;
+  stageAlbumSizeSwapAction?: StageAlbumSizeSwapAction;
+  addStandaloneAlbumAction?: AddStandaloneAlbumAction;
+  albumProductOptions?: SalesAlbumProductOption[];
 }
 
 export function POSAddOnMarketplace({
@@ -77,8 +87,13 @@ export function POSAddOnMarketplace({
   marketplace,
   handlers,
   editPolicies,
+  expectedVersion,
   standaloneAlbums = [],
   updateAlbumFinishingAction,
+  stageAlbumExtraPagesAction,
+  stageAlbumSizeSwapAction,
+  addStandaloneAlbumAction,
+  albumProductOptions = [],
 }: POSAddOnMarketplaceProps) {
   const addFlowRef = useRef<HTMLDivElement>(null);
   const productStateById = new Map(
@@ -108,11 +123,14 @@ export function POSAddOnMarketplace({
             {QUICK_ACTIONS.map((action) => (
               <QuickAddDialog
                 key={action.category}
+                orderId={workspace.orderId}
                 label={action.label}
                 category={action.category}
                 options={workspace.addOnCatalog}
                 handlers={handlers}
                 policy={editPolicies.addAddOn}
+                expectedVersion={expectedVersion}
+                addStandaloneAlbumAction={addStandaloneAlbumAction}
               />
             ))}
           </div>
@@ -159,6 +177,12 @@ export function POSAddOnMarketplace({
             removePolicy={editPolicies.removeAddOn}
             standaloneAlbumByBackingLineId={standaloneAlbumByBackingLineId}
             updateAlbumFinishingAction={updateAlbumFinishingAction}
+            expectedVersion={expectedVersion}
+            albumProductOptions={albumProductOptions}
+            extraPagesPolicy={editPolicies.addAddOn}
+            sizePolicy={editPolicies.addAddOn}
+            stageAlbumExtraPagesAction={stageAlbumExtraPagesAction}
+            stageAlbumSizeSwapAction={stageAlbumSizeSwapAction}
           />
           <button
             type="button"
@@ -175,29 +199,52 @@ export function POSAddOnMarketplace({
 }
 
 function QuickAddDialog({
+  orderId,
   label,
   category,
   options,
   handlers,
   policy,
+  expectedVersion,
+  addStandaloneAlbumAction,
 }: {
+  orderId: string;
   label: string;
   category: string;
   options: POSAddOnCatalogItem[];
   handlers: POSAddOnHandlers;
   policy: OrderEditModePolicy;
+  expectedVersion: number;
+  addStandaloneAlbumAction?: AddStandaloneAlbumAction;
 }) {
   const categoryOptions = useMemo(
-    () => options.filter((option) => option.category === category),
+    () =>
+      options.filter(
+        (option) =>
+          option.category === category &&
+          (category !== "ALBUM" || option.id !== EXTRA_ALBUM_PAGE_PRODUCT_ID)
+      ),
     [category, options]
   );
   const [selectedProductId, setSelectedProductId] = useState(categoryOptions[0]?.id ?? "");
-  const [state, formAction] = useHandlerAction(
-    handlers.addAddOn,
-    (formData) => ({
-      productId: formDataString(formData, "productId"),
-      quantity: 1,
-    })
+  const [state, formAction] = useActionState<POSMutationActionState, FormData>(
+    async (_previousState, formData) => {
+      if (category === "ALBUM" && addStandaloneAlbumAction) {
+        return addStandaloneAlbumAction(
+          orderId,
+          expectedVersion,
+          { productId: formDataString(formData, "productId") }
+        );
+      }
+
+      return actionStateFromHandlerResult(
+        await handlers.addAddOn({
+          productId: formDataString(formData, "productId"),
+          quantity: 1,
+        })
+      );
+    },
+    {}
   );
   const disabled = categoryOptions.length === 0 || !policy.isInteractive;
 
@@ -333,6 +380,12 @@ function CurrentAddOns({
   removePolicy,
   standaloneAlbumByBackingLineId,
   updateAlbumFinishingAction,
+  expectedVersion,
+  albumProductOptions,
+  extraPagesPolicy,
+  sizePolicy,
+  stageAlbumExtraPagesAction,
+  stageAlbumSizeSwapAction,
 }: {
   orderId: string;
   addOns: POSAddOnMarketplaceCurrentAddOnProjection[];
@@ -340,6 +393,12 @@ function CurrentAddOns({
   removePolicy: OrderEditModePolicy;
   standaloneAlbumByBackingLineId: Map<string, SalesAlbumView>;
   updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
+  expectedVersion: number;
+  albumProductOptions: SalesAlbumProductOption[];
+  extraPagesPolicy: OrderEditModePolicy;
+  sizePolicy: OrderEditModePolicy;
+  stageAlbumExtraPagesAction?: StageAlbumExtraPagesAction;
+  stageAlbumSizeSwapAction?: StageAlbumSizeSwapAction;
 }) {
   return (
     <div className="space-y-3 border-t border-border pt-4">
@@ -359,6 +418,12 @@ function CurrentAddOns({
                   : null
               }
               updateAlbumFinishingAction={updateAlbumFinishingAction}
+              expectedVersion={expectedVersion}
+              albumProductOptions={albumProductOptions}
+              extraPagesPolicy={extraPagesPolicy}
+              sizePolicy={sizePolicy}
+              stageAlbumExtraPagesAction={stageAlbumExtraPagesAction}
+              stageAlbumSizeSwapAction={stageAlbumSizeSwapAction}
             />
           ))}
         </div>
@@ -378,6 +443,12 @@ function CurrentAddOnRow({
   removePolicy,
   album,
   updateAlbumFinishingAction,
+  expectedVersion,
+  albumProductOptions,
+  extraPagesPolicy,
+  sizePolicy,
+  stageAlbumExtraPagesAction,
+  stageAlbumSizeSwapAction,
 }: {
   orderId: string;
   addOn: POSAddOnMarketplaceCurrentAddOnProjection;
@@ -385,6 +456,12 @@ function CurrentAddOnRow({
   removePolicy: OrderEditModePolicy;
   album: SalesAlbumView | null;
   updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
+  expectedVersion: number;
+  albumProductOptions: SalesAlbumProductOption[];
+  extraPagesPolicy: OrderEditModePolicy;
+  sizePolicy: OrderEditModePolicy;
+  stageAlbumExtraPagesAction?: StageAlbumExtraPagesAction;
+  stageAlbumSizeSwapAction?: StageAlbumSizeSwapAction;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useHandlerAction(
@@ -436,6 +513,12 @@ function CurrentAddOnRow({
             orderId={orderId}
             album={album}
             updateFinishingAction={updateAlbumFinishingAction}
+            expectedVersion={expectedVersion}
+            albumProductOptions={albumProductOptions}
+            extraPagesPolicy={extraPagesPolicy}
+            sizePolicy={sizePolicy}
+            stageExtraPagesAction={stageAlbumExtraPagesAction}
+            stageSizeSwapAction={stageAlbumSizeSwapAction}
           />
         ) : null}
         {addOn.orderAddOnId ? (
@@ -461,7 +544,8 @@ function CurrentAddOnRow({
                 {album.productLabel}
               </p>
               <p className="mt-1 text-xs text-text-secondary">
-                {album.pageCount} {album.pageCount === 1 ? "page" : "pages"} ·
+                {album.extraPages} extra{" "}
+                {album.extraPages === 1 ? "page" : "pages"} ·
                 finishing saves immediately
               </p>
             </div>

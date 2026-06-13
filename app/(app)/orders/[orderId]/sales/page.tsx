@@ -1,16 +1,23 @@
 import { notFound } from "next/navigation";
 import {
+  addStandaloneAlbumAction,
   stageSalesChangeAction,
+  stageAlbumExtraPagesAction,
+  stageAlbumSizeSwapAction,
   updateOrderAlbumFinishingAction,
 } from "@/app/(app)/orders/[orderId]/sales/actions";
 import { requireCurrentAppUser } from "@/lib/auth";
 import { POSAddOnMarketplace } from "@/components/orders/pos-add-on-marketplace";
 import { POSPackageComposition } from "@/components/orders/pos-package-composition";
-import type { SalesAlbumView } from "@/components/orders/sales-album-config";
+import type {
+  SalesAlbumProductOption,
+  SalesAlbumView,
+} from "@/components/orders/sales-album-config";
 import {
-  getOrderAlbums,
+  EXTRA_ALBUM_PAGE_PRODUCT_ID,
+  getSalesOrderAlbums,
   ORDER_ALBUM_SOURCE_TYPE,
-  type OrderAlbumRow,
+  type SalesOrderAlbumRow,
 } from "@/modules/albums";
 import { SalesDraftOwnershipBanner } from "@/components/orders/sales-draft-ownership-banner";
 import {
@@ -44,7 +51,7 @@ export default async function SalesPage(
   const [workspace, appUser, orderAlbums] = await Promise.all([
     getPOSWorkspace(orderId),
     requireCurrentAppUser(),
-    getOrderAlbums({ orderId }),
+    getSalesOrderAlbums({ orderId }),
   ]);
   if (!workspace) notFound();
 
@@ -112,14 +119,23 @@ export default async function SalesPage(
             expectedVersion={salesPageView.draft?.version ?? 0}
             albumsByPackageId={albumRead.albumsByPackageId}
             updateAlbumFinishingAction={updateOrderAlbumFinishingAction}
+            stageAlbumExtraPagesAction={stageAlbumExtraPagesAction}
+            stageAlbumSizeSwapAction={stageAlbumSizeSwapAction}
+            albumProductOptions={toAlbumProductOptions(workspace.productOptions)}
+            albumExtraPagesPolicy={addOnEditPolicies.addAddOn}
           />
           <POSAddOnMarketplace
             workspace={workspace}
             marketplace={addOnMarketplace}
             handlers={addOnHandlers}
             editPolicies={addOnEditPolicies}
+            expectedVersion={salesPageView.draft?.version ?? 0}
             standaloneAlbums={albumRead.standaloneAlbums}
             updateAlbumFinishingAction={updateOrderAlbumFinishingAction}
+            stageAlbumExtraPagesAction={stageAlbumExtraPagesAction}
+            stageAlbumSizeSwapAction={stageAlbumSizeSwapAction}
+            addStandaloneAlbumAction={addStandaloneAlbumAction}
+            albumProductOptions={toAlbumProductOptions(workspace.addOnCatalog)}
           />
         </main>
       </div>
@@ -141,14 +157,22 @@ function buildSalesAlbumRead({
   packageLines,
   currentAddOns,
 }: {
-  albums: OrderAlbumRow[];
+  albums: SalesOrderAlbumRow[];
   packageLines: Array<{
     orderPackageId: string;
-    packageItems: Array<{ id: string; productName: string; category: string | null }>;
+    packageItems: Array<{
+      id: string;
+      productId: string | null;
+      productName: string;
+      category: string | null;
+      quantity: number;
+    }>;
   }>;
   currentAddOns: Array<{
     orderAddOnId: string | null;
     name: string;
+    productId: string | null;
+    currentQuantity: number;
   }>;
 }): {
   albumsByPackageId: Record<string, SalesAlbumView[]>;
@@ -199,12 +223,14 @@ function resolveAlbumProductLabel({
   packageLine,
   addOnNameById,
 }: {
-  album: OrderAlbumRow;
+  album: SalesOrderAlbumRow;
   packageLine: {
     packageItems: Array<{ id: string; productName: string; category: string | null }>;
   } | null;
   addOnNameById: Map<string, string>;
 }): string {
+  if (album.productLabel) return album.productLabel;
+
   if (album.sourceType === ORDER_ALBUM_SOURCE_TYPE.ADDON) {
     return addOnNameById.get(album.backingLineId) ?? "Album product";
   }
@@ -221,15 +247,20 @@ function resolveAlbumProductLabel({
 }
 
 function toSalesAlbumView(
-  album: OrderAlbumRow,
+  album: SalesOrderAlbumRow,
   productLabel: string
 ): SalesAlbumView {
   return {
     id: album.id,
     orderPackageId: album.orderPackageId,
+    sourceType: album.sourceType,
+    backingLineKind: album.backingLineKind,
     backingLineId: album.backingLineId,
+    packageItemId: album.packageItemId,
+    currentProductId: album.productId,
     productLabel,
-    pageCount: album.extraPages,
+    extraPages: album.extraPages,
+    quantity: 1,
     coverMaterial: album.coverMaterial,
     threadColor: album.threadColor,
     layout: album.layout,
@@ -237,4 +268,25 @@ function toSalesAlbumView(
     coverImageRef: album.coverImageRef,
     instructions: album.instructions,
   };
+}
+
+function toAlbumProductOptions(
+  options: Array<{
+    id: string;
+    name: string;
+    category: string;
+    canonicalPriceLabel?: string;
+    priceLabel?: string;
+  }>
+): SalesAlbumProductOption[] {
+  return options
+    .filter(
+      (option) =>
+        option.category === "ALBUM" && option.id !== EXTRA_ALBUM_PAGE_PRODUCT_ID
+    )
+    .map((option) => ({
+      id: option.id,
+      name: option.name,
+      priceLabel: option.canonicalPriceLabel ?? option.priceLabel ?? "",
+    }));
 }

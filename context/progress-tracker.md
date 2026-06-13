@@ -93,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **178** — Activated priced album Specifications in Sales: extra pages, album size swaps, and standalone album adds now stage through existing OrderCommit add-on/package-item-upgrade paths while finishing remains a live operational write.
 - **177** — Materialized committed album-bearing package/add-on rows into `OrderAlbum`, then surfaced them on the Sales page with bundled album blocks, standalone configure actions, and a live operational finishing modal while leaving priced album operations for Part 2.
 - **Centralization harness env fix** — `test:centralization` now passes local `.env` into its spawned Node test process when present, and the Sales staging happy-path test avoids top-level DB-backed OrderCommit barrel imports before isolated schema setup.
 - **176** — Moved Sales photo count/extras editing into each package card as a per-package summary plus modal, reusing the existing photo form and retiring the standalone Selected Photos card.

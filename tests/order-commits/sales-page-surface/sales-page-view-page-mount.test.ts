@@ -264,8 +264,8 @@ test("locked Sales branch is removed from the active Sales page", () => {
 });
 
 test("Sales page surfaces albums through the F1 album read service", () => {
-  assert.match(pageSource, /getOrderAlbums/);
-  assert.match(pageSource, /getOrderAlbums\(\{ orderId \}\)/);
+  assert.match(pageSource, /getSalesOrderAlbums/);
+  assert.match(pageSource, /getSalesOrderAlbums\(\{ orderId \}\)/);
   assert.match(pageSource, /buildSalesAlbumRead/);
   assert.match(salesViewSource, /albumsByPackageId=\{albumRead\.albumsByPackageId\}/);
   assert.match(salesViewSource, /standaloneAlbums=\{albumRead\.standaloneAlbums\}/);
@@ -277,21 +277,38 @@ test("Sales page surfaces albums through the F1 album read service", () => {
   assert.match(posPackageCompositionSource, /albums\.map/);
   assert.match(posAddOnMarketplaceSource, /SalesAlbumConfigureDialog/);
   assert.match(posAddOnMarketplaceSource, /standaloneAlbumByBackingLineId/);
+  assert.match(salesViewSource, /stageAlbumExtraPagesAction=\{stageAlbumExtraPagesAction\}/);
+  assert.match(salesViewSource, /stageAlbumSizeSwapAction=\{stageAlbumSizeSwapAction\}/);
+  assert.match(salesViewSource, /addStandaloneAlbumAction=\{addStandaloneAlbumAction\}/);
 });
 
-test("Sales album finishing is live operational and not an OrderCommit path", () => {
+test("Sales album finishing is live operational while specifications stage through OrderCommit", () => {
   assert.match(salesActionsSource, /updateOrderAlbumFinishingAction/);
   assert.match(salesActionsSource, /assertActorPermission/);
   assert.match(salesActionsSource, /PERMISSIONS\.ORDER_FINANCIAL_UPDATE/);
   assert.match(salesActionsSource, /getOrderAlbums\(\{ orderId \}\)/);
   assert.match(salesActionsSource, /updateOrderAlbumFinishing\(input\)/);
   assert.match(salesActionsSource, /revalidatePOSPaths\(orderId\)/);
-  assert.doesNotMatch(salesActionsSource, /createOrderAlbum/);
-  assert.doesNotMatch(salesActionsSource, /buildExtraAlbumPageAddOnStagingChange/);
+  assert.match(salesActionsSource, /stageAlbumExtraPagesAction/);
+  assert.match(salesActionsSource, /buildExtraAlbumPageAddOnStagingChange/);
+  assert.match(salesActionsSource, /stageAlbumSizeSwapAction/);
+  assert.match(salesActionsSource, /addStandaloneAlbumAction/);
+  assert.match(salesActionsSource, /createOrderAlbum/);
+  assert.match(salesActionsSource, /rebindOrderAlbumBacking/);
+  assert.match(salesActionsSource, /ORDER_COMMIT_DRAFT_STAGING_DOMAIN\.ADD_ON/);
+  assert.match(
+    salesActionsSource,
+    /ORDER_COMMIT_DRAFT_STAGING_DOMAIN\.PACKAGE_ITEM_UPGRADE/
+  );
+  assert.match(
+    salesActionsSource,
+    /This album product is already on the order/
+  );
   assert.doesNotMatch(salesActionsSource, /stageOrderCommitDraftChange\(input\)/);
   assert.doesNotMatch(salesAlbumConfigSource, /createOrderAlbum/);
   assert.doesNotMatch(salesAlbumConfigSource, /buildExtraAlbumPageAddOnStagingChange/);
-  assert.doesNotMatch(salesAlbumConfigSource, /stageSalesChangeAction/);
+  assert.match(salesAlbumConfigSource, /Stage pages/);
+  assert.match(salesAlbumConfigSource, /Stage size/);
   assert.match(salesAlbumConfigSource, /Finishing saves immediately/);
   assert.match(salesAlbumConfigSource, /Size and pages stage for commit/);
 });

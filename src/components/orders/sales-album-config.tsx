@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { BookOpen, Image as ImageIcon, Palette } from "lucide-react";
+import { BookOpen, Image as ImageIcon, Palette, Ruler } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,14 +15,28 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import type { POSMutationActionState } from "@/modules/orders/pos-handlers.types";
+import type { OrderEditModePolicy } from "@/modules/orders/policies/edit-mode-policy";
 
 export type SalesAlbumView = {
   id: string;
   orderPackageId: string | null;
+  sourceType: "PACKAGE" | "ADDON";
+  backingLineKind: "PACKAGE_ITEM" | "ORDER_PACKAGE_ITEM_UPGRADE" | "ORDER_ADD_ON";
   backingLineId: string;
+  packageItemId: string | null;
+  currentProductId: string | null;
   productLabel: string;
-  pageCount: number;
+  extraPages: number;
+  quantity: number;
   coverMaterial: string | null;
   threadColor: string | null;
   layout: string | null;
@@ -46,19 +60,74 @@ export type SalesAlbumFinishingActionState = {
   success?: string;
 };
 
+export type SalesAlbumStagingActionState = POSMutationActionState & {
+  version?: number;
+};
+
 export type UpdateSalesAlbumFinishingAction = (
   orderId: string,
   input: SalesAlbumFinishingInput
 ) => Promise<SalesAlbumFinishingActionState>;
 
+export type SalesAlbumProductOption = {
+  id: string;
+  name: string;
+  priceLabel: string;
+};
+
+export type StageAlbumExtraPagesAction = (
+  orderId: string,
+  expectedVersion: number,
+  input: {
+    albumId: string;
+    orderPackageId: string | null;
+    sourceType: SalesAlbumView["sourceType"];
+    requestedExtraPages: number;
+  }
+) => Promise<SalesAlbumStagingActionState>;
+
+export type StageAlbumSizeSwapAction = (
+  orderId: string,
+  expectedVersion: number,
+  input: {
+    albumId: string;
+    orderPackageId: string | null;
+    sourceType: SalesAlbumView["sourceType"];
+    backingLineKind: SalesAlbumView["backingLineKind"];
+    backingLineId: string;
+    packageItemId: string | null;
+    currentProductId: string | null;
+    toProductId: string;
+    quantity: number;
+  }
+) => Promise<SalesAlbumStagingActionState>;
+
+export type AddStandaloneAlbumAction = (
+  orderId: string,
+  expectedVersion: number,
+  input: { productId: string }
+) => Promise<SalesAlbumStagingActionState>;
+
 export function SalesAlbumCard({
   orderId,
   album,
   updateFinishingAction,
+  expectedVersion,
+  albumProductOptions = [],
+  extraPagesPolicy,
+  sizePolicy,
+  stageExtraPagesAction,
+  stageSizeSwapAction,
 }: {
   orderId: string;
   album: SalesAlbumView;
   updateFinishingAction: UpdateSalesAlbumFinishingAction;
+  expectedVersion: number;
+  albumProductOptions?: SalesAlbumProductOption[];
+  extraPagesPolicy?: OrderEditModePolicy;
+  sizePolicy?: OrderEditModePolicy;
+  stageExtraPagesAction?: StageAlbumExtraPagesAction;
+  stageSizeSwapAction?: StageAlbumSizeSwapAction;
 }) {
   return (
     <div className="rounded-[10px] border border-border bg-surface-soft p-3">
@@ -70,11 +139,12 @@ export function SalesAlbumCard({
               {album.productLabel}
             </p>
             <p className="text-xs text-text-secondary">
-              {album.pageCount} {album.pageCount === 1 ? "page" : "pages"} ·{" "}
+              {album.extraPages} extra{" "}
+              {album.extraPages === 1 ? "page" : "pages"} ·{" "}
               {finishingSummary(album)}
             </p>
             <p className="text-[11px] text-text-muted">
-              Size and pages are read-only here.
+              Size and pages stage for commit.
             </p>
           </div>
         </div>
@@ -82,6 +152,12 @@ export function SalesAlbumCard({
           orderId={orderId}
           album={album}
           updateFinishingAction={updateFinishingAction}
+          expectedVersion={expectedVersion}
+          albumProductOptions={albumProductOptions}
+          extraPagesPolicy={extraPagesPolicy}
+          sizePolicy={sizePolicy}
+          stageExtraPagesAction={stageExtraPagesAction}
+          stageSizeSwapAction={stageSizeSwapAction}
           triggerLabel="Configure album"
         />
       </div>
@@ -93,13 +169,26 @@ export function SalesAlbumConfigureDialog({
   orderId,
   album,
   updateFinishingAction,
+  expectedVersion,
+  albumProductOptions = [],
+  extraPagesPolicy,
+  sizePolicy,
+  stageExtraPagesAction,
+  stageSizeSwapAction,
   triggerLabel = "Configure",
 }: {
   orderId: string;
   album: SalesAlbumView;
   updateFinishingAction: UpdateSalesAlbumFinishingAction;
+  expectedVersion: number;
+  albumProductOptions?: SalesAlbumProductOption[];
+  extraPagesPolicy?: OrderEditModePolicy;
+  sizePolicy?: OrderEditModePolicy;
+  stageExtraPagesAction?: StageAlbumExtraPagesAction;
+  stageSizeSwapAction?: StageAlbumSizeSwapAction;
   triggerLabel?: string;
 }) {
+  const [draftVersion, setDraftVersion] = useState(expectedVersion);
   const [state, formAction] = useActionState<SalesAlbumFinishingActionState, FormData>(
     async (_previousState, formData) =>
       updateFinishingAction(orderId, {
@@ -112,6 +201,58 @@ export function SalesAlbumConfigureDialog({
         instructions: nullableFormText(formData, "instructions"),
       }),
     {}
+  );
+  const [pagesState, pagesAction] = useActionState<
+    SalesAlbumStagingActionState,
+    FormData
+  >(
+    async (_previousState, formData) => {
+      if (!stageExtraPagesAction) {
+        return { kind: "error", errors: { _global: ["Page staging is unavailable."] } };
+      }
+      const result = await stageExtraPagesAction(orderId, draftVersion, {
+        albumId: album.id,
+        orderPackageId: album.orderPackageId,
+        sourceType: album.sourceType,
+        requestedExtraPages: formDataNumber(formData, "extraPages"),
+      });
+      if (result.version !== undefined) setDraftVersion(result.version);
+      return result;
+    },
+    {}
+  );
+  const [selectedProductId, setSelectedProductId] = useState(
+    album.currentProductId ?? ""
+  );
+  const [sizeState, sizeAction] = useActionState<
+    SalesAlbumStagingActionState,
+    FormData
+  >(
+    async (_previousState, formData) => {
+      if (!stageSizeSwapAction) {
+        return { kind: "error", errors: { _global: ["Size staging is unavailable."] } };
+      }
+      const result = await stageSizeSwapAction(orderId, draftVersion, {
+        albumId: album.id,
+        orderPackageId: album.orderPackageId,
+        sourceType: album.sourceType,
+        backingLineKind: album.backingLineKind,
+        backingLineId: album.backingLineId,
+        packageItemId: album.packageItemId,
+        currentProductId: album.currentProductId,
+        toProductId: formDataString(formData, "productId"),
+        quantity: album.quantity,
+      });
+      if (result.version !== undefined) setDraftVersion(result.version);
+      return result;
+    },
+    {}
+  );
+  const canEditPages = Boolean(stageExtraPagesAction && extraPagesPolicy?.isInteractive);
+  const canEditSize = Boolean(
+    stageSizeSwapAction &&
+      sizePolicy?.isInteractive &&
+      albumProductOptions.length > 0
   );
 
   return (
@@ -126,8 +267,7 @@ export function SalesAlbumConfigureDialog({
         <DialogHeader>
           <DialogTitle>Configure album</DialogTitle>
           <DialogDescription>
-            Finishing saves immediately. Size and pages stage for commit, and
-            editing them is coming next.
+            Size and pages stage for commit. Finishing saves immediately.
           </DialogDescription>
         </DialogHeader>
 
@@ -142,11 +282,64 @@ export function SalesAlbumConfigureDialog({
                 {album.productLabel}
               </p>
               <p className="mt-1 text-sm text-text-secondary">
-                {album.pageCount} {album.pageCount === 1 ? "page" : "pages"}
+                {album.extraPages} extra{" "}
+                {album.extraPages === 1 ? "page" : "pages"}
               </p>
               <p className="mt-3 text-xs text-text-muted">
-                Size and pages stage for commit. Editing them is coming next.
+                Size and pages stage for commit.
               </p>
+              <div className="mt-4 space-y-4 border-t border-border pt-4">
+                <form action={pagesAction} className="space-y-2">
+                  <Label htmlFor={`extraPages-${album.id}`}>Extra pages</Label>
+                  <Input
+                    id={`extraPages-${album.id}`}
+                    name="extraPages"
+                    type="number"
+                    min={0}
+                    step={1}
+                    defaultValue={album.extraPages}
+                    disabled={!canEditPages}
+                  />
+                  <PolicyNotice policy={extraPagesPolicy} />
+                  <GlobalError messages={pagesState.errors?._global} />
+                  <AlbumStagingSubmitButton
+                    label="Stage pages"
+                    disabled={!canEditPages}
+                  />
+                </form>
+
+                <form action={sizeAction} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Ruler className="h-4 w-4 text-accent" />
+                    <Label htmlFor={`productId-${album.id}`}>
+                      Change album product / size
+                    </Label>
+                  </div>
+                  <input type="hidden" name="productId" value={selectedProductId} />
+                  <Select
+                    value={selectedProductId}
+                    onValueChange={setSelectedProductId}
+                    disabled={!canEditSize}
+                  >
+                    <SelectTrigger id={`productId-${album.id}`}>
+                      <SelectValue placeholder="Select album product..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {albumProductOptions.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.name} · {option.priceLabel}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <PolicyNotice policy={sizePolicy} />
+                  <GlobalError messages={sizeState.errors?._global} />
+                  <AlbumStagingSubmitButton
+                    label="Stage size"
+                    disabled={!canEditSize || !selectedProductId}
+                  />
+                </form>
+              </div>
             </div>
           </div>
 
@@ -288,11 +481,36 @@ function AlbumSubmitButton() {
   );
 }
 
+function AlbumStagingSubmitButton({
+  label,
+  disabled,
+}: {
+  label: string;
+  disabled?: boolean;
+}) {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" size="sm" variant="outline" disabled={disabled || pending}>
+      {pending ? "Staging..." : label}
+    </Button>
+  );
+}
+
 function finishingSummary(album: SalesAlbumView): string {
   const parts = [album.coverMaterial, album.threadColor, album.layout]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
   return parts.length > 0 ? parts.join(" · ") : "finishing not set";
+}
+
+function formDataString(formData: FormData, field: string): string {
+  const value = formData.get(field);
+  return typeof value === "string" ? value : "";
+}
+
+function formDataNumber(formData: FormData, field: string): number {
+  const value = Number(formDataString(formData, field));
+  return Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
 function nullableFormText(formData: FormData, field: string): string | null {
@@ -310,4 +528,14 @@ function FieldError({ messages }: { messages?: string[] }) {
 function GlobalError({ messages }: { messages?: string[] }) {
   if (!messages?.length) return null;
   return <p className="text-sm text-danger">{messages[0]}</p>;
+}
+
+function PolicyNotice({ policy }: { policy?: OrderEditModePolicy }) {
+  if (!policy?.blockedReason) return null;
+
+  return (
+    <p className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-warning">
+      {policy.userFacingMessage}
+    </p>
+  );
 }
