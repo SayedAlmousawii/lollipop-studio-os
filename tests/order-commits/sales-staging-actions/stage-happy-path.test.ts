@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  getOrderCommitPreview,
-  ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND,
-  ORDER_COMMIT_SNAPSHOT_LINE_KIND,
-} from "@/modules/order-commits";
+import { ORDER_COMMIT_SNAPSHOT_LINE_KIND } from "@/modules/order-commits/order-commit.constants";
+import { ORDER_COMMIT_PREVIEW_LINE_CHANGE_KIND } from "@/modules/order-commits/order-commit-preview.constants";
 import {
   createOrderCommitSalesCompositionHandlers,
 } from "@/modules/order-commits/sales-staging-handler-adapter";
@@ -91,6 +88,9 @@ test("stageSalesChangeAction creates drafts and package-item adapter commits", a
     });
     assert.deepEqual(staged, { ok: true });
 
+    const { getOrderCommitPreview } = await import(
+      "@/modules/order-commits/order-commit-preview.service"
+    );
     const preview = await getOrderCommitPreview({ orderId: itemWorkflow.orderId });
     const upgradeDiff = preview.lineDiffs.find(
       (diff) =>

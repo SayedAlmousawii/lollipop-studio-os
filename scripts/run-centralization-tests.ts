@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const files = [
   "tests/architecture/deposit-terminology.test.ts",
@@ -82,7 +83,15 @@ const files = [
 
 const result = spawnSync(
   "node",
-  ["--import", "tsx", "--test", "--test-concurrency=1", "--test-force-exit", ...files],
+  [
+    ...(existsSync(".env") ? ["--env-file=.env"] : []),
+    "--import",
+    "tsx",
+    "--test",
+    "--test-concurrency=1",
+    "--test-force-exit",
+    ...files,
+  ],
   { stdio: "inherit" }
 );
 
