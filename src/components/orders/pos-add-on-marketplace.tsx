@@ -15,6 +15,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  SalesAlbumConfigureDialog,
+  type SalesAlbumView,
+  type UpdateSalesAlbumFinishingAction,
+} from "@/components/orders/sales-album-config";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -63,6 +68,8 @@ interface POSAddOnMarketplaceProps {
   marketplace: POSAddOnMarketplaceProjection;
   handlers: POSAddOnHandlers;
   editPolicies: POSAddOnEditPolicies;
+  standaloneAlbums?: SalesAlbumView[];
+  updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
 }
 
 export function POSAddOnMarketplace({
@@ -70,10 +77,15 @@ export function POSAddOnMarketplace({
   marketplace,
   handlers,
   editPolicies,
+  standaloneAlbums = [],
+  updateAlbumFinishingAction,
 }: POSAddOnMarketplaceProps) {
   const addFlowRef = useRef<HTMLDivElement>(null);
   const productStateById = new Map(
     marketplace.productStates.map((state) => [state.productId, state])
+  );
+  const standaloneAlbumByBackingLineId = new Map(
+    standaloneAlbums.map((album) => [album.backingLineId, album])
   );
 
   function focusAddFlow() {
@@ -141,9 +153,12 @@ export function POSAddOnMarketplace({
           </div>
 
           <CurrentAddOns
+            orderId={workspace.orderId}
             addOns={marketplace.currentAddOns}
             handlers={handlers}
             removePolicy={editPolicies.removeAddOn}
+            standaloneAlbumByBackingLineId={standaloneAlbumByBackingLineId}
+            updateAlbumFinishingAction={updateAlbumFinishingAction}
           />
           <button
             type="button"
@@ -312,13 +327,19 @@ function CatalogCard({
 }
 
 function CurrentAddOns({
+  orderId,
   addOns,
   handlers,
   removePolicy,
+  standaloneAlbumByBackingLineId,
+  updateAlbumFinishingAction,
 }: {
+  orderId: string;
   addOns: POSAddOnMarketplaceCurrentAddOnProjection[];
   handlers: POSAddOnHandlers;
   removePolicy: OrderEditModePolicy;
+  standaloneAlbumByBackingLineId: Map<string, SalesAlbumView>;
+  updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
 }) {
   return (
     <div className="space-y-3 border-t border-border pt-4">
@@ -328,9 +349,16 @@ function CurrentAddOns({
           {addOns.map((addOn) => (
             <CurrentAddOnRow
               key={addOn.id}
+              orderId={orderId}
               addOn={addOn}
               handlers={handlers}
               removePolicy={removePolicy}
+              album={
+                addOn.orderAddOnId
+                  ? standaloneAlbumByBackingLineId.get(addOn.orderAddOnId) ?? null
+                  : null
+              }
+              updateAlbumFinishingAction={updateAlbumFinishingAction}
             />
           ))}
         </div>
@@ -344,13 +372,19 @@ function CurrentAddOns({
 }
 
 function CurrentAddOnRow({
+  orderId,
   addOn,
   handlers,
   removePolicy,
+  album,
+  updateAlbumFinishingAction,
 }: {
+  orderId: string;
   addOn: POSAddOnMarketplaceCurrentAddOnProjection;
   handlers: POSAddOnHandlers;
   removePolicy: OrderEditModePolicy;
+  album: SalesAlbumView | null;
+  updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useHandlerAction(
@@ -397,6 +431,13 @@ function CurrentAddOnRow({
             )}
           </span>
         </button>
+        {album && updateAlbumFinishingAction ? (
+          <SalesAlbumConfigureDialog
+            orderId={orderId}
+            album={album}
+            updateFinishingAction={updateAlbumFinishingAction}
+          />
+        ) : null}
         {addOn.orderAddOnId ? (
           <form action={formAction} className="shrink-0">
             <input type="hidden" name="addOnId" value={addOn.orderAddOnId} />
@@ -411,6 +452,20 @@ function CurrentAddOnRow({
       </div>
       {open ? (
         <div className="space-y-3 border-t border-border bg-surface-soft px-4 py-3 text-sm">
+          {album ? (
+            <div className="rounded-[10px] border border-border bg-surface px-3 py-2">
+              <p className="text-[11px] font-semibold uppercase text-text-muted">
+                Album
+              </p>
+              <p className="mt-1 font-medium text-text-primary">
+                {album.productLabel}
+              </p>
+              <p className="mt-1 text-xs text-text-secondary">
+                {album.pageCount} {album.pageCount === 1 ? "page" : "pages"} ·
+                finishing saves immediately
+              </p>
+            </div>
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-3">
             <AddOnSummaryCell label="Quantity" value={`${addOn.currentQuantity}x`} />
             <AddOnSummaryCell

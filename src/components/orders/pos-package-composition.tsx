@@ -30,6 +30,11 @@ import { ConfigurationMissingRequiredBadge } from "@/components/session-configur
 import { ConfigurationSummaryChip } from "@/components/session-configurations/configuration-summary-chip";
 import { ConfigureSessionPanel } from "@/components/session-configurations/configure-session-panel";
 import {
+  SalesAlbumCard,
+  type SalesAlbumView,
+  type UpdateSalesAlbumFinishingAction,
+} from "@/components/orders/sales-album-config";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -67,6 +72,8 @@ type POSPackageCompositionBaseProps = {
   composition: DraftPOSCompositionProjection;
   handlers: POSCompositionHandlers;
   editPolicies: POSPackageCompositionEditPolicies;
+  albumsByPackageId?: Record<string, SalesAlbumView[]>;
+  updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
 };
 
 type POSPackageCompositionProps =
@@ -81,6 +88,7 @@ type POSPackageCompositionProps =
 
 export function POSPackageComposition(props: POSPackageCompositionProps) {
   const { workspace, composition, handlers, editPolicies } = props;
+  const albumsByPackageId = props.albumsByPackageId ?? {};
   const configurePanelMode = props.configurePanelMode ?? "auto";
   const commitStagingVersion =
     props.configurePanelMode === "commit-staging" ? props.expectedVersion : null;
@@ -114,6 +122,8 @@ export function POSPackageComposition(props: POSPackageCompositionProps) {
               configurePanelMode={configurePanelMode}
               commitStagingVersion={commitStagingVersion}
               defaultOpen={index === 0}
+              albums={albumsByPackageId[line.orderPackageId] ?? []}
+              updateAlbumFinishingAction={props.updateAlbumFinishingAction}
             />
           );
         })}
@@ -144,6 +154,8 @@ function PackageCompositionCard({
   configurePanelMode,
   commitStagingVersion,
   defaultOpen,
+  albums,
+  updateAlbumFinishingAction,
 }: {
   line: POSCompositionPackageLineProjection;
   workspace: POSWorkspace;
@@ -153,6 +165,8 @@ function PackageCompositionCard({
   configurePanelMode: "auto" | "commit-staging";
   commitStagingVersion: number | null;
   defaultOpen: boolean;
+  albums: SalesAlbumView[];
+  updateAlbumFinishingAction?: UpdateSalesAlbumFinishingAction;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const tierLabel = packageTierLabel(line.packageName);
@@ -231,6 +245,22 @@ function PackageCompositionCard({
             handlers={handlers}
             policy={editPolicies.selectedPhotoCountChange}
           />
+
+          {albums.length > 0 && updateAlbumFinishingAction ? (
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase text-text-muted">
+                Albums
+              </p>
+              {albums.map((album) => (
+                <SalesAlbumCard
+                  key={album.id}
+                  orderId={workspace.orderId}
+                  album={album}
+                  updateFinishingAction={updateAlbumFinishingAction}
+                />
+              ))}
+            </div>
+          ) : null}
 
           {workspaceLine &&
           (workspaceLine.sessionConfigurationSummary.length > 0 ||

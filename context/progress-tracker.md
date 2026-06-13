@@ -93,6 +93,7 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **177** — Surfaced existing `OrderAlbum` rows on the Sales page with bundled album blocks inside package cards, standalone album configure actions on add-on rows, and a live operational finishing modal while leaving priced album operations for Part 2.
 - **Centralization harness env fix** — `test:centralization` now passes local `.env` into its spawned Node test process when present, and the Sales staging happy-path test avoids top-level DB-backed OrderCommit barrel imports before isolated schema setup.
 - **176** — Moved Sales photo count/extras editing into each package card as a per-package summary plus modal, reusing the existing photo form and retiring the standalone Selected Photos card.
 - **175** — Rebuilt the Sales right column into a receipt scroller, simplified settlement-backed financial summary, and context-aware commit/payment area while relocating commit controls out of the left composition stack.

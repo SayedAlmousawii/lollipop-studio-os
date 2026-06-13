@@ -8,7 +8,14 @@ import {
   PaymentType,
 } from "@prisma/client";
 import { z } from "zod";
+import { requireCurrentAppUser } from "@/lib/auth";
+import { assertActorPermission } from "@/lib/auth/assert-actor-permission";
 import { PERMISSIONS, requireCurrentAppUserPermission } from "@/lib/permissions";
+import {
+  getOrderAlbums,
+  updateOrderAlbumFinishing,
+  type UpdateOrderAlbumFinishingInput,
+} from "@/modules/albums";
 import {
   commitOrderChanges,
   discardOrderCommitDraft,
@@ -49,6 +56,11 @@ export type POSSessionConfigurationStagingActionState = POSMutationActionState &
 
 export type POSRecordPaymentActionState = {
   errors?: Partial<Record<string, string[]>>;
+  success?: string;
+};
+
+export type SalesAlbumFinishingActionState = {
+  errors?: Partial<Record<keyof UpdateOrderAlbumFinishingInput | "_global", string[]>>;
   success?: string;
 };
 
@@ -110,6 +122,37 @@ export async function discardSalesDraftAction(
     discardOrderCommitDraft,
     revalidateSalesPaths: revalidatePOSPaths,
   });
+}
+
+export async function updateOrderAlbumFinishingAction(
+  orderId: string,
+  input: UpdateOrderAlbumFinishingInput
+): Promise<SalesAlbumFinishingActionState> {
+  try {
+    const appUser = await requireCurrentAppUser();
+    const actorContext = {
+      actorUserId: appUser.id,
+      actorRole: appUser.role,
+    };
+    // Album finishing is operational, but the Sales surface's edit affordance
+    // currently uses the same order edit permission as the staging actions.
+    assertActorPermission(actorContext, PERMISSIONS.ORDER_FINANCIAL_UPDATE);
+
+    const orderAlbums = await getOrderAlbums({ orderId });
+    if (!orderAlbums.some((album) => album.id === input.id)) {
+      return { errors: { _global: ["Album does not belong to this order."] } };
+    }
+
+    await updateOrderAlbumFinishing(input);
+    revalidatePOSPaths(orderId);
+    return { success: "Album finishing saved." };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return { errors: error.flatten().fieldErrors };
+    }
+
+    return { errors: { _global: [posActionErrorMessage(error)] } };
+  }
 }
 
 function mapSessionConfigurationStagingActionError(
