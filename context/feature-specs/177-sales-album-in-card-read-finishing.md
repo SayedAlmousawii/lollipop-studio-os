@@ -54,7 +54,8 @@ Surface albums in the Sales view and make their **finishing** editable in-card �
 ### Out of Scope (→ Part 2 / later)
 
 - **Part 2:** extra pages (`buildExtraAlbumPageAddOnStagingChange` → staged), size/product swap (→ OrderCommit), **Add standalone album** (`createOrderAlbum` + add-on staging), and any OrderCommit-preview price impact for albums.
-- No album creation/derivation, no schema change, no financial computation, no commit-engine change.
+- **Part 2 backing migration:** when size/product swap is wired, it must migrate/dedup the existing logical `OrderAlbum` backing row from `PACKAGE_ITEM` to `ORDER_PACKAGE_ITEM_UPGRADE` across commits instead of leaving both rows visible for one album.
+- No Sales/UI album creation or derivation, no schema change, no financial computation, no commit-engine financial/staging change. Commit-time `OrderAlbum` materialization is included only to make F1 album rows exist for display.
 - **B6** (notes), **B7** (tokens). No change to the right column (B3 shipped) or photos (B4 shipped) beyond coexisting.
 
 ## Implementation Direction
