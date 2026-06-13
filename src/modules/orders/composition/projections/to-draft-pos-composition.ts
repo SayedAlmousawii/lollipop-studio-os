@@ -20,6 +20,7 @@ export type POSCompositionPackageLineProjection = {
   orderPackageId: string;
   packageId: string;
   packageName: string;
+  originalPackageName?: string | null;
   packagePrice: number;
   sessionTypeId: string | null;
   sessionTypeName: string | null;
@@ -33,6 +34,8 @@ export type POSCompositionPackageLineProjection = {
   extraPhotoTotal: number;
   packageSubtotal: number;
   upgradeDelta: number;
+  packageTierDelta?: number;
+  packageItemUpgradeDelta?: number;
   packageItems: POSCompositionPackageItemProjection[];
 };
 
@@ -118,6 +121,7 @@ export function toPOSCompositionProjection(
       orderPackageId: line.orderPackageId,
       packageId: line.packageId,
       packageName: line.label,
+      originalPackageName: line.originalPackageName ?? null,
       packagePrice: line.totalAmount,
       sessionTypeId: line.sessionTypeId ?? null,
       sessionTypeName: line.sessionTypeName ?? null,
@@ -131,6 +135,10 @@ export function toPOSCompositionProjection(
       extraPhotoTotal,
       packageSubtotal: roundMoney(line.totalAmount + extraPhotoTotal),
       upgradeDelta: line.upgradeDelta,
+      packageTierDelta: line.packageTierDelta ?? 0,
+      packageItemUpgradeDelta:
+        line.packageItemUpgradeDelta ??
+        roundMoney(line.upgradeDelta - (line.packageTierDelta ?? 0)),
       packageItems,
     };
   });
@@ -180,6 +188,8 @@ function projectablePackageLines(
       },
       orderPackageId,
       packageId: line.metadata.packageId ?? String(line.metadata.sourceRefId ?? ""),
+      originalPackageName:
+        typeof line.metadata.fromLabel === "string" ? line.metadata.fromLabel : null,
       includedPhotoCount: 0,
       selectedPhotoCount: 0,
       extraDigitalCount: 0,
@@ -188,6 +198,8 @@ function projectablePackageLines(
       extraDigitalUnitPrice: 0,
       extraPrintUnitPrice: 0,
       upgradeDelta: 0,
+      packageTierDelta: 0,
+      packageItemUpgradeDelta: 0,
       packageItems: [],
     });
   }

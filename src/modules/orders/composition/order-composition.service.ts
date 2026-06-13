@@ -141,6 +141,9 @@ export function mapPOSPackageLine(line: POSPackageLine): CompositionPackageLine 
   const packageItems = line.packageItems.map((item) =>
     mapPOSPackageItem(item, line.id)
   );
+  const packageTierDelta = roundMoney(
+    line.currentPackage.price - line.originalPackage.price
+  );
   return {
     id: `package:${line.id}`,
     label: line.currentPackage.name,
@@ -157,6 +160,7 @@ export function mapPOSPackageLine(line: POSPackageLine): CompositionPackageLine 
     },
     orderPackageId: line.id,
     packageId: line.currentPackage.id,
+    originalPackageName: line.originalPackage.name,
     sessionTypeId: line.sessionTypeId,
     sessionTypeName: line.sessionTypeName,
     includedPhotoCount: line.includedPhotoCount,
@@ -167,6 +171,8 @@ export function mapPOSPackageLine(line: POSPackageLine): CompositionPackageLine 
     extraDigitalUnitPrice: line.extraDigitalUnitPrice,
     extraPrintUnitPrice: line.extraPrintUnitPrice,
     upgradeDelta: roundMoney(line.upgradeDelta),
+    packageTierDelta,
+    packageItemUpgradeDelta: roundMoney(line.upgradeDelta - packageTierDelta),
     packageItems,
   };
 }

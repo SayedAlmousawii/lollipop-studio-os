@@ -1121,6 +1121,7 @@ function fakeExecutionHarness(input?: {
         }
         return { id: args.where.id };
       },
+      deleteMany: async () => ({ count: 0 }),
     },
     orderCommitDraft: {
       findUnique: async () => ({

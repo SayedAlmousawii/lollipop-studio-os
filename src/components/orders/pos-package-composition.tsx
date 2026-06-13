@@ -192,6 +192,9 @@ function PackageCompositionCard({
   const tierLabel = packageTierLabel(line.packageName);
   const sessionLabel =
     line.sessionTypeName ?? workspaceLine?.sessionTypeName ?? "Session";
+  const nonAlbumPackageItems = line.packageItems.filter(
+    (item) => !isAlbumPackageItem(item)
+  );
   const includedItemsLabel = `${line.packageItems.length} included ${
     line.packageItems.length === 1 ? "item" : "items"
   }`;
@@ -242,23 +245,27 @@ function PackageCompositionCard({
         <div className="space-y-[14px] px-[18px] pb-[18px]">
           <div className="h-px bg-border" />
 
-          <div className="grid gap-3 md:grid-cols-2">
-            {line.packageItems.map((item) => (
-              <DeliverableCard
-                key={item.id}
-                item={item}
-                orderPackageId={line.orderPackageId}
-                productOptions={workspace.productOptions}
-                handlers={handlers}
-                policy={editPolicies.packageItemUpgrade}
-              />
-            ))}
-            {line.packageItems.length === 0 ? (
+          {nonAlbumPackageItems.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {nonAlbumPackageItems.map((item) => (
+                <DeliverableCard
+                  key={item.id}
+                  item={item}
+                  orderPackageId={line.orderPackageId}
+                  productOptions={workspace.productOptions}
+                  handlers={handlers}
+                  policy={editPolicies.packageItemUpgrade}
+                />
+              ))}
+            </div>
+          ) : null}
+          {line.packageItems.length === 0 ? (
+            <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-[10px] border border-dashed border-border bg-surface-soft p-4 text-sm text-text-secondary md:col-span-2">
                 Structured package deliverables will appear here when available.
               </div>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           <PhotoSummaryDialog
             line={line}
@@ -346,6 +353,10 @@ function PackageCompositionCard({
       ) : null}
     </article>
   );
+}
+
+function isAlbumPackageItem(item: POSCompositionPackageItemProjection): boolean {
+  return item.category === "ALBUM";
 }
 
 function packageTierLabel(packageName: string): string {

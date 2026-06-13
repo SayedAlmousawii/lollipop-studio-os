@@ -93,6 +93,9 @@ Update this file after meaningful implementation changes. Keep it as a current-s
 - Dashboard date windows use studio timezone (`Asia/Kuwait`).
 
 ## Feature History
+- **Sales receipt package-upgrade polish** — Order summary now treats package-tier upgrades as package-row metadata instead of a separate priced line, while package-item upgrade deltas remain receipt lines.
+- **Album package-upgrade cleanup** — OrderCommit album sync now prunes obsolete package-backed `OrderAlbum` rows after package-tier commits, preventing old-package albums from remaining alongside the new package albums.
+- **Album card polish** — Sales package cards now hide album deliverables from the generic Upgrade/Replace card grid, leaving the album-specific Configure album card as the single album edit surface.
 - **178** — Activated priced album Specifications in Sales: extra pages, album size swaps, and standalone album adds now stage through existing OrderCommit add-on/package-item-upgrade paths while finishing remains a live operational write.
 - **177** — Materialized committed album-bearing package/add-on rows into `OrderAlbum`, then surfaced them on the Sales page with bundled album blocks, standalone configure actions, and a live operational finishing modal while leaving priced album operations for Part 2.
 - **Centralization harness env fix** — `test:centralization` now passes local `.env` into its spawned Node test process when present, and the Sales staging happy-path test avoids top-level DB-backed OrderCommit barrel imports before isolated schema setup.

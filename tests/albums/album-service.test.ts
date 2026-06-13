@@ -329,6 +329,44 @@ test("syncOrderAlbumsAfterCommit is idempotent and uses the passed client", asyn
   });
 });
 
+test("syncOrderAlbumsAfterCommit removes package albums no longer in the committed package", async () => {
+  const client = fakeAlbumClient(
+    [
+      albumRow({
+        id: "old-package-album",
+        orderPackageId: "order-package-1",
+        sourceType: ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+        backingLineKind: ORDER_ALBUM_BACKING_LINE_KIND.PACKAGE_ITEM,
+        backingLineId: "old-package-album-item",
+      }),
+    ],
+    {
+      orderPackages: [
+        orderPackageRow({
+          id: "order-package-1",
+          albumPackageItems: ["new-package-album-one", "new-package-album-two"],
+        }),
+      ],
+    }
+  );
+
+  await syncOrderAlbumsAfterCommit(
+    {
+      orderId: "order-1",
+      committedSnapshot: snapshotFixture({
+        lines: [packageLine({ orderPackageId: "order-package-1" })],
+      }),
+      draftToOrderEntityEntries: [],
+    },
+    client
+  );
+
+  assert.deepEqual(
+    client.rows.map((row) => row.backingLineId).sort(),
+    ["new-package-album-one", "new-package-album-two"]
+  );
+});
+
 function fakeAlbumClient(
   initialRows: AlbumRow[] = [],
   options: {
@@ -347,8 +385,15 @@ function fakeAlbumClient(
     rows,
     calls,
     orderAlbum: {
-      findMany: async (args: { where: { orderId: string } }) =>
-        rows.filter((row) => row.orderId === args.where.orderId),
+      findMany: async (args: {
+        where: { orderId: string; sourceType?: string };
+      }) =>
+        rows.filter(
+          (row) =>
+            row.orderId === args.where.orderId &&
+            (!("sourceType" in args.where) ||
+              row.sourceType === args.where.sourceType)
+        ),
       findFirst: async (args: {
         where: {
           orderId: string;
@@ -381,6 +426,13 @@ function fakeAlbumClient(
         assert.notEqual(index, -1);
         rows[index] = { ...rows[index], ...args.data, updatedAt: new Date() };
         return rows[index];
+      },
+      deleteMany: async (args: { where: { id: { in: string[] } } }) => {
+        const ids = new Set(args.where.id.in);
+        const retained = rows.filter((row) => !ids.has(row.id));
+        const deletedCount = rows.length - retained.length;
+        rows.splice(0, rows.length, ...retained);
+        return { count: deletedCount };
       },
     },
     orderPackage: {

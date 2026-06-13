@@ -20,6 +20,7 @@ import {
   ORDER_COMMIT_PREVIEW_DOCUMENT_PLAN_KIND,
   ORDER_COMMIT_PREVIEW_PAYMENT_IMPACT_KIND,
 } from "@/modules/order-commits/order-commit-preview.constants";
+import { toSalesRightColumnReceipt } from "@/modules/order-commits/projections/to-sales-right-column-receipt";
 
 type ModuleLoader = (
   request: string,
@@ -74,6 +75,7 @@ test("SalesRightColumn renders grouped receipt and draft financial summary", asy
   assert.match(markup, /Signature Family/);
   assert.match(markup, /Extra digital photos/);
   assert.match(markup, /VIP album/);
+  assert.match(markup, /Package item upgrades/);
   assert.match(markup, /Order-level add-ons/);
   assert.match(markup, /Wall frame/);
   assert.match(markup, /368.000 KD/);
@@ -96,6 +98,53 @@ test("SalesRightColumn renders grouped receipt and draft financial summary", asy
     /Draft changes stay staged until they are reviewed and committed/
   );
   assert.doesNotMatch(markup, /Added · Signature Family/);
+});
+
+test("Sales receipt presents package-tier upgrade as metadata, not a priced row", () => {
+  const receipt = toSalesRightColumnReceipt(
+    compositionFixture({
+      source: "current",
+      packageLine: {
+        packageName: "Standard Package",
+        originalPackageName: "Basic Package",
+        packagePrice: 250,
+        packageTierDelta: 100,
+        packageItemUpgradeDelta: 0,
+        upgradeDelta: 100,
+        packageSubtotal: 250,
+        extraDigitalCount: 0,
+        extraPrintCount: 0,
+        extraPhotoCount: 0,
+        extraPhotoTotal: 0,
+      },
+      totals: {
+        packageBaseTotal: 250,
+        packageUpgradeDeltaTotal: 100,
+        deliverablesTotal: 0,
+        addOnTotal: 0,
+        extraPhotoTotal: 0,
+        sessionConfigurationTotal: 0,
+        netCompositionTotal: 250,
+      },
+      addOns: [],
+    })
+  );
+
+  assert.equal(receipt.totalAmount, 250);
+  assert.deepEqual(
+    receipt.groups[0]?.lines.map((line) => ({
+      label: line.label,
+      meta: line.meta,
+      totalAmount: line.totalAmount,
+    })),
+    [
+      {
+        label: "Standard Package",
+        meta: "Family · Upgraded from Basic Package",
+        totalAmount: 250,
+      },
+    ]
+  );
 });
 
 test("SalesRightColumn renders clean financial rows and record payment target", async () => {
@@ -301,6 +350,9 @@ async function loadSalesRightColumn(): Promise<SalesRightColumnComponent> {
 
 function compositionFixture(input: {
   source: SalesPageComposition["source"];
+  packageLine?: Partial<SalesPageComposition["packageLines"][number]>;
+  totals?: Partial<SalesPageComposition["totals"]>;
+  addOns?: SalesPageComposition["addOns"];
 }): SalesPageComposition {
   return {
     orderId: "order-1",
@@ -313,6 +365,7 @@ function compositionFixture(input: {
         orderPackageId: "package-1",
         packageId: "catalog-package-1",
         packageName: "Signature Family",
+        originalPackageName: "Signature Family",
         packagePrice: 250,
         sessionTypeId: "session-type-1",
         sessionTypeName: "Family",
@@ -326,10 +379,13 @@ function compositionFixture(input: {
         extraPhotoTotal: 38,
         packageSubtotal: 308,
         upgradeDelta: 20,
+        packageTierDelta: 0,
+        packageItemUpgradeDelta: 20,
         packageItems: [],
+        ...input.packageLine,
       },
     ],
-    addOns: [
+    addOns: input.addOns ?? [
       {
         id: "addon-package-album",
         orderAddOnId: "addon-package-album",
@@ -371,6 +427,7 @@ function compositionFixture(input: {
       extraPhotoTotal: 38,
       sessionConfigurationTotal: 0,
       netCompositionTotal: 368,
+      ...input.totals,
     },
   };
 }

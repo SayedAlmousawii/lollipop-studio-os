@@ -31,21 +31,22 @@ export function toSalesRightColumnReceipt(
       {
         id: `${packageLine.orderPackageId}:package`,
         label: packageLine.packageName,
-        meta: packageLine.sessionTypeName,
+        meta: packageReceiptMeta(packageLine),
         quantity: 1,
         unitPrice: packageLine.packagePrice,
         totalAmount: packageLine.packagePrice,
       },
     ];
+    const packageItemUpgradeDelta = packageLine.packageItemUpgradeDelta ?? 0;
 
-    if (packageLine.upgradeDelta !== 0) {
+    if (packageItemUpgradeDelta !== 0) {
       lines.push({
-        id: `${packageLine.orderPackageId}:package-upgrades`,
-        label: "Package upgrades",
+        id: `${packageLine.orderPackageId}:package-item-upgrades`,
+        label: "Package item upgrades",
         meta: null,
         quantity: null,
         unitPrice: null,
-        totalAmount: packageLine.upgradeDelta,
+        totalAmount: packageItemUpgradeDelta,
       });
     }
 
@@ -76,6 +77,22 @@ export function toSalesRightColumnReceipt(
     groups,
     totalAmount: composition.totals.netCompositionTotal,
   };
+}
+
+function packageReceiptMeta(
+  packageLine: SalesPageComposition["packageLines"][number]
+): string | null {
+  const parts = [packageLine.sessionTypeName].filter(Boolean);
+  const originalPackageName = packageLine.originalPackageName;
+  const packageTierDelta = packageLine.packageTierDelta ?? 0;
+  if (
+    packageTierDelta !== 0 &&
+    originalPackageName &&
+    originalPackageName !== packageLine.packageName
+  ) {
+    parts.push(`Upgraded from ${originalPackageName}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 function appendExtraPhotoLines(

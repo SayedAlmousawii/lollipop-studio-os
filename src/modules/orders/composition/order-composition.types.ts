@@ -54,6 +54,7 @@ export type CompositionLine = {
 export type CompositionPackageLine = CompositionLine & {
   orderPackageId: string;
   packageId: string;
+  originalPackageName?: string | null;
   sessionTypeId?: string;
   sessionTypeName?: string;
   includedPhotoCount: number;
@@ -64,6 +65,8 @@ export type CompositionPackageLine = CompositionLine & {
   extraDigitalUnitPrice: number;
   extraPrintUnitPrice: number;
   upgradeDelta: number;
+  packageTierDelta?: number;
+  packageItemUpgradeDelta?: number;
   packageItems: CompositionLine[];
 };
 

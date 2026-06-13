@@ -424,6 +424,49 @@ async function materializeOrderAlbumsAfterCommit(
       upgrade,
     ])
   );
+  const expectedPackageAlbumKeys = new Set<string>();
+
+  for (const orderPackage of orderPackages) {
+    for (const packageItem of orderPackage.currentPackage?.items ?? []) {
+      const upgrade = upgradeByPackageAndItem.get(
+        albumPackageItemKey(orderPackage.id, packageItem.id)
+      );
+      expectedPackageAlbumKeys.add(
+        albumBackingKey(
+          upgrade
+            ? ORDER_ALBUM_BACKING_LINE_KIND.ORDER_PACKAGE_ITEM_UPGRADE
+            : ORDER_ALBUM_BACKING_LINE_KIND.PACKAGE_ITEM,
+          upgrade?.id ?? packageItem.id
+        )
+      );
+    }
+  }
+
+  const packageAlbums = await client.orderAlbum.findMany({
+    where: {
+      orderId,
+      sourceType: ORDER_ALBUM_SOURCE_TYPE.PACKAGE,
+    },
+    select: {
+      id: true,
+      backingLineKind: true,
+      backingLineId: true,
+    },
+  });
+  const obsoletePackageAlbumIds = packageAlbums
+    .filter(
+      (album) =>
+        !expectedPackageAlbumKeys.has(
+          albumBackingKey(album.backingLineKind, album.backingLineId)
+        )
+    )
+    .map((album) => album.id);
+
+  if (obsoletePackageAlbumIds.length > 0) {
+    await client.orderAlbum.deleteMany({
+      where: { id: { in: obsoletePackageAlbumIds } },
+    });
+  }
 
   for (const orderPackage of orderPackages) {
     for (const packageItem of orderPackage.currentPackage?.items ?? []) {
@@ -481,6 +524,10 @@ function albumPackageItemKey(
   packageItemId: string
 ): string {
   return `${orderPackageId}:${packageItemId}`;
+}
+
+function albumBackingKey(backingLineKind: string, backingLineId: string): string {
+  return `${backingLineKind}:${backingLineId}`;
 }
 
 async function findExistingAlbum(

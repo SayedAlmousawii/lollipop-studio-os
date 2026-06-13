@@ -79,12 +79,21 @@ export function toSalesPageComposition({
       );
       const packageId =
         line.catalogEntityId ?? metadataString(line, "packageId") ?? line.orderEntityId;
+      const originalPackagePrice = metadataNumber(
+        line,
+        "originalPackagePriceSnapshot"
+      );
+      const packageTierDelta =
+        originalPackagePrice === null
+          ? 0
+          : roundMoney(line.lineTotal - originalPackagePrice);
 
       return {
         id: line.lineId,
         orderPackageId: line.orderEntityId,
         packageId,
         packageName: line.label,
+        originalPackageName: metadataString(line, "originalPackageNameSnapshot"),
         packagePrice: line.lineTotal,
         sessionTypeId: metadataString(line, "sessionTypeId"),
         sessionTypeName: metadataString(line, "sessionTypeName"),
@@ -107,6 +116,8 @@ export function toSalesPageComposition({
             packageScopedConfigurationTotal
         ),
         upgradeDelta,
+        packageTierDelta,
+        packageItemUpgradeDelta: upgradeDelta,
         packageItems: projectPackageItemsFromCatalog({
           packageId,
           packageItemUpgradeLines: childLines.filter(
